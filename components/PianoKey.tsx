@@ -1,10 +1,10 @@
 
+
 import React from 'react';
 import { PianoKeyDefinition, ActiveMidiNoteInfo } from '../types';
 import { 
-  WHITE_KEY_HEIGHT_PX, 
-  BLACK_KEY_HEIGHT_PX,
-  USER_GLOW_SHADOW
+  USER_GLOW_SHADOW,
+  USER_PLAY_COLOR // Import new constant
 } from '../constants';
 
 // --- Color Utility Functions ---
@@ -37,6 +37,7 @@ interface PianoKeyProps {
   isUserPlaying: boolean; 
   xPosition: number;
   width: number;
+  height: number; // New prop for dynamic height
   onPress: () => void; 
   onRelease: () => void;
   rightHandColor: string;
@@ -50,7 +51,8 @@ const PianoKey: React.FC<PianoKeyProps> = ({
   activeSystemNoteInfo, 
   isUserPlaying, 
   xPosition, 
-  width, 
+  width,
+  height,
   onPress,
   onRelease,
   rightHandColor,
@@ -67,24 +69,29 @@ const PianoKey: React.FC<PianoKeyProps> = ({
   const baseWhiteStyle = 'border-gray-500 border absolute top-0 transition-all duration-75 ease-out no-select cursor-pointer';
   const baseBlackStyle = 'border-black border absolute top-0 z-10 transition-all duration-75 ease-out no-select cursor-pointer';
   
+  // Inactive styles remain Tailwind classes
   const inactiveWhiteStyle = 'bg-white hover:bg-gray-100';
   const inactiveBlackStyle = 'bg-black hover:bg-gray-800';
-  const pressedWhiteStyle = 'bg-gradient-to-b from-cyan-300 to-cyan-400';
-  const pressedBlackStyle = 'bg-gradient-to-b from-cyan-400 to-cyan-500';
 
   if (isUserPlaying) { 
-    keyClass = isWhiteKey ? pressedWhiteStyle : pressedBlackStyle;
-    dynamicStyle.boxShadow = USER_GLOW_SHADOW;
+    // New: User pressed keys are golden yellow
+    const baseUserPlayColor = USER_PLAY_COLOR;
+    dynamicStyle = {
+      backgroundColor: isWhiteKey ? lightenHex(baseUserPlayColor, 30) : baseUserPlayColor,
+      boxShadow: USER_GLOW_SHADOW,
+    };
   } else if (activeSystemNoteInfo) {
     const { status, hand } = activeSystemNoteInfo;
+    const baseColor = hand === 'left' ? leftHandColor : rightHandColor; // Base color for hand
+
     if (status === 'waiting') {
-        const waitingGlow = `0 0 16px 4px ${hexToRgba('#A78BFA', 0.6)}`; // violet-400
+        // New: Waiting notes match hand color
+        const waitingGlow = `0 0 16px 4px ${hexToRgba(baseColor, 0.6)}`;
         dynamicStyle = {
-            backgroundColor: isWhiteKey ? '#C4B5FD' : '#A78BFA', // violet-300 / violet-400
+            backgroundColor: isWhiteKey ? lightenHex(baseColor, 40) : baseColor, // Lighter for white, base for black
             boxShadow: waitingGlow,
         };
     } else if (status === 'playing' || status === 'user_played') {
-        const baseColor = hand === 'left' ? leftHandColor : rightHandColor;
         const bgColor = isWhiteKey ? lightenHex(baseColor, 40) : baseColor;
         const glow = `0 0 16px 5px ${hexToRgba(baseColor, 0.7)}`;
         dynamicStyle = { backgroundColor: bgColor, boxShadow: glow };
@@ -117,7 +124,7 @@ const PianoKey: React.FC<PianoKeyProps> = ({
   const keyStyle: React.CSSProperties = {
     left: `${xPosition}px`,
     width: `${width}px`,
-    height: isWhiteKey ? `${WHITE_KEY_HEIGHT_PX}px` : `${BLACK_KEY_HEIGHT_PX}px`,
+    height: `${height}px`, // Use passed height prop
     ...dynamicStyle,
   };
   
@@ -143,7 +150,7 @@ const PianoKey: React.FC<PianoKeyProps> = ({
                       ${isWhiteKey ? 'bottom-1 text-gray-800' : 'bottom-1 left-1/2 -translate-x-1/2 text-gray-200'}`}
           style={{ textShadow: isWhiteKey ? '0 0 2px rgba(255,255,255,0.8)' : '0 0 2px rgba(0,0,0,0.8)'}}
         >
-          {qwertyKey.toUpperCase()}
+          {qwertyKey}
         </span>
       )}
     </div>

@@ -1,4 +1,5 @@
 
+
 /**
  * Calculates a non-linear scaling factor for note widths based on a power curve.
  * This function makes the zoom effect more pronounced at lower values.
@@ -43,7 +44,7 @@ export const ENHARMONIC_MAP_TO_SHARP: { [flat: string]: string } = { 'Db': 'C#',
 export const ENHARMONIC_MAP_TO_FLAT: { [sharp: string]: string } = { 'C#': 'Db', 'D#': 'Eb', 'F#': 'Gb', 'G#': 'Ab', 'A#': 'Bb' };
 
 // --- Signature Event Type (Moved from App.tsx and vexflow-helper.ts) ---
-import { TimeSignatureInfo } from './types'; // Import TimeSignatureInfo
+import { TimeSignatureInfo, Score, PerformanceSummary } from './types'; // Import TimeSignatureInfo and other types
 
 export interface SignatureEvent {
   timeMs: number;
@@ -103,3 +104,36 @@ export const getActiveTimeSignature = (
   }
   return activeTime;
 };
+
+/**
+ * Converts a Score object from Supabase into a PerformanceSummary object for display.
+ * @param score The Supabase Score object.
+ * @param songTitle The title of the song (for context in summary).
+ * @returns A PerformanceSummary object.
+ */
+export function convertScoreToPerformanceSummary(score: Score, songTitle: string = 'Unknown Song'): PerformanceSummary {
+  const totalNotes = score.total_notes ?? 0;
+  const hitCount = score.notes_hit ?? 0;
+  const errorCount = score.errors ?? 0;
+  // Recalculate accuracy if it's null, or use the stored value
+  const accuracy = score.accuracy ?? (totalNotes > 0 ? ((hitCount - errorCount) / totalNotes) * 100 : 0);
+  const speed = score.speed ?? 0;
+  const finalScore = score.final_score ?? 0;
+  const rank = score.rank ?? 'D';
+
+  // These are not directly stored in the 'scores' table, use placeholder/derived values
+  const gameplayPercentage = (accuracy * 0.5) + (speed * 0.5);
+  const baseMidiScore = 0; // Not available from score table, so default to 0
+
+  return {
+    accuracy: parseFloat(accuracy.toFixed(2)),
+    speed: parseFloat(speed.toFixed(2)),
+    gameplayPercentage: parseFloat(gameplayPercentage.toFixed(2)),
+    baseMidiScore: parseFloat(baseMidiScore.toFixed(0)), 
+    finalScore: parseFloat(finalScore.toFixed(2)),
+    rank,
+    hitCount,
+    errorCount,
+    totalNoteCount: totalNotes,
+  };
+}

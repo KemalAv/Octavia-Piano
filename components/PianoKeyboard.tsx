@@ -1,7 +1,6 @@
-
 import React from 'react';
-import { PianoKeyDefinition, KeyPosition, ActiveMidiNoteInfo, QwertyKeyMapEntry } from '../types';
-import { PIANO_KEYS_CONFIG, WHITE_KEY_HEIGHT_PX, KEY_LABEL_AREA_HEIGHT_PX, QWERTY_MINI_KEYBOARD_MAPPING } from '../constants';
+import { PianoKeyDefinition, KeyPosition, ActiveMidiNoteInfo, LayoutDimensions } from '../types';
+import { PIANO_KEYS_CONFIG, QWERTY_MINI_KEYBOARD_MAPPING } from '../constants';
 import PianoKey from './PianoKey';
 
 interface PianoKeyboardProps {
@@ -14,9 +13,17 @@ interface PianoKeyboardProps {
   rightHandColor: string;
   leftHandColor: string;
   showQwertyShortcuts: boolean;
-  qwertyCurrentOctaveShift: number; // NEW: Added octave shift prop
-  width: number; // NEW: Accept width as a prop
+  qwertyCurrentOctaveShift: number;
+  width: number;
+  layoutConfig: LayoutDimensions; // New Prop for dynamic sizing
 }
+
+const KEY_CODES_TO_DISPLAY: { [key: string]: string } = {
+  'tab': '⇥', 'digit1': '1', 'keyq': 'Q', 'digit2': '2', 'keyw': 'W', 'keye': 'E', 'digit4': '4', 'keyr': 'R', 'digit5': '5', 'keyt': 'T', 'digit6': '6', 'keyy': 'Y',
+  'keyu': 'U', 'digit8': '8', 'keyi': 'I', 'digit9': '9', 'keyo': 'O', 'keyp': 'P', 'minus': '-', 'bracketleft': '[', 'equal': '=', 'bracketright': ']', 'backspace': '⌫', 'backslash': '\\', 'enter': '⏎',
+  'shiftleft': '⇧', 'keya': 'A', 'keyz': 'Z', 'keys': 'S', 'keyx': 'X', 'keyc': 'C', 'keyf': 'F', 'keyv': 'V', 'keyg': 'G', 'keyb': 'B', 'keyh': 'H', 'keyn': 'N',
+  'keym': 'M', 'keyk': 'K', 'comma': ',', 'keyl': 'L', 'period': '.', 'slash': '/', 'quote': "'", 'shiftright': '⇧',
+};
 
 const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ 
   keyPositions, 
@@ -28,8 +35,9 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
   rightHandColor,
   leftHandColor,
   showQwertyShortcuts,
-  qwertyCurrentOctaveShift, // NEW: Destructure octave shift prop
-  width, // NEW: Destructure width prop
+  qwertyCurrentOctaveShift,
+  width,
+  layoutConfig,
 }) => {
   const keyDefMap = React.useMemo(() => {
     const map = new Map<string, PianoKeyDefinition>();
@@ -37,21 +45,11 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
     return map;
   }, []);
 
-  // NEW: Create an inverse map from midiBase to qwertyKey for efficient lookup
-  const midiBaseToQwertyKeyMap = React.useMemo(() => {
-    const map = new Map<number, string>();
-    QWERTY_MINI_KEYBOARD_MAPPING.forEach(entry => {
-        map.set(entry.midiBase, entry.qwertyKey);
-    });
-    return map;
-  }, []);
-
   const whiteKeysPos = keyPositions.filter(kp => kp.type === 'white');
   const blackKeysPos = keyPositions.filter(kp => kp.type === 'black');
   
-  // Use the width prop directly, keyPositions.x/width already reflect scaling
   const pianoDisplayWidth = width;
-  const totalHeight = WHITE_KEY_HEIGHT_PX + KEY_LABEL_AREA_HEIGHT_PX;
+  const totalHeight = layoutConfig.whiteKeyHeight + layoutConfig.keyLabelHeight;
 
   if (keyPositions.length === 0 || pianoDisplayWidth === 0) {
     return null; 
@@ -63,11 +61,18 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
     const activeSystemNoteInfo = activeMidiNotesInfo.get(keyDef.name) || null;
     const isUserPlaying = userSustainedKeys.has(keyDef.name) || userActiveKeys.has(keyDef.name);
     
-    // NEW: Determine QWERTY key for display based on original midiBase (after applying octave shift)
     // Calculate what MIDI note on the *base* QWERTY map would produce this physical key's MIDI note
-    // with the current octave shift.
     const baseMidiNoteForQwertyLookup = keyDef.midiNote - (qwertyCurrentOctaveShift * 12);
-    const qwertyKeyForDisplay = midiBaseToQwertyKeyMap.get(baseMidiNoteForQwertyLookup);
+    
+    // Find all QWERTY keys that map to this base MIDI note
+    const matchingEntries = QWERTY_MINI_KEYBOARD_MAPPING.filter(
+      entry => entry.midiBase === baseMidiNoteForQwertyLookup
+    );
+
+    // Create a display string with all matching shortcuts
+    const qwertyKeyForDisplay = matchingEntries
+      .map(entry => KEY_CODES_TO_DISPLAY[entry.qwertyKey] || entry.qwertyKey)
+      .join('');
 
     return (
       <PianoKey
@@ -77,12 +82,13 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
         isUserPlaying={isUserPlaying}
         xPosition={keyPos.x}
         width={keyPos.width} 
+        height={keyDef.type === 'white' ? layoutConfig.whiteKeyHeight : layoutConfig.blackKeyHeight} // Pass dynamic height
         onPress={() => onUiKeyPress(keyDef.name, keyDef.midiNote)}
         onRelease={() => onUiKeyRelease(keyDef.name, keyDef.midiNote)}
         rightHandColor={rightHandColor}
         leftHandColor={leftHandColor}
         showQwertyShortcut={showQwertyShortcuts}
-        qwertyKey={qwertyKeyForDisplay} // Pass the dynamically determined QWERTY key
+        qwertyKey={qwertyKeyForDisplay}
       />
     );
   };
@@ -99,14 +105,14 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
       role="application"
       aria-label="Interactive Piano Keyboard"
     >
-      <div className="relative" style={{ width: `${pianoDisplayWidth}px`, height: `${WHITE_KEY_HEIGHT_PX}px`}}>
+      <div className="relative" style={{ width: `${pianoDisplayWidth}px`, height: `${layoutConfig.whiteKeyHeight}px`}}>
         {whiteKeysPos.map(renderPianoKey)}
         {blackKeysPos.map(renderPianoKey)}
       </div>
 
       <div 
         className="absolute bottom-0 left-0 w-full bg-gray-100 border-t border-gray-300"
-        style={{ height: `${KEY_LABEL_AREA_HEIGHT_PX}px` }}
+        style={{ height: `${layoutConfig.keyLabelHeight}px` }}
       >
         {whiteKeysPos.map((keyPos) => {
           const keyDef = keyDefMap.get(keyPos.name);
@@ -118,7 +124,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
               style={{
                 left: `${keyPos.x}px`,
                 width: `${keyPos.width}px`, 
-                height: `${KEY_LABEL_AREA_HEIGHT_PX}px`,
+                height: `${layoutConfig.keyLabelHeight}px`,
                 bottom: `0px`, 
               }}
             >

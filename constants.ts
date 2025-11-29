@@ -1,6 +1,8 @@
+import { PianoKeyDefinition, PianoKeyType, QwertyKeyMapEntry, ViewMode, NoteLabelType, ThemeSettings, DevicePreset, LayoutDimensions } from './types';
 
-
-import { PianoKeyDefinition, PianoKeyType, QwertyKeyMapEntry } from './types';
+// Admin UUID - IMPORTANT: Replace with the actual UUID of your admin user in Supabase
+// You can find your user's UUID in the Supabase Auth -> Users table.
+export const ADMIN_UUID = '9701e6dc-05de-40f3-81e7-54da7b9d8ba'; 
 
 // --- Dynamic Scaling Ratios ---
 export const BLACK_KEY_WIDTH_RATIO = 0.58; // Black key width as a ratio of its associated white key width.
@@ -8,6 +10,7 @@ export const BLACK_KEY_OFFSET_RATIO = 0.60; // Offset of black key start from it
 // --- End Dynamic Scaling Ratios ---
 
 // --- Fixed Heights (for now) ---
+// These are kept as base/desktop defaults, but application logic will usually prefer the DEVICE_LAYOUTS values.
 export const WHITE_KEY_HEIGHT_PX = 130;
 export const BLACK_KEY_HEIGHT_PX = 85;
 export const KEY_LABEL_AREA_HEIGHT_PX = 25;
@@ -15,6 +18,35 @@ export const PROGRESS_BAR_HEIGHT_PX = 8; // Thinner progress bar
 export const PLAY_LINE_THICKNESS_PX = 6; // Thickness of the visual play/target line
 // --- End Fixed Heights ---
 
+// --- Device Layout Presets ---
+export const DEVICE_LAYOUTS: Record<DevicePreset, LayoutDimensions> = {
+  desktop: {
+    whiteKeyHeight: 140,
+    blackKeyHeight: 90,
+    keyLabelHeight: 25,
+    minWhiteKeyWidth: 24.5,
+  },
+  tablet: {
+    whiteKeyHeight: 170,
+    blackKeyHeight: 110,
+    keyLabelHeight: 75,
+    minWhiteKeyWidth: 19.5,
+  },
+  phone: {
+    whiteKeyHeight: 70,
+    blackKeyHeight: 35,
+    keyLabelHeight: 75,
+    minWhiteKeyWidth: 19.5,
+  },
+  // FIX: Add 'custom' preset to satisfy the Record<DevicePreset, LayoutDimensions> type.
+  // Its values will be dynamically set in App.tsx when the user selects 'custom'.
+  custom: {
+    whiteKeyHeight: 130,
+    blackKeyHeight: 85,
+    keyLabelHeight: 25,
+    minWhiteKeyWidth: 24.5,
+  },
+};
 
 export const INTERACTIVE_NOTE_DURATION_MS = 300;
 export const ACTIVE_KEY_HIGHLIGHT_DURATION_MS = 200;
@@ -26,18 +58,16 @@ export const BASE_PIXELS_PER_MILLISECOND = 0.15; // Base speed, will be multipli
 
 export const HAND_SPLIT_MIDI_NOTE = 60; // C4
 
-// Color constants for notes and highlights (Tailwind classes)
-export const USER_KEY_HIGHLIGHT_COLOR = 'bg-yellow-300';
-
-export const WAITING_NOTE_BG_COLOR = 'bg-purple-500'; // For falling notes
-export const WAITING_KEY_HIGHLIGHT_COLOR = 'bg-purple-400'; // For piano keys (slightly lighter)
-
 // Glow effect colors (used in inline styles with box-shadow)
 // These are rgba strings or theme-compatible strings for Tailwind JIT
 export const USER_GLOW_SHADOW = '0 0 16px 5px rgba(250, 204, 21, 0.7)'; // Yellow glow
-export const WAITING_GLOW_SHADOW = '0 0 16px 5px rgba(192, 132, 252, 0.7)'; // Purple glow (Tailwind purple-400 based)
 
-export const CHORD_RECOGNITION_WINDOW_MS = 10; // Milliseconds to wait for subsequent notes in a chord
+// NEW: System and User Play Colors for consistent theming
+export const SYSTEM_PLAY_COLOR = '#8B5CF6'; // A slightly brighter violet-500 for system playback (matches Tailwind violet-500)
+export const USER_PLAY_COLOR = '#F59E0B';   // A richer amber-500 for user playback (matches Tailwind amber-500)
+
+
+export const CHORD_RECOGNITION_WINDOW_MS = 30; // Milliseconds to wait for subsequent notes in a chord
 
 // Use flat notation for black keys as it's more common and soundfont files exist for them.
 const NOTE_NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
@@ -135,3 +165,19 @@ export const MIN_QWERTY_OCTAVE_SHIFT = -3;
 // MAX_QWERTY_OCTAVE_SHIFT: C6 (MIDI 84) + (2 * 12) = MIDI 108 (C8), which is the top of the piano range.
 export const MAX_QWERTY_OCTAVE_SHIFT = 2; 
 // --- End QWERTY Mini Keyboard Constants ---
+
+// --- Default Settings Constants ---
+export const DEFAULT_MASTER_VOLUME = 0.5;
+export const DEFAULT_METRONOME_VOLUME = 0.5;
+export const DEFAULT_VIEW_MODE: ViewMode = 'falling';
+export const DEFAULT_NOTE_LABEL_TYPE: NoteLabelType = 'none';
+export const DEFAULT_SHOW_ONLY_MAJOR_RESTS = true; // Changed to true
+export const DEFAULT_SHOW_ONLY_MAJOR_NOTES = false;
+export const DEFAULT_SHOW_QWERTY_SHORTCUTS = true;
+export const DEFAULT_HIDE_BAR_NAVIGATION_BUTTONS = false;
+export const DEFAULT_THEME_SETTINGS: ThemeSettings = {
+  rightHandColor: '#A855F7', // purple-500
+  leftHandColor: '#3B82F6',  // blue-500
+  fallingNotesBackgroundColor: '#000000',
+};
+// --- End Default Settings Constants ---

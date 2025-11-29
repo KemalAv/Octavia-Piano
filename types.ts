@@ -1,8 +1,21 @@
+
+// FIX: Add types for Supabase auth integration.
+import { Session, User } from '@supabase/supabase-js';
+
 // ========================================
 // PIANO KEY & VISUAL DATA TYPES (v8.9)
 // ========================================
 
 export type PianoKeyType = 'white' | 'black';
+
+export type DevicePreset = 'desktop' | 'tablet' | 'phone' | 'custom';
+
+export interface LayoutDimensions {
+  whiteKeyHeight: number;
+  blackKeyHeight: number;
+  keyLabelHeight: number;
+  minWhiteKeyWidth: number;
+}
 
 export interface PianoKeyDefinition {
   name: string;
@@ -135,14 +148,17 @@ export type MidiAccessStatus =
   | 'unsupported';
 
 export type MetronomeMode = 'off' | 'beat' | 'bar';
-export type WaitMode = 'off' | 'strict' | 'rhythm' | 'retical';
+// @FIX: Add 'lenient' to WaitMode to resolve typing errors in App.tsx and ModeSelection.tsx.
+export type WaitMode = 'off' | 'strict' | 'rhythm' | 'retical' | 'lenient';
 export type ViewMode = 'falling' | 'sheet';
 export type Screen =
   | 'mainMenu'
   | 'songSelection'
   | 'modeSelection'
   | 'settings'
-  | 'inGame';
+  | 'inGame'
+  | 'finetune'
+  | 'leaderboard';
 export type PracticeHand = 'left' | 'right' | 'both';
 export type NoteLabelType = 'none' | 'fingering' | 'noteName';
 
@@ -177,9 +193,92 @@ export interface PerformanceSummary {
   totalNoteCount: number;
 }
 
+// FIX: Add UserSession type for Supabase integration.
+export interface UserSession {
+  session: Session | null;
+  user: User | null;
+  loading: boolean;
+}
+
+// @FIX: Add Score interface for Supabase integration, used in AccountModal and LeaderboardModal.
+export interface Score {
+  id: string;
+  created_at: string;
+  user_id: string;
+  song_id: string;
+  final_score: number;
+  accuracy: number;
+  speed: number;
+  rank: string;
+  notes_hit: number;
+  errors: number;
+  total_notes: number;
+  mode: string;
+  // FIX: Add 'artist' to songs object to match Supabase query in AccountModal.tsx.
+  songs?: { title: string; artist: string; } | null;
+  profiles?: { username: string; avatar_url: string | null; created_at: string | null; } | null; // Added avatar_url and created_at
+}
+
+// NEW: Profile interface for viewing other users' profiles
+export interface Profile {
+  id: string;
+  username: string;
+  avatar_url: string | null;
+  created_at: string | null; // When the profile record was created (proxy for join date)
+  last_nickname_change?: string | null;
+}
+
+// @FIX: Add UserLike interface for Supabase integration to resolve import error in OnlineSongBrowser.
+export interface UserLike {
+  id: number;
+  created_at: string;
+  user_id: string;
+  song_id: string;
+  like_type: 1 | -1;
+}
+
+// FIX: Add OnlineSong type for Supabase integration.
+export interface OnlineSong {
+  id: string;
+  created_at: string;
+  title: string;
+  artist: string;
+  file_path: string;
+  uploader_id: string;
+  difficulty_level: number | null;
+  performance_score: number | null;
+  total_notes: number | null;
+  duration_sec: number | null;
+  total_nps: number | null;
+  is_ranked: boolean; // NEW: Added is_ranked property
+  // @FIX: Add optional like_count and dislike_count to resolve property access errors in OnlineSongBrowser.
+  like_count?: number;
+  dislike_count?: number;
+}
+
+export interface FriendWithProfile {
+    user_id: string;
+    friend_id: string;
+    created_at: string;
+    friend_profile: Profile; // Updated to match the alias `friend_profile` in the Supabase query
+}
+
+export interface LeaderboardEntry {
+    user_id: string;
+    username: string;
+    avatar_url: string | null;
+    total_score: number;
+}
+
 // ========================================
 // MUSIC METADATA
 // ========================================
+
+// FIX: Add TempoEvent type for tracking tempo changes.
+export interface TempoEvent {
+  timeMs: number;
+  bpm: number;
+}
 
 export interface TimeSignatureInfo {
   numerator: number;
@@ -196,6 +295,13 @@ export enum FileType {
 // VEXFLOW RENDER TYPES
 // ========================================
 
+// FIX: Add TempoMarkingInfo type for displaying tempo on sheet music.
+export interface TempoMarkingInfo {
+  bpm: number;
+  x: number;
+  y: number;
+}
+
 export interface VexFlowNoteInfo {
   vexNoteId: string;
   hand: 'left' | 'right';
@@ -208,6 +314,10 @@ export interface VexFlowNoteInfo {
   midiValue: number;
   accidentals?: { index: number; type: string }[];
   fragmentMapping?: { fragmentId: string; keyIndex: number }[];
+  // FIX: Added missing properties for tie rendering logic.
+  originalNoteIds?: string[];
+  isTieStart?: boolean[];
+  isTieEnd?: boolean[];
 }
 
 export interface VexFlowMeasureData {
@@ -231,10 +341,14 @@ export interface VexFlowMeasureData {
   ends8vaRH: boolean;
   starts8vbLH: boolean;
   ends8vbLH: boolean;
-  is8vaActiveRH: boolean;
+  // FIX: Add 'is8vaActiveRH' property to resolve type errors.
+  is8vaActiveRH: boolean; 
+  // FIX: Add 'is8vbActiveLH' property to resolve type errors in vexflow-helper.ts.
   is8vbActiveLH: boolean;
-  effectiveTimeSignature: TimeSignatureInfo; // ADDED
-  hasDottedBeamableNotes: boolean; // ADDED
+  // FIX: Added missing properties for tempo, time signature, and beaming logic.
+  newTempoBpm?: number;
+  effectiveTimeSignature: TimeSignatureInfo;
+  hasDottedBeamableNotes: boolean;
 }
 
 export interface OctaveLineInfo {
@@ -249,8 +363,10 @@ export interface OctaveLineInfo {
 export interface VexFlowRenderData {
   measures: VexFlowMeasureData[];
   octaveLines: OctaveLineInfo[];
+  tempoMarkings: TempoMarkingInfo[];
   topStaveYOffset: number;
   fragments: NoteFragment[];
+  // FIX: Added missing properties for tempo markings and fragment mapping.
   noteIdToFragmentsMap: Map<string, NoteFragment[]>;
 }
 

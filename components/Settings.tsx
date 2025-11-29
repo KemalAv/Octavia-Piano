@@ -1,6 +1,8 @@
 
+
 import React from 'react';
-import { MidiAccessStatus, MIDIInput, MIDIOutput, NoteLabelType, ViewMode, ThemeSettings } from '../types';
+import { MidiAccessStatus, MIDIInput, MIDIOutput, NoteLabelType, ViewMode, ThemeSettings, DevicePreset, LayoutDimensions } from '../types';
+import { DEFAULT_SHOW_ONLY_MAJOR_RESTS, DEVICE_LAYOUTS } from '../constants'; // Import DEVICE_LAYOUTS
 
 interface SettingsProps {
   onBack: () => void;
@@ -16,8 +18,10 @@ interface SettingsProps {
   onViewModeChange: (mode: ViewMode) => void;
   noteLabelType: NoteLabelType;
   onNoteLabelTypeChange: (type: NoteLabelType) => void;
-  showOnlyMajorRests: boolean;
-  onShowOnlyMajorRestsChange: (value: boolean) => void;
+  // showOnlyMajorRests: boolean; // REMOVED
+  // onShowOnlyMajorRestsChange: (value: boolean) => void; // REMOVED
+  showOnlyMajorNotes: boolean;
+  onShowOnlyMajorNotesChange: (value: boolean) => void;
   showQwertyShortcuts: boolean;
   onShowQwertyShortcutsChange: (value: boolean) => void;
   hideBarNavigationButtons: boolean;
@@ -28,10 +32,18 @@ interface SettingsProps {
   onMetronomeVolumeChange: (volume: number) => void;
   themeSettings: ThemeSettings;
   onThemeSettingsChange: (settings: ThemeSettings) => void;
-  pianoScale: number;
-  onPianoScaleChange: (scale: number) => void;
-  pianoHorizontalOffset: number;
-  onPianoHorizontalOffsetChange: (offset: number) => void;
+  onResetToDefaults: () => void; // New prop for resetting settings
+  devicePreset: DevicePreset;
+  onDevicePresetChange: (preset: DevicePreset) => void;
+  // NEW: Props for custom layout dimensions
+  customWhiteKeyHeight: number;
+  onCustomWhiteKeyHeightChange: (height: number) => void;
+  customBlackKeyHeight: number;
+  onCustomBlackKeyHeightChange: (height: number) => void;
+  customKeyLabelHeight: number;
+  onCustomKeyLabelHeightChange: (height: number) => void;
+  customMinWhiteKeyWidth: number;
+  onCustomMinWhiteKeyWidthChange: (width: number) => void;
 }
 
 const Settings: React.FC<SettingsProps> = (props) => {
@@ -39,11 +51,17 @@ const Settings: React.FC<SettingsProps> = (props) => {
     onBack, midiAccessStatus, midiInputs, selectedMidiInputId, onSelectMidiInput,
     midiOutputs, selectedMidiOutputId, onSelectMidiOutput, connectMidi,
     viewMode, onViewModeChange, noteLabelType, onNoteLabelTypeChange,
-    showOnlyMajorRests, onShowOnlyMajorRestsChange, showQwertyShortcuts,
+    // showOnlyMajorRests, onShowOnlyMajorRestsChange, // REMOVED
+    showOnlyMajorNotes, onShowOnlyMajorNotesChange, showQwertyShortcuts,
     onShowQwertyShortcutsChange, hideBarNavigationButtons, onHideBarNavigationButtonsChange,
     masterVolume, onMasterVolumeChange, metronomeVolume, onMetronomeVolumeChange,
-    themeSettings, onThemeSettingsChange, pianoScale, onPianoScaleChange,
-    pianoHorizontalOffset, onPianoHorizontalOffsetChange
+    themeSettings, onThemeSettingsChange,
+    onResetToDefaults,
+    devicePreset, onDevicePresetChange,
+    customWhiteKeyHeight, onCustomWhiteKeyHeightChange,
+    customBlackKeyHeight, onCustomBlackKeyHeightChange,
+    customKeyLabelHeight, onCustomKeyLabelHeightChange,
+    customMinWhiteKeyWidth, onCustomMinWhiteKeyWidthChange,
   } = props;
 
   const commonButtonStyles = "px-3 py-1.5 rounded text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-300 focus:ring-opacity-75 flex items-center justify-center shadow-md";
@@ -52,6 +70,19 @@ const Settings: React.FC<SettingsProps> = (props) => {
   const colorInputStyle = `p-1 h-10 w-14 block bg-slate-700 border border-slate-600 cursor-pointer rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150 ease-in-out`;
   const rangeSliderStyle = "w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer";
   const checkboxStyle = "h-5 w-5 text-cyan-500 rounded border-slate-500 focus:ring-cyan-400 ml-3";
+  const numberInputStyle = `w-24 p-2 rounded-lg bg-slate-700 text-white border border-slate-600 focus:ring-violet-500 focus:border-violet-500 text-sm`;
+
+
+  const handleDevicePresetChange = (newPreset: DevicePreset) => {
+    onDevicePresetChange(newPreset);
+    if (newPreset !== 'custom') {
+      const presetValues = DEVICE_LAYOUTS[newPreset];
+      onCustomWhiteKeyHeightChange(presetValues.whiteKeyHeight);
+      onCustomBlackKeyHeightChange(presetValues.blackKeyHeight);
+      onCustomKeyLabelHeightChange(presetValues.keyLabelHeight);
+      onCustomMinWhiteKeyWidthChange(presetValues.minWhiteKeyWidth);
+    }
+  };
 
   const renderMidiConnectButton = () => {
      switch (midiAccessStatus) {
@@ -96,10 +127,71 @@ const Settings: React.FC<SettingsProps> = (props) => {
       <div className="bg-slate-800/50 backdrop-blur-sm p-6 md:p-8 rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto custom-scrollbar ring-1 ring-slate-700">
         <div className="flex justify-between items-center mb-6">
             <h2 className="text-3xl font-bold text-cyan-400">Settings</h2>
-            <button onClick={onBack} className="text-slate-400 hover:text-white text-3xl leading-none">&times;</button>
+            <button onClick={onBack} className="text-slate-400 hover:text-white text-3xl leading-none" aria-label="Close settings">&times;</button>
         </div>
         
         <div className="space-y-8">
+          <Section title="Device & UI">
+            <SettingRow label="Device Preset (Piano Size)" htmlFor="device-preset">
+              <select id="device-preset" value={devicePreset} onChange={e => handleDevicePresetChange(e.target.value as DevicePreset)} className={selectStyles}>
+                <option value="desktop">Desktop</option>
+                <option value="tablet">Tablet</option>
+                <option value="phone">Phone</option>
+                <option value="custom">Custom (Advanced)</option>
+              </select>
+            </SettingRow>
+
+            {devicePreset === 'custom' && (
+              <div className="bg-slate-900/50 p-4 rounded-lg space-y-3 ring-1 ring-slate-700">
+                <h4 className="text-md font-semibold text-slate-200">Custom Layout Dimensions</h4>
+                <SettingRow label="White Key Height" htmlFor="custom-white-key-height">
+                  <input
+                    id="custom-white-key-height"
+                    type="number"
+                    min="10"
+                    max="300"
+                    value={customWhiteKeyHeight}
+                    onChange={e => onCustomWhiteKeyHeightChange(parseInt(e.target.value, 10))}
+                    className={numberInputStyle}
+                  />
+                </SettingRow>
+                <SettingRow label="Black Key Height" htmlFor="custom-black-key-height">
+                  <input
+                    id="custom-black-key-height"
+                    type="number"
+                    min="5"
+                    max="200"
+                    value={customBlackKeyHeight}
+                    onChange={e => onCustomBlackKeyHeightChange(parseInt(e.target.value, 10))}
+                    className={numberInputStyle}
+                  />
+                </SettingRow>
+                <SettingRow label="Key Label Height" htmlFor="custom-key-label-height">
+                  <input
+                    id="custom-key-label-height"
+                    type="number"
+                    min="5"
+                    max="50"
+                    value={customKeyLabelHeight}
+                    onChange={e => onCustomKeyLabelHeightChange(parseInt(e.target.value, 10))}
+                    className={numberInputStyle}
+                  />
+                </SettingRow>
+                <SettingRow label="Min White Key Width" htmlFor="custom-min-white-key-width">
+                  <input
+                    id="custom-min-white-key-width"
+                    type="number"
+                    min="5"
+                    max="50"
+                    value={customMinWhiteKeyWidth}
+                    onChange={e => onCustomMinWhiteKeyWidthChange(parseFloat(e.target.value))}
+                    className={numberInputStyle}
+                  />
+                </SettingRow>
+              </div>
+            )}
+          </Section>
+
           <Section title="MIDI">
             <SettingRow label="Status">{renderMidiConnectButton()}</SettingRow>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -131,31 +223,42 @@ const Settings: React.FC<SettingsProps> = (props) => {
               <SettingRow label="Falling Note Labels" htmlFor="note-label">
                 <select id="note-label" value={noteLabelType} onChange={e => onNoteLabelTypeChange(e.target.value as NoteLabelType)} className={`${selectStyles} max-w-xs`}>
                   <option value="none">None</option>
-                  <option value="fingering">Fingering</option>
+                  <option value="fingering">Fingering (Beta)</option>
                   <option value="noteName">Note Name</option>
                 </select>
               </SettingRow>
             </div>
-            <ToggleRow id="major-rests" label="Show only major rests (Sheet Music)" checked={showOnlyMajorRests} onChange={onShowOnlyMajorRestsChange} />
+            {/* REMOVED: ToggleRow for showOnlyMajorRests */}
+            {/* <ToggleRow id="major-rests" label="Show only major rests (Sheet Music)" checked={showOnlyMajorRests} onChange={onShowOnlyMajorRestsChange} /> */}
+            <ToggleRow id="major-notes" label="Show only major notes (Falling Notes)" checked={showOnlyMajorNotes} onChange={onShowOnlyMajorNotesChange} />
             <ToggleRow id="qwerty-shortcuts" label="Show QWERTY Shortcuts on Keys" checked={showQwertyShortcuts} onChange={onShowQwertyShortcutsChange} />
             <ToggleRow id="hide-bar-nav" label="Hide Bar Navigation Buttons" checked={hideBarNavigationButtons} onChange={onHideBarNavigationButtonsChange} />
-          </Section>
-
-          <Section title="Keyboard Layout">
-            <SettingRow label={`Keyboard Size (${Math.round(pianoScale * 100)}%)`} htmlFor="piano-scale-slider">
-              <input id="piano-scale-slider" type="range" min="50" max="400" step="1" value={Math.round(pianoScale * 100)} onChange={e => onPianoScaleChange(parseInt(e.target.value, 10) / 100)} className={`${rangeSliderStyle} max-w-xs`} />
-            </SettingRow>
-            <SettingRow label={`Horizontal Offset (${pianoHorizontalOffset}px)`} htmlFor="piano-offset-slider">
-              <input id="piano-offset-slider" type="range" min="-500" max="500" step="5" value={pianoHorizontalOffset} onChange={e => onPianoHorizontalOffsetChange(parseInt(e.target.value, 10))} className={`${rangeSliderStyle} max-w-xs`} />
-            </SettingRow>
           </Section>
           
           <Section title="Audio">
             <SettingRow label={`Master Volume (${Math.round(masterVolume*100)}%)`} htmlFor="master-volume">
-              <input id="master-volume" type="range" min="0" max="1" step="0.01" value={masterVolume} onChange={e => onMasterVolumeChange(parseFloat(e.target.value))} className={`${rangeSliderStyle} max-w-xs`} />
+              <input 
+                id="master-volume" 
+                type="range" 
+                min="0" 
+                max="1" 
+                step="0.25" // Snap every 25%
+                value={masterVolume} 
+                onChange={e => onMasterVolumeChange(parseFloat(e.target.value))} 
+                className={`${rangeSliderStyle} max-w-xs`} 
+              />
             </SettingRow>
             <SettingRow label={`Metronome Volume (${Math.round(metronomeVolume*100)}%)`} htmlFor="metronome-volume">
-              <input id="metronome-volume" type="range" min="0" max="1" step="0.01" value={metronomeVolume} onChange={e => onMetronomeVolumeChange(parseFloat(e.target.value))} className={`${rangeSliderStyle} max-w-xs`} />
+              <input 
+                id="metronome-volume" 
+                type="range" 
+                min="0" 
+                max="1" 
+                step="0.25" // Snap every 25%
+                value={metronomeVolume} 
+                onChange={e => onMetronomeVolumeChange(parseFloat(e.target.value))} 
+                className={`${rangeSliderStyle} max-w-xs`} 
+              />
             </SettingRow>
           </Section>
 
@@ -172,7 +275,8 @@ const Settings: React.FC<SettingsProps> = (props) => {
           </Section>
         </div>
 
-        <div className="mt-8 text-center">
+        <div className="mt-8 flex justify-center space-x-4">
+             <button onClick={onResetToDefaults} className={`${commonButtonStyles} bg-red-600 hover:bg-red-700 text-white w-40`}>Reset to Defaults</button>
              <button onClick={onBack} className={`${commonButtonStyles} ${secondaryButtonStyles} w-32`}>Back</button>
         </div>
 

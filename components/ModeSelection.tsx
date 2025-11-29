@@ -32,7 +32,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
 }) => {
   const [selectedMode, setSelectedMode] = useState<Mode>('practice');
   const [practiceHand, setPracticeHand] = useState<PracticeHand>('both');
-  const [practiceWaitMode, setPracticeWaitMode] = useState<Extract<WaitMode, 'strict' | 'rhythm'>>('strict');
+  const [practiceWaitMode, setPracticeWaitMode] = useState<Extract<WaitMode, 'strict' | 'lenient'>>('strict');
   
   const buttonBaseStyle = "w-full font-bold py-3 px-6 rounded-lg text-lg transition-all duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-opacity-50 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100 shadow-lg";
   const primaryButtonStyle = "bg-cyan-500 hover:bg-cyan-600 text-white focus:ring-cyan-400";
@@ -72,7 +72,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
   return (
      <div className="fixed inset-0 bg-slate-900 flex flex-col items-center justify-center z-40 p-4">
        <div className="absolute top-4 left-4">
-            <button onClick={onBack} className={`${tertiaryButtonStyle} py-2 px-4 text-base shadow-md`}>&larr; Back to Song</button>
+            <button onClick={onBack} className={`${tertiaryButtonStyle} py-2 px-4 text-base shadow-md`}>&larr; Back to MIDIs</button>
        </div>
       <div className="bg-slate-800/50 backdrop-blur-sm p-8 md:p-12 rounded-xl shadow-2xl max-w-4xl w-full ring-1 ring-slate-700 max-h-[90vh] overflow-y-auto custom-scrollbar">
         <div className="text-center mb-6">
@@ -93,7 +93,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
             </div>
             <div onClick={() => setSelectedMode('retical')} className={`${modeButtonBase} ${selectedMode === 'retical' ? modeButtonSelected : modeButtonUnselected}`}>
                 <h3 className="font-bold text-xl mb-1 text-violet-300">Retical Mode</h3>
-                <p className="text-sm text-slate-300 flex-grow">A rhythm-based challenge. Bar navigation and seeking are disabled.</p>
+                <p className="text-sm text-slate-300 flex-grow">Scores are recorded on the leaderboard only when the MIDI is in Ranked status.</p>
             </div>
         </div>
 
@@ -103,7 +103,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
                 <div>
                     <h4 className="font-semibold text-lg text-center mb-3 text-slate-200">Practice Type</h4>
                     <div className="flex justify-center gap-4">
-                        {(['strict', 'rhythm'] as const).map(mode => (
+                        {(['strict', 'lenient'] as const).map(mode => (
                             <button key={mode} onClick={() => setPracticeWaitMode(mode)} className={`px-4 py-2 text-sm rounded-md font-semibold transition w-32 ${practiceWaitMode === mode ? 'bg-violet-500 text-white shadow-md' : 'bg-slate-600 hover:bg-slate-500'}`}>
                                 {mode.charAt(0).toUpperCase() + mode.slice(1)}
                             </button>
@@ -111,8 +111,8 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
                     </div>
                     <p className="text-xs text-slate-400 text-center mt-3 h-8 flex items-center justify-center">
                         {practiceWaitMode === 'strict'
-                            ? 'Notes wait for you to play the correct key.'
-                            : 'At checkpoints, playing any correct key continues the song.'}
+                            ? 'The song pauses and waits for you to play the correct notes.'
+                            : "The song plays continuously, but will pause if you don't play a key."}
                     </p>
                 </div>
                 <div className="border-t border-slate-700/50"></div>
@@ -138,8 +138,8 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
              <input
                 id="bpm-slider"
                 type="range"
-                min="1"
-                max="400"
+                min="25"
+                max="200"
                 step="1"
                 value={displayedPlaybackPercentage}
                 onChange={(e) => onPlaybackTempoMultiplierChange(parseInt(e.target.value, 10) / 100)}
