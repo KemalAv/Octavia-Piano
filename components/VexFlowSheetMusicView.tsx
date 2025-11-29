@@ -1,4 +1,3 @@
-
 import React, {
   useEffect,
   useRef,
@@ -27,17 +26,19 @@ import {
   VexFlowMeasureData,
   VexFlowNoteInfo,
   OctaveLineInfo,
+  TempoEvent,
 } from '../types';
 import { getVexFlowRenderData } from '../vexflow-helper';
+// Removed: import { SYSTEM_PLAY_COLOR, USER_PLAY_COLOR } from '../constants'; // Import from constants
 
 // --- Constants ---
-const GRAND_STAFF_VERTICAL_SPACING = 130;
+const GRAND_STAFF_VERTICAL_SPACING = 125;
 const HORIZONTAL_PADDING = 30;
-const CURSOR_FIXED_POSITION_X = 0.2; // Shifted slightly right from 0.1
+const CURSOR_FIXED_POSITION_X = 0.25;
 
 // --- Colors ---
-const SYSTEM_PLAY_COLOR = '#C084FC'; // Purple for system play/wait
-const USER_PLAY_COLOR = '#FFD400';   // Yellow for user play
+// Removed: SYSTEM_PLAY_COLOR = '#8B5CF6'; // A slightly brighter violet-500 for system playback
+// Removed: USER_PLAY_COLOR = '#F59E0B';   // A richer amber-500 for user playback
 const DEFAULT_NOTE_COLOR = '#000000'; // Black for default
 
 // --- Helper Types ---
@@ -78,6 +79,8 @@ interface Props {
   signatureEvents: SignatureEvent[];
   showOnlyMajorRests: boolean;
   onLayoutRendered: (layoutId: number) => void;
+  tempoEvents: TempoEvent[];
+  playbackTempoMultiplier: number;
 }
 
 const VexFlowSheetMusicView: React.FC<Props> = ({
@@ -99,10 +102,14 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
   signatureEvents,
   showOnlyMajorRests,
   onLayoutRendered,
+  tempoEvents,
+  playbackTempoMultiplier,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const contentWrapperRef = useRef<HTMLDivElement>(null);
   const cursorRef = useRef<HTMLDivElement>(null);
+  // FIX: Changed ref type from SVGSVGElement to HTMLDivElement for VexFlow Renderer.
+  const vexflowRenderDivRef = useRef<HTMLDivElement>(null); 
 
   const [highlights, setHighlights] = useState<HighlightInfo[]>([]);
   const notePositionsRef = useRef<Map<string, BoundingBox>>(new Map());
@@ -134,13 +141,15 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
         signatureEvents,
         width,
         height,
-        showOnlyMajorRests
+        showOnlyMajorRests,
+        tempoEvents,
+        playbackTempoMultiplier
       );
     } catch (e) {
       console.error("Error generating VexFlow data:", e);
       return null;
     }
-  }, [notes, timeSignature, initialTempoBpm, keySignature, sheetMusicZoom, barLines, signatureEvents, width, height, showOnlyMajorRests]);
+  }, [notes, timeSignature, initialTempoBpm, keySignature, sheetMusicZoom, barLines, signatureEvents, width, height, showOnlyMajorRests, tempoEvents, playbackTempoMultiplier]);
 
   const totalContentWidth = useMemo(() => {
     if (!vexFlowData) return 0;
@@ -195,7 +204,7 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
       }
 
       let newScroll = targetScroll;
-      let newCursorX = targetX - targetScroll;
+      let newCursorX = targetX - newScroll; // Adjust cursorX relative to the wrapper's new scroll
 
       if (smoothTransition) {
           newScroll = lerp(currentScroll, targetScroll, 0.2);
@@ -227,11 +236,17 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
 
   // === Render Sheet Music & Capture Note Positions ===
   useLayoutEffect(() => {
-    const wrapper = contentWrapperRef.current;
+    // FIX: Use the new HTMLDivElement ref for VexFlow rendering.
+    const renderContainer = vexflowRenderDivRef.current; 
     
     // Guard against invalid state or dimensions
-    if (!wrapper || !vexFlowData) {
-      if (wrapper) wrapper.innerHTML = '';
+    if (!renderContainer || !vexFlowData) {
+      if (renderContainer) {
+        // NEW: Clear children of the div directly
+        while (renderContainer.lastChild) {
+          renderContainer.removeChild(renderContainer.lastChild);
+        }
+      }
       notePositionsRef.current.clear(); 
       return;
     }
@@ -239,24 +254,29 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
     // Explicitly check width/height again before VexFlow init
     if (width == null || width <= 0 || !Number.isFinite(width) ||
         height == null || height <= 0 || !Number.isFinite(height)) {
-      console.warn("VexFlow: Invalid dimensions for rendering, clearing wrapper.", {width, height});
-      wrapper.innerHTML = '';
+      console.warn("VexFlow: Invalid dimensions for rendering, clearing container.", {width, height});
+      while (renderContainer.lastChild) {
+        renderContainer.removeChild(renderContainer.lastChild);
+      }
       notePositionsRef.current.clear();
       return;
     }
 
-    // Clear previous render
-    wrapper.innerHTML = '';
+    // Clear previous render - NEW: Clear div children
+    while (renderContainer.lastChild) {
+      renderContainer.removeChild(renderContainer.lastChild);
+    }
     const newNotePositions = new Map<string, BoundingBox>();
 
     try {
-      const { measures, topStaveYOffset, octaveLines } = vexFlowData;
+      const { measures, topStaveYOffset, octaveLines, tempoMarkings } = vexFlowData;
       
       // Ensure dimensions are positive for VexFlow resizing
       const renderWidth = Math.max(1, totalContentWidth);
       const renderHeight = Math.max(1, height);
 
-      const renderer = new Renderer(wrapper, Renderer.Backends.SVG);
+      // FIX: Initialize Renderer with the HTMLDivElement. VexFlow will create an SVG inside it.
+      const renderer = new Renderer(renderContainer, Renderer.Backends.SVG);
       renderer.resize(renderWidth, renderHeight);
       const ctx = renderer.getContext();
       let currentX = 0;
@@ -268,6 +288,7 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
         if (measure.newClefRH) treble.addClef(measure.newClefRH);
         if (measure.newClefLH) bass.addClef(measure.newClefLH);
 
+        // Use measure.effectiveTimeSignature for displaying time signature
         if (measure.startTimeMs === vexFlowData.measures[0].startTimeMs) {
           treble.addKeySignature(keySignature).addTimeSignature(`${timeSignature.numerator}/${timeSignature.denominator}`);
           bass.addKeySignature(keySignature).addTimeSignature(`${timeSignature.numerator}/${timeSignature.denominator}`);
@@ -332,32 +353,63 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
           return n;
         });
         
-        const beamableDurations = ['8', '16', '32', '64'];
+        const beamableVexDurations = ['8', '16', '32', '64'];
         const isNote = (n: StaveNote) => !n.isRest();
-        const groupForBeaming = (notes: StaveNote[]) => {
-          const groups: StaveNote[][] = [];
-          let currentGroup: StaveNote[] = [];
-          for (let i = 0; i < notes.length; i++) {
-            const n = notes[i];
-            const dur = n.getDuration();
-            const isBeamable = isNote(n) && beamableDurations.includes(dur);
-            if (isBeamable) {
-              currentGroup.push(n);
-            } else {
-              if (currentGroup.length > 1) groups.push(currentGroup);
-              currentGroup = [];
+
+        // Custom beaming logic based on time signature and dotted notes
+        const groupForBeaming = (notes: StaveNote[], measureTimeSignature: TimeSignatureInfo, hasDottedBeamableNotesInMeasure: boolean) => {
+            const beams: Beam[] = [];
+            let currentBeamGroup: StaveNote[] = [];
+            
+            let maxGroupSize = 4; // Default for 4/4
+            if (measureTimeSignature.numerator === 4 && measureTimeSignature.denominator === 4) {
+               if (hasDottedBeamableNotesInMeasure) {
+                  maxGroupSize = 3;
+               } else {
+                  maxGroupSize = 4;
+               }
             }
-          }
-          if (currentGroup.length > 1) groups.push(currentGroup);
-          return groups.map(g => new Beam(g));
+            // For other time signatures, default to some standard or 4 if no specific rule.
+            // For now, only 4/4 is specified.
+
+            for (let i = 0; i < notes.length; i++) {
+                const note = notes[i];
+                const vexDur = note.getDuration();
+                const isBeamable = isNote(note) && beamableVexDurations.includes(vexDur);
+
+                if (isBeamable) {
+                    currentBeamGroup.push(note);
+                    
+                    const nextNote = notes[i + 1];
+                    const nextNoteIsBeamable = nextNote ? (isNote(nextNote) && beamableVexDurations.includes(nextNote.getDuration())) : false;
+
+                    // Finalize group if it's full OR if the sequence of beamable notes ends here
+                    const isGroupFull = currentBeamGroup.length === maxGroupSize;
+                    const isEndOfSequence = (i === notes.length - 1) || !nextNoteIsBeamable;
+
+                    if (isGroupFull || isEndOfSequence) {
+                        if (currentBeamGroup.length > 1) { // Only beam if more than one note
+                            beams.push(new Beam(currentBeamGroup));
+                        }
+                        currentBeamGroup = []; // Start a new group
+                    }
+                } else {
+                    // Non-beamable note encountered, finalize current group if any
+                    if (currentBeamGroup.length > 1) {
+                        beams.push(new Beam(currentBeamGroup));
+                    }
+                    currentBeamGroup = [];
+                }
+            }
+            return beams;
         };
         
-        const rightBeams = groupForBeaming(rightStaveNotes);
-        const leftBeams = groupForBeaming(leftStaveNotes);
+        const rightBeams = groupForBeaming(rightStaveNotes, measure.effectiveTimeSignature, measure.hasDottedBeamableNotes);
+        const leftBeams = groupForBeaming(leftStaveNotes, measure.effectiveTimeSignature, measure.hasDottedBeamableNotes);
 
         const voices: Voice[] = [];
-        if (rightStaveNotes.length) voices.push(new Voice({ numBeats: measure.newTimeSignature ? measure.newTimeSignature.numerator : timeSignature.numerator, beatValue: measure.newTimeSignature ? measure.newTimeSignature.denominator : timeSignature.denominator }).setStrict(false).addTickables(rightStaveNotes));
-        if (leftStaveNotes.length) voices.push(new Voice({ numBeats: measure.newTimeSignature ? measure.newTimeSignature.numerator : timeSignature.numerator, beatValue: measure.newTimeSignature ? measure.newTimeSignature.denominator : timeSignature.denominator }).setStrict(false).addTickables(leftStaveNotes));
+        if (rightStaveNotes.length) voices.push(new Voice({ numBeats: measure.effectiveTimeSignature.numerator, beatValue: measure.effectiveTimeSignature.denominator }).setStrict(false).addTickables(rightStaveNotes));
+        if (leftStaveNotes.length) voices.push(new Voice({ numBeats: measure.effectiveTimeSignature.numerator, beatValue: measure.effectiveTimeSignature.denominator }).setStrict(false).addTickables(leftStaveNotes));
         
         if (voices.length) {
           new Formatter().joinVoices(voices).format(voices, Math.max(1, measure.width - 40));
@@ -398,24 +450,43 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
       });
       
       octaveLines.forEach(lineInfo => {
-          // Check if context has svg element before trying to append
           const svgContext = (ctx as any).svg;
-          if (svgContext && svgContext.appendChild) { // Ensure svgContext and appendChild exist
+          if (svgContext && svgContext.appendChild) {
+            const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
             const lineEl = document.createElementNS('http://www.w3.org/2000/svg', 'line');
             lineEl.setAttribute('x1', `${lineInfo.startX}`);
             lineEl.setAttribute('y1', `${lineInfo.startY}`);
             lineEl.setAttribute('x2', `${lineInfo.endX}`);
-            lineEl.setAttribute('y2', `${lineInfo.endY}`);
-            lineEl.setAttribute('style', 'stroke:#555; stroke-width:1.5');
-            
+            lineEl.setAttribute('y2', `${lineInfo.startY}`);
+            lineEl.setAttribute('style', 'stroke:#333; stroke-width:1.5; stroke-dasharray: 4, 3;');
             const textEl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
             textEl.setAttribute('x', `${lineInfo.startX + 5}`);
             textEl.setAttribute('y', `${lineInfo.type === '8va' ? lineInfo.startY - 8 : lineInfo.startY + 18}`);
-            textEl.setAttribute('style', 'fill:#555; font-size:14px; font-style:italic;');
+            textEl.setAttribute('style', 'fill:#333; font-size:16px; font-style:italic; font-family: "Times New Roman", serif;');
             textEl.textContent = lineInfo.type;
-            
-            svgContext.appendChild(lineEl);
-            svgContext.appendChild(textEl);
+            const tickEl = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            tickEl.setAttribute('x1', `${lineInfo.endX}`);
+            tickEl.setAttribute('y1', `${lineInfo.startY}`);
+            const tickY2 = lineInfo.type === '8va' ? lineInfo.startY + 12 : lineInfo.startY - 12;
+            tickEl.setAttribute('x2', `${lineInfo.endX}`);
+            tickEl.setAttribute('y2', `${tickY2}`);
+            tickEl.setAttribute('style', 'stroke:#333; stroke-width:1.5;');
+            group.appendChild(lineEl);
+            group.appendChild(textEl);
+            group.appendChild(tickEl);
+            svgContext.appendChild(group);
+          }
+      });
+
+      tempoMarkings.forEach(mark => {
+          const svgContext = (ctx as any).svg;
+          if (svgContext && svgContext.appendChild) {
+              const textEl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+              textEl.setAttribute('x', `${mark.x + 5}`);
+              textEl.setAttribute('y', `${mark.y}`);
+              textEl.setAttribute('style', 'fill:#333; font-size:18px; font-weight:bold; font-family: "Times New Roman", serif;');
+              textEl.textContent = `♩ = ${Math.round(mark.bpm)}`;
+              svgContext.appendChild(textEl);
           }
       });
 
@@ -428,15 +499,23 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
 
     } catch (error) {
       console.error("VexFlow Rendering Error:", error);
-      if (wrapper) wrapper.innerHTML = '';
-      notePositionsRef.current.clear();
+      // NEW: Clear div children on error as well
+      while (renderContainer.lastChild) {
+        renderContainer.removeChild(renderContainer.lastChild);
+      }
+      notePositionsRef.current.clear(); 
     }
 
     return () => {
-      if (wrapper) wrapper.innerHTML = '';
+      if (renderContainer) {
+        // NEW: Cleanup on unmount - clear div children
+        while (renderContainer.lastChild) {
+          renderContainer.removeChild(renderContainer.lastChild);
+        }
+      }
       notePositionsRef.current.clear(); 
     };
-  }, [vexFlowData, width, height, totalContentWidth, keySignature, timeSignature, onLayoutRendered]);
+  }, [vexFlowData, width, height, totalContentWidth, keySignature, timeSignature, onLayoutRendered, rightHandColor, leftHandColor, playbackTempoMultiplier]);
 
 
   // === Calculate Highlights (HTML Overlay) ===
@@ -447,40 +526,24 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
     }
 
     const newHighlights: HighlightInfo[] = [];
-    const colorPriority = { [USER_PLAY_COLOR]: 2, [SYSTEM_PLAY_COLOR]: 1 };
     
-    const chordTimeMap = new Map<number, { notes: ActiveMidiNoteInfo[], highestPriority: number, color: string }>();
     activePlaybackNotesInfo.forEach(activeInfo => {
-        const time = activeInfo.timeMs;
-        if (!chordTimeMap.has(time)) {
-            chordTimeMap.set(time, { notes: [], highestPriority: 0, color: '' });
+        let highlightColor: string = DEFAULT_NOTE_COLOR; // Fallback
+
+        // Determine base color based on hand
+        const baseHandColor = activeInfo.hand === 'left' ? leftHandColor : rightHandColor;
+
+        // Apply status-specific logic
+        if (activeInfo.status === 'user_played') {
+            highlightColor = baseHandColor; // User played, use hand color
+        } else if (activeInfo.status === 'playing' || activeInfo.status === 'waiting') {
+            highlightColor = baseHandColor; // System playing or waiting, use hand color
         }
-        chordTimeMap.get(time)!.notes.push(activeInfo);
-    });
-
-    chordTimeMap.forEach(group => {
-        group.notes.forEach(note => {
-            let priority = 0;
-            let color = '';
-            if (note.status === 'user_played') {
-                priority = colorPriority[USER_PLAY_COLOR];
-                color = USER_PLAY_COLOR;
-            } else if (note.status === 'playing' || note.status === 'waiting') {
-                priority = colorPriority[SYSTEM_PLAY_COLOR];
-                color = SYSTEM_PLAY_COLOR;
-            }
-            if (priority > group.highestPriority) {
-                group.highestPriority = priority;
-                group.color = color;
-            }
-        });
-    });
-
-    vexFlowData.fragments.forEach(fragment => {
-        const activeInfo = activePlaybackNotesInfo.get(fragment.originalNoteId);
-        if (activeInfo) {
-            const chordGroup = chordTimeMap.get(activeInfo.timeMs);
-            if (chordGroup && chordGroup.color) {
+        
+        // Find fragments for this note and apply highlight
+        const fragmentsForNote = vexFlowData.noteIdToFragmentsMap.get(activeInfo.noteId);
+        if (fragmentsForNote) {
+            fragmentsForNote.forEach(fragment => {
                 const position = notePositionsRef.current.get(fragment.fragmentId);
                 if (position) {
                     newHighlights.push({
@@ -489,16 +552,16 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
                         y: position.getY(),
                         w: position.getW(),
                         h: position.getH(),
-                        color: chordGroup.color,
+                        color: highlightColor, // Use the determined highlightColor
                     });
                 }
-            }
+            });
         }
     });
 
     setHighlights(newHighlights);
 
-  }, [activePlaybackNotesInfo, vexFlowData, renderedLayoutId]);
+  }, [activePlaybackNotesInfo, vexFlowData, renderedLayoutId, rightHandColor, leftHandColor]);
 
 
   // === Auto Scroll & Cursor ===
@@ -567,6 +630,9 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
         className="sheet-content-wrapper"
         style={{ width: `${totalContentWidth}px`, willChange: 'transform' }}
       >
+        {/* FIX: Changed the VexFlow rendering target to a div element. */}
+        {/* VexFlow's Renderer will now create and manage its own SVG element inside this div. */}
+        <div ref={vexflowRenderDivRef} style={{ width: totalContentWidth, height: height }}></div>
         {highlights.map(h => (
             <div
                 key={h.key}
@@ -578,7 +644,7 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
                     height: `${h.h}px`,
                     backgroundColor: h.color,
                     borderRadius: '50%',
-                    opacity: 0.6,
+                    opacity: 0.5, // Slightly more transparent to see note head better
                     pointerEvents: 'none',
                     zIndex: 5,
                 }}

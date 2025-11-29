@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { ViewMode, WaitMode, MetronomeMode, ExtendedResult } from '../types'; 
 import VisualMetronome from './VisualMetronome';
@@ -27,6 +26,7 @@ interface TopBarProps {
   onSheetMusicZoomChange: (zoom: number) => void;
   analysisResult: ExtendedResult | null;
   metronomeBeat: 'strong' | 'weak' | null; // New prop for visual metronome
+  totalWaitTimeMs?: number; // New prop for Retical mode wait timer
 }
 
 const TopBar: React.FC<TopBarProps> = (props) => {
@@ -35,7 +35,7 @@ const TopBar: React.FC<TopBarProps> = (props) => {
     waitMode, metronomeMode, onCycleMetronomeMode, isMetronomeAvailable,
     hitCount, errorCount, totalNoteCount, currentTimeMs, totalDurationMs,
     viewMode, noteSpeedMultiplier, onNoteSpeedMultiplierChange, sheetMusicZoom,
-    onSheetMusicZoomChange, analysisResult, metronomeBeat
+    onSheetMusicZoomChange, analysisResult, metronomeBeat, totalWaitTimeMs
   } = props;
 
   const iconButtonStyles = "p-2 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-300 focus:ring-opacity-75 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed";
@@ -49,6 +49,13 @@ const TopBar: React.FC<TopBarProps> = (props) => {
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
     return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  };
+
+  const formatWaitTime = (ms: number) => {
+    if (isNaN(ms) || ms <= 0) return '+0.000';
+    const seconds = Math.floor(ms / 1000);
+    const milliseconds = Math.floor(ms % 1000);
+    return `+${seconds}.${String(milliseconds).padStart(3, '0')}`;
   };
 
   const adjustZoom = (isFalling: boolean, increment: boolean) => {
@@ -68,7 +75,7 @@ const TopBar: React.FC<TopBarProps> = (props) => {
     const value = isFalling ? noteSpeedMultiplier : sheetMusicZoom;
     return (
         <div className="flex items-center gap-2" title={isPlaying ? "Pause to adjust zoom" : (isFalling ? "Note Falling Speed" : "Sheet Music Zoom")}>
-            <span className="text-xs font-medium text-slate-300 hidden sm:inline">{isFalling ? 'Speed' : 'Zoom'}</span>
+            <span className="text-xs font-medium text-slate-300 hidden sm:inline">{isFalling ? 'Zoom' : 'Zoom'}</span>
             <button onClick={() => adjustZoom(isFalling, false)} disabled={!isFileLoaded || isPlaying} className={`${iconButtonStyles} ${secondaryButtonStyles} w-7 h-7`} aria-label="Decrease zoom">−</button>
             <span className="text-sm font-semibold w-12 text-center tabular-nums text-white">
               {Math.round(value * 100)}%
@@ -99,8 +106,13 @@ const TopBar: React.FC<TopBarProps> = (props) => {
       <div className="flex-grow text-center px-2 flex flex-col items-center justify-center gap-1 min-w-0">
         {fileName && <p className="text-sm font-semibold truncate max-w-full" title={fileName}>{fileName}</p>}
         {isFileLoaded && (
-          <div className="text-sm font-mono text-slate-200 tabular-nums">
-            {formatTime(currentTimeMs)} / {formatTime(totalDurationMs)}
+          <div className="text-sm font-mono text-slate-200 tabular-nums flex items-center gap-2 justify-center">
+            <span>{formatTime(currentTimeMs)} / {formatTime(totalDurationMs)}</span>
+            {waitMode === 'retical' && totalWaitTimeMs !== undefined && (
+              <span className="text-red-400 font-bold ml-1" title="Total Pause Duration">
+                {formatWaitTime(totalWaitTimeMs)}
+              </span>
+            )}
           </div>
         )}
       </div>

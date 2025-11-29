@@ -10,18 +10,20 @@ const DifficultyAnalysis: React.FC<DifficultyAnalysisProps> = ({ analysisResult 
   const { difficultyLevel, performanceScore, parameters, meta } = analysisResult;
 
   const getDifficultyColor = (level: number) => {
-    if (level < 4) return 'bg-green-500 text-green-900'; // Beginner
-    if (level < 7) return 'bg-yellow-400 text-yellow-900'; // Intermediate
-    if (level < 10) return 'bg-red-500 text-red-100'; // Advanced
-    if (level < 13) return 'bg-purple-600 text-purple-100'; // Virtuoso
-    return 'bg-fuchsia-700 text-fuchsia-100'; // Legendary
+    if (level < 3) return 'bg-blue-400 text-blue-900'; // Novice
+    if (level < 4) return 'bg-green-400 text-green-900'; // Beginner
+    if (level < 6) return 'bg-yellow-400 text-yellow-900'; // Intermediate
+    if (level < 8) return 'bg-red-500 text-red-100'; // Advanced
+    if (level < 10) return 'bg-purple-600 text-purple-100'; // Virtuoso
+    return 'bg-fuchsia-900 text-fuchsia-100'; // Legendary
   };
 
   const getDifficultyLabel = (level: number) => {
+    if (level < 3) return 'Novice';
     if (level < 4) return 'Beginner';
-    if (level < 7) return 'Intermediate';
-    if (level < 10) return 'Advanced';
-    if (level < 13) return 'Virtuoso';
+    if (level < 6) return 'Intermediate';
+    if (level < 8) return 'Advanced';
+    if (level < 10) return 'Virtuoso';
     return 'Legendary';
   };
 
@@ -78,45 +80,20 @@ const DifficultyAnalysis: React.FC<DifficultyAnalysisProps> = ({ analysisResult 
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-              {/* Column 1: Core Parameters */}
-              <div>
-                <h3 className="text-lg font-semibold text-slate-200 border-b border-slate-600 pb-1 mb-2">Core Parameters</h3>
-                <div className="space-y-1">
-                    <StatItem label="Density (Peak)" value={parameters.density.toFixed(2)} unit="n/s" />
-                    <StatItem label="Polyphony (Avg)" value={parameters.polyphony.toFixed(2)} unit="notes" />
-                    <StatItem label="Total NPS" value={parameters.totalNps.toFixed(2)} unit="n/s" />
-                    <StatItem label="Physical Effort" value={`${(parameters.physicalEffort * 100).toFixed(0)}%`} />
-                    <StatItem label="Range Intensity" value={`${(parameters.rangeIntensity * 100).toFixed(0)}%`} />
-                    <StatItem label="Chord Power" value={parameters.chordPower.toFixed(2)} />
-                </div>
-              </div>
-              {/* Column 2: Complexity */}
-              <div>
-                <h3 className="text-lg font-semibold text-slate-200 border-b border-slate-600 pb-1 mb-2">Complexity</h3>
-                <div className="space-y-1">
-                    <StatItem label="Pattern Complexity" value={`${(parameters.patternComplexity * 100).toFixed(0)}%`} />
-                    <StatItem label="Chord Mobility" value={`${(parameters.chordMobility * 100).toFixed(0)}%`} />
-                    <StatItem label="Arpeggio Virtuosity" value={`${(parameters.arpeggioVirtuosity * 100).toFixed(0)}%`} />
-                    <StatItem label="Repetition Penalty" value={`${(parameters.patternRepPenalty * 100).toFixed(0)}%`} />
-                    <StatItem label="Irregularity Index" value={`${(meta.irregularityIndex * 100).toFixed(0)}%`} />
-                    <StatItem label="Trill Ratio" value={parameters.trillRatio.toFixed(2)} />
-                </div>
-              </div>
               {/* Full width row for meta stats */}
               <div className="md:col-span-2">
                 <h3 className="text-lg font-semibold text-slate-200 border-b border-slate-600 pb-1 mb-2 mt-4">Meta Statistics</h3>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-1">
-                    <StatItem label="Duration" value={meta.durationSec.toFixed(1)} unit="s" />
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-x-8 gap-y-1">
                     <StatItem label="Total Notes" value={meta.totalNotes} />
-                    <StatItem label="Highest Note" value={meta.highestNote} unit="MIDI" />
-                    <StatItem label="Lowest Note" value={meta.lowestNote} unit="MIDI" />
-                    <StatItem label="Avg Note Gap" value={meta.avgGapMs.toFixed(1)} unit="ms" />
-                    <StatItem label="Gap Variance" value={meta.gapVariance.toFixed(1)} unit="ms" />
-                    <StatItem label="Peak Speed" value={meta.peakSpeedNps?.toFixed(2)} unit="n/s" />
-                    <StatItem label="Burst Sections" value={meta.burstSections} />
+                    <StatItem label="Duration" value={meta.durationSec.toFixed(1)} unit="s" />
+                    <StatItem label="Total NPS" value={parameters.totalNps.toFixed(2)} unit="n/s" />
                 </div>
               </div>
             </div>
+
+            <p className="text-sm text-slate-500 mt-8 text-center">
+              The scoring system isn’t perfectly accurate. It’s just for fun, so please don’t rely on it.
+            </p>
 
             <div className="mt-6 text-center">
               <button 

@@ -1,15 +1,17 @@
-
-
 import React, { useState, useCallback, useRef, useMemo, useEffect } from 'react';
-import { KeyPosition, PianoKeyDefinition, MidiNotePlaybackItem, ActiveMidiNoteInfo, MIDIInput, MIDIMessageEvent, MIDIAccess, MIDIOutput, TimeSignatureInfo, FileType, ExtendedResult, MidiAccessStatus, MetronomeMode, WaitMode, ViewMode, Screen, GameSettings, NoteLabelType, PracticeHand, ThemeSettings, PerformanceSummary } from './types';
+import { KeyPosition, PianoKeyDefinition, MidiNotePlaybackItem, ActiveMidiNoteInfo, MIDIInput, MIDIMessageEvent, MIDIAccess, MIDIOutput, TimeSignatureInfo, FileType, ExtendedResult, MidiAccessStatus, MetronomeMode, WaitMode, ViewMode, Screen, GameSettings, NoteLabelType, PracticeHand, ThemeSettings, PerformanceSummary, TempoEvent, DevicePreset, LayoutDimensions } from './types';
 import {
   PIANO_KEYS_CONFIG,
   BLACK_KEY_WIDTH_RATIO, BLACK_KEY_OFFSET_RATIO,
-  PROGRESS_BAR_HEIGHT_PX, WHITE_KEY_HEIGHT_PX, KEY_LABEL_AREA_HEIGHT_PX,
+  PROGRESS_BAR_HEIGHT_PX,
   HAND_SPLIT_MIDI_NOTE, NUM_WHITE_KEYS, CHORD_RECOGNITION_WINDOW_MS,
   BASE_PIXELS_PER_MILLISECOND,
   QWERTY_MINI_KEYBOARD_MAPPING, OCTAVE_DOWN_KEYS, OCTAVE_UP_KEYS,
-  DEFAULT_QWERTY_OCTAVE_SHIFT, MIN_QWERTY_OCTAVE_SHIFT, MAX_QWERTY_OCTAVE_SHIFT
+  DEFAULT_QWERTY_OCTAVE_SHIFT, MIN_QWERTY_OCTAVE_SHIFT, MAX_QWERTY_OCTAVE_SHIFT,
+  DEFAULT_MASTER_VOLUME, DEFAULT_METRONOME_VOLUME, DEFAULT_VIEW_MODE,
+  DEFAULT_NOTE_LABEL_TYPE, DEFAULT_SHOW_ONLY_MAJOR_RESTS, DEFAULT_SHOW_ONLY_MAJOR_NOTES,
+  DEFAULT_SHOW_QWERTY_SHORTCUTS, DEFAULT_HIDE_BAR_NAVIGATION_BUTTONS,
+  DEFAULT_THEME_SETTINGS, DEVICE_LAYOUTS
 } from './constants';
 import PianoKeyboard from './components/PianoKeyboard';
 import TopBar from './components/TopBar';
@@ -18,7 +20,8 @@ import MainMenu from './components/MainMenu';
 import SongSelection from './components/SongSelection';
 import ModeSelection from './components/ModeSelection';
 import Settings from './components/Settings';
-import { Midi } from '@tonejs/midi';
+import AuthModal from './AuthModal'; // Import AuthModal
+import AccountModal from './components/AccountModal'; // Import AccountModal
 import JSZip, { JSZipObject } from 'jszip';
 import { assignFingering } from './fingering';
 import { analyzeMidi } from './midiAnalysis';
@@ -26,38 +29,19 @@ import VexFlowSheetMusicView from './components/VexFlowSheetMusicView';
 import BarNavigationControls from './components/BarNavigationControls';
 import PerformanceSummaryModal from './components/PerformanceSummaryModal';
 import { FallingNotesArea } from './components/FallingNotesArea';
-import { getActiveKeySignature, getActiveTimeSignature } from './utils'; // Import getActiveTimeSignature
+import { getActiveKeySignature, getActiveTimeSignature, SignatureEvent } from './utils'; // Import getActiveTimeSignature and SignatureEvent
+import { AuthProvider, useAuth } from './AuthContext'; // Import AuthProvider and useAuth
+import { supabase } from './supabaseClient'; // Import supabase client
+import { 
+  parseMidiData, 
+  parseMusicXmlData, 
+  INITIAL_PLAYBACK_DELAY_MS, 
+  DEFAULT_TIME_SIGNATURE, 
+  DEFAULT_KEY_SIGNATURE,
+  DEFAULT_MUSICXML_TEMPO_BPM
+} from './midiParser'; 
+import Leaderboard from './components/Leaderboard';
 
-const INITIAL_PLAYBACK_DELAY_MS = 2000;
-const DEFAULT_PPQ = 480; // Common PPQ value
-const DEFAULT_TIME_SIGNATURE: TimeSignatureInfo = { numerator: 4, denominator: 4 };
-const DEFAULT_MUSICXML_TEMPO_BPM = 120;
-const DEFAULT_KEY_SIGNATURE = 'C';
-
-const MUSICXML_STEP_to_NOTE_OFFSET: { [key: string]: number } = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
-
-const FIFTHS_TO_KEY: { [key: string]: string } = {
-    '7': 'C#', '6': 'F#', '5': 'B', '4': 'E', '3': 'A', '2': 'D', '1': 'G', '0': 'C',
-    '-1': 'F', '-2': 'Bb', '-3': 'Eb', '-4': 'Ab', '-5': 'Db', '-6': 'Gb', '-7': 'Cb'
-};
-
-// --- MusicXML Helper Functions ---
-function musicXmlPitchToMidiNote(step: string, alter: number, octave: number): number {
-  let midi = 12 * (octave + 1); 
-  midi += MUSICXML_STEP_to_NOTE_OFFSET[step.toUpperCase()];
-  midi += alter;
-  return midi;
-}
-
-function musicXmlDurationToMs(durationValue: number, divisions: number, tempoBpm: number): number {
-  if (divisions === 0 || tempoBpm === 0) return 0;
-  const quarterNotes = durationValue / divisions;
-  const beatsPerMinute = tempoBpm;
-  const secondsPerBeat = 60 / beatsPerMinute;
-  const totalSeconds = quarterNotes * secondsPerBeat;
-  return Math.round(totalSeconds * 1000);
-}
-// --- End MusicXML Helper Functions ---
 
 const generateKeyPositions = (keysConfig: PianoKeyDefinition[], totalWidth: number): Map<string, KeyPosition> => {
   const positions = new Map<string, KeyPosition>();
@@ -111,49 +95,58 @@ interface MetronomeAudioNode {
   gainNode: GainNode;
 }
 
-interface TempoEvent {
-  timeMs: number; // Absolute time in milliseconds from song start (after initial rest, if any)
-  bpm: number;
-}
-
 interface ActiveAudioNode {
   source: AudioBufferSourceNode;
   gainNode: GainNode;
 }
 
 // --- Default Settings Constants ---
-const DEFAULT_MASTER_VOLUME = 0.5; // Changed from 0.8 to 0.5 as requested
-const DEFAULT_METRONOME_VOLUME = 0.5;
-const DEFAULT_VIEW_MODE: ViewMode = 'falling';
-const DEFAULT_NOTE_LABEL_TYPE: NoteLabelType = 'none';
-const DEFAULT_SHOW_ONLY_MAJOR_RESTS = false;
-const DEFAULT_SHOW_ONLY_MAJOR_NOTES = false;
-const DEFAULT_SHOW_QWERTY_SHORTCUTS = true;
-const DEFAULT_HIDE_BAR_NAVIGATION_BUTTONS = false;
-const DEFAULT_PIANO_SCALE = 1.0;
-const DEFAULT_PIANO_HORIZONTAL_OFFSET = 0;
-const DEFAULT_THEME_SETTINGS: ThemeSettings = {
-  rightHandColor: '#A855F7', // purple-500
-  leftHandColor: '#3B82F6',  // blue-500
-  fallingNotesBackgroundColor: '#000000',
-};
+// Moved to constants.ts for single source of truth
 // --- End Default Settings Constants ---
 
 
-const App: React.FC = () => {
+const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth hook
   // --- Screen & Flow Management ---
   const [currentScreen, setCurrentScreen] = useState<Screen>('mainMenu');
-  const [quitMessageVisible, setQuitMessageVisible] = useState(false);
   const [gameSettings, setGameSettings] = useState<GameSettings | null>(null);
   const [isLoadingContent, setIsLoadingContent] = useState(false); // NEW: State for loading overlay
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false); // NEW: Auth modal state
+  const [isAccountModalOpen, setIsAccountModalOpen] = useState(false); // NEW: Account modal state
+  const { session } = useAuth(); // Get session for ranked mode logic
+
+  // NEW: State for navigating to SongSelection with a specific online song pre-selected
+  const [selectedOnlineSongIdForNavigation, setSelectedOnlineSongIdForNavigation] = useState<string | null>(null);
 
   // --- UI Interaction State ---
-  const [userSustainedKeys, setUserSustainedKeys] = new useState<Set<string>>(new Set());
+  // FIX: Removed 'new' keyword from useState
+  // Fix: Initialize Set using a function to prevent potential issues with direct constructor calls in useState.
+  const [userSustainedKeys, setUserSustainedKeys] = useState<Set<string>>(() => new Set());
   const [userActiveKeys, setUserActiveKeys] = useState<Set<string>>(new Set());
   const [containerWidth, setContainerWidth] = useState(800);
   const contentAreaRef = useRef<HTMLDivElement>(null);
   const [contentAreaHeight, setContentAreaHeight] = useState(300);
+  // NEW: State to force re-render of VexFlowSheetMusicView when layout is known.
+  const [renderedLayoutId, setRenderedLayoutId] = useState(0);
 
+  // --- Device Layout Settings ---
+  const [devicePreset, setDevicePreset] = useState<DevicePreset>('desktop');
+  const [customWhiteKeyHeight, setCustomWhiteKeyHeight] = useState(DEVICE_LAYOUTS.desktop.whiteKeyHeight);
+  const [customBlackKeyHeight, setCustomBlackKeyHeight] = useState(DEVICE_LAYOUTS.desktop.blackKeyHeight);
+  const [customKeyLabelHeight, setCustomKeyLabelHeight] = useState(DEVICE_LAYOUTS.desktop.keyLabelHeight);
+  const [customMinWhiteKeyWidth, setCustomMinWhiteKeyWidth] = useState(DEVICE_LAYOUTS.desktop.minWhiteKeyWidth);
+
+  const layoutConfig: LayoutDimensions = useMemo(() => {
+      if (devicePreset === 'custom') {
+          return {
+              whiteKeyHeight: customWhiteKeyHeight,
+              blackKeyHeight: customBlackKeyHeight,
+              keyLabelHeight: customKeyLabelHeight,
+              minWhiteKeyWidth: customMinWhiteKeyWidth,
+          };
+      }
+      return DEVICE_LAYOUTS[devicePreset];
+  }, [devicePreset, customWhiteKeyHeight, customBlackKeyHeight, customKeyLabelHeight, customMinWhiteKeyWidth]);
+  
   // --- Audio State & Refs ---
   const audioContextRef = useRef<AudioContext | null>(null);
   const masterGainRef = useRef<GainNode | null>(null);
@@ -172,6 +165,8 @@ const App: React.FC = () => {
   const [currentFileType, setCurrentFileType] = useState<FileType>(FileType.UNKNOWN);
   const fileTypeRef = useRef<FileType>(FileType.UNKNOWN);
   useEffect(() => { fileTypeRef.current = currentFileType; }, [currentFileType]);
+  const [currentOnlineSongId, setCurrentOnlineSongId] = useState<string | null>(null); // NEW for ranked mode
+  const [isCurrentSongRanked, setIsCurrentSongRanked] = useState<boolean | null>(null); // NEW: Added state for ranked status
   
   // --- Playback State & Refs ---
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -187,16 +182,30 @@ const App: React.FC = () => {
   const activeNoteInstancesRef = useRef<Map<string, MidiNotePlaybackItem>>(new Map());
   // NEW: Ref to track if the user explicitly paused the game.
   const isUserPausedRef = useRef<boolean>(false); 
+  // NEW: Ref to track previous musical time for metronome visual beat.
+  const prevMusicalTimeRef = useRef<number>(0);
   
   // --- Wait Mode State & Refs ---
   const [notesCurrentlyWaitingFor, setNotesCurrentlyWaitingFor] = useState<Set<number>>(new Set());
-  const notesCurrentlyWaitingForRef = useRef<Set<number>>(new Set()); // Initialized with a Set
-  // Synchronize ref to state
-  useEffect(() => { notesCurrentlyWaitingForRef.current = notesCurrentlyWaitingFor; }, [notesCurrentlyWaitingFor]);
+  // FIX: Declare notesCurrentlyWaitingForRef using useRef
+  const notesCurrentlyWaitingForRef = useRef<Set<number>>(new Set());
+  
+  // NEW: Helper to synchronize state and ref to prevent race conditions
+  const updateNotesCurrentlyWaitingFor = useCallback((newSet: Set<number>) => {
+      setNotesCurrentlyWaitingFor(newSet);
+      notesCurrentlyWaitingForRef.current = newSet;
+  }, []);
+
   const waitingBlockTimeRef = useRef<number | null>(null);
   const presatisfiedNoteIdsRef = useRef<Set<string>>(new Set());
-  const WAIT_MODE_TOLERANCE_MS = 1000; // Increased to 1000ms for 'early hit' and 'error detection context' as per user request
+  const lastPlayerInputRealTimeRef = useRef<number>(0); // NEW: For lenient mode
   const chordRecognitionTimeoutIdRef = useRef<number | null>(null);
+  const rhythmChordBufferRef = useRef<Set<number>>(new Set());
+
+  // --- Wait Time Tracking (Retical Mode) ---
+  const [totalWaitTimeMs, setTotalWaitTimeMs] = useState<number>(0);
+  const accumulatedWaitTimeRef = useRef<number>(0);
+  const waitStartTimeRef = useRef<number | null>(null);
   
   // --- Music Metadata State ---
   const [initialTimeSignature, setInitialTimeSignature] = useState<TimeSignatureInfo>(DEFAULT_TIME_SIGNATURE); // Rename to initial
@@ -218,11 +227,11 @@ const App: React.FC = () => {
   const [hitCount, setHitCount] = useState<number>(0);
   // FIX: Declare hitCountRef using useRef
   const hitCountRef = useRef<number>(0);
-  hitCountRef.current = hitCount;
+  useEffect(() => { hitCountRef.current = hitCount; }, [hitCount]); // Sync ref with state
   const [errorCount, setErrorCount] = useState<number>(0);
   // FIX: Declare errorCountRef using useRef
   const errorCountRef = useRef<number>(0);
-  errorCountRef.current = errorCount;
+  useEffect(() => { errorCountRef.current = errorCount; }, [errorCount]); // Sync ref with state
   const [totalNoteCountForGame, setTotalNoteCountForGame] = useState<number>(0);
   const [analysisResult, setAnalysisResult] = useState<ExtendedResult | null>(null);
   const hitNoteIdsRef = useRef<Set<string>>(new Set());
@@ -232,7 +241,9 @@ const App: React.FC = () => {
   const [performanceSummary, setPerformanceSummary] = useState<PerformanceSummary | null>(null); // Use new interface
 
   // --- MIDI Device State ---
-  const [midiInputs, setMidiInputs] = useState<Map<string, MIDIInput>>(new Map());
+  // FIX: Only a void function can be called with the 'new' keyword.
+  const [midiInputs, setMidiInputs] = useState<Map<string, MIDIInput>>(() => new Map());
+  // FIX: Corrected useState initialization for midiOutputs
   const [midiOutputs, setMidiOutputs] = useState<Map<string, MIDIOutput>>(new Map());
   const [selectedMidiInputId, setSelectedMidiInputId] = useState<string | null>(null);
   const [selectedMidiOutputId, setSelectedMidiOutputId] = useState<string | null>(null);
@@ -251,64 +262,33 @@ const App: React.FC = () => {
   const [metronomeVolume, setMetronomeVolume] = useState(DEFAULT_METRONOME_VOLUME); // Changed to use constant
   const [themeSettings, setThemeSettings] = useState<ThemeSettings>(DEFAULT_THEME_SETTINGS); // Changed to use constant
   // FIX: Renamed state variable from showOnlyMajorRusta to showOnlyMajorRests to match prop name in Settings.tsx and VexFlowSheetMusicView.tsx.
-  const [showOnlyMajorRests, setShowOnlyMajorRests] = useState<boolean>(DEFAULT_SHOW_ONLY_MAJOR_RESTS); // Changed to use constant
+  // const [showOnlyMajorRests, setShowOnlyMajorRests] = useState<boolean>(DEFAULT_SHOW_ONLY_MAJOR_RESTS); // REMOVED
   const [showOnlyMajorNotes, setShowOnlyMajorNotes] = useState<boolean>(DEFAULT_SHOW_ONLY_MAJOR_NOTES); // Changed to use constant
+  // NEW: State variables for QWERTY shortcuts and Bar Navigation Buttons.
+  const [showQwertyShortcuts, setShowQwertyShortcuts] = useState<boolean>(DEFAULT_SHOW_QWERTY_SHORTCUTS);
+  const [hideBarNavigationButtons, setHideBarNavigationButtons] = useState<boolean>(DEFAULT_HIDE_BAR_NAVIGATION_BUTTONS);
 
   // NEW: QWERTY Keyboard State
   const [qwertyCurrentOctaveShift, setQwertyCurrentOctaveShift] = useState<number>(DEFAULT_QWERTY_OCTAVE_SHIFT);
   const qwertyActiveKeysRef = useRef<Set<string>>(new Set());
+
+  // NEW: Playback tempo multiplier for actual game
+  const [playbackTempoMultiplier, setPlaybackTempoMultiplier] = useState<number>(1);
+  // NEW: Playback tempo multiplier for preview in ModeSelection
+  const [previewPlaybackTempoMultiplier, setPreviewPlaybackTempoMultiplier] = useState<number>(1);
+
+  // NEW: Memoized map for MidiNotePlaybackItem name property
+  const midiNoteToNameMap = useMemo(() => {
+    const map = new Map<number, string>();
+    PIANO_KEYS_CONFIG.forEach(key => map.set(key.midiNote, key.name));
+    return map;
+  }, []);
+
   const noteNameToKeyDefMap = useMemo(() => {
     const map = new Map<string, PianoKeyDefinition>();
     PIANO_KEYS_CONFIG.forEach(key => map.set(key.name, key));
     return map;
   }, []);
-
-  // NEW: Setting for QWERTY shortcuts, default to true
-  const [showQwertyShortcuts, setShowQwertyShortcuts] = useState(DEFAULT_SHOW_QWERTY_SHORTCUTS); // Changed to use constant
-  // NEW: Setting for hiding bar navigation buttons, default to false
-  const [hideBarNavigationButtons, setHideBarNavigationButtons] = useState(DEFAULT_HIDE_BAR_NAVIGATION_BUTTONS); // Changed to use constant
-
-  // NEW: Piano scaling and offset states
-  const [pianoScale, setPianoScale] = useState<number>(DEFAULT_PIANO_SCALE); // Changed to use constant
-  const [pianoHorizontalOffset, setPianoHorizontalOffset] = useState<number>(DEFAULT_PIANO_HORIZONTAL_OFFSET); // Changed to use constant
-
-  const [renderedLayoutId, setRenderedLayoutId] = useState(0); // NEW: For VexFlow re-render detection
-
-  const prevMusicalTimeRef = useRef<number>(0);
-
-  // --- Derived State & Memos ---
-  const waitMode = gameSettings?.waitMode ?? 'off';
-  const playbackTempoMultiplier = gameSettings?.playbackTempoMultiplier ?? 1;
-
-  // New state for ModeSelection's live preview of playbackTempoMultiplier
-  const [previewPlaybackTempoMultiplier, setPreviewPlaybackTempoMultiplier] = useState<number>(1);
-
-  const notesForGame = useMemo(() => {
-    if (!gameSettings || gameSettings.practiceHand === 'both') return playbackNotes;
-    return playbackNotes.filter(note => note.hand === gameSettings.practiceHand);
-  }, [playbackNotes, gameSettings]);
-
-  const MIN_WHITE_KEY_WIDTH_PX = 23;
-  const PIANO_MIN_WIDTH_PX = NUM_WHITE_KEYS * MIN_WHITE_KEY_WIDTH_PX;
-  const PIANO_MAX_WIDTH_PX = 2500;
-
-  // Base piano width, clamped by min/max and container size
-  const baseCalculatedPianoWidth = useMemo(() => {
-    if (containerWidth <= 0) return 0;
-    return Math.max(PIANO_MIN_WIDTH_PX, Math.min(PIANO_MAX_WIDTH_PX, containerWidth));
-  }, [containerWidth]);
-
-  // Scaled piano width applying the user's zoom factor
-  const scaledPianoWidth = useMemo(() => {
-    return baseCalculatedPianoWidth * pianoScale;
-  }, [baseCalculatedPianoWidth, pianoScale]);
-
-  const keyPositionsMap = useMemo(() => {
-      if (scaledPianoWidth <= 0) return new Map();
-      return generateKeyPositions(PIANO_KEYS_CONFIG, scaledPianoWidth);
-  }, [scaledPianoWidth]);
-
-  const midiNoteToNameMap = useMemo(() => new Map(PIANO_KEYS_CONFIG.map(k => [k.midiNote, k.name])), []);
 
   // NEW: Map MIDI note to PianoKeyDefinition for QWERTY input handling
   const midiNoteToKeyDefMap = useMemo(() => {
@@ -316,6 +296,41 @@ const App: React.FC = () => {
     PIANO_KEYS_CONFIG.forEach(key => map.set(key.midiNote, key));
     return map;
   }, []);
+
+  // NEW: Memoized `notesForGame` derived from `playbackNotes` and `gameSettings.practiceHand`
+  const notesForGame = useMemo(() => {
+    if (!gameSettings?.practiceHand || !playbackNotes) {
+      return playbackNotes; // If no settings or no notes, return all
+    }
+    if (gameSettings.practiceHand === 'both') {
+      return playbackNotes;
+    }
+    return playbackNotes.filter(note => note.hand === gameSettings.practiceHand);
+  }, [playbackNotes, gameSettings?.practiceHand]);
+
+  // NEW: Memoized piano key positions map
+  const keyPositionsMap = useMemo(() => {
+    // Only generate positions if width > 0 to avoid division by zero
+    if (containerWidth <= 0) return new Map<string, KeyPosition>();
+
+    const whiteKeyWidth = containerWidth / NUM_WHITE_KEYS; // Use NUM_WHITE_KEYS from constants
+    // If the calculated whiteKeyWidth is smaller than minWhiteKeyWidth, adjust containerWidth for proper scaling
+    const adjustedContainerWidth = Math.max(containerWidth, layoutConfig.minWhiteKeyWidth * NUM_WHITE_KEYS);
+
+    return generateKeyPositions(PIANO_KEYS_CONFIG, adjustedContainerWidth);
+  }, [containerWidth, layoutConfig]);
+
+  // NEW: Memoized base calculated piano width
+  const baseCalculatedPianoWidth = useMemo(() => {
+    if (!keyPositionsMap || keyPositionsMap.size === 0) return containerWidth; // Fallback
+    const maxWhiteKeyX = Array.from(keyPositionsMap.values())
+        .filter(kp => kp.type === 'white')
+        .reduce((max, kp) => Math.max(max, kp.x + kp.width), 0);
+    return maxWhiteKeyX;
+  }, [keyPositionsMap, containerWidth]);
+
+  // NEW: Memoized `waitMode` from gameSettings
+  const waitMode: WaitMode = gameSettings?.waitMode || 'strict';
 
 
   const isMetronomeAvailable = useMemo(() => {
@@ -327,11 +342,6 @@ const App: React.FC = () => {
     const maxTime = playbackNotes.reduce((max, note) => Math.max(max, note.timeMs + note.durationMs), 0);
     return maxTime;
   }, [playbackNotes]);
-
-  // Dynamically determine the active key signature for falling notes and metronome
-  const activeKeySignature = useMemo(() => {
-    return getActiveKeySignature(musicalCurrentTimeMs, signatureEvents, initialKeySignature);
-  }, [musicalCurrentTimeMs, signatureEvents, initialKeySignature]);
 
   // The analysis result is recalculated when playback speed changes.
   useEffect(() => {
@@ -345,7 +355,7 @@ const App: React.FC = () => {
       durationMs: note.durationMs / playbackTempoMultiplier,
     }));
     const effectiveDurationMs = originalTotalMusicalDurationMs / playbackTempoMultiplier;
-    setAnalysisResult(analyzeMidi(scaledNotes, effectiveDurationMs));
+    setAnalysisResult(analyzeMidi(scaledNotes, effectiveDurationMs, undefined, originalTotalMusicalDurationMs));
   }, [playbackNotes, originalTotalMusicalDurationMs, playbackTempoMultiplier]);
 
   // Memo for analysis result used in ModeSelection preview
@@ -357,7 +367,7 @@ const App: React.FC = () => {
       durationMs: note.durationMs / previewPlaybackTempoMultiplier,
     }));
     const effectiveDurationMs = originalTotalMusicalDurationMs / previewPlaybackTempoMultiplier;
-    return analyzeMidi(scaledNotes, effectiveDurationMs);
+    return analyzeMidi(scaledNotes, effectiveDurationMs, undefined, originalTotalMusicalDurationMs);
   }, [playbackNotes, originalTotalMusicalDurationMs, previewPlaybackTempoMultiplier]);
 
   // Define the callback function to update previewPlaybackTempoMultiplier
@@ -366,451 +376,14 @@ const App: React.FC = () => {
   }, []);
 
   // --- Start File Parsers ---
-  const parseMidiData = useCallback(async (arrayBuffer: ArrayBuffer): Promise<{
-    notes: MidiNotePlaybackItem[],
-    timeSignature: TimeSignatureInfo,
-    keySignature: string,
-    initialTempoBpm: number,
-    tempoEvents: TempoEvent[],
-    barLinesMs: number[],
-    signatureEvents: SignatureEvent[]
-  }> => {
-      const midi = new Midi(arrayBuffer);
-
-      // Remove sustain pedal events (CC 64) to ignore pedal effect on note duration.
-      midi.tracks.forEach(track => {
-        // The key for control changes is a string of the CC number.
-        delete track.controlChanges['64'];
-      });
-
-      // Time Signature
-      // Default to 4/4 if not present at the beginning
-      // Sort time signatures first to ensure we pick the one at tick 0 correctly
-      const sortedTimeSignatures = [...midi.header.timeSignatures].sort((a, b) => a.ticks - b.ticks);
-      
-      let initialTimeSignature = DEFAULT_TIME_SIGNATURE;
-      if (sortedTimeSignatures.length > 0 && sortedTimeSignatures[0].ticks === 0) {
-         initialTimeSignature = { 
-            numerator: sortedTimeSignatures[0].timeSignature[0], 
-            denominator: sortedTimeSignatures[0].timeSignature[1] 
-         };
-      }
-      
-      const keySignature = midi.header.keySignatures[0]?.key ?? DEFAULT_KEY_SIGNATURE;
-      const initialTempoBpm = midi.header.tempos[0] ? midi.header.tempos[0].bpm : 120;
-  
-      const tempoEvents: TempoEvent[] = midi.header.tempos.map(t => ({
-          timeMs: Math.round((t.time ?? 0) * 1000) + INITIAL_PLAYBACK_DELAY_MS,
-          bpm: t.bpm
-      }));
-      
-      if (tempoEvents.length === 0) {
-          tempoEvents.push({ timeMs: INITIAL_PLAYBACK_DELAY_MS, bpm: 120 });
-      } else if (tempoEvents[0].timeMs > INITIAL_PLAYBACK_DELAY_MS) {
-          tempoEvents.unshift({ timeMs: INITIAL_PLAYBACK_DELAY_MS, bpm: tempoEvents[0].bpm });
-      } else {
-           tempoEvents[0].timeMs = INITIAL_PLAYBACK_DELAY_MS;
-      }
-
-      // Barline Calculation
-      const barLinesMs: number[] = [];
-      if (midi.durationTicks > 0) {
-        const ppq = midi.header.ppq;
-        
-        // Use sorted time signatures
-        const timeSignatures = [...sortedTimeSignatures];
-        
-        // Ensure we have a starting TS at tick 0
-        if (timeSignatures.length === 0 || timeSignatures[0].ticks > 0) {
-            timeSignatures.unshift({
-                ticks: 0,
-                timeSignature: [4, 4],
-                measures: 0
-            } as any);
-        }
-
-        let currentTick = 0;
-        let tsIndex = 0;
-        
-        // Generate barlines
-        while (currentTick < midi.durationTicks) {
-             // Add barline for current tick
-             barLinesMs.push(Math.round(midi.header.ticksToSeconds(currentTick) * 1000) + INITIAL_PLAYBACK_DELAY_MS);
-             
-             // Check if we need to update active TS
-             // Move tsIndex forward if the NEXT TS event has been reached or passed
-             while (tsIndex < timeSignatures.length - 1 && timeSignatures[tsIndex + 1].ticks <= currentTick) {
-                 tsIndex++;
-             }
-             
-             const activeTs = timeSignatures[tsIndex];
-             const num = activeTs.timeSignature[0];
-             const den = activeTs.timeSignature[1];
-             
-             const ticksPerMeasure = ppq * num * (4 / den);
-             
-             if (ticksPerMeasure <= 0) break; // Avoid infinite loop
-             
-             // Advance to next bar
-             currentTick += ticksPerMeasure;
-        }
-        // Add final barline at or after end?
-        barLinesMs.push(Math.round(midi.header.ticksToSeconds(currentTick) * 1000) + INITIAL_PLAYBACK_DELAY_MS);
-      }
-      
-      // Signature Change Events for VexFlow
-      const signatureEvents: SignatureEvent[] = [];
-      // Use sorted time signatures for consistency
-      sortedTimeSignatures.forEach(ts => {
-        if (ts.ticks >= 0) { // Allow tick 0 events
-          signatureEvents.push({
-            timeMs: Math.round(midi.header.ticksToSeconds(ts.ticks) * 1000) + INITIAL_PLAYBACK_DELAY_MS,
-            time: { numerator: ts.timeSignature[0], denominator: ts.timeSignature[1] }
-          });
-        }
-      });
-      midi.header.keySignatures.forEach(ks => {
-        if (ks.ticks >= 0) {
-          signatureEvents.push({
-            timeMs: Math.round(midi.header.ticksToSeconds(ks.ticks) * 1000) + INITIAL_PLAYBACK_DELAY_MS,
-            key: ks.key
-          });
-        }
-      });
-  
-      const rawNotes: Omit<MidiNotePlaybackItem, 'noteId'>[] = [];
-      midi.tracks.forEach((track, trackIndex) => {
-          track.notes.forEach(note => {
-              const noteName = midiNoteToNameMap.get(note.midi);
-              if (noteName) {
-                  let hand: 'left' | 'right';
-                  // Use track-based assignment for multi-track files, as requested.
-                  if (midi.tracks.length > 1) {
-                      if (trackIndex === 0) { // Instrument 1
-                          hand = 'right'; 
-                      } else if (trackIndex === 1) { // Instrument 2
-                          hand = 'left';
-                      } else {
-                          // Fallback for tracks 2, 3, etc.
-                          hand = note.midi < HAND_SPLIT_MIDI_NOTE ? 'left' : 'right';
-                      }
-                  } else {
-                      // For single-track files, use the keyboard split.
-                      hand = note.midi < HAND_SPLIT_MIDI_NOTE ? 'left' : 'right';
-                  }
-
-                  rawNotes.push({
-                      midi: note.midi,
-                      timeMs: Math.round(note.time * 1000) + INITIAL_PLAYBACK_DELAY_MS,
-                      durationMs: Math.round(note.duration * 1000),
-                      name: noteName,
-                      pitchClass: note.pitch,
-                      velocity: note.velocity,
-                      hand: hand,
-                      originalTrackSourceInfo: `midi_track_${trackIndex}`,
-                      ticks: note.ticks,
-                      durationTicks: note.durationTicks
-                  });
-              }
-          });
-      });
-  
-      rawNotes.sort((a, b) => a.timeMs - b.timeMs);
-      
-      let counter = 0;
-      const notes: MidiNotePlaybackItem[] = rawNotes.map(n => ({
-        ...n,
-        noteId: `midi-${n.originalTrackSourceInfo}-${n.ticks}-${counter++}`
-      }));
-  
-      return { notes, timeSignature: initialTimeSignature, keySignature, initialTempoBpm, tempoEvents, barLinesMs, signatureEvents };
+  const parseMidiDataWrapper = useCallback(async (arrayBuffer: ArrayBuffer) => {
+    return parseMidiData(arrayBuffer, midiNoteToNameMap);
   }, [midiNoteToNameMap]);
 
-  const parseMusicXmlData = useCallback(async (xmlString: string): Promise<{
-      notes: MidiNotePlaybackItem[],
-      timeSignature: TimeSignatureInfo,
-      keySignature: string,
-      initialTempoBpm: number,
-      tempoEvents: TempoEvent[],
-      barLinesMs: number[],
-      signatureEvents: SignatureEvent[]
-  }> => {
-      const parser = new DOMParser();
-      const xmlDoc = parser.parseFromString(xmlString, "application/xml");
-      
-      if (xmlDoc.getElementsByTagName("parsererror").length > 0) {
-          console.error("MusicXML Parser Error:", xmlDoc.getElementsByTagName("parsererror")[0].textContent);
-          throw new Error("Failed to parse MusicXML: Invalid XML content.");
-      }
-  
-      let initialTimeSignature: TimeSignatureInfo | null = null;
-      let keySignature: string = DEFAULT_KEY_SIGNATURE;
-      let initialTempoBpm: number = DEFAULT_MUSICXML_TEMPO_BPM;
-      const rawNotes: Omit<MidiNotePlaybackItem, 'noteId'>[] = [];
-      const tempoEvents: TempoEvent[] = [];
-      const signatureEventsFromXml: SignatureEvent[] = [];
-      const barLineTimeSet = new Set<number>();
-      
-      const parts = Array.from(xmlDoc.getElementsByTagName('part'));
-  
-      parts.forEach((part, partIndex) => {
-          let cursorTicks = 0;
-          let cursorMs = 0;
-          let divisions = 1;
-          let currentTempoBpm = DEFAULT_MUSICXML_TEMPO_BPM;
-          const partId = part.getAttribute('id') || `P${partIndex + 1}`;
-
-          // --- Repeat Handling State ---
-          let repeatStartTick = 0;
-          let repeatStartMs = 0;
-          let notesInRepeatSection: Omit<MidiNotePlaybackItem, 'noteId'>[] = [];
-          let isInsideRepeat = false;
-          let repeatStartIndexInRawNotes = -1;
-          // --- End Repeat Handling State ---
-  
-          const measures = Array.from(part.getElementsByTagName('measure'));
-          measures.forEach(measure => {
-              if (partIndex === 0) {
-                barLineTimeSet.add(cursorMs);
-              }
-              const elements = Array.from(measure.children);
-              elements.forEach(element => {
-                  if (element.tagName === 'attributes') {
-                      const divisionsEl = element.getElementsByTagName('divisions')[0];
-                      if (divisionsEl) divisions = parseInt(divisionsEl.textContent || '1', 10);
-                      
-                      const timeEl = element.getElementsByTagName('time')[0];
-                      if (timeEl) {
-                          const beats = timeEl.getElementsByTagName('beats')[0]?.textContent;
-                          const beatType = timeEl.getElementsByTagName('beat-type')[0]?.textContent;
-                          if (beats && beatType) {
-                              const newTimeSig = { numerator: parseInt(beats, 10), denominator: parseInt(beatType, 10) };
-                              // FIX: Ensure initial time signature is set only once
-                              if (initialTimeSignature === null) {
-                                  initialTimeSignature = newTimeSig;
-                              }
-                              // Always push signature event, even at time 0, to ensure VexFlow picks it up correctly
-                              signatureEventsFromXml.push({ timeMs: cursorMs, time: newTimeSig });
-                          }
-                      }
-                      
-                      const keyEl = element.getElementsByTagName('key')[0];
-                      if (keyEl) {
-                          const fifths = keyEl.getElementsByTagName('fifths')[0]?.textContent;
-                          if (fifths && FIFTHS_TO_KEY[fifths]) {
-                              const newKeySig = FIFTHS_TO_KEY[fifths];
-                              if (cursorMs > 0) signatureEventsFromXml.push({ timeMs: cursorMs, key: newKeySig });
-                              keySignature = newKeySig;
-                          }
-                      }
-                  } else if (element.tagName === 'direction') {
-                      const soundEl = element.getElementsByTagName('sound')[0];
-                      if (soundEl && soundEl.hasAttribute('tempo')) {
-                          const newTempo = parseFloat(soundEl.getAttribute('tempo')!);
-                          if (!isNaN(newTempo)) {
-                              currentTempoBpm = newTempo;
-                              if (tempoEvents.length === 0) initialTempoBpm = newTempo;
-                              tempoEvents.push({ timeMs: cursorMs, bpm: newTempo });
-                          }
-                      }
-                  } else if (element.tagName === 'barline') {
-                      const repeatEl = element.getElementsByTagName('repeat')[0];
-                      if (repeatEl) {
-                          const direction = repeatEl.getAttribute('direction');
-                          if (direction === 'forward') {
-                              isInsideRepeat = true;
-                              notesInRepeatSection = [];
-                              repeatStartTick = cursorTicks;
-                              repeatStartMs = cursorMs;
-                              repeatStartIndexInRawNotes = rawNotes.length;
-                          } else if (direction === 'backward') {
-                              if (isInsideRepeat && notesInRepeatSection.length > 0) {
-                                  const repeatDurationMs = cursorMs - repeatStartMs;
-                                  
-                                  if (repeatStartIndexInRawNotes !== -1 && rawNotes[repeatStartIndexInRawNotes]) {
-                                      (rawNotes[repeatStartIndexInRawNotes] as MidiNotePlaybackItem).isRepeatStart = true;
-                                  }
-                                  if (rawNotes.length > 0) {
-                                      (rawNotes[rawNotes.length - 1] as MidiNotePlaybackItem).isRepeatEnd = true;
-                                  }
-                                  
-                                  const repeatedNotes = notesInRepeatSection.map(noteToRepeat => {
-                                      const newTimeMs = noteToRepeat.timeMs + repeatDurationMs;
-                                      return { ...noteToRepeat, timeMs: newTimeMs };
-                                  });
-                                  rawNotes.push(...repeatedNotes);
-                                  
-                                  // We should advance cursorMs by the repeat duration, 
-                                  // but logically the music jumps back. For linear playback, we just append content.
-                                  // So cursorMs increases.
-                                  // But `cursorTicks`? Ticks in XML are measure-relative mostly or accumulated.
-                                  // Just accumulating both is correct for linear playback representation.
-                              }
-                              isInsideRepeat = false;
-                              notesInRepeatSection = [];
-                              repeatStartIndexInRawNotes = -1;
-                          }
-                      }
-                  } else if (element.tagName === 'note') {
-                      const isRest = element.getElementsByTagName('rest').length > 0;
-                      const durationEl = element.getElementsByTagName('duration')[0];
-                      const durationTicks = durationEl ? parseInt(durationEl.textContent || '0', 10) : 0;
-                      const isChord = element.getElementsByTagName('chord').length > 0;
-
-                      // Delta calculation based on current tempo
-                      const durationMs = musicXmlDurationToMs(durationTicks, divisions, currentTempoBpm);
-                      
-                      if (!isRest) {
-                          const pitchEl = element.getElementsByTagName('pitch')[0];
-                          if (pitchEl) {
-                              const step = pitchEl.getElementsByTagName('step')[0].textContent || 'C';
-                              const alter = parseInt(pitchEl.getElementsByTagName('alter')[0]?.textContent || '0', 10);
-                              const octave = parseInt(pitchEl.getElementsByTagName('octave')[0].textContent || '4', 10);
-  
-                              const midiNote = musicXmlPitchToMidiNote(step, alter, octave);
-                              const noteName = midiNoteToNameMap.get(midiNote);
-  
-                              if (noteName) {
-                                  // Use accumulated cursorMs
-                                  const startTimeMs = cursorMs;
-                                  
-                                  let hand: 'left' | 'right';
-                                  if (parts.length > 1) {
-                                      hand = (partIndex === 0) ? 'right' : 'left';
-                                  } else {
-                                      hand = midiNote < HAND_SPLIT_MIDI_NOTE ? 'left' : 'right';
-                                  }
-
-                                  const newNote = {
-                                      midi: midiNote,
-                                      timeMs: startTimeMs,
-                                      durationMs: durationMs,
-                                      name: noteName,
-                                      pitchClass: step + (alter === 1 ? '#' : alter === -1 ? 'b' : ''),
-                                      velocity: 0.75,
-                                      hand: hand,
-                                      originalTrackSourceInfo: `musicxml_part_${partId}`,
-                                      ticks: cursorTicks,
-                                      durationTicks: durationTicks
-                                  };
-                                  rawNotes.push(newNote);
-                                  if (isInsideRepeat) {
-                                      notesInRepeatSection.push(newNote);
-                                  }
-
-                              } else {
-                                console.warn(`Note name not found for MIDI note: ${midiNote} (step: ${step}, octave: ${octave}, alter: ${alter})`);
-                              }
-                          }
-                      }
-                      
-                      if (!isChord) {
-                          cursorTicks += durationTicks;
-                          cursorMs += durationMs;
-                      }
-                  } else if (element.tagName === 'backup') {
-                      const durationTicks = parseInt(element.getElementsByTagName('duration')[0]?.textContent || '0', 10);
-                      const durationMs = musicXmlDurationToMs(durationTicks, divisions, currentTempoBpm);
-                      cursorTicks -= durationTicks;
-                      cursorMs -= durationMs;
-                  } else if (element.tagName === 'forward') {
-                      const durationTicks = parseInt(element.getElementsByTagName('duration')[0]?.textContent || '0', 10);
-                      const durationMs = musicXmlDurationToMs(durationTicks, divisions, currentTempoBpm);
-                      cursorTicks += durationTicks;
-                      cursorMs += durationMs;
-                  }
-              });
-          });
-      });
-  
-      rawNotes.sort((a, b) => a.timeMs - b.timeMs || (a.ticks ?? 0) - (b.ticks ?? 0));
-      
-      let counter = 0;
-      const notes: MidiNotePlaybackItem[] = rawNotes.map(n => ({
-        ...n,
-        noteId: `xml-${n.originalTrackSourceInfo}-${n.ticks}-${counter++}`
-      }));
-
-      tempoEvents.sort((a, b) => a.timeMs - b.timeMs);
-      const uniqueTempoEvents = tempoEvents.filter((event, index, self) => index === self.findIndex((t) => (t.timeMs === event.timeMs)));
-      if (uniqueTempoEvents.length === 0 || uniqueTempoEvents[0].timeMs > 0) {
-          uniqueTempoEvents.unshift({ timeMs: 0, bpm: initialTempoBpm });
-      }
-      
-      const barLinesMs = Array.from(barLineTimeSet).sort((a, b) => a - b);
-      
-      const finalNotes = notes.map(n => ({ ...n, timeMs: n.timeMs + INITIAL_PLAYBACK_DELAY_MS }));
-      const finalTempoEvents = uniqueTempoEvents.map(t => ({...t, timeMs: t.timeMs + INITIAL_PLAYBACK_DELAY_MS }));
-      const finalBarLinesMs = barLinesMs.map(b => b + INITIAL_PLAYBACK_DELAY_MS);
-      const finalSignatureEvents = signatureEventsFromXml.map(e => ({...e, timeMs: e.timeMs + INITIAL_PLAYBACK_DELAY_MS}));
-      
-      // Return the first found time signature, or default if none found.
-      return { notes: finalNotes, timeSignature: initialTimeSignature || DEFAULT_TIME_SIGNATURE, keySignature, initialTempoBpm, tempoEvents: finalTempoEvents, barLinesMs: finalBarLinesMs, signatureEvents: finalSignatureEvents };
+  const parseMusicXmlDataWrapper = useCallback(async (xmlString: string) => {
+    return parseMusicXmlData(xmlString, midiNoteToNameMap);
   }, [midiNoteToNameMap]);
   // --- End File Parsers ---
-
-    const countBeatsSinceStart = useCallback((targetTimeMs: number): number => {
-    const initialRest = (fileTypeRef.current === FileType.MIDI || fileTypeRef.current === FileType.MUSICXML) ? INITIAL_PLAYBACK_DELAY_MS : 0;
-    if (targetTimeMs < initialRest || !tempoEvents || tempoEvents.length === 0) return 0;
-
-    let totalBeats = 0;
-    
-    // Ensure relevantTempoEvents includes initial tempo at `initialRest` if it's not the first one
-    const relevantTempoEvents = [{ timeMs: initialRest, bpm: tempoEvents[0]?.bpm || 120 }, ...tempoEvents.filter(t => t.timeMs > initialRest)];
-
-    for (let i = 0; i < relevantTempoEvents.length; i++) {
-        const event = relevantTempoEvents[i];
-        // Scale the BPM by the playbackTempoMultiplier
-        const adjustedBpm = event.bpm * playbackTempoMultiplier;
-
-        const nextEventTimeMs = (i + 1 < relevantTempoEvents.length) ? relevantTempoEvents[i+1].timeMs : targetTimeMs;
-        const segmentEndTimeMs = Math.min(nextEventTimeMs, targetTimeMs);
-        
-        const durationInSegmentMs = segmentEndTimeMs - event.timeMs;
-        if (durationInSegmentMs > 0 && adjustedBpm > 0) {
-            const beatsInSegment = (durationInSegmentMs / 60000) * adjustedBpm;
-            totalBeats += beatsInSegment;
-        }
-
-        if (segmentEndTimeMs === targetTimeMs) break;
-    }
-
-    return totalBeats;
-  }, [tempoEvents, playbackTempoMultiplier]);
-
-  const getTimeOfBeat = useCallback((targetBeat: number): number => {
-      const initialRest = (fileTypeRef.current === FileType.MIDI || fileTypeRef.current === FileType.MUSICXML) ? INITIAL_PLAYBACK_DELAY_MS : 0;
-      if (targetBeat < 0 || !tempoEvents || tempoEvents.length === 0) return -1;
-
-      let totalBeats = 0;
-      
-      const relevantTempoEvents = [{ timeMs: initialRest, bpm: tempoEvents[0]?.bpm || 120 }, ...tempoEvents.filter(t => t.timeMs > initialRest)];
-
-      for (let i = 0; i < relevantTempoEvents.length; i++) {
-          const event = relevantTempoEvents[i];
-          // Scale the BPM by the playbackTempoMultiplier
-          const adjustedBpm = event.bpm * playbackTempoMultiplier;
-
-          const nextEventTimeMs = (i + 1 < relevantTempoEvents.length) ? relevantTempoEvents[i + 1].timeMs : Infinity;
-          
-          if (adjustedBpm > 0) {
-              const beatsInSegment = ((nextEventTimeMs - event.timeMs) / 60000) * adjustedBpm;
-
-              if (totalBeats + beatsInSegment >= targetBeat) {
-                  const beatsNeeded = targetBeat - totalBeats;
-                  const timeNeededMs = (beatsNeeded / adjustedBpm) * 60000;
-                  return event.timeMs + timeNeededMs;
-              }
-              totalBeats += beatsInSegment;
-          }
-           if (nextEventTimeMs === Infinity) { // If it's the last segment
-              const beatsNeeded = targetBeat - totalBeats;
-              const timeNeededMs = (beatsNeeded / adjustedBpm) * 60000;
-              return event.timeMs + timeNeededMs;
-           }
-      }
-      return -1; // Should not be reached if targetBeat is reasonable
-  }, [tempoEvents, playbackTempoMultiplier]);
 
   useEffect(() => {
     const contentEl = contentAreaRef.current;
@@ -830,7 +403,7 @@ const App: React.FC = () => {
     resizeObserver.observe(contentEl);
     
     if (contentEl.clientWidth > 0) {
-        setContainerWidth(contentEl.clientWidth);
+        setContainerWidth(contentAreaRef.current.clientWidth);
     }
 
     return () => resizeObserver.disconnect();
@@ -850,7 +423,7 @@ const App: React.FC = () => {
 
           // Heights of the fixed elements, potentially scaled
           const progressBarRequiredHeight = notesForGame.length > 0 ? PROGRESS_BAR_HEIGHT_PX : 0;
-          const pianoKeyboardRequiredHeight = WHITE_KEY_HEIGHT_PX + KEY_LABEL_AREA_HEIGHT_PX;
+          const pianoKeyboardRequiredHeight = layoutConfig.whiteKeyHeight + layoutConfig.keyLabelHeight;
 
           // The remaining height is for the dynamic view (FallingNotesArea or VexFlowSheetMusicView)
           const actualHeightForDynamicView = Math.max(0, totalAvailableContentHeight - progressBarRequiredHeight - pianoKeyboardRequiredHeight);
@@ -863,7 +436,7 @@ const App: React.FC = () => {
 
     window.addEventListener('resize', calculateHeights);
     const topBarObserver = new ResizeObserver(calculateHeights);
-    const topBarElementToObserve = document.querySelector('.flex-shrink-0.bg-blue-600');
+    const topBarElementToObserve = document.querySelector('.flex-shrink-0.bg-slate-800\\/50'); // Updated selector
     if (topBarElementToObserve) {
       topBarObserver.observe(topBarElementToObserve);
     }
@@ -881,7 +454,7 @@ const App: React.FC = () => {
         contentAreaObserver.unobserve(contentAreaRef.current);
       }
     };
-  }, [notesForGame.length, currentScreen]); // Removed scaledPianoWidth as direct dependency; it affects content, not total available space for height partitioning
+  }, [notesForGame.length, currentScreen, layoutConfig]); // Depend on layoutConfig so height updates when preset changes
 
   // FIX: Directly assign the AudioContext constructor to a variable.
   // This helps TypeScript correctly infer it as a constructable type.
@@ -1197,6 +770,12 @@ const App: React.FC = () => {
     const completedBlockTimeMusical = waitingBlockTimeRef.current;
     if (completedBlockTimeMusical === null) return;
     
+    // Add time spent waiting to totalWaitTimeMs
+    if (waitStartTimeRef.current !== null) {
+      accumulatedWaitTimeRef.current += (performance.now() - waitStartTimeRef.current);
+      waitStartTimeRef.current = null;
+    }
+
     pausedMusicalTimeRef.current = completedBlockTimeMusical;
     setMusicalCurrentTimeMs(completedBlockTimeMusical); // Update musical state
 
@@ -1204,9 +783,9 @@ const App: React.FC = () => {
     while (newIndex < notesForGame.length && notesForGame[newIndex].timeMs <= completedBlockTimeMusical) { newIndex++; }
     nextNoteIndexRef.current = newIndex;
     performanceStartTimeRef.current = performance.now();
+    lastPlayerInputRealTimeRef.current = performance.now(); // Reset lenient timer
     waitingBlockTimeRef.current = null;
-    notesCurrentlyWaitingForRef.current = new Set();
-    setNotesCurrentlyWaitingFor(new Set()); // Update state instead of ref.clear()
+    updateNotesCurrentlyWaitingFor(new Set());
     setActivePlaybackNotesInfo(prev => {
         const newMap = new Map(prev);
         const keysToDelete: string[] = [];
@@ -1221,7 +800,7 @@ const App: React.FC = () => {
         scheduleMetronomeSounds(pausedMusicalTimeRef.current);
         lastMetronomeScheduleTimeRef.current = pausedMusicalTimeRef.current;
     }
-}, [notesForGame, metronomeMode, scheduleMetronomeSounds, setNotesCurrentlyWaitingFor, setActivePlaybackNotesInfo, setMusicalCurrentTimeMs]);
+}, [notesForGame, metronomeMode, scheduleMetronomeSounds, updateNotesCurrentlyWaitingFor, setActivePlaybackNotesInfo, setMusicalCurrentTimeMs]);
 
 
   const calculateAndSetPerformanceSummary = useCallback((
@@ -1257,7 +836,7 @@ const App: React.FC = () => {
     
     const gameplayPS = (accuracy * 0.5) + (speed * 0.5)
 
-    const exponent = 10;
+    const exponent = 9;
     let finalScore = midiPerformanceScore * Math.pow(accuracy / 100, exponent);
     finalScore = Math.max(0, Math.min(midiPerformanceScore, finalScore));
     
@@ -1296,8 +875,7 @@ const App: React.FC = () => {
     lastMetronomeScheduleTimeRef.current = 0;
     clearScheduledNotes();
     clearScheduledMetronomeSounds();
-    notesCurrentlyWaitingForRef.current = new Set();
-    setNotesCurrentlyWaitingFor(new Set()); // Update state instead of ref.clear()
+    updateNotesCurrentlyWaitingFor(new Set());
     waitingBlockTimeRef.current = null;
     presatisfiedNoteIdsRef.current = new Set();
     setActivePlaybackNotesInfo(new Map());
@@ -1313,13 +891,18 @@ const App: React.FC = () => {
     setHitCount(0);
     setErrorCount(0);
     
+    // Reset wait time counters
+    setTotalWaitTimeMs(0);
+    accumulatedWaitTimeRef.current = 0;
+    waitStartTimeRef.current = null;
+
     playerInputTimesRef.current = [];
     firstInputRealTimeRef.current = null;
     lastInputRealTimeRef.current = null;
     setPerformanceSummary(null);
     setIsLoadingContent(false); // Ensure loading is off on stop
     setMetronomeBeat(null);
-  }, [clearScheduledNotes, clearScheduledMetronomeSounds, setNotesCurrentlyWaitingFor, setActivePlaybackNotesInfo, setHitCount, setErrorCount, setMusicalCurrentTimeMs]);
+  }, [clearScheduledNotes, clearScheduledMetronomeSounds, updateNotesCurrentlyWaitingFor, setActivePlaybackNotesInfo, setHitCount, setErrorCount, setMusicalCurrentTimeMs]);
 
   const recordPlayerInputTime = useCallback((realTime: number, musicalTime: number) => {
     playerInputTimesRef.current.push(realTime);
@@ -1412,18 +995,31 @@ const App: React.FC = () => {
     const lastMusicalTime = prevMusicalTimeRef.current; // for metronome visual beat detection
 
     // Determine if game is in a musical 'wait' state
-    const isInWaitState = waitMode !== 'off' && notesCurrentlyWaitingForRef.current.size > 0 && waitingBlockTimeRef.current !== null;
-
+    const isInWaitState = (waitMode === 'strict' || waitMode === 'lenient' || waitMode === 'retical') && notesCurrentlyWaitingForRef.current.size > 0 && waitingBlockTimeRef.current !== null;
+    
     if (isInWaitState) { 
       // Musical game logic time is frozen at the waiting point
       actualMusicalTimeForGameLogic = waitingBlockTimeRef.current!; // Use non-null assertion as condition above checks for null
       // musicalCurrentTimeMs state remains frozen as it's not explicitly updated in this branch.
       // This ensures FallingNotesArea and VexFlowSheetMusicView pause visually.
+
+      // --- Calculate and update wait time ---
+      if (waitStartTimeRef.current === null) {
+        waitStartTimeRef.current = performance.now();
+      }
+      const currentSessionWait = performance.now() - waitStartTimeRef.current;
+      setTotalWaitTimeMs(accumulatedWaitTimeRef.current + currentSessionWait);
+
     } else {
       // Musical game logic time advances normally
       actualMusicalTimeForGameLogic = conceptualMusicalTime;
       // Update musical time state for FallingNotesArea and VexFlowSheetMusicView
       setMusicalCurrentTimeMs(conceptualMusicalTime);
+
+      // If not waiting, ensure displayed wait time matches the accumulated time
+      if (totalWaitTimeMs !== accumulatedWaitTimeRef.current) {
+        setTotalWaitTimeMs(accumulatedWaitTimeRef.current);
+      }
     }
     
     // Always update the musical time ref for other game logic, metronome, etc.
@@ -1479,8 +1075,7 @@ const App: React.FC = () => {
             
             if (!hitNoteIdsRef.current.has(noteId)) {
                 hitNoteIdsRef.current.add(noteId);
-                hitCountRef.current++;
-                setHitCount(hitCountRef.current);
+                setHitCount(prev => prev + 1); // Use setter for state update
             }
 
             setActivePlaybackNotesInfo(prev => new Map(prev).set(noteId, {
@@ -1512,7 +1107,8 @@ const App: React.FC = () => {
       }
     }
 
-    if (waitMode !== 'off' && notesToSetWaitingThisFrame.length > 0) {
+    if ((waitMode === 'strict' || waitMode === 'lenient' || waitMode === 'retical') && notesToSetWaitingThisFrame.length > 0) {
+      // FIX: Corrected variable name from `notesToSetWaitingForThisFrame` to `notesToSetWaitingThisFrame`.
       const allWaitingNotesAreTheSameTime = notesToSetWaitingThisFrame.every(n => n.timeMs === notesToSetWaitingThisFrame[0].timeMs);
       if (allWaitingNotesAreTheSameTime) {
         // Immediately stop metronome when entering wait state to prevent sounds during pause.
@@ -1523,9 +1119,8 @@ const App: React.FC = () => {
         }
 
         waitingBlockTimeRef.current = notesToSetWaitingThisFrame[0].timeMs;
-        const waitingMidiNotes = new Set(notesToSetWaitingThisFrame.map(n => n.midi));
-        notesCurrentlyWaitingForRef.current = waitingMidiNotes;
-        setNotesCurrentlyWaitingFor(waitingMidiNotes); // Update state
+        const waitingMidiNotes = new Set<number>(notesToSetWaitingThisFrame.map(n => n.midi));
+        updateNotesCurrentlyWaitingFor(waitingMidiNotes);
         
         setActivePlaybackNotesInfo(prev => {
           const newMap = new Map(prev);
@@ -1579,8 +1174,7 @@ const App: React.FC = () => {
         }
         clearScheduledNotes();
         clearScheduledMetronomeSounds();
-        notesCurrentlyWaitingForRef.current = new Set();
-        setNotesCurrentlyWaitingFor(new Set()); // Update state
+        updateNotesCurrentlyWaitingFor(new Set());
         waitingBlockTimeRef.current = null;
         presatisfiedNoteIdsRef.current = new Set();
         setActivePlaybackNotesInfo(new Map());
@@ -1604,13 +1198,14 @@ const App: React.FC = () => {
     waitMode, notesCurrentlyWaitingForRef, waitingBlockTimeRef,
     setMusicalCurrentTimeMs, currentTimeRef, nextNoteIndexRef, playSound, metronomeMode,
     scheduleMetronomeSounds, calculateAndSetPerformanceSummary, clearScheduledNotes,
-    clearScheduledMetronomeSounds, setNotesCurrentlyWaitingFor, setActivePlaybackNotesInfo,
+    clearScheduledMetronomeSounds, updateNotesCurrentlyWaitingFor, setActivePlaybackNotesInfo,
     setHitCount, setErrorCount, resumePlaybackFromWait, activePlaybackNotesInfo, 
-    barLines
+    barLines, totalWaitTimeMs, prevMusicalTimeRef, // Added prevMusicalTimeRef to dependencies
   ]);
 
   const handleStartGame = (settings: GameSettings) => {
     setGameSettings(settings);
+    setPlaybackTempoMultiplier(settings.playbackTempoMultiplier); // Set actual game tempo
     setTotalNoteCountForGame(notesForGame.length); // This will be stale one render, let's fix
     setCurrentScreen('inGame');
     initializeAudioContext();
@@ -1637,8 +1232,11 @@ const App: React.FC = () => {
     isPlayingRef.current = true;
     isUserPausedRef.current = false; // User explicitly pressed play
     performanceStartTimeRef.current = performance.now();
+    lastPlayerInputRealTimeRef.current = performance.now();
     // Initialize musical current times to the paused time
     setMusicalCurrentTimeMs(pausedMusicalTimeRef.current);
+    currentTimeRef.current = pausedMusicalTimeRef.current; // Ensure ref is also updated
+    prevMusicalTimeRef.current = pausedMusicalTimeRef.current; // Initialize for metronome
 
     if (metronomeMode !== 'off') {
       scheduleMetronomeSounds(pausedMusicalTimeRef.current);
@@ -1726,10 +1324,11 @@ const App: React.FC = () => {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('blur', handleWindowBlur);
-      window.removeEventListener('focus', handleWindowFocus);
+      window.removeEventListener('focus', handleWindowFocus); // Clean up focus listener
       document.removeEventListener('fullscreenchange', handleFullscreenChange); // Clean up fullscreen listener
     };
-  }, [currentScreen, notesForGame.length, handlePlay, clearScheduledNotes, clearScheduledMetronomeSounds]); // Add all relevant dependencies
+  }, [currentScreen, notesForGame.length, handlePlay, clearScheduledNotes, clearScheduledMetronomeSounds, isUserPausedRef, currentTimeRef]);
+
 
   const handleSeek = useCallback((newMusicalTime: number) => {
     if (notesForGame.length === 0 || waitMode === 'retical') return;
@@ -1738,8 +1337,7 @@ const App: React.FC = () => {
     clearScheduledNotes();
     presatisfiedNoteIdsRef.current = new Set();
     
-    notesCurrentlyWaitingForRef.current = new Set();
-    setNotesCurrentlyWaitingFor(new Set()); // Update state instead of ref.clear()
+    updateNotesCurrentlyWaitingFor(new Set());
     waitingBlockTimeRef.current = null;
     if (chordRecognitionTimeoutIdRef.current) {
         clearTimeout(chordRecognitionTimeoutIdRef.current);
@@ -1749,9 +1347,7 @@ const App: React.FC = () => {
     if (waitMode === 'off') {
         const notesBeforeSeekTime = notesForGame.filter(n => n.timeMs < clampedTime);
         hitNoteIdsRef.current = new Set(notesBeforeSeekTime.map(n => n.noteId));
-        hitCountRef.current = hitNoteIdsRef.current.size;
-        setHitCount(hitCountRef.current);
-        errorCountRef.current = 0;
+        setHitCount(hitNoteIdsRef.current.size); // Use setter for state update
         setErrorCount(0);
     } else {
         hitNoteIdsRef.current = new Set(
@@ -1760,18 +1356,24 @@ const App: React.FC = () => {
                 return note && note.timeMs < clampedTime;
             })
         );
-        hitCountRef.current = hitNoteIdsRef.current.size;
-        setHitCount(hitCountRef.current);
+        setHitCount(hitNoteIdsRef.current.size); // Use setter for state update
     }
+
+    // Reset accumulated wait time on seek
+    setTotalWaitTimeMs(0);
+    accumulatedWaitTimeRef.current = 0;
+    waitStartTimeRef.current = null;
 
     playerInputTimesRef.current = [];
     firstInputRealTimeRef.current = null;
     lastInputRealTimeRef.current = null;
     setPerformanceSummary(null);
+    lastPlayerInputRealTimeRef.current = performance.now();
 
     pausedMusicalTimeRef.current = clampedTime;
     setMusicalCurrentTimeMs(clampedTime); // Update musical time
     currentTimeRef.current = clampedTime; // Update ref for game logic
+    prevMusicalTimeRef.current = clampedTime; // Also update for metronome
     isUserPausedRef.current = false; // Seeking acts like a "reset" for user pause state, allowing auto-play if applicable
 
     let newIndex = 0;
@@ -1795,17 +1397,17 @@ const App: React.FC = () => {
       }
     }
     setMetronomeBeat(null);
-  }, [notesForGame, originalTotalMusicalDurationMs, clearScheduledNotes, metronomeMode, scheduleMetronomeSounds, clearScheduledMetronomeSounds, setHitCount, setNotesCurrentlyWaitingFor, waitMode, setErrorCount, setMusicalCurrentTimeMs]);
+  }, [notesForGame, originalTotalMusicalDurationMs, clearScheduledNotes, metronomeMode, scheduleMetronomeSounds, clearScheduledMetronomeSounds, setHitCount, updateNotesCurrentlyWaitingFor, waitMode, setErrorCount, setMusicalCurrentTimeMs]);
 
   const processKeyPressInWaitMode = useCallback((midiNote: number) => {
-    const isCurrentlyWaiting = notesCurrentlyWaitingForRef.current.size > 0 && waitingBlockTimeRef.current !== null;
     const nowRealTime = performance.now();
+    if (isPlayingRef.current) {
+      lastPlayerInputRealTimeRef.current = nowRealTime;
+    }
+    // FIX: Use notesCurrentlyWaitingForRef.current for consistency
+    const isCurrentlyWaiting = notesCurrentlyWaitingForRef.current.size > 0 && waitingBlockTimeRef.current !== null;
     const nowMusical = currentTimeRef.current; // Snapshot current musical time
     
-    // Define constants for forgiveness windows
-    const FORGIVENESS_WINDOW_FORWARD_MS = 100;
-    const FORGIVENESS_WINDOW_BACKWARD_MS = 100;
-
     if (isCurrentlyWaiting) {
         // This block uses the existing, more robust logic for handling notes when the game is paused.
         const waitingNotes = notesForGame.filter(n =>
@@ -1820,8 +1422,7 @@ const App: React.FC = () => {
         
                 if (noteToSatisfy) {
                     if (!hitNoteIdsRef.current.has(noteToSatisfy.noteId)) {
-                        hitCountRef.current++;
-                        setHitCount(hitCountRef.current);
+                        setHitCount(prev => prev + 1); // Use setter for state update
                         hitNoteIdsRef.current.add(noteToSatisfy.noteId);
                     }
                     visuallySatisfyNote(noteToSatisfy);
@@ -1830,116 +1431,133 @@ const App: React.FC = () => {
                     const allInstancesOfMidi = waitingNotes.filter(n => n.midi === midiNote);
                     const areAllInstancesHit = allInstancesOfMidi.every(n => hitNoteIdsRef.current.has(n.noteId));
         
-                    const newWaitingSet = new Set(notesCurrentlyWaitingForRef.current);
-                    if (areAllInstancesHit) {
+                    const newWaitingSet = new Set<number>(notesCurrentlyWaitingForRef.current);
+                    if (areAllInstancesHit) { // Corrected: `areAllInstancesOfMidi` -> `areAllInstancesHit`
                         newWaitingSet.delete(midiNote);
                     }
                     
-                    notesCurrentlyWaitingForRef.current = newWaitingSet;
-                    setNotesCurrentlyWaitingFor(newWaitingSet);
+                    updateNotesCurrentlyWaitingFor(newWaitingSet);
         
                     if (newWaitingSet.size === 0) {
                         resumePlaybackFromWait();
                     }
                 }
             } else {
-                errorCountRef.current++;
-                setErrorCount(errorCountRef.current);
+                setErrorCount(prev => prev + 1); // Use setter for state update
             }
-        } else if (waitMode === 'rhythm' || waitMode === 'retical') {
-            const pressedNoteMatches = waitingNotes.filter(n => n.midi === midiNote);
-            let anyCorrectNoteHitThisPress = false;
-
-            if (pressedNoteMatches.length > 0) {
-                for (const noteToSatisfy of pressedNoteMatches) {
-                    if (!hitNoteIdsRef.current.has(noteToSatisfy.noteId)) {
-                        hitCountRef.current++;
-                        setHitCount(hitCountRef.current);
-                        hitNoteIdsRef.current.add(noteToSatisfy.noteId);
-                        visuallySatisfyNote(noteToSatisfy);
-                        recordPlayerInputTime(nowRealTime, waitingBlockTimeRef.current!);
-                        anyCorrectNoteHitThisPress = true;
-                    }
-                }
-            }
-
-            if (!anyCorrectNoteHitThisPress) {
-                errorCountRef.current++;
-                setErrorCount(errorCountRef.current);
-            }
-
+        } else if (waitMode === 'lenient' || waitMode === 'retical') {
             if (chordRecognitionTimeoutIdRef.current) {
                 clearTimeout(chordRecognitionTimeoutIdRef.current);
             }
-            chordRecognitionTimeoutIdRef.current = window.setTimeout(() => {
-                resumePlaybackFromWait();
-                chordRecognitionTimeoutIdRef.current = null;
-            }, CHORD_RECOGNITION_WINDOW_MS);
+            rhythmChordBufferRef.current.clear();
+
+            const waitingNoteDefs = notesForGame.filter(n => n.timeMs === waitingBlockTimeRef.current && notesCurrentlyWaitingForRef.current.has(n.midi));
+            const waitingMidiNotes = new Set(waitingNoteDefs.map(n => n.midi));
+            
+            if (waitingMidiNotes.has(midiNote)) {
+                const noteToSatisfy = waitingNoteDefs.find(n => n.midi === midiNote && !hitNoteIdsRef.current.has(n.noteId));
+                if (noteToSatisfy) {
+                    if (!hitNoteIdsRef.current.has(noteToSatisfy.noteId)) {
+                        setHitCount(prev => prev + 1);
+                        hitNoteIdsRef.current.add(noteToSatisfy.noteId);
+                    }
+                    visuallySatisfyNote(noteToSatisfy);
+                    recordPlayerInputTime(nowRealTime, waitingBlockTimeRef.current!);
+                }
+            } else {
+                setErrorCount(prev => prev + 1);
+            }
+            resumePlaybackFromWait();
         }
     } else { 
-        // This block uses the new, more forgiving logic for handling key presses when playback is flowing.
-        let hitRegistered = false;
+      // This block handles key presses when playback is flowing (e.g., in lenient/retical mode).
+      // It finds the best match for a key press within a time window, which is crucial for
+      // correctly handling fast passages and trills where multiple notes of the same pitch may be close together.
+      let hitRegistered = false;
+      
+      // Define a generous window to find potential note matches.
+      // The logic will then pick the note closest in time to the player's input.
+      const LATE_TOLERANCE_MS = 500; // How late the player can be (as requested).
+      const EARLY_TOLERANCE_MS = 2000; // How early the player can be (kept large for responsiveness).
 
-        const upcomingNoteMatch = notesForGame.find(n =>
-            n.midi === midiNote &&
-            n.timeMs > nowMusical - FORGIVENESS_WINDOW_BACKWARD_MS &&
-            n.timeMs <= nowMusical + WAIT_MODE_TOLERANCE_MS + FORGIVENESS_WINDOW_FORWARD_MS &&
-            !presatisfiedNoteIdsRef.current.has(n.noteId)
-        );
+      let bestMatch: MidiNotePlaybackItem | null = null;
+      let minTimeDiff = Infinity;
 
-        if (upcomingNoteMatch) {
-            if (!hitNoteIdsRef.current.has(upcomingNoteMatch.noteId)) {
-                hitCountRef.current++;
-                setHitCount(hitCountRef.current);
-                hitNoteIdsRef.current.add(upcomingNoteMatch.noteId);
-            }
-            satisfyUpcomingNote(upcomingNoteMatch);
-            recordPlayerInputTime(nowRealTime, upcomingNoteMatch.timeMs);
-            hitRegistered = true;
-        }
+      // To optimize, search only in a relevant slice of the notes array.
+      const searchStartIdx = Math.max(0, nextNoteIndexRef.current - 10);
+      const searchEndIdx = Math.min(notesForGame.length, nextNoteIndexRef.current + 50);
 
-        if (!hitRegistered) {
-            const RELEVANT_NOTE_DETECTION_WINDOW_FORWARD_MS = WAIT_MODE_TOLERANCE_MS + FORGIVENESS_WINDOW_FORWARD_MS + 250; 
-            const RELEVANT_NOTE_DETECTION_WINDOW_BACKWARD_MS = FORGIVENESS_WINDOW_BACKWARD_MS + 250; 
+      for (let i = searchStartIdx; i < searchEndIdx; i++) {
+          const note = notesForGame[i];
 
-            const isAnyNoteRelevantForContext = notesForGame.some(n =>
-                n.timeMs > nowMusical - RELEVANT_NOTE_DETECTION_WINDOW_BACKWARD_MS &&
-                n.timeMs <= nowMusical + RELEVANT_NOTE_DETECTION_WINDOW_FORWARD_MS &&
-                !presatisfiedNoteIdsRef.current.has(n.noteId)
-            );
+          // Check if the note is a potential candidate
+          if (
+              note.midi === midiNote &&
+              !presatisfiedNoteIdsRef.current.has(note.noteId) &&
+              note.timeMs > nowMusical - LATE_TOLERANCE_MS &&
+              note.timeMs <= nowMusical + EARLY_TOLERANCE_MS
+          ) {
+              const timeDiff = Math.abs(note.timeMs - nowMusical);
+              if (timeDiff < minTimeDiff) {
+                  minTimeDiff = timeDiff;
+                  bestMatch = note;
+              }
+          }
+      }
 
-            if (isAnyNoteRelevantForContext) {
-                errorCountRef.current++;
-                setErrorCount(errorCountRef.current);
-            }
-        }
+      if (bestMatch) {
+          // A match was found, so we satisfy it.
+          if (!hitNoteIdsRef.current.has(bestMatch.noteId)) {
+              setHitCount(prev => prev + 1);
+              hitNoteIdsRef.current.add(bestMatch.noteId);
+          }
+          satisfyUpcomingNote(bestMatch);
+          recordPlayerInputTime(nowRealTime, bestMatch.timeMs);
+          hitRegistered = true;
+      }
+
+      if (!hitRegistered) {
+          // If no note was hit, check if it was a mistake (i.e., if there were other notes nearby to be played).
+          const isAnyNoteRelevantForContext = notesForGame.some(n =>
+              n.timeMs > nowMusical - (LATE_TOLERANCE_MS + 500) &&
+              n.timeMs <= nowMusical + (EARLY_TOLERANCE_MS + 500) &&
+              !presatisfiedNoteIdsRef.current.has(n.noteId)
+          );
+
+          if (isAnyNoteRelevantForContext) {
+              setErrorCount(prev => prev + 1);
+          }
+      }
     }
-  }, [notesForGame, waitMode, visuallySatisfyNote, satisfyUpcomingNote, playbackTempoMultiplier, recordPlayerInputTime, setHitCount, setErrorCount, resumePlaybackFromWait, WAIT_MODE_TOLERANCE_MS]);
+  }, [notesForGame, waitMode, visuallySatisfyNote, satisfyUpcomingNote, playbackTempoMultiplier, recordPlayerInputTime, setHitCount, setErrorCount, resumePlaybackFromWait, notesCurrentlyWaitingForRef, updateNotesCurrentlyWaitingFor]);
 
-  const handleUiKeyPress = (keyName: string, midiNote: number) => {
+  const handleUiKeyPress = useCallback((keyName: string, midiNote: number) => {
     setUserSustainedKeys(prev => new Set(prev).add(keyName));
     startSustainedSound(keyName, midiNote);
     if (isPlayingRef.current) {
       processKeyPressInWaitMode(midiNote);
     }
-  };
+  }, [isPlayingRef, processKeyPressInWaitMode, startSustainedSound]);
 
-  const handleUiKeyRelease = (keyName: string, midiNote: number) => {
+  const handleUiKeyRelease = useCallback((keyName: string, midiNote: number) => {
     setUserSustainedKeys(prev => {
       const newSet = new Set(prev);
       newSet.delete(keyName);
       return newSet;
     });
     stopSustainedSound(keyName, midiNote);
-  };
+  }, [stopSustainedSound]);
   
-  const loadFile = useCallback(async (file: File) => {
+  const loadFile = useCallback(async (file: File | null, onlineSongId?: string | null, isRanked: boolean | null = null) => {
     setIsLoadingFile(true);
     handleStopPlayback();
     setPlaybackNotes([]);
     setCurrentFileName(null);
+    setCurrentOnlineSongId(onlineSongId || null); // NEW: Set online song ID
+    setIsCurrentSongRanked(isRanked); // NEW: Set ranked status
     setMusicalCurrentTimeMs(0); // Reset musical time
     pausedMusicalTimeRef.current = 0;
+    prevMusicalTimeRef.current = 0; // Reset for metronome visual
     setTempoEvents([]);
     setSignatureEvents([]);
     setCurrentTempoBpm(null);
@@ -1947,33 +1565,44 @@ const App: React.FC = () => {
     setInitialKeySignature(DEFAULT_KEY_SIGNATURE);
     setCurrentFileType(FileType.UNKNOWN);
     setBarLines([]);
-    hitCountRef.current = 0;
-    errorCountRef.current = 0;
     hitNoteIdsRef.current.clear();
     setHitCount(0);
     setErrorCount(0);
     setTotalNoteCountForGame(0);
     setAnalysisResult(null);
+    setPlaybackTempoMultiplier(1); // Reset actual game tempo when loading new file
     setPreviewPlaybackTempoMultiplier(1); // Reset preview tempo when loading new file
     isUserPausedRef.current = false; // Reset user pause state on new file load
+    
+    // Reset accumulated wait time
+    setTotalWaitTimeMs(0);
+    accumulatedWaitTimeRef.current = 0;
+    waitStartTimeRef.current = null;
+
+    if (!file) { // Handle null file case
+        setIsLoadingFile(false);
+        setSelectedOnlineSongIdForNavigation(null);
+        setIsCurrentSongRanked(null); // Clear ranked status if no file
+        return;
+    }
 
     try {
         const fileName = file.name;
         const fileExtension = fileName.split('.').pop()?.toLowerCase();
         let parsedDataNotes: MidiNotePlaybackItem[] = [], timeSig: TimeSignatureInfo = DEFAULT_TIME_SIGNATURE;
-        let initialTempo: number = 120, tempos: TempoEvent[] = [], fileType: FileType = FileType.UNKNOWN, keySig: string = DEFAULT_KEY_SIGNATURE;
+        let initialTempo: number = DEFAULT_MUSICXML_TEMPO_BPM, tempos: TempoEvent[] = [], fileType: FileType = FileType.UNKNOWN, keySig: string = DEFAULT_KEY_SIGNATURE;
         let newBarLines: number[] = [], newSigEvents: SignatureEvent[] = [];
 
         if (fileExtension === 'mid' || fileExtension === 'midi' || file.type.includes('midi')) {
             fileType = FileType.MIDI;
             const midiArrayBuffer = await file.arrayBuffer();
-            const result = await parseMidiData(midiArrayBuffer);
+            const result = await parseMidiDataWrapper(midiArrayBuffer);
             ({ notes: parsedDataNotes, timeSignature: timeSig, keySignature: keySig, initialTempoBpm: initialTempo, tempoEvents: tempos, barLinesMs: newBarLines, signatureEvents: newSigEvents } = result);
 
         } else if (fileExtension === 'xml' || fileExtension === 'musicxml' || file.type.includes('xml')) {
             fileType = FileType.MUSICXML;
             const xmlText = await file.text();
-            const result = await parseMusicXmlData(xmlText);
+            const result = await parseMusicXmlDataWrapper(xmlText);
             ({ notes: parsedDataNotes, timeSignature: timeSig, keySignature: keySig, initialTempoBpm: initialTempo, tempoEvents: tempos, barLinesMs: newBarLines, signatureEvents: newSigEvents } = result);
 
         } else if (fileExtension === 'mxl') {
@@ -2010,7 +1639,7 @@ const App: React.FC = () => {
             }
 
             if (xmlText) {
-                const result = await parseMusicXmlData(xmlText);
+                const result = await parseMusicXmlDataWrapper(xmlText);
                 ({ notes: parsedDataNotes, timeSignature: timeSig, keySignature: keySig, initialTempoBpm: initialTempo, tempoEvents: tempos, barLinesMs: newBarLines, signatureEvents: newSigEvents } = result);
             } else {
                 throw new Error("Could not find a valid MusicXML file inside the .mxl archive.");
@@ -2041,15 +1670,20 @@ const App: React.FC = () => {
           setIsPreloading(false);
         }
 
-    } catch (error) {
+    } catch (error: unknown) {
+        // FIX: Replaced `(error as any).message` with `(error instanceof Error ? error.message : String(error))`
+        // to handle unknown error types more robustly, and wrapped with String() for console/alert safety.
         console.error("Error loading or parsing file:", error);
-        alert("Sorry, there was an error processing this file. Please try another one.");
+        alert("Sorry, there was an error processing this file. Please try another one. Details: " + (error instanceof Error ? error.message : String(error)));
         setPlaybackNotes([]);
         setCurrentFileName(null);
+        setCurrentOnlineSongId(null); // Clear online song ID on error
+        setIsCurrentSongRanked(null); // Clear ranked status on error
     } finally {
         setIsLoadingFile(false);
+        setSelectedOnlineSongIdForNavigation(null);
     }
-  }, [handleStopPlayback, preloadSamplesForSong, parseMidiData, parseMusicXmlData, setHitCount, setErrorCount, setMusicalCurrentTimeMs]);
+  }, [handleStopPlayback, preloadSamplesForSong, parseMidiDataWrapper, parseMusicXmlDataWrapper, setHitCount, setErrorCount, setMusicalCurrentTimeMs, setSelectedOnlineSongIdForNavigation]);
   
   const handleMidiMessage = useCallback((event: MIDIMessageEvent) => {
       const [command, note, velocity] = event.data;
@@ -2097,7 +1731,7 @@ const App: React.FC = () => {
           }
         };
     } catch (err) {
-        console.error("MIDI access request failed.", err);
+        console.error("MIDI access request failed:", err);
         setMidiAccessStatus('denied');
         setMidiAccessError("MIDI access was denied.");
     }
@@ -2144,461 +1778,502 @@ const App: React.FC = () => {
   }, [handleStopPlayback]);
 
   const barNavDebounceRef = useRef<number>(0);
-  const DEBOUNCE_TIME_MS = 1000;
-
+  const DEBOUNCE_TIME_MS = 500;
   const handleBarNavigation = useCallback((direction: 'forward' | 'backward') => {
-    if (notesForGame.length === 0 || barLines.length === 0 || waitMode === 'retical') return;
-    const now = performance.now();
-    if (now - barNavDebounceRef.current < DEBOUNCE_TIME_MS) return;
-    barNavDebounceRef.current = now;
+      const now = Date.now();
+      if (now - barNavDebounceRef.current < DEBOUNCE_TIME_MS) return;
+      barNavDebounceRef.current = now;
 
-    const currentTime = currentTimeRef.current; // Use musical time for navigation
-    const nextBarIndex = barLines.findIndex(barTime => barTime > currentTime + 50);
-    let targetBarIndex;
-    if (direction === 'forward') {
-        targetBarIndex = nextBarIndex !== -1 ? nextBarIndex : barLines.length - 1;
-    } else {
-        const currentBarIndex = nextBarIndex !== -1 ? nextBarIndex - 1 : barLines.length - 1;
-        if (currentBarIndex < 0) return;
-        const currentBarStartTime = barLines[currentBarIndex];
-        if (currentTime - currentBarStartTime < 100) {
-            targetBarIndex = Math.max(0, currentBarIndex - 1);
-        } else {
-            targetBarIndex = currentBarIndex;
-        }
-    }
-    const targetTime = barLines[targetBarIndex];
-    if (targetTime !== undefined && Math.abs(targetTime - currentTimeRef.current) > 50) {
-        handleSeek(targetTime);
-    }
-  }, [notesForGame.length, barLines, handleSeek, waitMode]);
-
-  // NEW: QWERTY keyboard listener
-  useEffect(() => {
-    const handleQwertyKeyDown = (event: KeyboardEvent) => {
-      // Allow default behavior for modifier keys or if not in game, OR if shortcuts are disabled
-      if (event.metaKey || event.ctrlKey || event.altKey || currentScreen !== 'inGame' || !showQwertyShortcuts) {
-        return;
+      if (!barLines || barLines.length < 2) return;
+      const currentMusicalTime = isPlayingRef.current ? currentTimeRef.current : pausedMusicalTimeRef.current;
+      
+      let targetBarTime: number | undefined;
+      
+      if (direction === 'forward') {
+          targetBarTime = barLines.find(barTime => barTime > currentMusicalTime + 10); // +10ms to avoid staying on current bar
+      } else { // backward
+          const previousBars = barLines.filter(barTime => barTime < currentMusicalTime - 10);
+          targetBarTime = previousBars.length > 0 ? previousBars[previousBars.length - 1] : barLines[0];
       }
-
-      const code = event.code.toLowerCase();
-
-      if (qwertyActiveKeysRef.current.has(code)) {
-        return; // Prevent repeating notes if key is held down
+      
+      if (targetBarTime !== undefined) {
+          handleSeek(targetBarTime);
+      } else if (direction === 'forward') {
+          // FIX: Cannot find name 'totalDurationMs'. Corrected to 'originalTotalMusicalDurationMs'.
+          handleSeek(originalTotalMusicalDurationMs);
       }
+  // FIX: Cannot find name 'totalDurationMs'. Corrected to 'originalTotalMusicalDurationMs'.
+  }, [barLines, originalTotalMusicalDurationMs, handleSeek, currentTimeRef, pausedMusicalTimeRef, isPlayingRef]); // Added dependencies
+
+  // --- QWERTY Keyboard Handling ---
+  const handleQwertyKeyDown = useCallback((event: KeyboardEvent) => {
+    const code = event.code.toLowerCase();
+    if (qwertyActiveKeysRef.current.has(code) || event.repeat) return;
+    
+    // Octave Shift
+    if (OCTAVE_DOWN_KEYS.includes(code)) {
+      setQwertyCurrentOctaveShift(prev => Math.max(MIN_QWERTY_OCTAVE_SHIFT, prev - 1));
       qwertyActiveKeysRef.current.add(code);
-
-      if (OCTAVE_DOWN_KEYS.includes(code)) {
-        setQwertyCurrentOctaveShift(prev => Math.max(MIN_QWERTY_OCTAVE_SHIFT, prev - 1));
-        event.preventDefault(); // Prevent browser shortcuts
-      } else if (OCTAVE_UP_KEYS.includes(code)) {
-        setQwertyCurrentOctaveShift(prev => Math.min(MAX_QWERTY_OCTAVE_SHIFT, prev + 1));
-        event.preventDefault(); // Prevent browser shortcuts
-      } else {
-        const mappedEntry = QWERTY_MINI_KEYBOARD_MAPPING.find(entry => entry.qwertyKey === code);
-        if (mappedEntry) {
-          const targetMidiNote = mappedEntry.midiBase + (qwertyCurrentOctaveShift * 12);
-          const pianoKeyDef = midiNoteToKeyDefMap.get(targetMidiNote);
-          if (pianoKeyDef) {
-            handleUiKeyPress(pianoKeyDef.name, pianoKeyDef.midiNote);
-            event.preventDefault(); // Prevent browser shortcuts
-          }
-        }
+      return;
+    }
+    if (OCTAVE_UP_KEYS.includes(code)) {
+      setQwertyCurrentOctaveShift(prev => Math.min(MAX_QWERTY_OCTAVE_SHIFT, prev + 1));
+      qwertyActiveKeysRef.current.add(code);
+      return;
+    }
+    
+    // Note Playing
+    const mapping = QWERTY_MINI_KEYBOARD_MAPPING.find(m => m.qwertyKey === code);
+    if (mapping) {
+      const midiNote = mapping.midiBase + (qwertyCurrentOctaveShift * 12);
+      const keyDef = midiNoteToKeyDefMap.get(midiNote);
+      if (keyDef) {
+        qwertyActiveKeysRef.current.add(code);
+        handleUiKeyPress(keyDef.name, keyDef.midiNote);
       }
-    };
-
-    const handleQwertyKeyUp = (event: KeyboardEvent) => {
-      // Allow default behavior for modifier keys or if not in game, OR if shortcuts are disabled
-      if (event.metaKey || event.ctrlKey || event.altKey || currentScreen !== 'inGame' || !showQwertyShortcuts) {
-        return;
+    }
+  }, [qwertyCurrentOctaveShift, midiNoteToKeyDefMap, handleUiKeyPress]);
+  
+  const handleQwertyKeyUp = useCallback((event: KeyboardEvent) => {
+    const code = event.code.toLowerCase();
+    
+    if (qwertyActiveKeysRef.current.has(code)) {
+        qwertyActiveKeysRef.current.delete(code);
+    }
+    
+    // Octave keys don't play notes, so just return
+    if (OCTAVE_DOWN_KEYS.includes(code) || OCTAVE_UP_KEYS.includes(code)) {
+      return;
+    }
+    
+    const mapping = QWERTY_MINI_KEYBOARD_MAPPING.find(m => m.qwertyKey === code);
+    if (mapping) {
+      const midiNote = mapping.midiBase + (qwertyCurrentOctaveShift * 12);
+      const keyDef = midiNoteToKeyDefMap.get(midiNote);
+      if (keyDef) {
+        handleUiKeyRelease(keyDef.name, keyDef.midiNote);
       }
+    }
+  }, [qwertyCurrentOctaveShift, midiNoteToKeyDefMap, handleUiKeyRelease]);
 
-      const code = event.code.toLowerCase();
-
-      if (!qwertyActiveKeysRef.current.has(code)) {
-        return; // Key was not active or already released
-      }
-      qwertyActiveKeysRef.current.delete(code);
-
-      // Only trigger release for actual piano notes, not octave shift keys
-      if (!OCTAVE_DOWN_KEYS.includes(code) && !OCTAVE_UP_KEYS.includes(code)) {
-        const mappedEntry = QWERTY_MINI_KEYBOARD_MAPPING.find(entry => entry.qwertyKey === code);
-        if (mappedEntry) {
-          const targetMidiNote = mappedEntry.midiBase + (qwertyCurrentOctaveShift * 12);
-          const pianoKeyDef = midiNoteToKeyDefMap.get(targetMidiNote);
-          if (pianoKeyDef) {
-            handleUiKeyRelease(pianoKeyDef.name, pianoKeyDef.midiNote);
-            event.preventDefault(); // Prevent browser shortcuts
-          }
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleQwertyKeyDown);
-    window.addEventListener('keyup', handleQwertyKeyUp);
-
+  useEffect(() => {
+    if (currentScreen === 'inGame') {
+      window.addEventListener('keydown', handleQwertyKeyDown);
+      window.addEventListener('keyup', handleQwertyKeyUp);
+    } else {
+      window.removeEventListener('keydown', handleQwertyKeyDown);
+      window.removeEventListener('keyup', handleQwertyKeyUp);
+    }
+    
     return () => {
       window.removeEventListener('keydown', handleQwertyKeyDown);
       window.removeEventListener('keyup', handleQwertyKeyUp);
     };
-  }, [currentScreen, qwertyCurrentOctaveShift, handleUiKeyPress, handleUiKeyRelease, showQwertyShortcuts, midiNoteToKeyDefMap]);
+  }, [currentScreen, handleQwertyKeyDown, handleQwertyKeyUp]);
 
-
+  // Handle hotkeys for navigation
   useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-        if (currentScreen !== 'inGame' || notesForGame.length === 0 || waitMode === 'retical' || hideBarNavigationButtons) return; // Add hideBarNavigationButtons check
-        // Allow QWERTY piano keys to be handled by new listener, prevent default for navigation
-        if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') event.preventDefault();
-        if (event.key === 'ArrowLeft') handleBarNavigation('backward');
-        else if (event.key === 'ArrowRight') handleBarNavigation('forward');
+    const handleKeyDown = (e: KeyboardEvent) => {
+        if (currentScreen !== 'inGame' || notesForGame.length === 0 || waitMode === 'retical' || hideBarNavigationButtons) return;
+        
+        if (document.activeElement && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+            return;
+        }
+
+        if (e.key === 'ArrowRight') {
+            handleBarNavigation('forward');
+        } else if (e.key === 'ArrowLeft') {
+            handleBarNavigation('backward');
+        }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentScreen, notesForGame.length, handleBarNavigation, waitMode, hideBarNavigationButtons]); // Add hideBarNavigationButtons dependency
+  }, [currentScreen, notesForGame, waitMode, hideBarNavigationButtons, handleBarNavigation]);
 
-  // Dynamically determine the active key signature for falling notes
-  const activeKeySignatureForFallingNotes = useMemo(() => {
+  // NEW: Callbacks for Settings component props
+  const onViewModeChange = useCallback((mode: ViewMode) => setViewMode(mode), []);
+  const onNoteLabelTypeChange = useCallback((type: NoteLabelType) => setNoteLabelType(type), []);
+  const onShowOnlyMajorNotesChange = useCallback((value: boolean) => setShowOnlyMajorNotes(value), []);
+  const onShowQwertyShortcutsChange = useCallback((value: boolean) => setShowQwertyShortcuts(value), []);
+  const onHideBarNavigationButtonsChange = useCallback((value: boolean) => setHideBarNavigationButtons(value), []);
+  const onMasterVolumeChange = useCallback((volume: number) => setMasterVolume(volume), []);
+  const onMetronomeVolumeChange = useCallback((volume: number) => setMetronomeVolume(volume), []);
+  const onThemeSettingsChange = useCallback((settings: ThemeSettings) => setThemeSettings(settings), []);
+  const onDevicePresetChange = useCallback((preset: DevicePreset) => setDevicePreset(preset), []);
+  const onCustomWhiteKeyHeightChange = useCallback((height: number) => setCustomWhiteKeyHeight(height), []);
+  const onCustomBlackKeyHeightChange = useCallback((height: number) => setCustomBlackKeyHeight(height), []);
+  const onCustomKeyLabelHeightChange = useCallback((height: number) => setCustomKeyLabelHeight(height), []);
+  const onCustomMinWhiteKeyWidthChange = useCallback((width: number) => setCustomMinWhiteKeyWidth(width), []);
+
+  // NEW: Reset Settings to Default
+  const handleResetToDefaults = useCallback(() => {
+    if (window.confirm("Are you sure you want to reset all settings to their default values?")) {
+      setViewMode(DEFAULT_VIEW_MODE);
+      setNoteLabelType(DEFAULT_NOTE_LABEL_TYPE);
+      // setShowOnlyMajorRests(DEFAULT_SHOW_ONLY_MAJOR_RESTS); // REMOVED
+      setShowOnlyMajorNotes(DEFAULT_SHOW_ONLY_MAJOR_NOTES);
+      setShowQwertyShortcuts(DEFAULT_SHOW_QWERTY_SHORTCUTS);
+      setHideBarNavigationButtons(DEFAULT_HIDE_BAR_NAVIGATION_BUTTONS);
+      setMasterVolume(DEFAULT_MASTER_VOLUME);
+      setMetronomeVolume(DEFAULT_METRONOME_VOLUME);
+      setThemeSettings(DEFAULT_THEME_SETTINGS);
+      setDevicePreset('desktop'); // Reset preset
+      setCustomWhiteKeyHeight(DEVICE_LAYOUTS.desktop.whiteKeyHeight);
+      setCustomBlackKeyHeight(DEVICE_LAYOUTS.desktop.blackKeyHeight);
+      setCustomKeyLabelHeight(DEVICE_LAYOUTS.desktop.keyLabelHeight);
+      setCustomMinWhiteKeyWidth(DEVICE_LAYOUTS.desktop.minWhiteKeyWidth);
+    }
+  }, []);
+
+  const pixelsPerMillisecond = useMemo(() => {
+    return BASE_PIXELS_PER_MILLISECOND * noteSpeedMultiplier;
+  }, [noteSpeedMultiplier]);
+  
+  const handleExitGame = () => {
+    handleStopPlayback();
+    setGameSettings(null);
+    setCurrentScreen('songSelection');
+  };
+
+
+  const activeTempoBpm = useMemo(() => {
+    let activeBpm = currentTempoBpm || DEFAULT_MUSICXML_TEMPO_BPM;
+    const sortedEvents = [...tempoEvents].sort((a,b) => a.timeMs - b.timeMs);
+    for (const event of sortedEvents) {
+      if (event.timeMs <= musicalCurrentTimeMs) {
+        activeBpm = event.bpm;
+      } else {
+        break;
+      }
+    }
+    return activeBpm * playbackTempoMultiplier;
+  }, [musicalCurrentTimeMs, tempoEvents, currentTempoBpm, playbackTempoMultiplier]);
+
+  const effectiveKeySignature = useMemo(() => {
     return getActiveKeySignature(musicalCurrentTimeMs, signatureEvents, initialKeySignature);
   }, [musicalCurrentTimeMs, signatureEvents, initialKeySignature]);
-
-  // NEW: Callback for VexFlowSheetMusicView to signal layout completion
-  const handleSheetLayoutRendered = useCallback((layoutId: number) => {
-    setRenderedLayoutId(layoutId);
-  }, []);
-
-  // NEW: Effect to manage isLoadingContent state based on rendering completion
+  
+  // NEW: When entering inGame, after a short delay, remove the loading state
+  // and set user pause to false to allow auto-play if applicable (e.g., on window focus)
   useEffect(() => {
-    if (currentScreen !== 'inGame' || !isLoadingContent) {
-      return;
-    }
-
-    let timeoutId: number | undefined; // Changed to number | undefined
-
-    if (viewMode === 'sheet') {
-      // Check if vexFlowData exists and renderedLayoutId has updated since loading started
-      // The `vexFlowData` dependency for `VexFlowSheetMusicView` will cause `renderedLayoutId` to update.
-      timeoutId = window.setTimeout(() => {
+    if (currentScreen === 'inGame' && isLoadingContent) {
+      const timer = setTimeout(() => {
         setIsLoadingContent(false);
-      }, 100); // Small delay to allow browser to paint changes
-    } else if (viewMode === 'falling') {
-      // For falling notes and piano, check if keyPositionsMap (which depends on pianoScale) is ready
-      if (keyPositionsMap.size > 0) {
-        timeoutId = window.setTimeout(() => {
-          setIsLoadingContent(false);
-        }, 50); // Slightly less delay for simpler rendering
-      }
+        // Only trigger auto-play if waitMode is off.
+        if (waitMode === 'off') {
+            isUserPausedRef.current = false;
+            if (document.hasFocus()) {
+                handlePlay();
+            }
+        } else {
+            // In wait modes, start paused.
+            isUserPausedRef.current = true;
+        }
+      }, 500); // Small delay to allow UI to settle
+      return () => clearTimeout(timer);
     }
+  }, [currentScreen, isLoadingContent, handlePlay, waitMode]);
 
-    return () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
+  // NEW: Save score to Supabase after game completion in Retical mode
+  useEffect(() => {
+    const saveReticalScore = async () => {
+      // Only save if it's an online song, in retical mode, and user is logged in.
+      // The `isCurrentSongRanked` check is removed here to save all retical scores.
+      if (performanceSummary && !isPlaying && gameSettings?.waitMode === 'retical' && session && currentOnlineSongId) {
+        try {
+          const { error } = await supabase.from('scores').insert({
+            user_id: session.user.id,
+            song_id: currentOnlineSongId,
+            final_score: performanceSummary.finalScore,
+            accuracy: performanceSummary.accuracy,
+            speed: performanceSummary.speed,
+            rank: performanceSummary.rank,
+            notes_hit: performanceSummary.hitCount,
+            errors: performanceSummary.errorCount,
+            total_notes: performanceSummary.totalNoteCount,
+            mode: 'retical',
+          });
+          if (error) throw error;
+        } catch (error) {
+          console.error("Error saving score:", error);
+          // Optionally, display an error message to the user
+        }
       }
     };
-  }, [currentScreen, viewMode, isLoadingContent, renderedLayoutId, keyPositionsMap.size]);
 
+    saveReticalScore();
+  }, [performanceSummary, isPlaying, gameSettings, session, currentOnlineSongId]); // isCurrentSongRanked removed from dependencies
 
-  // Wrapped handlers to trigger loading state
-  const handleNoteSpeedMultiplierChange = useCallback((multiplier: number) => {
-    setIsLoadingContent(true);
-    setNoteSpeedMultiplier(multiplier);
+  // NEW: Function to navigate to SongSelection with a specific online song ID
+  const handleGoToOnlineSongSelection = useCallback((songId: string) => {
+      setSelectedOnlineSongIdForNavigation(songId);
+      setCurrentScreen('songSelection');
   }, []);
 
-  const handleSheetMusicZoomChange = useCallback((zoom: number) => {
-    setIsLoadingContent(true);
-    setSheetMusicZoom(zoom);
-  }, []);
 
-  const handleViewModeChange = useCallback((mode: ViewMode) => {
-    setIsLoadingContent(true);
-    setViewMode(mode);
-  }, []);
+  // Destructure hand colors from themeSettings
+  const { rightHandColor, leftHandColor } = themeSettings;
 
-  const handleNoteLabelTypeChange = useCallback((type: NoteLabelType) => {
-    setNoteLabelType(type);
-  }, []);
+  // Main render logic
+  return (
+      <div className="bg-slate-900 text-white min-h-screen flex flex-col font-sans">
+        {currentScreen === 'mainMenu' && (
+          <MainMenu 
+            onPlay={() => setCurrentScreen('songSelection')} 
+            onSettings={() => setCurrentScreen('settings')} 
+            onLeaderboard={() => setCurrentScreen('leaderboard')}
+            onOpenLoginModal={() => setIsAuthModalOpen(true)}
+            onOpenAccountModal={() => setIsAccountModalOpen(true)}
+          />
+        )}
+        
+        {currentScreen === 'leaderboard' && (
+          // FIX: Add `onGoToOnlineSong` prop to Leaderboard component.
+          <Leaderboard 
+            onBack={() => setCurrentScreen('mainMenu')} 
+            onGoToOnlineSong={handleGoToOnlineSongSelection}
+          />
+        )}
 
-  const handleShowOnlyMajorRestsChange = useCallback((value: boolean) => {
-    setIsLoadingContent(true);
-    setShowOnlyMajorRests(value);
-  }, []);
+        {currentScreen === 'songSelection' && (
+            <SongSelection
+                onFileLoaded={loadFile}
+                onSongSelected={() => setCurrentScreen('modeSelection')}
+                onBack={() => {
+                  setCurrentScreen('mainMenu');
+                  setSelectedOnlineSongIdForNavigation(null); // Clear navigation flag when going back
+                }}
+                loadedSongName={currentFileName}
+                analysisResult={analysisResult}
+                isLoading={isLoadingFile || isPreloading}
+                selectedOnlineSongIdForNavigation={selectedOnlineSongIdForNavigation}
+                onGoToOnlineSong={handleGoToOnlineSongSelection}
+            />
+        )}
+        
+        {currentScreen === 'modeSelection' && (
+          <ModeSelection
+            onStartGame={handleStartGame}
+            onBack={() => setCurrentScreen('songSelection')}
+            analysisResult={analysisResult}
+            analysisResultForPreview={analysisResultForPreview}
+            fileName={currentFileName}
+            initialTempoBpm={currentTempoBpm}
+            initialPlaybackTempoMultiplier={previewPlaybackTempoMultiplier}
+            onPlaybackTempoMultiplierChange={onPlaybackTempoMultiplierChange}
+            currentHideBarNavigationButtons={hideBarNavigationButtons}
+            onHideBarNavigationButtonsChange={onHideBarNavigationButtonsChange}
+          />
+        )}
 
-  const handleShowOnlyMajorNotesChange = useCallback((value: boolean) => {
-    setIsLoadingContent(true);
-    setShowOnlyMajorNotes(value);
-  }, []);
+        {currentScreen === 'settings' && (
+            <Settings
+                onBack={() => setCurrentScreen('mainMenu')}
+                midiAccessStatus={midiAccessStatus}
+                midiInputs={midiInputs}
+                selectedMidiInputId={selectedMidiInputId}
+                onSelectMidiInput={setSelectedMidiInputId}
+                midiOutputs={midiOutputs}
+                selectedMidiOutputId={selectedMidiOutputId}
+                onSelectMidiOutput={setSelectedMidiOutputId}
+                connectMidi={connectMidi}
+                viewMode={viewMode}
+                onViewModeChange={onViewModeChange}
+                noteLabelType={noteLabelType}
+                onNoteLabelTypeChange={onNoteLabelTypeChange}
+                // showOnlyMajorRests={showOnlyMajorRests} // REMOVED
+                // onShowOnlyMajorRestsChange={onShowOnlyMajorRestsChange} // REMOVED
+                showOnlyMajorNotes={showOnlyMajorNotes}
+                onShowOnlyMajorNotesChange={onShowOnlyMajorNotesChange}
+                showQwertyShortcuts={showQwertyShortcuts}
+                onShowQwertyShortcutsChange={onShowQwertyShortcutsChange}
+                hideBarNavigationButtons={hideBarNavigationButtons}
+                onHideBarNavigationButtonsChange={onHideBarNavigationButtonsChange}
+                masterVolume={masterVolume}
+                onMasterVolumeChange={onMasterVolumeChange}
+                metronomeVolume={metronomeVolume}
+                onMetronomeVolumeChange={onMetronomeVolumeChange}
+                themeSettings={themeSettings}
+                onThemeSettingsChange={onThemeSettingsChange}
+                onResetToDefaults={handleResetToDefaults}
+                devicePreset={devicePreset}
+                onDevicePresetChange={onDevicePresetChange}
+                customWhiteKeyHeight={customWhiteKeyHeight}
+                onCustomWhiteKeyHeightChange={onCustomWhiteKeyHeightChange}
+                customBlackKeyHeight={customBlackKeyHeight}
+                onCustomBlackKeyHeightChange={onCustomBlackKeyHeightChange}
+                customKeyLabelHeight={customKeyLabelHeight}
+                onCustomKeyLabelHeightChange={onCustomKeyLabelHeightChange}
+                customMinWhiteKeyWidth={customMinWhiteKeyWidth}
+                onCustomMinWhiteKeyWidthChange={onCustomMinWhiteKeyWidthChange}
+            />
+        )}
 
-  const handleShowQwertyShortcutsChange = useCallback((value: boolean) => {
-    setShowQwertyShortcuts(value);
-  }, []);
-
-  const handleHideBarNavigationButtonsChange = useCallback((value: boolean) => {
-    setIsLoadingContent(true);
-    setHideBarNavigationButtons(value);
-  }, []);
-
-  const handleMasterVolumeChange = useCallback((volume: number) => {
-    setMasterVolume(volume);
-  }, []);
-
-  const handleMetronomeVolumeChange = useCallback((volume: number) => {
-    setMetronomeVolume(volume);
-  }, []);
-
-  const handleThemeSettingsChange = useCallback((settings: ThemeSettings) => {
-    setThemeSettings(settings);
-  }, []);
-
-  const handlePianoScaleChange = useCallback((scale: number) => {
-    setIsLoadingContent(true);
-    setPianoScale(scale);
-  }, []);
-
-  const handlePianoHorizontalOffsetChange = useCallback((offset: number) => {
-    setIsLoadingContent(true); // Can also trigger loading if it causes heavy repaint, but mostly just CSS transform
-    setPianoHorizontalOffset(offset);
-  }, []);
-
-  // --- Reset to Defaults Function ---
-  const handleResetToDefaults = useCallback(() => {
-    handleViewModeChange(DEFAULT_VIEW_MODE);
-    handleNoteLabelTypeChange(DEFAULT_NOTE_LABEL_TYPE);
-    handleShowOnlyMajorRestsChange(DEFAULT_SHOW_ONLY_MAJOR_RESTS);
-    handleShowOnlyMajorNotesChange(DEFAULT_SHOW_ONLY_MAJOR_NOTES);
-    handleShowQwertyShortcutsChange(DEFAULT_SHOW_QWERTY_SHORTCUTS);
-    handleHideBarNavigationButtonsChange(DEFAULT_HIDE_BAR_NAVIGATION_BUTTONS);
-    handleMasterVolumeChange(DEFAULT_MASTER_VOLUME);
-    handleMetronomeVolumeChange(DEFAULT_METRONOME_VOLUME);
-    handleThemeSettingsChange(DEFAULT_THEME_SETTINGS);
-    handlePianoScaleChange(DEFAULT_PIANO_SCALE);
-    handlePianoHorizontalOffsetChange(DEFAULT_PIANO_HORIZONTAL_OFFSET);
-    setSelectedMidiInputId(null); // Disconnect MIDI input
-    setSelectedMidiOutputId(null); // Disconnect MIDI output
-    // Note: MIDI access status is not reset, as it requires user interaction.
-  }, [
-    handleViewModeChange, handleNoteLabelTypeChange, handleShowOnlyMajorRestsChange,
-    handleShowOnlyMajorNotesChange, handleShowQwertyShortcutsChange, handleHideBarNavigationButtonsChange,
-    handleMasterVolumeChange, handleMetronomeVolumeChange, handleThemeSettingsChange,
-    handlePianoScaleChange, handlePianoHorizontalOffsetChange,
-    setSelectedMidiInputId, setSelectedMidiOutputId // Add MIDI selectors to dependencies
-  ]);
-  // --- End Reset to Defaults Function ---
-
-
-  const renderContent = () => {
-    // Calculate total height needed by the piano, progress bar, and dynamic view (falling notes/sheet music)
-    const pianoKeyboardTotalRequiredHeight = WHITE_KEY_HEIGHT_PX + KEY_LABEL_AREA_HEIGHT_PX;
-    const progressBarRequiredHeightForRender = notesForGame.length > 0 ? PROGRESS_BAR_HEIGHT_PX : 0;
-    const totalPianoSectionHeight = contentAreaHeight + progressBarRequiredHeightForRender + pianoKeyboardTotalRequiredHeight;
-
-    switch (currentScreen) {
-      case 'songSelection':
-        return <SongSelection
-                  onFileLoaded={loadFile}
-                  onSongSelected={() => {
-                    setCurrentScreen('modeSelection');
-                    // Initialize preview tempo multiplier to 1 when entering mode selection
-                    setPreviewPlaybackTempoMultiplier(1);
-                  }}
-                  onBack={() => setCurrentScreen('mainMenu')}
-                  loadedSongName={currentFileName}
-                  analysisResult={analysisResult}
-                  isLoading={isLoadingFile || isPreloading}
-                />;
-      case 'modeSelection':
-        return <ModeSelection
-                  onStartGame={handleStartGame}
-                  onBack={() => setCurrentScreen('songSelection')}
-                  analysisResult={analysisResult}
-                  analysisResultForPreview={analysisResultForPreview}
-                  fileName={currentFileName}
-                  initialTempoBpm={currentTempoBpm}
-                  initialPlaybackTempoMultiplier={previewPlaybackTempoMultiplier} // Pass the actual state variable
-                  onPlaybackTempoMultiplierChange={onPlaybackTempoMultiplierChange}
-                  currentHideBarNavigationButtons={hideBarNavigationButtons} // Pass current state
-                  onHideBarNavigationButtonsChange={setHideBarNavigationButtons} // Pass setter for final GameSettings
-                />;
-      case 'settings':
-        return <Settings
-                  onBack={() => setCurrentScreen('mainMenu')}
-                  midiAccessStatus={midiAccessStatus}
-                  midiInputs={midiInputs}
-                  selectedMidiInputId={selectedMidiInputId}
-                  onSelectMidiInput={setSelectedMidiInputId}
-                  midiOutputs={midiOutputs}
-                  selectedMidiOutputId={selectedMidiOutputId}
-                  onSelectMidiOutput={setSelectedMidiOutputId}
-                  connectMidi={connectMidi}
-                  noteLabelType={noteLabelType}
-                  onNoteLabelTypeChange={handleNoteLabelTypeChange}
-                  viewMode={viewMode}
-                  onViewModeChange={handleViewModeChange} // Use wrapped handler
-                  masterVolume={masterVolume}
-                  onMasterVolumeChange={handleMasterVolumeChange}
-                  metronomeVolume={metronomeVolume}
-                  onMetronomeVolumeChange={handleMetronomeVolumeChange}
-                  themeSettings={themeSettings}
-                  onThemeSettingsChange={handleThemeSettingsChange}
-                  showOnlyMajorRests={showOnlyMajorRests}
-                  onShowOnlyMajorRestsChange={handleShowOnlyMajorRestsChange} // Use wrapped handler
-                  showOnlyMajorNotes={showOnlyMajorNotes}
-                  onShowOnlyMajorNotesChange={handleShowOnlyMajorNotesChange}
-                  showQwertyShortcuts={showQwertyShortcuts}
-                  onShowQwertyShortcutsChange={handleShowQwertyShortcutsChange}
-                  hideBarNavigationButtons={hideBarNavigationButtons} // Pass to Settings
-                  onHideBarNavigationButtonsChange={handleHideBarNavigationButtonsChange} // Use wrapped handler
-                  pianoScale={pianoScale}
-                  onPianoScaleChange={handlePianoScaleChange} // Use wrapped handler
-                  pianoHorizontalOffset={pianoHorizontalOffset}
-                  onPianoHorizontalOffsetChange={handlePianoHorizontalOffsetChange}
-                  onResetToDefaults={handleResetToDefaults} // Pass the new reset function
-                />
-      case 'inGame':
-        return (
+        {currentScreen === 'inGame' && (
           <>
             <TopBar
-              onPlay={handlePlay}
-              onPause={handlePause}
-              onStop={handleStopPlayback}
-              onExit={() => { handleStopPlayback(); setCurrentScreen('songSelection'); }}
-              isPlaying={isPlaying}
-              isFileLoaded={notesForGame.length > 0}
-              fileName={currentFileName}
-              waitMode={waitMode}
-              metronomeMode={metronomeMode}
-              onCycleMetronomeMode={() => setMetronomeMode(p => p === 'off' ? 'bar' : 'off')}
-              isMetronomeAvailable={isMetronomeAvailable}
-              hitCount={hitCount}
-              errorCount={errorCount}
-              totalNoteCount={totalNoteCountForGame}
-              currentTimeMs={musicalCurrentTimeMs} // Use musical time for TopBar
-              totalDurationMs={originalTotalMusicalDurationMs}
-              viewMode={viewMode}
-              noteSpeedMultiplier={noteSpeedMultiplier}
-              onNoteSpeedMultiplierChange={handleNoteSpeedMultiplierChange} // Use wrapped handler
-              sheetMusicZoom={sheetMusicZoom}
-              onSheetMusicZoomChange={handleSheetMusicZoomChange} // Use wrapped handler
-              analysisResult={analysisResult}
-              metronomeBeat={metronomeBeat}
+                onPlay={handlePlay}
+                onPause={handlePause}
+                onStop={handleStopPlayback}
+                onExit={handleExitGame}
+                isPlaying={isPlaying}
+                isFileLoaded={playbackNotes.length > 0}
+                fileName={currentFileName}
+                waitMode={waitMode}
+                metronomeMode={metronomeMode}
+                onCycleMetronomeMode={() => setMetronomeMode(prev => prev === 'off' ? 'bar' : 'off')}
+                isMetronomeAvailable={isMetronomeAvailable}
+                hitCount={hitCount}
+                errorCount={errorCount}
+                totalNoteCount={totalNoteCountForGame}
+                currentTimeMs={musicalCurrentTimeMs}
+                totalDurationMs={originalTotalMusicalDurationMs}
+                viewMode={viewMode}
+                noteSpeedMultiplier={noteSpeedMultiplier}
+                onNoteSpeedMultiplierChange={setNoteSpeedMultiplier}
+                sheetMusicZoom={sheetMusicZoom}
+                onSheetMusicZoomChange={setSheetMusicZoom}
+                analysisResult={analysisResult}
+                metronomeBeat={metronomeBeat}
+                totalWaitTimeMs={totalWaitTimeMs} // NEW: Pass the wait time prop
             />
-            <div ref={contentAreaRef} className="flex-grow flex flex-col justify-end overflow-hidden relative">
-              <div className="w-full flex-grow flex justify-center items-end relative overflow-hidden">
-                  <div
-                    style={{
-                      width: `${scaledPianoWidth}px`,
-                      height: `${totalPianoSectionHeight}px`,
-                      position: 'absolute',
-                      left: '50%',
-                      transform: `translateX(calc(-50% + ${pianoHorizontalOffset}px))`,
-                      transition: 'transform 0.1s ease-out',
-                    }}
-                    className="flex flex-col flex-shrink-0"
-                  >
-                      {isLoadingContent && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-slate-900 bg-opacity-70 z-30">
-                          <div className="flex items-center space-x-3 p-4 bg-slate-800 rounded-lg shadow-xl text-sky-400 font-semibold text-lg animate-pulse">
-                            <svg className="animate-spin h-6 w-6 text-sky-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                            <span>Preparing content...</span>
-                          </div>
+            <div ref={contentAreaRef} className="flex-grow flex flex-col justify-end items-center relative overflow-hidden">
+                {isLoadingContent ? (
+                  <div className="absolute inset-0 bg-slate-900 flex items-center justify-center z-30">
+                     <div className="flex items-center space-x-3 p-4 text-sky-300 font-semibold text-lg">
+                        <svg className="animate-spin h-6 w-6 text-sky-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span>Loading Game...</span>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <BarNavigationControls
+                      onNavigate={handleBarNavigation}
+                      isFileLoaded={notesForGame.length > 0}
+                      waitMode={waitMode}
+                      hideControls={hideBarNavigationButtons}
+                    />
+
+                    {/* NEW: Single wrapper for all horizontally transformed content */}
+                    <div
+                      className="flex flex-col justify-end"
+                      style={{
+                        width: `${baseCalculatedPianoWidth}px`,
+                        height: '100%',
+                      }}
+                    >
+                      <div className="relative flex-grow w-full">
+                        {viewMode === 'falling' ? (
+                          <FallingNotesArea
+                            notes={notesForGame}
+                            currentTimeMs={musicalCurrentTimeMs}
+                            keyPositions={keyPositionsMap}
+                            activeMidiNotesInfo={activePlaybackNotesInfo}
+                            width={baseCalculatedPianoWidth}
+                            actualHeight={contentAreaHeight}
+                            pixelsPerMillisecond={pixelsPerMillisecond}
+                            barLines={barLines}
+                            noteLabelType={noteLabelType}
+                            rightHandColor={themeSettings.rightHandColor}
+                            leftHandColor={themeSettings.leftHandColor}
+                            backgroundColor={themeSettings.fallingNotesBackgroundColor}
+                            activeKeySignature={effectiveKeySignature}
+                            showOnlyMajorNotes={showOnlyMajorNotes}
+                            activeTempoBpm={activeTempoBpm}
+                          />
+                        ) : (
+                          <VexFlowSheetMusicView
+                            notes={notesForGame}
+                            timeSignature={initialTimeSignature}
+                            keySignature={initialKeySignature}
+                            initialTempoBpm={currentTempoBpm || 120}
+                            width={baseCalculatedPianoWidth}
+                            height={contentAreaHeight}
+                            currentTimeMs={musicalCurrentTimeMs}
+                            totalDurationMs={originalTotalMusicalDurationMs}
+                            activePlaybackNotesInfo={activePlaybackNotesInfo}
+                            onSeek={handleSeek}
+                            isPlaying={isPlaying}
+                            sheetMusicZoom={sheetMusicZoom}
+                            onLayoutRendered={setRenderedLayoutId}
+                            barLines={barLines}
+                            rightHandColor={themeSettings.rightHandColor}
+                            leftHandColor={themeSettings.leftHandColor}
+                            signatureEvents={signatureEvents}
+                            showOnlyMajorRests={false}
+                            tempoEvents={tempoEvents}
+                            playbackTempoMultiplier={playbackTempoMultiplier}
+                          />
+                        )}
+                      </div>
+                      
+                      {notesForGame.length > 0 && (
+                        <div className="w-full">
+                          <ProgressBar
+                            currentTimeMs={musicalCurrentTimeMs}
+                            totalDurationMs={originalTotalMusicalDurationMs}
+                            width={baseCalculatedPianoWidth}
+                            height={PROGRESS_BAR_HEIGHT_PX}
+                            onSeek={handleSeek}
+                            isPlaybackActive={isPlaying}
+                            isSeekingDisabled={waitMode === 'retical'}
+                          />
                         </div>
                       )}
-
-                      {viewMode === 'falling' ? (
-                        <FallingNotesArea
-                          notes={notesForGame}
-                          currentTimeMs={musicalCurrentTimeMs} // Use musical time for falling notes
-                          keyPositions={keyPositionsMap}
-                          activeMidiNotesInfo={activePlaybackNotesInfo}
-                          width={scaledPianoWidth}
-                          actualHeight={contentAreaHeight} // This is the height for FallingNotesArea only
-                          pixelsPerMillisecond={BASE_PIXELS_PER_MILLISECOND * noteSpeedMultiplier}
-                          barLines={barLines}
-                          noteLabelType={noteLabelType}
-                          rightHandColor={themeSettings.rightHandColor}
-                          leftHandColor={themeSettings.leftHandColor}
-                          backgroundColor={themeSettings.fallingNotesBackgroundColor}
-                          activeKeySignature={activeKeySignatureForFallingNotes} // Pass active key signature
-                          showOnlyMajorNotes={showOnlyMajorNotes}
-                        />
-                      ) : (
-                        <VexFlowSheetMusicView
-                          notes={notesForGame}
-                          timeSignature={initialTimeSignature}
-                          keySignature={initialKeySignature}
-                          initialTempoBpm={currentTempoBpm || 120}
-                          width={scaledPianoWidth}
-                          height={contentAreaHeight} // This is the height for VexFlowSheetMusicView only
-                          currentTimeMs={musicalCurrentTimeMs} // Use musical time for sheet music
-                          totalDurationMs={originalTotalMusicalDurationMs}
-                          activePlaybackNotesInfo={activePlaybackNotesInfo}
-                          onSeek={handleSeek}
-                          isPlaying={isPlaying}
-                          sheetMusicZoom={sheetMusicZoom}
-                          barLines={barLines}
-                          rightHandColor={themeSettings.rightHandColor}
-                          leftHandColor={themeSettings.leftHandColor}
-                          signatureEvents={signatureEvents}
-                          showOnlyMajorRests={showOnlyMajorRests}
-                          onLayoutRendered={handleSheetLayoutRendered} // NEW: Pass callback
-                        />
-                      )}
-                      {notesForGame.length > 0 && <ProgressBar
-                          currentTimeMs={musicalCurrentTimeMs}
-                          totalDurationMs={originalTotalMusicalDurationMs}
-                          width={scaledPianoWidth}
-                          height={progressBarRequiredHeightForRender}
-                          onSeek={handleSeek}
-                          isPlaybackActive={isPlayingRef.current}
-                          isSeekingDisabled={waitMode === 'retical'}
-                      />}
-                      <PianoKeyboard 
+                      
+                      <div 
+                        className="relative flex-shrink-0"
+                        style={{ 
+                            width: '100%',
+                            height: `${layoutConfig.whiteKeyHeight + layoutConfig.keyLabelHeight}px`
+                        }}
+                      >
+                        <PianoKeyboard
                           keyPositions={Array.from(keyPositionsMap.values())}
                           userSustainedKeys={userSustainedKeys}
                           userActiveKeys={userActiveKeys}
                           activeMidiNotesInfo={activeMidiNotesInfoForKeyboard}
                           onUiKeyPress={handleUiKeyPress}
                           onUiKeyRelease={handleUiKeyRelease}
-                          rightHandColor={themeSettings.rightHandColor}
-                          leftHandColor={themeSettings.leftHandColor}
+                          rightHandColor={rightHandColor}
+                          leftHandColor={leftHandColor}
                           showQwertyShortcuts={showQwertyShortcuts}
                           qwertyCurrentOctaveShift={qwertyCurrentOctaveShift}
-                          width={scaledPianoWidth}
-                      />
-                  </div>
-              </div>
+                          width={baseCalculatedPianoWidth}
+                          layoutConfig={layoutConfig}
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
             </div>
-            {performanceSummary && (
-              <PerformanceSummaryModal 
+
+            <PerformanceSummaryModal 
                 isVisible={!!performanceSummary} 
                 summary={performanceSummary} 
                 onClose={handleClosePerformanceSummary}
-              />
-            )}
-            {notesForGame.length > 0 && <BarNavigationControls 
-              onNavigate={handleBarNavigation} 
-              isFileLoaded={notesForGame.length > 0}
-              waitMode={waitMode}
-              hideControls={hideBarNavigationButtons} // Pass hideBarNavigationButtons to BarNavigationControls
-            />}
+            />
           </>
-        );
-      default:
-        return <MainMenu 
-                onPlay={() => setCurrentScreen('songSelection')} 
-                onSettings={() => setCurrentScreen('settings')} 
-                onQuit={() => setQuitMessageVisible(true)}
-                quitMessageVisible={quitMessageVisible}
-               />;
-    }
-  };
-
-  return (
-    <div className="bg-slate-900 text-white h-screen flex flex-col">
-      {renderContent()}
-    </div>
+        )}
+        
+        {/* Auth Modals */}
+        <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
+        <AccountModal 
+          isOpen={isAccountModalOpen} 
+          onClose={() => setIsAccountModalOpen(false)} 
+          onGoToOnlineSong={handleGoToOnlineSongSelection}
+        />
+      </div>
   );
 };
+
+const App: React.FC = () => (
+  <AuthProvider>
+    <AppContent />
+  </AuthProvider>
+);
 
 export default App;

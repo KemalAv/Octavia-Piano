@@ -1,86 +1,86 @@
-
 import { MidiNotePlaybackItem, AnalysisResult, ExtendedResult, AnalysisConfig } from './types';
 
 export const DEFAULT_ANALYSIS_CONFIG: AnalysisConfig = {
-    densityWindowMs: 1000.8670821799764,
-    densityStepMs: 266.3211382449282,
-    densityMinNorm: 0.0974689153319719,
-    densityMaxNorm: 80.27258065360013,
-    awkwardIntervalMin: 3.055912777402908,
-    awkwardIntervalMax: 4.223312325452998,
-    awkwardGapMin: 0.016856180161895266,
-    awkwardGapMax: 0.09248177809040742,
-    awkwardWeightMax: 0.3640343509741535,
-    zigzagGapMin: 0.054225225366679335,
-    zigzagGapMax: 0.032006622114661466,
-    zigzagWeightMax: 0.953247320018822,
-    repetitionWindow: 6.952017982033874,
-    repetitionWeightMin: -0.10775038700335018,
-    repetitionWeightMax: 0.9600746308638215,
-    abstractnessWeightMax: 32.757041093009946,
-    timingVarianceMax: 868.9286083693863,
-    complexityAwkwardWeight: 0.42250714297903497,
-    complexityZigzagWeight: 0.2518308966122291,
-    complexityAbstractWeight: 0.06231366426481266,
-    complexityTimingWeight: 0.34291635341638477,
-    complexityFinalMin: 0.06397309451303217,
-    complexityFinalMax: 0.354283815719138,
-    tightIntervalMax: 6.096522989298555,
-    tightIntervalDtMax: 201.52246344852105,
-    tightIntervalMinNorm: 0.07821961522820114,
-    tightIntervalMaxNorm: 0.683853077489632,
-    chordMobilityMinInterval: 5.673790782723057,
-    chordMobilityMinNorm: 21.999402140820344,
-    chordMobilityMaxNorm: 217.30848624166936,
-    effortWindow: 407.59165856942406,
-    effortStep: 164.76699670435562,
-    effortNormMin: 2.4302752401840912,
-    effortNormMax: 88.43558827189071,
-    effortConsistencyDiscount: 0.08003114963293073,
-    rangeWindow: 2061.508453092694,
-    rangeStep: 737.1458434152491,
-    rangeNormMin: 19.55415696652793,
-    rangeNormMax: 117.72775217169061,
-    arpNpsMin: 1.635032055945509,
-    arpNpsMax: 123.14239899225598,
-    arpRangeMin: 5.87024750296897,
-    arpRangeMax: 38.84059985484811,
-    arpJumpSmall: 8.94572651829202,
-    arpJumpLarge: 4.828722762101031,
-    arpJumpWeight: 0.15834613390179653,
-    arpZigzagWeight: 0.11744168352726626,
-    arpSpeedWeight: 0.2902653969168716,
-    arpRangeWeight: 0.41413041649680443,
-    arpJumpZigzagWeight: 0.18655415958379173,
-    arpConsistencyWeight: 0.052403966057608456,
-    trillMaxInterval: 3.0750328544449013,
-    trillMaxGap: 278.56017443862015,
-    trillNormMin: 0.08195563548331179,
-    trillNormMax: 0.28183442248724055,
-    npsNormMin: 1.158753345162829,
-    npsNormMax: 192.18830806814913,
-    weightSpeedNps: 0.1801837165279198,
-    weightSpeedDensity: 0.5377502946711245,
-    weightSpeedEffort: 0.4348945150406208,
-    polyphonyNormMin: 0.5048688734054705,
-    polyphonyNormMax: 5.010744264109642,
-    weightCompPolyphony: 0.14144557459870077,
-    weightCompAbstract: 0.3517768365580828,
-    weightCompInterval: 0.14460115554507458,
-    weightCompChordMobility: 0.049099647777488424,
-    weightCompRange: 0.3488033519121258,
-    durationNormMin: 18.823203156057648,
-    durationNormMax: 262.794983545287,
-    finalWeightSpeed: 3.0135413034930014,
-    finalWeightComplexity: 5.6,
-    finalWeightArpeggio: 2.330733943435883,
-    penaltyRepetition: 0.19773790077035797,
-    penaltyTrill: 0.4885877519201026,
-    bonusStamina: 0.2544150057548726,
-    expFactor: 2.75,
-    scale: 0.5090584179668028,
-    base: 0.43905417771091604
-};
+  densityWindowMs: 1000,
+  densityStepMs: 250,
+  densityMinNorm: 0.1,
+  densityMaxNorm: 80,
+  awkwardIntervalMin: 3.1,
+  awkwardIntervalMax: 4.2,
+  awkwardGapMin: 0.017,
+  awkwardGapMax: 0.092,
+  awkwardWeightMax: 0.36,
+  zigzagGapMin: 0.054,
+  zigzagGapMax: 0.032,
+  zigzagWeightMax: 0.95,
+  repetitionWindow: 7.0,
+  repetitionWeightMin: -0.25,
+  repetitionWeightMax: 0.95,
+  abstractnessWeightMax: 33,
+  timingVarianceMax: 869,
+  complexityAwkwardWeight: 0.42,
+  complexityZigzagWeight: 0.25,
+  complexityAbstractWeight: 0.062,
+  complexityTimingWeight: 0.34,
+  complexityFinalMin: 0.064,
+  complexityFinalMax: 0.35,
+  tightIntervalMax: 6.1,
+  tightIntervalDtMax: 202,
+  tightIntervalMinNorm: 0.078,
+  tightIntervalMaxNorm: 0.68,
+  chordMobilityMinInterval: 5.7,
+  chordMobilityMinNorm: 22,
+  chordMobilityMaxNorm: 217,
+  effortWindow: 500,
+  effortStep: 250,
+  effortNormMin: 0.4,
+  effortNormMax: 88,
+  effortConsistencyDiscount: 0.08,
+  rangeWindow: 2000,
+  rangeStep: 500,
+  rangeNormMin: 20,
+  rangeNormMax: 118,
+  arpNpsMin: 0.6,
+  arpNpsMax: 123,
+  arpRangeMin: 5.9,
+  arpRangeMax: 39,
+  arpJumpSmall: 4.9,
+  arpJumpLarge: 8.8,
+  arpJumpWeight: 0.16,
+  arpZigzagWeight: 0.12,
+  arpSpeedWeight: 0.29,
+  arpRangeWeight: 0.41,
+  arpJumpZigzagWeight: 0.20,
+  arpConsistencyWeight: 0.052,
+  trillMaxInterval: 3.1,
+  trillMaxGap: 279,
+  trillNormMin: 0.08,
+  trillNormMax: 0.28,
+  npsNormMin: 0.2,
+  npsNormMax: 192,
+  weightSpeedNps: 0.20,
+  weightSpeedDensity: 0.55,
+  weightSpeedEffort: 0.40,
+  polyphonyNormMin: 0.50,
+  polyphonyNormMax: 6.0,
+  weightCompPolyphony: 0.12,
+  weightCompAbstract: 0.34,
+  weightCompInterval: 0.14,
+  weightCompChordMobility: 0.04,
+  weightCompRange: 0.35,
+  durationNormMin: 19,
+  durationNormMax: 265,
+  finalWeightSpeed: 3.4,
+  finalWeightComplexity: 5.4,
+  finalWeightArpeggio: 2.55,
+  penaltyRepetition: 0.20,
+  penaltyTrill: 0.40,
+  bonusStamina: 0.25,
+  expFactor: 2.85,
+  scale: 0.45,
+  base: 0.3
+}
+
 
 // ============================================================
 // UTILITIES
@@ -449,16 +449,18 @@ function detectTrillTremolo(notes: MidiNotePlaybackItem[], config: AnalysisConfi
 // ============================================================
 function calculateDifficultyLevels(performanceScore: number): { difficultyLevel: number, starLevel: number } {
     let difficultyLevel = 1;
-    if (performanceScore < 200)
-      difficultyLevel = 1 + norm(performanceScore, 1, 200) * 3;
-    else if (performanceScore < 600)
-      difficultyLevel = 4 + norm(performanceScore, 200, 600) * 3;
-    else if (performanceScore < 1200)
-      difficultyLevel = 7 + norm(performanceScore, 600, 1200) * 3.6;
-    else if (performanceScore < 2000)
-      difficultyLevel = 10 + norm(performanceScore, 1200, 2000) * 2.9;
-    else if (performanceScore < 4000)
-      difficultyLevel = 13 + norm(performanceScore, 2000, 100000) * 4;
+    if (performanceScore < 100)
+      difficultyLevel = 1 + norm(performanceScore, 1, 100) * 2; // Range 1-3 (Novice)
+    else if (performanceScore < 225)
+      difficultyLevel = 3 + norm(performanceScore, 100, 225) * 1; // Range 3-4 (Beginner)
+    else if (performanceScore < 550)
+      difficultyLevel = 4 + norm(performanceScore, 225, 550) * 2; // Range 4-6 (Intermediate)
+    else if (performanceScore < 900)
+      difficultyLevel = 6 + norm(performanceScore, 550, 900) * 2; // Range 6-8 (Advanced)
+    else if (performanceScore < 1400)
+      difficultyLevel = 8 + norm(performanceScore, 900, 1400) * 2; // Range 8-10 (Virtuoso)
+    else 
+      difficultyLevel = 10 + norm(performanceScore, 1400, 10000) * 10; // Range 10-15 (Legendary)
   
     const starLevel = Math.max(1, difficultyLevel);
     return {
@@ -607,12 +609,17 @@ function _analyzeMidiChunk(
 export function analyzeMidi(
     notes: MidiNotePlaybackItem[],
     totalDurationMs: number,
-    config: AnalysisConfig = DEFAULT_ANALYSIS_CONFIG
+    config: AnalysisConfig = DEFAULT_ANALYSIS_CONFIG,
+    originalDurationMsForChunking?: number
 ): ExtendedResult | null {
     if (!notes.length || totalDurationMs <= 500) return null;
 
     const CHUNK_DURATION_MS = 60 * 1000; // 1 minute
     const MIN_NOTES_FOR_ANALYSIS = 15; // Require at least 15 notes for a meaningful chunk analysis
+
+    // If an original duration is provided, use it for the chunking decision. Otherwise, use the given (potentially scaled) duration.
+    // This stabilizes the decision of whether to chunk or not against tempo changes.
+    const durationForChunkingDecision = originalDurationMsForChunking ?? totalDurationMs;
 
     // Normalize notes to start from t=0 for easier chunking
     const sortedNotes = [...notes].sort((a,b) => a.timeMs - b.timeMs);
@@ -620,23 +627,29 @@ export function analyzeMidi(
     const normalizedNotes = sortedNotes.map(n => ({...n, timeMs: n.timeMs - songStartTime}));
     const normalizedDuration = totalDurationMs - songStartTime;
 
-    // If song is short, analyze the whole thing as one chunk.
-    if (normalizedDuration <= CHUNK_DURATION_MS * 1.5) { // Use a threshold to avoid splitting a short song
+    // If song is short (based on original duration), analyze the whole thing as one chunk.
+    if (durationForChunkingDecision <= CHUNK_DURATION_MS * 1.5) {
         return _analyzeMidiChunk(normalizedNotes, normalizedDuration, config);
     }
 
     const chunkAnalyses: ExtendedResult[] = [];
+    
+    // Stabilize chunking logic against tempo changes
+    const playbackTempoMultiplier = (originalDurationMsForChunking && totalDurationMs > 0)
+        ? originalDurationMsForChunking / totalDurationMs
+        : 1.0;
 
-    for (let startTime = 0; startTime < normalizedDuration; startTime += CHUNK_DURATION_MS) {
-        const endTime = startTime + CHUNK_DURATION_MS;
+    // Scale the chunk duration according to the playback speed to ensure
+    // we are always analyzing the same musical segments.
+    const scaledChunkDurationMs = CHUNK_DURATION_MS / playbackTempoMultiplier;
+
+    for (let startTime = 0; startTime < normalizedDuration; startTime += scaledChunkDurationMs) {
+        const endTime = startTime + scaledChunkDurationMs;
         const chunkNotes = normalizedNotes.filter(n => n.timeMs >= startTime && n.timeMs < endTime);
         
         if (chunkNotes.length > MIN_NOTES_FOR_ANALYSIS) { 
-            // Make note times relative to the chunk's start time
             const relativeChunkNotes = chunkNotes.map(n => ({ ...n, timeMs: n.timeMs - startTime }));
-            
-            // The last chunk might be shorter
-            const chunkDuration = Math.min(CHUNK_DURATION_MS, normalizedDuration - startTime);
+            const chunkDuration = Math.min(scaledChunkDurationMs, normalizedDuration - startTime);
             const analysis = _analyzeMidiChunk(relativeChunkNotes, chunkDuration, config);
             
             if (analysis) {
@@ -675,7 +688,7 @@ export function analyzeMidi(
     const avgOtherScores = otherScores.length > 0 ? avg(otherScores) : maxScore; 
 
     // Calculate the final weighted score
-    const finalPerformanceScore = Math.round(maxScore * 0.9 + avgOtherScores * 0.2);
+    const finalPerformanceScore = Math.round(maxScore * 1 + avgOtherScores * 0.1);
     
     // Recalculate levels based on the new final score
     const { difficultyLevel, starLevel } = calculateDifficultyLevels(finalPerformanceScore);

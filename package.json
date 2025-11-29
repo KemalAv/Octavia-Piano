@@ -1,3 +1,4 @@
+
 {
   "name": "octavia:-piano-rythem-game",
   "private": true,
@@ -14,7 +15,8 @@
     "opensheetmusicdisplay": "1.8.0",
     "jszip": "3.10.1",
     "vexflow": "4.2.0",
-    "@tonejs/midi": "^2.0.28"
+    "@tonejs/midi": "^2.0.28",
+    "@supabase/supabase-js": "^2.47.1"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 
 interface QwertyKeyboardDisplayProps {
@@ -6,18 +7,24 @@ interface QwertyKeyboardDisplayProps {
   octaveShift: number;
 }
 
-const QWERTY_LAYOUT = {
-  black: ['1', '2', '4', '5', '6', '8', '9', 'a', 's', 'd', 'g', 'h', 'k', 'l', ';'],
-  white_top: ['tab', 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '='],
-  white_bottom: ['z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/'],
-  octave: ['f', 'j'],
+// Based on "MAPPING 2" from user request
+const MAPPING_2_LAYOUT = {
+  row1: ['tab', 'digit1', 'keyq', 'digit2', 'keyw', 'keye', 'digit4', 'keyr', 'digit5', 'keyt', 'digit6', 'keyy'],
+  row2: ['keyu', 'digit8', 'keyi', 'digit9', 'keyo', 'keyp', 'minus', 'bracketleft', 'equal', 'bracketright', 'backspace', 'backslash', 'enter'],
 };
 
-const KEY_DISPLAY_NAMES: { [key: string]: string } = {
-  'tab': 'TAB', ',': '<', '.': '>', '/': '?', ';': ':', '=': '+'
+const MAPPING_1_LAYOUT = {
+  row1: ['shiftleft', 'keya', 'keyz', 'keys', 'keyx', 'keyc', 'keyf', 'keyv', 'keyg', 'keyb', 'keyh', 'keyn'],
+  row2: ['keym', 'keyk', 'comma', 'keyl', 'period', 'slash', 'quote', 'shiftright'],
 };
 
-// FIX: Added 'children' to props to allow custom labels for keys.
+const KEY_CODES_TO_DISPLAY: { [key: string]: string } = {
+  'tab': '⇥', 'digit1': '1', 'keyq': 'Q', 'digit2': '2', 'keyw': 'W', 'keye': 'E', 'digit4': '4', 'keyr': 'R', 'digit5': '5', 'keyt': 'T', 'digit6': '6', 'keyy': 'Y',
+  'keyu': 'U', 'digit8': '8', 'keyi': 'I', 'digit9': '9', 'keyo': 'O', 'keyp': 'P', 'minus': '-', 'bracketleft': '[', 'equal': '=', 'bracketright': ']', 'backspace': '⌫', 'backslash': '\\', 'enter': '⏎',
+  'shiftleft': 'L ⇧', 'keya': 'A', 'keyz': 'Z', 'keys': 'S', 'keyx': 'X', 'keyc': 'C', 'keyf': 'F', 'keyv': 'V', 'keyg': 'G', 'keyb': 'B', 'keyh': 'H', 'keyn': 'N',
+  'keym': 'M', 'keyk': 'K', 'comma': ',', 'keyl': 'L', 'period': '.', 'slash': '/', 'quote': "'", 'shiftright': 'R ⇧',
+};
+
 const QwertyKey: React.FC<{
   qwertyKey: string;
   isActive: boolean;
@@ -26,24 +33,33 @@ const QwertyKey: React.FC<{
 }> = ({ qwertyKey, isActive, className = '', children }) => (
   <div 
     className={`qwerty-key ${isActive ? 'active' : ''} ${className}`}
+    style={{ flexGrow: 1, minWidth: '28px', padding: '0 4px' }}
   >
-    {children || (KEY_DISPLAY_NAMES[qwertyKey] || qwertyKey).toUpperCase()}
+    {children || (KEY_CODES_TO_DISPLAY[qwertyKey] || qwertyKey).toUpperCase()}
   </div>
 );
 
 const QwertyKeyboardDisplay: React.FC<QwertyKeyboardDisplayProps> = ({ activeKeys, octaveShift }) => {
   return (
-    <div className="qwerty-keyboard-display">
+    <div className="qwerty-keyboard-display space-y-2">
+      {/* Mapping 2 */}
       <div className="qwerty-row">
-        {QWERTY_LAYOUT.black.map(k => <QwertyKey key={k} qwertyKey={k} isActive={activeKeys.has(k)} className="black-map" />)}
+        {MAPPING_2_LAYOUT.row1.map(k => <QwertyKey key={k} qwertyKey={k} isActive={activeKeys.has(k)} className="white-map" />)}
       </div>
       <div className="qwerty-row">
-        {QWERTY_LAYOUT.white_top.map(k => <QwertyKey key={k} qwertyKey={k} isActive={activeKeys.has(k)} className="white-map" />)}
+        {MAPPING_2_LAYOUT.row2.map(k => <QwertyKey key={k} qwertyKey={k} isActive={activeKeys.has(k)} className="white-map" />)}
+      </div>
+       {/* Mapping 1 */}
+      <div className="qwerty-row">
+        {MAPPING_1_LAYOUT.row1.map(k => <QwertyKey key={k} qwertyKey={k} isActive={activeKeys.has(k)} className="white-map" />)}
       </div>
       <div className="qwerty-row">
-        <QwertyKey qwertyKey="f" isActive={activeKeys.has('f')} className="octave-key"> F (🔻) </QwertyKey>
-        {QWERTY_LAYOUT.white_bottom.map(k => <QwertyKey key={k} qwertyKey={k} isActive={activeKeys.has(k)} className="white-map" />)}
-        <QwertyKey qwertyKey="j" isActive={activeKeys.has('j')} className="octave-key"> J (🔺) </QwertyKey>
+        {MAPPING_1_LAYOUT.row2.map(k => <QwertyKey key={k} qwertyKey={k} isActive={activeKeys.has(k)} className="white-map" />)}
+      </div>
+      {/* Octave Controls */}
+      <div className="qwerty-row pt-1 border-t border-slate-700">
+         <QwertyKey qwertyKey="arrowdown" isActive={activeKeys.has('arrowdown')} className="octave-key">↓ Down</QwertyKey>
+         <QwertyKey qwertyKey="arrowup" isActive={activeKeys.has('arrowup')} className="octave-key">↑ Up</QwertyKey>
       </div>
       <div className="qwerty-octave-display">
         Octave Shift: {octaveShift > 0 ? `+${octaveShift}` : octaveShift}
