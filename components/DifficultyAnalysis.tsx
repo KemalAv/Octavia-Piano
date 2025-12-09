@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ExtendedResult } from '../types';
 
 interface DifficultyAnalysisProps {
@@ -7,7 +7,17 @@ interface DifficultyAnalysisProps {
 
 const DifficultyAnalysis: React.FC<DifficultyAnalysisProps> = ({ analysisResult }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isRendered, setIsRendered] = useState(false);
   const { difficultyLevel, performanceScore, parameters, meta } = analysisResult;
+
+  useEffect(() => {
+    if (isModalOpen) {
+      const timer = setTimeout(() => setIsRendered(true), 10);
+      return () => clearTimeout(timer);
+    } else {
+      setIsRendered(false);
+    }
+  }, [isModalOpen]);
 
   const getDifficultyColor = (level: number) => {
     if (level < 3) return 'bg-blue-400 text-blue-900'; // Novice
@@ -60,14 +70,14 @@ const DifficultyAnalysis: React.FC<DifficultyAnalysisProps> = ({ analysisResult 
 
       {isModalOpen && (
         <div 
-          className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4" 
+          className={`fixed inset-0 bg-black flex items-center justify-center z-50 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'bg-opacity-75' : 'bg-opacity-0'}`}
           onClick={() => setIsModalOpen(false)} 
           role="dialog" 
           aria-modal="true" 
           aria-labelledby="analysis-title"
         >
           <div 
-            className="bg-slate-800 rounded-lg shadow-2xl p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto custom-scrollbar" 
+            className={`bg-slate-800 rounded-lg shadow-2xl p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto custom-scrollbar transform transition-all duration-300 ease-in-out ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
             onClick={e => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-4 border-b border-slate-600 pb-3">

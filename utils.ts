@@ -135,5 +135,7 @@ export function convertScoreToPerformanceSummary(score: Score, songTitle: string
     hitCount,
     errorCount,
     totalNoteCount: totalNotes,
+    playbackTempoMultiplier: score.tempo_multiplier ?? 1, // Use stored tempo, default to 1
+    totalWaitTimeMs: 0, // Default to 0 as wait time is not stored.
   };
 }

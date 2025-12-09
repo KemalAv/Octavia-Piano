@@ -28,6 +28,12 @@ const SongSelection: React.FC<SongSelectionProps> = ({
   const [activeTab, setActiveTab] = useState<'local' | 'online'>('online'); // Changed default to 'online'
   const [isOnlineLoading, setIsOnlineLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isRendered, setIsRendered] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setIsRendered(true), 10);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Effect to handle direct navigation to an online song
   useEffect(() => {
@@ -100,12 +106,12 @@ const SongSelection: React.FC<SongSelectionProps> = ({
   const showLoading = isLoading || isOnlineLoading;
 
   return (
-    <div className="fixed inset-0 bg-slate-900 flex flex-col items-center justify-center z-40 p-4">
+    <div className={`fixed inset-0 bg-slate-900 flex flex-col items-center justify-center z-40 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'opacity-100' : 'opacity-0'}`}>
        <div className="absolute top-4 left-4">
             <button onClick={onBack} className={`${tertiaryButtonStyle} py-2 px-4 text-base shadow-md`}>&larr; Back to Menu</button>
        </div>
 
-      <div className="bg-slate-800/50 backdrop-blur-sm p-0 rounded-xl shadow-2xl text-center max-w-4xl w-full ring-1 ring-slate-700 max-h-[90vh] flex flex-col overflow-hidden">
+      <div className={`bg-slate-800/50 backdrop-blur-sm p-0 rounded-xl shadow-2xl text-center max-w-4xl w-full ring-1 ring-slate-700 max-h-[90vh] flex flex-col overflow-hidden transform transition-transform duration-300 ease-in-out ${isRendered ? 'scale-100' : 'scale-95'}`}>
         
         {/* Header / Tabs */}
         <div className="flex border-b border-slate-700 bg-slate-800/80">

@@ -1,5 +1,4 @@
-
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { PerformanceSummary } from '../types';
 
 interface PerformanceSummaryProps {
@@ -9,6 +8,17 @@ interface PerformanceSummaryProps {
 }
 
 const PerformanceSummaryModal: React.FC<PerformanceSummaryProps> = ({ isVisible, summary, onClose }) => {
+  const [isRendered, setIsRendered] = useState(false);
+
+  useEffect(() => {
+    if (isVisible) {
+      const timer = setTimeout(() => setIsRendered(true), 10);
+      return () => clearTimeout(timer);
+    } else {
+      setIsRendered(false);
+    }
+  }, [isVisible]);
+
   if (!isVisible || !summary) {
     return null;
   }
@@ -33,14 +43,14 @@ const PerformanceSummaryModal: React.FC<PerformanceSummaryProps> = ({ isVisible,
 
   return (
     <div
-      className="fixed inset-0 bg-slate-950 bg-opacity-80 flex items-center justify-center z-50 p-4 transition-opacity duration-300 ease-in-out"
+      className={`fixed inset-0 bg-slate-950 flex items-center justify-center z-50 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'bg-opacity-80' : 'bg-opacity-0'}`}
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-labelledby="performance-summary-title"
     >
       <div
-        className="bg-slate-800/80 backdrop-blur-sm p-8 md:p-10 rounded-xl shadow-2xl text-center max-w-md w-full ring-1 ring-slate-700"
+        className={`bg-slate-800/80 backdrop-blur-sm p-8 md:p-10 rounded-xl shadow-2xl text-center max-w-md w-full ring-1 ring-slate-700 transform transition-all duration-300 ease-in-out ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
         onClick={e => e.stopPropagation()}
         role="document"
       >
@@ -54,6 +64,7 @@ const PerformanceSummaryModal: React.FC<PerformanceSummaryProps> = ({ isVisible,
              <StatRow label="Errors" value={summary.errorCount} valueColor="text-red-400" />
              <StatRow label="Accuracy" value={`${summary.accuracy}%`} valueColor="text-cyan-300" />
              <StatRow label="Speed Efficiency" value={`${summary.speed}%`} valueColor="text-yellow-300" />
+             <StatRow label="Tempo" value={`${Math.round(summary.playbackTempoMultiplier * 100)}%`} valueColor="text-purple-300" />
           </div>
 
           <div className="bg-slate-900/50 p-4 rounded-lg space-y-4 ring-1 ring-slate-700">

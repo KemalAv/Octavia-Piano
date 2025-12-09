@@ -19,34 +19,83 @@ export const PLAY_LINE_THICKNESS_PX = 6; // Thickness of the visual play/target 
 // --- End Fixed Heights ---
 
 // --- Device Layout Presets ---
-export const DEVICE_LAYOUTS: Record<DevicePreset, LayoutDimensions> = {
-  desktop: {
-    whiteKeyHeight: 140,
-    blackKeyHeight: 90,
-    keyLabelHeight: 25,
-    minWhiteKeyWidth: 24.5,
-  },
-  tablet: {
-    whiteKeyHeight: 170,
-    blackKeyHeight: 110,
-    keyLabelHeight: 75,
-    minWhiteKeyWidth: 19.5,
-  },
-  phone: {
-    whiteKeyHeight: 70,
-    blackKeyHeight: 35,
-    keyLabelHeight: 75,
-    minWhiteKeyWidth: 19.5,
-  },
-  // FIX: Add 'custom' preset to satisfy the Record<DevicePreset, LayoutDimensions> type.
-  // Its values will be dynamically set in App.tsx when the user selects 'custom'.
-  custom: {
-    whiteKeyHeight: 130,
-    blackKeyHeight: 85,
-    keyLabelHeight: 25,
-    minWhiteKeyWidth: 24.5,
-  },
+
+/**
+ * Calculates the number of white keys for a given total number of keys.
+ * Uses hardcoded values for common keyboard sizes for accuracy, as start notes can vary.
+ * Falls back to a chromatic scale calculation assuming a 'C' start for non-standard sizes.
+ */
+const getWhiteKeyCount = (totalKeys: number): number => {
+  switch (totalKeys) {
+    case 88: return 52; // Standard 88-key (A0-C8)
+    case 76: return 45; // Common 76-key (E1-G7)
+    case 61: return 36; // Standard 61-key (C2-C7)
+    case 49: return 29; // Standard 49-key (C2-C6)
+    case 25: return 15; // Standard 25-key (C3-C5)
+    default:
+      // Fallback for non-standard sizes, assuming a C-start chromatic scale.
+      const KEY_TYPES_CHROMATIC: PianoKeyType[] = ['white', 'black', 'white', 'black', 'white', 'white', 'black', 'white', 'black', 'white', 'black', 'white'];
+      if (totalKeys <= 0) return 0;
+      let count = 0;
+      for (let i = 0; i < totalKeys; i++) {
+        if (KEY_TYPES_CHROMATIC[i % 12] === 'white') {
+          count++;
+        }
+      }
+      return count;
+  }
 };
+
+/**
+ * Calculates the scaled width of a white key based on the total number of keys,
+ * maintaining the aspect ratio relative to a standard 88-key piano.
+ */
+const getScaledWhiteKeyWidth = (totalKeys: number, baseWidth88: number): number => {
+  const baseWhiteKeys = 52; // White keys on a standard 88-key piano.
+  const currentWhiteKeys = getWhiteKeyCount(totalKeys);
+  if (currentWhiteKeys <= 0) return baseWidth88;
+  return (baseWidth88 * baseWhiteKeys) / currentWhiteKeys;
+};
+
+/**
+ * Generates device layout dimensions with a dynamically calculated minWhiteKeyWidth.
+ * This ensures the piano keyboard stretches proportionally for any number of keys.
+ * @param totalKeys The total number of keys on the keyboard.
+ * @returns A record of layout dimensions for each device preset.
+ */
+export const DEVICE_LAYOUTS = (totalKeys: number): Record<DevicePreset, LayoutDimensions> => {
+  const whiteWidthDesktop = getScaledWhiteKeyWidth(totalKeys, 24.5);
+  const whiteWidthTablet = getScaledWhiteKeyWidth(totalKeys, 19.5);
+  const whiteWidthPhone = getScaledWhiteKeyWidth(totalKeys, 14.5);
+
+  return {
+    desktop: {
+      whiteKeyHeight: 140,
+      blackKeyHeight: 90,
+      keyLabelHeight: 25,
+      minWhiteKeyWidth: whiteWidthDesktop,
+    },
+    tablet: {
+      whiteKeyHeight: 170,
+      blackKeyHeight: 110,
+      keyLabelHeight: 95,
+      minWhiteKeyWidth: whiteWidthTablet,
+    },
+    phone: {
+      whiteKeyHeight: 100,
+      blackKeyHeight: 65,
+      keyLabelHeight: 95,
+      minWhiteKeyWidth: whiteWidthPhone,
+    },
+    custom: { // Provide a default calculation for custom, which can be overridden by user state.
+      whiteKeyHeight: 130,
+      blackKeyHeight: 83,
+      keyLabelHeight: 25,
+      minWhiteKeyWidth: getScaledWhiteKeyWidth(totalKeys, 22.8),
+    },
+  };
+};
+
 
 export const INTERACTIVE_NOTE_DURATION_MS = 300;
 export const ACTIVE_KEY_HIGHLIGHT_DURATION_MS = 200;
@@ -97,7 +146,6 @@ const generatePianoKeys = (): PianoKeyDefinition[] => {
 };
 
 export const PIANO_KEYS_CONFIG: PianoKeyDefinition[] = generatePianoKeys();
-export const NUM_WHITE_KEYS = PIANO_KEYS_CONFIG.filter(key => key.type === 'white').length;
 
 
 // --- QWERTY Mini Keyboard Constants ---
@@ -174,7 +222,8 @@ export const DEFAULT_NOTE_LABEL_TYPE: NoteLabelType = 'none';
 export const DEFAULT_SHOW_ONLY_MAJOR_RESTS = true; // Changed to true
 export const DEFAULT_SHOW_ONLY_MAJOR_NOTES = false;
 export const DEFAULT_SHOW_QWERTY_SHORTCUTS = true;
-export const DEFAULT_HIDE_BAR_NAVIGATION_BUTTONS = false;
+export const DEFAULT_HIDE_BAR_NAVIGATION_BUTTONS = true;
+export const DEFAULT_AUTO_HIDE_TOP_BAR = false;
 export const DEFAULT_THEME_SETTINGS: ThemeSettings = {
   rightHandColor: '#A855F7', // purple-500
   leftHandColor: '#3B82F6',  // blue-500

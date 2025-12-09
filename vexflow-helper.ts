@@ -1,3 +1,4 @@
+
 import { MidiNotePlaybackItem, TimeSignatureInfo, VexFlowMeasureData, VexFlowNoteInfo, VexFlowRenderData, OctaveLineInfo, NoteFragment, TempoEvent, TempoMarkingInfo } from '../types';
 import { getNoteZoom, getLayoutZoom, SHARP_KEYS, FLAT_KEYS, NEUTRAL_KEYS, ENHARMONIC_MAP_TO_SHARP, ENHARMONIC_MAP_TO_FLAT, SignatureEvent } from './utils';
 import { StaveNote, Beam } from 'vexflow'; // Import StaveNote and Beam directly
@@ -166,8 +167,8 @@ function processHandAndAccidentals(
     measureEndTime: number,
     keySpec: { [note: string]: string },
     activeAccidentals: Map<string, string>, // This map is reset per measure (Rule III.3, V)
-    is8vaActiveForMeasureRH: boolean, 
-    is8vbActiveForMeasureLH: boolean, 
+    is8vaActiveForMeasure: boolean,
+    is8vbActiveForMeasure: boolean,
     showOnlyMajorRests: boolean,
     currentMeasureKeySignature: string, // New parameter for dynamic enharmonic correction
     getBpmAtTime: (timeMs: number) => number
@@ -335,8 +336,8 @@ function processHandAndAccidentals(
                 activeAccidentals.set(notePositionKey, intendedModifier);
                 
                 // Apply 8va/8vb visual shift for displaying notes (does not affect accidental logic)
-                if (hand === 'right' && is8vaActiveForMeasureRH) octave--; 
-                if (hand === 'left' && is8vbActiveForMeasureLH) octave++; 
+                if (is8vaActiveForMeasure && hand === 'right') octave--;
+                if (is8vbActiveForMeasure && hand === 'left') octave++;
                 
                 keysForStaveNote.push(`${basePitch.toLowerCase()}/${octave}`);
             });
@@ -611,9 +612,7 @@ export const getVexFlowRenderData = (
             keySignature: keySignatureStr, startsRepeat: fragmentsInMeasure.some(n => n.isRepeatStart), endsRepeat: fragmentsInMeasure.some(n => n.isRepeatEnd),
             newKeySignature: newKey, newTimeSignature: newTime, newTempoBpm: newTempo, activeKeySignature: currentKeySigForAccidentals, effectiveClefRH: detectedClefRH,
             effectiveClefLH: detectedClefLH, newClefRH: hasNewClefRH ? detectedClefRH : undefined,
-            newClefLH: hasNewClefLH ? detectedClefLH : undefined, 
-            is8vaActiveRH: is8vaActiveRH, 
-            is8vbActiveLH: is8vbActiveLH, // Corrected property name for left hand 8vb
+            newClefLH: hasNewClefLH ? detectedClefLH : undefined, is8vaActiveRH, is8vbActiveLH,
             starts8vaRH: false, ends8vaRH: false, starts8vbLH: false, ends8vbLH: false,
             effectiveTimeSignature: currentTsigForMeasure, // NEW
             hasDottedBeamableNotes: hasDottedBeamableNotesInMeasure, // NEW
@@ -639,13 +638,11 @@ export const getVexFlowRenderData = (
             });
         }
         
-        // FIX: Use the correct `is8vaActiveRH` and `is8vbActiveLH` properties from `measureData`.
         if (measureData.is8vaActiveRH && (i === 0 || !tempMeasures[i - 1].is8vaActiveRH)) {
             let endBlockIndex = i; let currentBlockWidth = 0;
             while (endBlockIndex < tempMeasures.length && tempMeasures[endBlockIndex].is8vaActiveRH) { currentBlockWidth += tempMeasures[endBlockIndex].width; endBlockIndex++; }
             octaveLines.push({ type: '8va', hand: 'right', startX: cumulativeWidth, endX: cumulativeWidth + currentBlockWidth, startY: topStaveYOffset - 100 * UNIVERSAL_SCALE, endY: topStaveYOffset - 100 * UNIVERSAL_SCALE });
         }
-        // FIX: Use the correct `is8vaActiveRH` and `is8vbActiveLH` properties from `measureData`.
         if (measureData.is8vbActiveLH && (i === 0 || !tempMeasures[i - 1].is8vbActiveLH)) {
             let endBlockIndex = i; let currentBlockWidth = 0;
             while (endBlockIndex < tempMeasures.length && tempMeasures[endBlockIndex].is8vbActiveLH) { currentBlockWidth += tempMeasures[endBlockIndex].width; endBlockIndex++; }
@@ -663,9 +660,7 @@ export const getVexFlowRenderData = (
         const activeAccidentalsRH = new Map<string, string>();
         const activeAccidentalsLH = new Map<string, string>();
 
-        // FIX: Pass the correct 'is8vaActiveRH' and 'is8vbActiveLH' to processHandAndAccidentals.
         measureData.rightHand = processHandAndAccidentals(fragmentsInMeasure, 'right', measureData.effectiveClefRH, measureData.startTimeMs, measureData.endTimeMs, keySpec, activeAccidentalsRH, measureData.is8vaActiveRH, measureData.is8vbActiveLH, showOnlyMajorRests, measureData.activeKeySignature, getBpmAtTime);
-        // FIX: Pass the correct 'is8vaActiveRH' and 'is8vbActiveLH' to processHandAndAccidentals.
         measureData.leftHand = processHandAndAccidentals(fragmentsInMeasure, 'left', measureData.effectiveClefLH, measureData.startTimeMs, measureData.endTimeMs, keySpec, activeAccidentalsLH, measureData.is8vaActiveRH, measureData.is8vbActiveLH, showOnlyMajorRests, measureData.activeKeySignature, getBpmAtTime);
         
         measures.push(measureData);

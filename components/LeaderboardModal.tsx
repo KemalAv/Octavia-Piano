@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { OnlineSong, Score, PerformanceSummary } from '../types';
@@ -16,9 +15,19 @@ const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ song, onClose, onGo
   const [scores, setScores] = useState<Score[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isRendered, setIsRendered] = useState(false);
 
   const [selectedPerformanceSummary, setSelectedPerformanceSummary] = useState<PerformanceSummary | null>(null);
   const [selectedPlayerProfileId, setSelectedPlayerProfileId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (song) {
+        const timer = setTimeout(() => setIsRendered(true), 10);
+        return () => clearTimeout(timer);
+    } else {
+        setIsRendered(false);
+    }
+  }, [song]);
 
   const fetchScores = useCallback(async () => {
     if (!song) return;
@@ -54,6 +63,19 @@ const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ song, onClose, onGo
     }
   }, [song, fetchScores]);
 
+  const formatDate = (dateString: string) => {
+    if (!dateString) return '';
+    try {
+        return new Date(dateString).toLocaleDateString(undefined, {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
+        });
+    } catch {
+        return 'Invalid Date';
+    }
+  };
+
   const handleOpenPerformanceSummary = (score: Score) => {
     // FIX: Access 'artist' property from 'score.songs' with optional chaining.
     setSelectedPerformanceSummary(convertScoreToPerformanceSummary(score, `${score.songs?.artist || 'Unknown Artist'} - ${score.songs?.title || 'Unknown MIDI'}`));
@@ -83,14 +105,14 @@ const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ song, onClose, onGo
 
   return (
     <div
-      className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
+      className={`fixed inset-0 bg-slate-950 flex items-center justify-center z-50 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'bg-opacity-80' : 'bg-opacity-0'}`}
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-labelledby="leaderboard-modal-title"
     >
       <div
-        className="bg-slate-800 p-6 rounded-xl shadow-2xl max-w-2xl w-full ring-1 ring-slate-600 flex flex-col max-h-[90vh]"
+        className={`bg-slate-800/80 backdrop-blur-sm p-6 rounded-xl shadow-2xl max-w-2xl w-full ring-1 ring-slate-700 flex flex-col max-h-[90vh] transform transition-all duration-300 ease-in-out ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
         onClick={(e) => e.stopPropagation()}
         role="document"
       >
@@ -123,6 +145,7 @@ const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ song, onClose, onGo
                 <tr>
                   <th className="p-2 text-sm font-semibold text-slate-400 w-16">#</th>
                   <th className="p-2 text-sm font-semibold text-slate-400">Player</th>
+                  <th className="p-2 text-sm font-semibold text-slate-400">Date</th>
                   <th className="p-2 text-sm font-semibold text-slate-400 text-right">Score</th>
                   <th className="p-2 text-sm font-semibold text-slate-400 text-right w-16">Rank</th>
                 </tr>
@@ -140,6 +163,7 @@ const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ song, onClose, onGo
                     >
                         {score.profiles?.username || 'Anonymous'}
                     </td>
+                    <td className="p-2 text-xs text-slate-400 whitespace-nowrap">{formatDate(score.created_at)}</td>
                     <td 
                         className="p-2 font-mono text-cyan-300 text-right cursor-pointer hover:underline"
                         onClick={() => handleOpenPerformanceSummary(score)}
