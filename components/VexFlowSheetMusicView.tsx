@@ -1,3 +1,4 @@
+
 import React, {
   useEffect,
   useRef,
@@ -29,7 +30,7 @@ import {
   TempoEvent,
 } from '../types';
 import { getVexFlowRenderData } from '../vexflow-helper';
-// Removed: import { SYSTEM_PLAY_COLOR, USER_PLAY_COLOR } from '../constants'; // Import from constants
+import { SYSTEM_PLAY_COLOR, USER_PLAY_COLOR } from '../constants'; // Import from constants
 
 // --- Constants ---
 const GRAND_STAFF_VERTICAL_SPACING = 125;
@@ -37,8 +38,8 @@ const HORIZONTAL_PADDING = 30;
 const CURSOR_FIXED_POSITION_X = 0.25;
 
 // --- Colors ---
-// Removed: SYSTEM_PLAY_COLOR = '#8B5CF6'; // A slightly brighter violet-500 for system playback
-// Removed: USER_PLAY_COLOR = '#F59E0B';   // A richer amber-500 for user playback
+// Moved to constants.ts: SYSTEM_PLAY_COLOR = '#8B5CF6'; // A slightly brighter violet-500 for system playback
+// Moved to constants.ts: USER_PLAY_COLOR = '#F59E0B';   // A richer amber-500 for user playback
 const DEFAULT_NOTE_COLOR = '#000000'; // Black for default
 
 // --- Helper Types ---
@@ -515,53 +516,63 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
       }
       notePositionsRef.current.clear(); 
     };
-  }, [vexFlowData, width, height, totalContentWidth, keySignature, timeSignature, onLayoutRendered, rightHandColor, leftHandColor, playbackTempoMultiplier]);
+  }, [vexFlowData, width, height, totalContentWidth, keySignature, timeSignature, onLayoutRendered]);
 
 
   // === Calculate Highlights (HTML Overlay) ===
   useEffect(() => {
     if (!vexFlowData) {
-        if(highlights.length > 0) setHighlights([]);
-        return;
+      if (highlights.length > 0) setHighlights([]);
+      return;
     }
 
     const newHighlights: HighlightInfo[] = [];
-    
+
     activePlaybackNotesInfo.forEach(activeInfo => {
-        let highlightColor: string = DEFAULT_NOTE_COLOR; // Fallback
+      let color: string | null = null;
 
-        // Determine base color based on hand
-        const baseHandColor = activeInfo.hand === 'left' ? leftHandColor : rightHandColor;
-
-        // Apply status-specific logic
-        if (activeInfo.status === 'user_played') {
-            highlightColor = baseHandColor; // User played, use hand color
-        } else if (activeInfo.status === 'playing' || activeInfo.status === 'waiting') {
-            highlightColor = baseHandColor; // System playing or waiting, use hand color
+      if (activeInfo.status === 'user_played') {
+        color = USER_PLAY_COLOR;
+      } else if (activeInfo.status === 'playing' || activeInfo.status === 'waiting') {
+        if (activeInfo.hand === 'left') {
+          color = leftHandColor;
+        } else if (activeInfo.hand === 'right') {
+          color = rightHandColor;
+        } else {
+          color = SYSTEM_PLAY_COLOR; // Fallback if hand is not defined
         }
-        
-        // Find fragments for this note and apply highlight
-        const fragmentsForNote = vexFlowData.noteIdToFragmentsMap.get(activeInfo.noteId);
+      }
+
+      if (color) {
+        const fragmentsForNote = vexFlowData.noteIdToFragmentsMap.get(
+          activeInfo.noteId
+        );
         if (fragmentsForNote) {
-            fragmentsForNote.forEach(fragment => {
-                const position = notePositionsRef.current.get(fragment.fragmentId);
-                if (position) {
-                    newHighlights.push({
-                        key: fragment.fragmentId,
-                        x: position.getX(),
-                        y: position.getY(),
-                        w: position.getW(),
-                        h: position.getH(),
-                        color: highlightColor, // Use the determined highlightColor
-                    });
-                }
-            });
+          fragmentsForNote.forEach(fragment => {
+            const position = notePositionsRef.current.get(fragment.fragmentId);
+            if (position) {
+              newHighlights.push({
+                key: fragment.fragmentId,
+                x: position.getX(),
+                y: position.getY(),
+                w: position.getW(),
+                h: position.getH(),
+                color: color,
+              });
+            }
+          });
         }
+      }
     });
 
     setHighlights(newHighlights);
-
-  }, [activePlaybackNotesInfo, vexFlowData, renderedLayoutId, rightHandColor, leftHandColor]);
+  }, [
+    activePlaybackNotesInfo,
+    vexFlowData,
+    renderedLayoutId,
+    leftHandColor,
+    rightHandColor,
+  ]);
 
 
   // === Auto Scroll & Cursor ===

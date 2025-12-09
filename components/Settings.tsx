@@ -1,6 +1,4 @@
-
-
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { MidiAccessStatus, MIDIInput, MIDIOutput, NoteLabelType, ViewMode, ThemeSettings, DevicePreset, LayoutDimensions } from '../types';
 import { DEFAULT_SHOW_ONLY_MAJOR_RESTS, DEVICE_LAYOUTS } from '../constants'; // Import DEVICE_LAYOUTS
 
@@ -26,13 +24,14 @@ interface SettingsProps {
   onShowQwertyShortcutsChange: (value: boolean) => void;
   hideBarNavigationButtons: boolean;
   onHideBarNavigationButtonsChange: (value: boolean) => void;
+  autoHideTopBar: boolean;
+  onAutoHideTopBarChange: (value: boolean) => void;
   masterVolume: number;
   onMasterVolumeChange: (volume: number) => void;
   metronomeVolume: number;
   onMetronomeVolumeChange: (volume: number) => void;
   themeSettings: ThemeSettings;
   onThemeSettingsChange: (settings: ThemeSettings) => void;
-  onResetToDefaults: () => void; // New prop for resetting settings
   devicePreset: DevicePreset;
   onDevicePresetChange: (preset: DevicePreset) => void;
   // NEW: Props for custom layout dimensions
@@ -44,9 +43,47 @@ interface SettingsProps {
   onCustomKeyLabelHeightChange: (height: number) => void;
   customMinWhiteKeyWidth: number;
   onCustomMinWhiteKeyWidthChange: (width: number) => void;
+  // NEW: Piano Range props
+  pianoRangeMode: 'full' | '61-key' | '37-key' | '25-key' | 'custom';
+  onPianoRangeModeChange: (mode: 'full' | '61-key' | '37-key' | '25-key' | 'custom') => void;
+  customStartNote: string;
+  onCustomStartNoteChange: (note: string) => void;
+  customEndNote: string;
+  onCustomEndNoteChange: (note: string) => void;
 }
 
+const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
+  <div>
+    <h3 className="text-xl font-semibold text-violet-400 mb-4 border-b border-slate-700 pb-2">{title}</h3>
+    <div className="space-y-4">{children}</div>
+  </div>
+);
+
+const SettingRow: React.FC<{ label: string; htmlFor?: string; children: React.ReactNode }> = ({ label, htmlFor, children }) => (
+  <div className="flex items-center justify-between">
+    <label htmlFor={htmlFor} className="text-sm font-medium text-slate-300">{label}</label>
+    {children}
+  </div>
+);
+
+const ToggleRow: React.FC<{ label: string; id: string; checked: boolean; onChange: (checked: boolean) => void;}> = ({label, id, checked, onChange}) => {
+  const checkboxStyle = "h-5 w-5 text-cyan-500 rounded border-slate-500 focus:ring-cyan-400 ml-3";
+  return (
+    <div className="flex items-center justify-between p-2 rounded-md bg-slate-700/30">
+        <label htmlFor={id} className="text-sm font-medium text-slate-300 cursor-pointer flex-grow">{label}</label>
+        <input type="checkbox" id={id} checked={checked} onChange={e => onChange(e.target.checked)} className={checkboxStyle} />
+    </div>
+  );
+};
+
 const Settings: React.FC<SettingsProps> = (props) => {
+  const [isRendered, setIsRendered] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setIsRendered(true), 10);
+    return () => clearTimeout(timer);
+  }, []);
+
   const {
     onBack, midiAccessStatus, midiInputs, selectedMidiInputId, onSelectMidiInput,
     midiOutputs, selectedMidiOutputId, onSelectMidiOutput, connectMidi,
@@ -54,14 +91,15 @@ const Settings: React.FC<SettingsProps> = (props) => {
     // showOnlyMajorRests, onShowOnlyMajorRestsChange, // REMOVED
     showOnlyMajorNotes, onShowOnlyMajorNotesChange, showQwertyShortcuts,
     onShowQwertyShortcutsChange, hideBarNavigationButtons, onHideBarNavigationButtonsChange,
+    autoHideTopBar, onAutoHideTopBarChange,
     masterVolume, onMasterVolumeChange, metronomeVolume, onMetronomeVolumeChange,
     themeSettings, onThemeSettingsChange,
-    onResetToDefaults,
     devicePreset, onDevicePresetChange,
     customWhiteKeyHeight, onCustomWhiteKeyHeightChange,
     customBlackKeyHeight, onCustomBlackKeyHeightChange,
     customKeyLabelHeight, onCustomKeyLabelHeightChange,
     customMinWhiteKeyWidth, onCustomMinWhiteKeyWidthChange,
+    pianoRangeMode, onPianoRangeModeChange, customStartNote, onCustomStartNoteChange, customEndNote, onCustomEndNoteChange,
   } = props;
 
   const commonButtonStyles = "px-3 py-1.5 rounded text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-300 focus:ring-opacity-75 flex items-center justify-center shadow-md";
@@ -69,20 +107,20 @@ const Settings: React.FC<SettingsProps> = (props) => {
   const selectStyles = `bg-slate-700 border border-slate-600 text-white text-sm rounded-lg focus:ring-violet-500 focus:border-violet-500 block w-full p-2.5 transition-all duration-150 ease-in-out`;
   const colorInputStyle = `p-1 h-10 w-14 block bg-slate-700 border border-slate-600 cursor-pointer rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150 ease-in-out`;
   const rangeSliderStyle = "w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer";
-  const checkboxStyle = "h-5 w-5 text-cyan-500 rounded border-slate-500 focus:ring-cyan-400 ml-3";
   const numberInputStyle = `w-24 p-2 rounded-lg bg-slate-700 text-white border border-slate-600 focus:ring-violet-500 focus:border-violet-500 text-sm`;
 
 
   const handleDevicePresetChange = (newPreset: DevicePreset) => {
     onDevicePresetChange(newPreset);
     if (newPreset !== 'custom') {
-      const presetValues = DEVICE_LAYOUTS[newPreset];
+      const presetValues = DEVICE_LAYOUTS(88)[newPreset]; // Using 88 as a default for preset values
       onCustomWhiteKeyHeightChange(presetValues.whiteKeyHeight);
       onCustomBlackKeyHeightChange(presetValues.blackKeyHeight);
       onCustomKeyLabelHeightChange(presetValues.keyLabelHeight);
-      onCustomMinWhiteKeyWidthChange(presetValues.minWhiteKeyWidth);
+      // Min width is dynamic, so we let it be calculated, not set from a static default
     }
   };
+
 
   const renderMidiConnectButton = () => {
      switch (midiAccessStatus) {
@@ -100,31 +138,10 @@ const Settings: React.FC<SettingsProps> = (props) => {
             return null;
      }
   }
-  
-  const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
-    <div>
-      <h3 className="text-xl font-semibold text-violet-400 mb-4 border-b border-slate-700 pb-2">{title}</h3>
-      <div className="space-y-4">{children}</div>
-    </div>
-  );
-
-  const SettingRow: React.FC<{ label: string; htmlFor?: string; children: React.ReactNode }> = ({ label, htmlFor, children }) => (
-    <div className="flex items-center justify-between">
-      <label htmlFor={htmlFor} className="text-sm font-medium text-slate-300">{label}</label>
-      {children}
-    </div>
-  );
-  
-  const ToggleRow: React.FC<{ label: string; id: string; checked: boolean; onChange: (checked: boolean) => void;}> = ({label, id, checked, onChange}) => (
-    <div className="flex items-center justify-between p-2 rounded-md bg-slate-700/30">
-        <label htmlFor={id} className="text-sm font-medium text-slate-300 cursor-pointer flex-grow">{label}</label>
-        <input type="checkbox" id={id} checked={checked} onChange={e => onChange(e.target.checked)} className={checkboxStyle} />
-    </div>
-  );
 
   return (
-    <div className="fixed inset-0 bg-slate-950 bg-opacity-80 flex items-center justify-center z-50 p-4">
-      <div className="bg-slate-800/50 backdrop-blur-sm p-6 md:p-8 rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto custom-scrollbar ring-1 ring-slate-700">
+    <div className={`fixed inset-0 bg-slate-950 flex items-center justify-center z-50 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'bg-opacity-80' : 'bg-opacity-0'}`}>
+      <div className={`bg-slate-800/50 backdrop-blur-sm p-6 md:p-8 rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto custom-scrollbar ring-1 ring-slate-700 transform transition-all duration-300 ease-in-out ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}>
         <div className="flex justify-between items-center mb-6">
             <h2 className="text-3xl font-bold text-cyan-400">Settings</h2>
             <button onClick={onBack} className="text-slate-400 hover:text-white text-3xl leading-none" aria-label="Close settings">&times;</button>
@@ -192,6 +209,44 @@ const Settings: React.FC<SettingsProps> = (props) => {
             )}
           </Section>
 
+          <Section title="Piano Display">
+            <SettingRow label="Visible Keys" htmlFor="piano-range-mode">
+              <select id="piano-range-mode" value={pianoRangeMode} onChange={e => onPianoRangeModeChange(e.target.value as any)} className={selectStyles}>
+                <option value="full">Full (88 keys)</option>
+                <option value="61-key">Compact (61 keys)</option>
+                <option value="37-key">QWERTY (37 keys)</option>
+                <option value="25-key">Mini (25 keys)</option>
+                <option value="custom">Custom Range</option>
+              </select>
+            </SettingRow>
+
+            {pianoRangeMode === 'custom' && (
+              <div className="bg-slate-900/50 p-4 rounded-lg space-y-3 ring-1 ring-slate-700">
+                <h4 className="text-md font-semibold text-slate-200">Custom Key Range</h4>
+                <SettingRow label="Start Note (e.g., C3)" htmlFor="custom-start-note">
+                  <input
+                    id="custom-start-note"
+                    type="text"
+                    value={customStartNote}
+                    onChange={e => onCustomStartNoteChange(e.target.value)}
+                    className={numberInputStyle}
+                    placeholder="e.g., A0"
+                  />
+                </SettingRow>
+                <SettingRow label="End Note (e.g., C5)" htmlFor="custom-end-note">
+                  <input
+                    id="custom-end-note"
+                    type="text"
+                    value={customEndNote}
+                    onChange={e => onCustomEndNoteChange(e.target.value)}
+                    className={numberInputStyle}
+                    placeholder="e.g., C8"
+                  />
+                </SettingRow>
+              </div>
+            )}
+          </Section>
+
           <Section title="MIDI">
             <SettingRow label="Status">{renderMidiConnectButton()}</SettingRow>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -233,6 +288,7 @@ const Settings: React.FC<SettingsProps> = (props) => {
             <ToggleRow id="major-notes" label="Show only major notes (Falling Notes)" checked={showOnlyMajorNotes} onChange={onShowOnlyMajorNotesChange} />
             <ToggleRow id="qwerty-shortcuts" label="Show QWERTY Shortcuts on Keys" checked={showQwertyShortcuts} onChange={onShowQwertyShortcutsChange} />
             <ToggleRow id="hide-bar-nav" label="Hide Bar Navigation Buttons" checked={hideBarNavigationButtons} onChange={onHideBarNavigationButtonsChange} />
+            <ToggleRow id="auto-hide-top-bar" label="Auto-hide Top Bar" checked={autoHideTopBar} onChange={onAutoHideTopBarChange} />
           </Section>
           
           <Section title="Audio">
@@ -276,7 +332,6 @@ const Settings: React.FC<SettingsProps> = (props) => {
         </div>
 
         <div className="mt-8 flex justify-center space-x-4">
-             <button onClick={onResetToDefaults} className={`${commonButtonStyles} bg-red-600 hover:bg-red-700 text-white w-40`}>Reset to Defaults</button>
              <button onClick={onBack} className={`${commonButtonStyles} ${secondaryButtonStyles} w-32`}>Back</button>
         </div>
 

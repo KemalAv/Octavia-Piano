@@ -1,17 +1,21 @@
+
+
+
 import React, { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import { KeyPosition, PianoKeyDefinition, MidiNotePlaybackItem, ActiveMidiNoteInfo, MIDIInput, MIDIMessageEvent, MIDIAccess, MIDIOutput, TimeSignatureInfo, FileType, ExtendedResult, MidiAccessStatus, MetronomeMode, WaitMode, ViewMode, Screen, GameSettings, NoteLabelType, PracticeHand, ThemeSettings, PerformanceSummary, TempoEvent, DevicePreset, LayoutDimensions } from './types';
 import {
   PIANO_KEYS_CONFIG,
   BLACK_KEY_WIDTH_RATIO, BLACK_KEY_OFFSET_RATIO,
   PROGRESS_BAR_HEIGHT_PX,
-  HAND_SPLIT_MIDI_NOTE, NUM_WHITE_KEYS, CHORD_RECOGNITION_WINDOW_MS,
+  HAND_SPLIT_MIDI_NOTE, CHORD_RECOGNITION_WINDOW_MS,
   BASE_PIXELS_PER_MILLISECOND,
-  QWERTY_MINI_KEYBOARD_MAPPING, OCTAVE_DOWN_KEYS, OCTAVE_UP_KEYS,
+  QWERTY_MINI_KEYBOARD_MAPPING, OCTAVE_DOWN_KEYS, OCTAVE_UP_KEYS, INTERACTIVE_NOTE_DURATION_MS,
   DEFAULT_QWERTY_OCTAVE_SHIFT, MIN_QWERTY_OCTAVE_SHIFT, MAX_QWERTY_OCTAVE_SHIFT,
   DEFAULT_MASTER_VOLUME, DEFAULT_METRONOME_VOLUME, DEFAULT_VIEW_MODE,
   DEFAULT_NOTE_LABEL_TYPE, DEFAULT_SHOW_ONLY_MAJOR_RESTS, DEFAULT_SHOW_ONLY_MAJOR_NOTES,
   DEFAULT_SHOW_QWERTY_SHORTCUTS, DEFAULT_HIDE_BAR_NAVIGATION_BUTTONS,
-  DEFAULT_THEME_SETTINGS, DEVICE_LAYOUTS
+  DEFAULT_THEME_SETTINGS, DEVICE_LAYOUTS,
+  DEFAULT_AUTO_HIDE_TOP_BAR
 } from './constants';
 import PianoKeyboard from './components/PianoKeyboard';
 import TopBar from './components/TopBar';
@@ -41,6 +45,7 @@ import {
   DEFAULT_MUSICXML_TEMPO_BPM
 } from './midiParser'; 
 import Leaderboard from './components/Leaderboard';
+import AdBanner from './components/AdBanner';
 
 
 const generateKeyPositions = (keysConfig: PianoKeyDefinition[], totalWidth: number): Map<string, KeyPosition> => {
@@ -105,6 +110,9 @@ interface ActiveAudioNode {
 // --- End Default Settings Constants ---
 
 
+const END_PLAYBACK_DELAY_MS = 2000;
+const UI_CLICK_SOUND_SEQUENCE_MIDI = [60, 62, 64, 65, 67, 69, 71]; // C4 Major Scale
+
 const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth hook
   // --- Screen & Flow Management ---
   const [currentScreen, setCurrentScreen] = useState<Screen>('mainMenu');
@@ -124,18 +132,73 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
   const [userActiveKeys, setUserActiveKeys] = useState<Set<string>>(new Set());
   const [containerWidth, setContainerWidth] = useState(800);
   const contentAreaRef = useRef<HTMLDivElement>(null);
+  const appRootRef = useRef<HTMLDivElement>(null); // For global click listener
   const [contentAreaHeight, setContentAreaHeight] = useState(300);
   // NEW: State to force re-render of VexFlowSheetMusicView when layout is known.
   const [renderedLayoutId, setRenderedLayoutId] = useState(0);
+  
+  // NEW: Auto-hiding Top Bar state
+  const [isTopBarVisible, setIsTopBarVisible] = useState(false);
+  const topBarTimeoutRef = useRef<number | null>(null);
 
   // --- Device Layout Settings ---
   const [devicePreset, setDevicePreset] = useState<DevicePreset>('desktop');
-  const [customWhiteKeyHeight, setCustomWhiteKeyHeight] = useState(DEVICE_LAYOUTS.desktop.whiteKeyHeight);
-  const [customBlackKeyHeight, setCustomBlackKeyHeight] = useState(DEVICE_LAYOUTS.desktop.blackKeyHeight);
-  const [customKeyLabelHeight, setCustomKeyLabelHeight] = useState(DEVICE_LAYOUTS.desktop.keyLabelHeight);
-  const [customMinWhiteKeyWidth, setCustomMinWhiteKeyWidth] = useState(DEVICE_LAYOUTS.desktop.minWhiteKeyWidth);
+  // Initialize with default 88-key layout values
+  const [customWhiteKeyHeight, setCustomWhiteKeyHeight] = useState(DEVICE_LAYOUTS(88).desktop.whiteKeyHeight);
+  const [customBlackKeyHeight, setCustomBlackKeyHeight] = useState(DEVICE_LAYOUTS(88).desktop.blackKeyHeight);
+  const [customKeyLabelHeight, setCustomKeyLabelHeight] = useState(DEVICE_LAYOUTS(88).desktop.keyLabelHeight);
+  const [customMinWhiteKeyWidth, setCustomMinWhiteKeyWidth] = useState(DEVICE_LAYOUTS(88).desktop.minWhiteKeyWidth);
+
+  // NEW: State for piano key range
+  const [pianoRangeMode, setPianoRangeMode] = useState<'full' | '61-key' | '37-key' | '25-key' | 'custom'>('full');
+  const [customStartNote, setCustomStartNote] = useState('C3');
+  const [customEndNote, setCustomEndNote] = useState('C5');
+
+
+  // NEW: Memoized visible piano keys based on settings
+  const visiblePianoKeys = useMemo(() => {
+      const getMidi = (noteName: string): number | undefined => {
+          // Case-insensitive search with trim
+          return PIANO_KEYS_CONFIG.find(k => k.name.toLowerCase() === noteName.toLowerCase().trim())?.midiNote;
+      };
+      
+      let startMidi: number;
+      let endMidi: number;
+    
+      switch (pianoRangeMode) {
+        case 'full':
+          return PIANO_KEYS_CONFIG;
+        case '61-key':
+          startMidi = getMidi('C2') ?? 36;
+          endMidi = getMidi('C7') ?? 96;
+          break;
+        case '37-key':
+          startMidi = getMidi('C3') ?? 48;
+          endMidi = getMidi('C6') ?? 84;
+          break;
+        case '25-key':
+          startMidi = getMidi('C3') ?? 48;
+          endMidi = getMidi('C5') ?? 72;
+          break;
+        case 'custom':
+          startMidi = getMidi(customStartNote) ?? 48; // Default C3
+          endMidi = getMidi(customEndNote) ?? 72;   // Default C5
+          break;
+        default:
+          return PIANO_KEYS_CONFIG;
+      }
+    
+      // Ensure start is less than end
+      if (startMidi > endMidi) {
+        [startMidi, endMidi] = [endMidi, startMidi];
+      }
+    
+      return PIANO_KEYS_CONFIG.filter(key => key.midiNote >= startMidi && key.midiNote <= endMidi);
+  }, [pianoRangeMode, customStartNote, customEndNote]);
 
   const layoutConfig: LayoutDimensions = useMemo(() => {
+      const totalKeys = visiblePianoKeys.length;
+      const deviceLayouts = DEVICE_LAYOUTS(totalKeys);
       if (devicePreset === 'custom') {
           return {
               whiteKeyHeight: customWhiteKeyHeight,
@@ -144,8 +207,8 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
               minWhiteKeyWidth: customMinWhiteKeyWidth,
           };
       }
-      return DEVICE_LAYOUTS[devicePreset];
-  }, [devicePreset, customWhiteKeyHeight, customBlackKeyHeight, customKeyLabelHeight, customMinWhiteKeyWidth]);
+      return deviceLayouts[devicePreset];
+  }, [devicePreset, customWhiteKeyHeight, customBlackKeyHeight, customKeyLabelHeight, customMinWhiteKeyWidth, visiblePianoKeys.length]);
   
   // --- Audio State & Refs ---
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -154,6 +217,9 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
   const activeKeyTimeoutsRef = useRef<Map<string, number>>(new Map());
   const activeAudioNodesRef = useRef<Map<string, ActiveAudioNode>>(new Map());
   const audioBufferCacheRef = useRef<Map<number, AudioBuffer>>(new Map());
+  // NEW: Refs for UI click sound combo
+  const lastUiClickTimeRef = useRef<number>(0);
+  const uiClickComboIndexRef = useRef<number>(0);
   // NEW: Metronome audio buffers
   const metronomeBuffersRef = useRef<{ strong?: AudioBuffer; weak?: AudioBuffer }>({});
   
@@ -186,9 +252,11 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
   const prevMusicalTimeRef = useRef<number>(0);
   
   // --- Wait Mode State & Refs ---
-  const [notesCurrentlyWaitingFor, setNotesCurrentlyWaitingFor] = useState<Set<number>>(new Set());
+  const [notesCurrentlyWaitingFor, setNotesCurrentlyWaitingFor] = useState<Set<number>>(() => new Set());
   // FIX: Declare notesCurrentlyWaitingForRef using useRef
   const notesCurrentlyWaitingForRef = useRef<Set<number>>(new Set());
+  const notesCurrentlyWaitingForIdsRef = useRef<Set<string>>(new Set()); // NEW
+  const resumeIndexRef = useRef<number | null>(null); // NEW
   
   // NEW: Helper to synchronize state and ref to prevent race conditions
   const updateNotesCurrentlyWaitingFor = useCallback((newSet: Set<number>) => {
@@ -267,6 +335,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
   // NEW: State variables for QWERTY shortcuts and Bar Navigation Buttons.
   const [showQwertyShortcuts, setShowQwertyShortcuts] = useState<boolean>(DEFAULT_SHOW_QWERTY_SHORTCUTS);
   const [hideBarNavigationButtons, setHideBarNavigationButtons] = useState<boolean>(DEFAULT_HIDE_BAR_NAVIGATION_BUTTONS);
+  const [autoHideTopBar, setAutoHideTopBar] = useState<boolean>(DEFAULT_AUTO_HIDE_TOP_BAR);
 
   // NEW: QWERTY Keyboard State
   const [qwertyCurrentOctaveShift, setQwertyCurrentOctaveShift] = useState<number>(DEFAULT_QWERTY_OCTAVE_SHIFT);
@@ -308,17 +377,19 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     return playbackNotes.filter(note => note.hand === gameSettings.practiceHand);
   }, [playbackNotes, gameSettings?.practiceHand]);
 
+  const numWhiteKeys = useMemo(() => {
+    return visiblePianoKeys.filter(key => key.type === 'white').length;
+  }, [visiblePianoKeys]);
+
   // NEW: Memoized piano key positions map
   const keyPositionsMap = useMemo(() => {
-    // Only generate positions if width > 0 to avoid division by zero
-    if (containerWidth <= 0) return new Map<string, KeyPosition>();
-
-    const whiteKeyWidth = containerWidth / NUM_WHITE_KEYS; // Use NUM_WHITE_KEYS from constants
-    // If the calculated whiteKeyWidth is smaller than minWhiteKeyWidth, adjust containerWidth for proper scaling
-    const adjustedContainerWidth = Math.max(containerWidth, layoutConfig.minWhiteKeyWidth * NUM_WHITE_KEYS);
-
-    return generateKeyPositions(PIANO_KEYS_CONFIG, adjustedContainerWidth);
-  }, [containerWidth, layoutConfig]);
+      if (containerWidth <= 0 || numWhiteKeys === 0) return new Map<string, KeyPosition>();
+  
+      const whiteKeyWidth = containerWidth / numWhiteKeys;
+      const adjustedContainerWidth = Math.max(containerWidth, layoutConfig.minWhiteKeyWidth * numWhiteKeys);
+  
+      return generateKeyPositions(visiblePianoKeys, adjustedContainerWidth);
+  }, [containerWidth, layoutConfig, visiblePianoKeys, numWhiteKeys]);
 
   // NEW: Memoized base calculated piano width
   const baseCalculatedPianoWidth = useMemo(() => {
@@ -342,6 +413,11 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     const maxTime = playbackNotes.reduce((max, note) => Math.max(max, note.timeMs + note.durationMs), 0);
     return maxTime;
   }, [playbackNotes]);
+
+  const totalDurationWithEndDelayMs = useMemo(() => {
+    if (originalTotalMusicalDurationMs === 0) return 0;
+    return originalTotalMusicalDurationMs + END_PLAYBACK_DELAY_MS;
+  }, [originalTotalMusicalDurationMs]);
 
   // The analysis result is recalculated when playback speed changes.
   useEffect(() => {
@@ -384,6 +460,33 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     return parseMusicXmlData(xmlString, midiNoteToNameMap);
   }, [midiNoteToNameMap]);
   // --- End File Parsers ---
+
+  // --- Auto-hiding top bar logic ---
+  const startTopBarHideTimer = useCallback(() => {
+    if (topBarTimeoutRef.current) {
+      clearTimeout(topBarTimeoutRef.current);
+    }
+    topBarTimeoutRef.current = window.setTimeout(() => {
+      setIsTopBarVisible(false);
+    }, 5000);
+  }, []);
+
+  const clearTopBarHideTimer = useCallback(() => {
+    if (topBarTimeoutRef.current) {
+      clearTimeout(topBarTimeoutRef.current);
+      topBarTimeoutRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (autoHideTopBar && isTopBarVisible && currentScreen === 'inGame') {
+      startTopBarHideTimer();
+    } else {
+      clearTopBarHideTimer();
+    }
+    return clearTopBarHideTimer;
+  }, [autoHideTopBar, isTopBarVisible, currentScreen, startTopBarHideTimer, clearTopBarHideTimer]);
+  // --- End auto-hiding top bar logic ---
 
   useEffect(() => {
     const contentEl = contentAreaRef.current;
@@ -435,11 +538,6 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     calculateHeights(); 
 
     window.addEventListener('resize', calculateHeights);
-    const topBarObserver = new ResizeObserver(calculateHeights);
-    const topBarElementToObserve = document.querySelector('.flex-shrink-0.bg-slate-800\\/50'); // Updated selector
-    if (topBarElementToObserve) {
-      topBarObserver.observe(topBarElementToObserve);
-    }
     const contentAreaObserver = new ResizeObserver(calculateHeights);
     if (contentAreaRef.current) {
         contentAreaObserver.observe(contentAreaRef.current);
@@ -447,9 +545,6 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
 
     return () => {
       window.removeEventListener('resize', calculateHeights);
-      if (topBarElementToObserve) {
-        topBarObserver.unobserve(topBarElementToObserve);
-      }
       if (contentAreaRef.current) {
         contentAreaObserver.unobserve(contentAreaRef.current);
       }
@@ -458,7 +553,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
 
   // FIX: Directly assign the AudioContext constructor to a variable.
   // This helps TypeScript correctly infer it as a constructable type.
-  const initializeAudioContext = useCallback(() => {
+  const initializeAudioContext = useCallback(async () => {
     let context = audioContextRef.current;
     if (!context) {
       try {
@@ -468,7 +563,6 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
           console.error("AudioContext is not supported by this browser.");
           return false;
         }
-        // FIX: Explicitly assert AudioContextConstructor as a constructable type to satisfy strict type checking.
         context = new (AudioContextConstructor as { new (): AudioContext })();
         audioContextRef.current = context;
         masterGainRef.current = context.createGain();
@@ -478,7 +572,12 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
       } catch (e) { console.error("Failed to create AudioContext:", e); return false; }
     }
     if (context.state === 'suspended') {
-      context.resume().catch(e => console.error("Error resuming AudioContext:", e));
+      try {
+        await context.resume();
+      } catch (e) {
+        console.error("Error resuming AudioContext:", e)
+        return false;
+      }
     }
     return context.state === 'running';
   }, []);
@@ -495,6 +594,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     if (audioBufferCacheRef.current.has(midiNote)) {
       return audioBufferCacheRef.current.get(midiNote)!;
     }
+    // Do not initialize audio context here, let the user interaction do it.
     if (!audioContextRef.current) return null;
 
     const noteName = midiNoteToNameMap.get(midiNote);
@@ -514,10 +614,11 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
       console.warn(`Failed to load or decode audio for note ${noteName}:`, error);
       return null;
     }
-  }, [initializeAudioContext, midiNoteToNameMap]);
+  }, [midiNoteToNameMap]);
 
   // NEW: Function to load a generic audio file
   const loadGenericAudioBuffer = useCallback(async (path: string, key: string): Promise<AudioBuffer | null> => {
+    // Do not initialize audio context here.
     if (!audioContextRef.current) return null;
     try {
       const response = await fetch(path);
@@ -529,11 +630,11 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
       console.error(`Failed to load or decode audio from ${path}:`, error);
       return null;
     }
-  }, [initializeAudioContext]);
+  }, []);
 
   const preloadSamplesForSong = useCallback(async (notes: MidiNotePlaybackItem[]) => {
     // FIX: Separated the function call from the conditional check to potentially resolve a linter false positive.
-    const audioContextReady = initializeAudioContext();
+    const audioContextReady = await initializeAudioContext();
     if (notes.length === 0 || !audioContextReady) {
       return;
     }
@@ -563,6 +664,21 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     }
   }, [initializeAudioContext, getAudioBuffer, loadGenericAudioBuffer]);
 
+  // NEW: Preload sounds for UI click on app start
+  const preloadUiClickSounds = useCallback(async () => {
+      const audioContextReady = await initializeAudioContext();
+      if (!audioContextReady) return;
+      const promises = UI_CLICK_SOUND_SEQUENCE_MIDI.map(midiNote => getAudioBuffer(midiNote));
+      try {
+          await Promise.all(promises);
+      } catch (error) {
+          console.error("Failed to preload UI click sounds:", error);
+      }
+  }, [initializeAudioContext, getAudioBuffer]);
+  useEffect(() => {
+      preloadUiClickSounds();
+  }, [preloadUiClickSounds]);
+
   const playSound = useCallback((midiNote: number, musicalDurationMs: number, velocity: number = 0.75) => {
     const selectedOutput = selectedMidiOutputId ? midiOutputs.get(selectedMidiOutputId) : null;
     const realDurationMs = musicalDurationMs / playbackTempoMultiplier;
@@ -575,7 +691,10 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
         return;
     }
 
-    if (!initializeAudioContext() || !audioContextRef.current || !masterGainRef.current) return;
+    if (!audioContextRef.current || !masterGainRef.current) {
+        console.warn("playSound called before AudioContext was ready.");
+        return;
+    }
     const audioCtx = audioContextRef.current;
     const audioBuffer = audioBufferCacheRef.current.get(midiNote);
 
@@ -607,7 +726,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     gainNode.gain.setValueAtTime(velocity * 2.8, noteEndTimeSec);
     gainNode.gain.exponentialRampToValueAtTime(0.0001, noteEndTimeSec + releaseTimeSec);
     source.stop(noteEndTimeSec + releaseTimeSec + 0.1);
-  }, [initializeAudioContext, getAudioBuffer, playbackTempoMultiplier, selectedMidiOutputId, midiOutputs]);
+  }, [getAudioBuffer, playbackTempoMultiplier, selectedMidiOutputId, midiOutputs]);
 
   const startSustainedSound = useCallback((keyName: string, midiNote: number, velocity: number = 0.75) => {
     const selectedOutput = selectedMidiOutputId ? midiOutputs.get(selectedMidiOutputId) : null;
@@ -616,7 +735,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
         return;
     }
 
-    if (!initializeAudioContext() || !audioContextRef.current || !masterGainRef.current) return;
+    if (!audioContextRef.current || !masterGainRef.current) return;
     if (activeAudioNodesRef.current.has(keyName)) return;
     const audioCtx = audioContextRef.current;
 
@@ -640,7 +759,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
         if (loadedBuffer) playBufferedNote(loadedBuffer);
       });
     }
-  }, [initializeAudioContext, getAudioBuffer, selectedMidiOutputId, midiOutputs]);
+  }, [getAudioBuffer, selectedMidiOutputId, midiOutputs]);
 
   const stopSustainedSound = useCallback((keyName: string, midiNote: number) => {
     const selectedOutput = selectedMidiOutputId ? midiOutputs.get(selectedMidiOutputId) : null;
@@ -667,10 +786,8 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
 
   const playMetronomeSound = useCallback((isStrongBeat: boolean, scheduledPlayTime: number): MetronomeAudioNode | null => {
     if (!audioContextRef.current || audioContextRef.current.state !== 'running' || !metronomeGainRef.current) {
-      initializeAudioContext();
-      if (!audioContextRef.current || audioContextRef.current.state !== 'running' || !metronomeGainRef.current) {
+        // Don't try to initialize here, as it needs user interaction.
         return null;
-      }
     }
     const audioCtx = audioContextRef.current;
     const buffer = isStrongBeat ? metronomeBuffersRef.current.strong : metronomeBuffersRef.current.weak;
@@ -711,7 +828,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     source.stop(scheduledPlayTime + buffer.duration); // Stop after buffer duration
     
     return { source: source, gainNode: gainNode };
-  }, [initializeAudioContext, metronomeBuffersRef]);
+  }, [metronomeBuffersRef]);
 
   const clearScheduledMetronomeSounds = useCallback(() => {
     if (audioContextRef.current && scheduledMetronomeAudioNodesRef.current.length > 0) {
@@ -779,13 +896,19 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     pausedMusicalTimeRef.current = completedBlockTimeMusical;
     setMusicalCurrentTimeMs(completedBlockTimeMusical); // Update musical state
 
-    let newIndex = 0;
-    while (newIndex < notesForGame.length && notesForGame[newIndex].timeMs <= completedBlockTimeMusical) { newIndex++; }
-    nextNoteIndexRef.current = newIndex;
+    if (resumeIndexRef.current !== null) { // NEW
+        nextNoteIndexRef.current = resumeIndexRef.current;
+        resumeIndexRef.current = null;
+    } else { // Fallback
+        let newIndex = 0;
+        while (newIndex < notesForGame.length && notesForGame[newIndex].timeMs <= completedBlockTimeMusical) { newIndex++; }
+        nextNoteIndexRef.current = newIndex;
+    }
     performanceStartTimeRef.current = performance.now();
     lastPlayerInputRealTimeRef.current = performance.now(); // Reset lenient timer
     waitingBlockTimeRef.current = null;
     updateNotesCurrentlyWaitingFor(new Set());
+    notesCurrentlyWaitingForIdsRef.current = new Set();
     setActivePlaybackNotesInfo(prev => {
         const newMap = new Map(prev);
         const keysToDelete: string[] = [];
@@ -807,7 +930,9 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     actualPlayedRealDurationMs: number, 
     isAutoPlay: boolean,
     currentHitCountRefValue: number,
-    currentErrorCountRefValue: number
+    currentErrorCountRefValue: number,
+    tempoMultiplier: number,
+    waitTime: number
   ) => {
     const midiPerformanceScore = analysisResult?.performanceScore || 0;
     const totalNotes = notesForGame.length;
@@ -817,7 +942,6 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     if (isAutoPlay) {
       effectiveHitNotes = totalNotes;
       effectiveErrorNotes = 0;
-      actualPlayedRealDurationMs = originalTotalMusicalDurationMs; 
     }
 
     if (effectiveErrorNotes > effectiveHitNotes) effectiveErrorNotes = effectiveHitNotes;
@@ -827,21 +951,28 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
       ? (Math.max(0, effectiveHitNotes - effectiveErrorNotes) / totalNotes) * 100
       : 0;
 
-    const idealDuration = originalTotalMusicalDurationMs;
+    // The ideal duration at the CHOSEN tempo
+    const idealDurationAtChosenTempo = originalTotalMusicalDurationMs / tempoMultiplier;
+    // For non-autoplay modes, subtract wait time from the total elapsed time.
+    // For autoplay, waitTime is 0 and actualPlayedRealDurationMs is already the ideal duration for the chosen tempo.
+    const netActualDuration = actualPlayedRealDurationMs - waitTime;
+
     let speed = 0;
-    if (actualPlayedRealDurationMs > 0 && idealDuration > 0) {
-        speed = (idealDuration / actualPlayedRealDurationMs) * 100;
-        if (speed > 100) speed = 100;
+    if (isAutoPlay) {
+      speed = 100;
+    } else if (netActualDuration > 0 && idealDurationAtChosenTempo > 0) {
+      speed = (idealDurationAtChosenTempo / netActualDuration) * 100;
+      if (speed > 100) speed = 100; // Cap at 100%
     }
     
     const gameplayPS = (accuracy * 0.5) + (speed * 0.5)
 
-    const exponent = 9;
+    const exponent = 5;
     let finalScore = midiPerformanceScore * Math.pow(accuracy / 100, exponent);
     finalScore = Math.max(0, Math.min(midiPerformanceScore, finalScore));
     
     let rank = 'D';
-    if (gameplayPS >= 98) rank = 'S';
+    if (gameplayPS >= 95) rank = 'S';
     else if (gameplayPS >= 90) rank = 'A';
     else if (gameplayPS >= 80) rank = 'B';
     else if (gameplayPS >= 70) rank = 'C';
@@ -853,9 +984,11 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
       baseMidiScore: parseFloat(midiPerformanceScore.toFixed(0)), 
       finalScore: parseFloat(finalScore.toFixed(2)),
       rank,
-      hitCount: currentHitCountRefValue, // NEW
-      errorCount: currentErrorCountRefValue, // NEW
-      totalNoteCount: totalNotes, // NEW
+      hitCount: currentHitCountRefValue,
+      errorCount: currentErrorCountRefValue,
+      totalNoteCount: totalNotes,
+      playbackTempoMultiplier: tempoMultiplier,
+      totalWaitTimeMs: waitTime,
     });
   }, [analysisResult, notesForGame.length, originalTotalMusicalDurationMs, setPerformanceSummary]);
 
@@ -876,7 +1009,9 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     clearScheduledNotes();
     clearScheduledMetronomeSounds();
     updateNotesCurrentlyWaitingFor(new Set());
+    notesCurrentlyWaitingForIdsRef.current = new Set(); // NEW
     waitingBlockTimeRef.current = null;
+    resumeIndexRef.current = null; // NEW
     presatisfiedNoteIdsRef.current = new Set();
     setActivePlaybackNotesInfo(new Map());
 
@@ -889,6 +1024,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     errorCountRef.current = 0;
     hitNoteIdsRef.current.clear();
     setHitCount(0);
+    // @fix: Changed 'setError' to 'setErrorCount' to match state setter.
     setErrorCount(0);
     
     // Reset wait time counters
@@ -1108,40 +1244,66 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     }
 
     if ((waitMode === 'strict' || waitMode === 'lenient' || waitMode === 'retical') && notesToSetWaitingThisFrame.length > 0) {
-      // FIX: Corrected variable name from `notesToSetWaitingForThisFrame` to `notesToSetWaitingThisFrame`.
-      const allWaitingNotesAreTheSameTime = notesToSetWaitingThisFrame.every(n => n.timeMs === notesToSetWaitingThisFrame[0].timeMs);
-      if (allWaitingNotesAreTheSameTime) {
-        // Immediately stop metronome when entering wait state to prevent sounds during pause.
-        if (metronomeMode !== 'off') {
-          clearScheduledMetronomeSounds();
-          lastMetronomeScheduleTimeRef.current = 0;
-          setMetronomeBeat(null);
+        // This note is the anchor for our potential chord block.
+        const firstDueNote = notesToSetWaitingThisFrame[0];
+        const blockStartTime = firstDueNote.timeMs;
+        const CHORD_WINDOW_MS = 150; // User-requested window
+    
+        // The block starts with all notes that are already due and within the window.
+        const chordBlock = notesToSetWaitingThisFrame.filter(n => (n.timeMs - blockStartTime) < CHORD_WINDOW_MS);
+    
+        // Now look ahead for notes that are NOT yet due, but are still within the window.
+        // `currentProcessingIdx` is the index of the first note *not* in `notesToSetWaitingThisFrame`.
+        let lookaheadIndex = currentProcessingIdx;
+        while (lookaheadIndex < notesForGame.length) {
+            const nextFutureNote = notesForGame[lookaheadIndex];
+            if ((nextFutureNote.timeMs - blockStartTime) < CHORD_WINDOW_MS) {
+                if (!presatisfiedNoteIdsRef.current.has(nextFutureNote.noteId)) {
+                    chordBlock.push(nextFutureNote);
+                }
+                lookaheadIndex++; // Keep looking
+            } else {
+                break; // Note is outside the window
+            }
         }
-
-        waitingBlockTimeRef.current = notesToSetWaitingThisFrame[0].timeMs;
-        const waitingMidiNotes = new Set<number>(notesToSetWaitingThisFrame.map(n => n.midi));
-        updateNotesCurrentlyWaitingFor(waitingMidiNotes);
-        
-        setActivePlaybackNotesInfo(prev => {
-          const newMap = new Map(prev);
-          notesToSetWaitingThisFrame.forEach(n => {
-            const waitingNoteId = n.noteId;
-            newMap.set(waitingNoteId, {
-              noteId: waitingNoteId,
-              name: n.name,
-              timeMs: n.timeMs,
-              hand: n.hand, midi: n.midi, pitchClass: n.pitchClass, status: 'waiting',
-              finger: n.finger
+    
+        if (chordBlock.length > 0) {
+            // We are entering a wait state.
+            if (metronomeMode !== 'off') {
+                clearScheduledMetronomeSounds();
+                lastMetronomeScheduleTimeRef.current = 0;
+                setMetronomeBeat(null);
+            }
+    
+            waitingBlockTimeRef.current = blockStartTime;
+            resumeIndexRef.current = lookaheadIndex;
+            const waitingNoteIds = new Set<string>(chordBlock.map(n => n.noteId));
+            notesCurrentlyWaitingForIdsRef.current = waitingNoteIds;
+            const waitingMidiNotes = new Set<number>(chordBlock.map(n => n.midi));
+            updateNotesCurrentlyWaitingFor(waitingMidiNotes);
+            
+            setActivePlaybackNotesInfo(prev => {
+                const newMap = new Map(prev);
+                chordBlock.forEach(n => {
+                    newMap.set(n.noteId, {
+                        noteId: n.noteId,
+                        name: n.name,
+                        timeMs: n.timeMs,
+                        hand: n.hand, midi: n.midi, pitchClass: n.pitchClass, status: 'waiting',
+                        finger: n.finger
+                    });
+                });
+                return newMap;
             });
-          });
-          return newMap;
-        });
-      }
+            
+            // Update the processing index to be after the entire block we just processed.
+            currentProcessingIdx = lookaheadIndex;
+        }
     }
-
+    
     nextNoteIndexRef.current = currentProcessingIdx;
     
-    if (nextNoteIndexRef.current >= notesForGame.length && notesCurrentlyWaitingForRef.current.size === 0 && originalTotalMusicalDurationMs > 0) { // Use direct access
+    if (actualMusicalTimeForGameLogic >= totalDurationWithEndDelayMs && originalTotalMusicalDurationMs > 0) {
         let actualDurationForSpeedCalculation = 0;
         let isAutoPlay = false;
 
@@ -1153,16 +1315,19 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
             }
         } else {
             isAutoPlay = true;
-            actualDurationForSpeedCalculation = originalTotalMusicalDurationMs; 
+            actualDurationForSpeedCalculation = originalTotalMusicalDurationMs / playbackTempoMultiplier; 
         }
         
         calculateAndSetPerformanceSummary(
           actualDurationForSpeedCalculation, 
           isAutoPlay,
           hitCountRef.current,
-          errorCountRef.current
+          errorCountRef.current,
+          playbackTempoMultiplier,
+          totalWaitTimeMs
         );
         setHitCount(hitCountRef.current);
+        // @fix: Changed 'setError' to 'setErrorCount' to match state setter.
         setErrorCount(errorCountRef.current);
         
         setIsPlaying(false);
@@ -1185,7 +1350,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
         }
 
         // Ensure both musical and visual times end at the total duration
-        setMusicalCurrentTimeMs(originalTotalMusicalDurationMs);
+        setMusicalCurrentTimeMs(totalDurationWithEndDelayMs);
         setMetronomeBeat(null);
 
         return;
@@ -1200,7 +1365,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     scheduleMetronomeSounds, calculateAndSetPerformanceSummary, clearScheduledNotes,
     clearScheduledMetronomeSounds, updateNotesCurrentlyWaitingFor, setActivePlaybackNotesInfo,
     setHitCount, setErrorCount, resumePlaybackFromWait, activePlaybackNotesInfo, 
-    barLines, totalWaitTimeMs, prevMusicalTimeRef, // Added prevMusicalTimeRef to dependencies
+    barLines, totalWaitTimeMs, prevMusicalTimeRef, totalDurationWithEndDelayMs, // Added dependencies
   ]);
 
   const handleStartGame = (settings: GameSettings) => {
@@ -1213,6 +1378,11 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     setPreviewPlaybackTempoMultiplier(1); 
     setIsLoadingContent(true); // NEW: Start loading when entering inGame
     isUserPausedRef.current = true; // Set to true initially to prevent autoplay on focus
+    if (autoHideTopBar) {
+      setIsTopBarVisible(false); // Reset top bar to be hidden when a game starts
+    } else {
+      setIsTopBarVisible(true);
+    }
   };
 
   useEffect(() => {
@@ -1222,9 +1392,10 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
   }, [notesForGame, currentScreen]);
 
 
-  const handlePlay = useCallback(() => {
+  const handlePlay = useCallback(async () => {
     if (notesForGame.length === 0 || isPlayingRef.current) return;
-    if (!initializeAudioContext()) {
+    const audioReady = await initializeAudioContext();
+    if (!audioReady) {
       alert("AudioContext could not be started. Please interact with the page and try again.");
       return;
     }
@@ -1246,6 +1417,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
   }, [notesForGame.length, initializeAudioContext, playbackLoop, metronomeMode, scheduleMetronomeSounds, pausedMusicalTimeRef, setMusicalCurrentTimeMs]);
 
   const handlePause = useCallback(() => {
+    if (waitMode === 'retical') return; // Disable pause in retical mode
     if (!isPlayingRef.current) return;
     setIsPlaying(false);
     isPlayingRef.current = false;
@@ -1262,11 +1434,12 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
         chordRecognitionTimeoutIdRef.current = null;
     }
     setMetronomeBeat(null);
-  }, [clearScheduledNotes, clearScheduledMetronomeSounds]);
+  }, [clearScheduledNotes, clearScheduledMetronomeSounds, waitMode]);
 
   // NEW: Automatic Pause/Resume on tab visibility or window focus
   useEffect(() => {
     const pausePlayback = () => {
+      if (waitMode === 'retical') return; // Do not auto-pause in retical mode
       if (currentScreen === 'inGame' && isPlayingRef.current) {
         setIsPlaying(false);
         isPlayingRef.current = false;
@@ -1327,18 +1500,20 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
       window.removeEventListener('focus', handleWindowFocus); // Clean up focus listener
       document.removeEventListener('fullscreenchange', handleFullscreenChange); // Clean up fullscreen listener
     };
-  }, [currentScreen, notesForGame.length, handlePlay, clearScheduledNotes, clearScheduledMetronomeSounds, isUserPausedRef, currentTimeRef]);
+  }, [currentScreen, notesForGame.length, handlePlay, clearScheduledNotes, clearScheduledMetronomeSounds, isUserPausedRef, currentTimeRef, waitMode]);
 
 
   const handleSeek = useCallback((newMusicalTime: number) => {
     if (notesForGame.length === 0 || waitMode === 'retical') return;
-    const clampedTime = Math.max(0, Math.min(newMusicalTime, originalTotalMusicalDurationMs));
+    const clampedTime = Math.max(0, Math.min(newMusicalTime, totalDurationWithEndDelayMs));
 
     clearScheduledNotes();
     presatisfiedNoteIdsRef.current = new Set();
     
     updateNotesCurrentlyWaitingFor(new Set());
+    notesCurrentlyWaitingForIdsRef.current = new Set(); // NEW
     waitingBlockTimeRef.current = null;
+    resumeIndexRef.current = null; // NEW
     if (chordRecognitionTimeoutIdRef.current) {
         clearTimeout(chordRecognitionTimeoutIdRef.current);
         chordRecognitionTimeoutIdRef.current = null;
@@ -1348,6 +1523,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
         const notesBeforeSeekTime = notesForGame.filter(n => n.timeMs < clampedTime);
         hitNoteIdsRef.current = new Set(notesBeforeSeekTime.map(n => n.noteId));
         setHitCount(hitNoteIdsRef.current.size); // Use setter for state update
+        // @fix: Changed 'setError' to 'setErrorCount' to match state setter.
         setErrorCount(0);
     } else {
         hitNoteIdsRef.current = new Set(
@@ -1397,7 +1573,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
       }
     }
     setMetronomeBeat(null);
-  }, [notesForGame, originalTotalMusicalDurationMs, clearScheduledNotes, metronomeMode, scheduleMetronomeSounds, clearScheduledMetronomeSounds, setHitCount, updateNotesCurrentlyWaitingFor, waitMode, setErrorCount, setMusicalCurrentTimeMs]);
+  }, [notesForGame, totalDurationWithEndDelayMs, clearScheduledNotes, metronomeMode, scheduleMetronomeSounds, clearScheduledMetronomeSounds, setHitCount, updateNotesCurrentlyWaitingFor, waitMode, setErrorCount, setMusicalCurrentTimeMs]);
 
   const processKeyPressInWaitMode = useCallback((midiNote: number) => {
     const nowRealTime = performance.now();
@@ -1409,13 +1585,10 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     const nowMusical = currentTimeRef.current; // Snapshot current musical time
     
     if (isCurrentlyWaiting) {
-        // This block uses the existing, more robust logic for handling notes when the game is paused.
-        const waitingNotes = notesForGame.filter(n =>
-            n.timeMs === waitingBlockTimeRef.current && notesCurrentlyWaitingForRef.current.has(n.midi)
-        );
+        const waitingNotes = notesForGame.filter(note => notesCurrentlyWaitingForIdsRef.current.has(note.noteId));
         
         if (waitMode === 'strict') {
-            const pressedNoteMatches = waitingNotes.filter(n => n.midi === midiNote);
+            const pressedNoteMatches = waitingNotes.filter(n => n.midi === midiNote && !hitNoteIdsRef.current.has(n.noteId));
         
             if (pressedNoteMatches.length > 0) {
                 const noteToSatisfy = pressedNoteMatches.find(n => !hitNoteIdsRef.current.has(n.noteId));
@@ -1443,6 +1616,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
                     }
                 }
             } else {
+                // @fix: Changed 'setError' to 'setErrorCount' to match state setter.
                 setErrorCount(prev => prev + 1); // Use setter for state update
             }
         } else if (waitMode === 'lenient' || waitMode === 'retical') {
@@ -1451,7 +1625,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
             }
             rhythmChordBufferRef.current.clear();
 
-            const waitingNoteDefs = notesForGame.filter(n => n.timeMs === waitingBlockTimeRef.current && notesCurrentlyWaitingForRef.current.has(n.midi));
+            const waitingNoteDefs = waitingNotes;
             const waitingMidiNotes = new Set(waitingNoteDefs.map(n => n.midi));
             
             if (waitingMidiNotes.has(midiNote)) {
@@ -1465,6 +1639,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
                     recordPlayerInputTime(nowRealTime, waitingBlockTimeRef.current!);
                 }
             } else {
+                // @fix: Changed 'setError' to 'setErrorCount' to match state setter.
                 setErrorCount(prev => prev + 1);
             }
             resumePlaybackFromWait();
@@ -1477,7 +1652,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
       
       // Define a generous window to find potential note matches.
       // The logic will then pick the note closest in time to the player's input.
-      const LATE_TOLERANCE_MS = 500; // How late the player can be (as requested).
+      const LATE_TOLERANCE_MS = 1000; // How late the player can be (as requested).
       const EARLY_TOLERANCE_MS = 2000; // How early the player can be (kept large for responsiveness).
 
       let bestMatch: MidiNotePlaybackItem | null = null;
@@ -1525,6 +1700,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
           );
 
           if (isAnyNoteRelevantForContext) {
+              // @fix: Changed 'setError' to 'setErrorCount' to match state setter.
               setErrorCount(prev => prev + 1);
           }
       }
@@ -1567,6 +1743,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     setBarLines([]);
     hitNoteIdsRef.current.clear();
     setHitCount(0);
+    // @fix: Changed 'setError' to 'setErrorCount' to match state setter.
     setErrorCount(0);
     setTotalNoteCountForGame(0);
     setAnalysisResult(null);
@@ -1756,21 +1933,45 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
 
   const activeMidiNotesInfoForKeyboard = useMemo(() => {
     const notePerKey = new Map<string, ActiveMidiNoteInfo>();
+    const now = musicalCurrentTimeMs;
     
-    const sortedActiveNotes = [...activePlaybackNotesInfo.values()].sort((a, b) => {
-      if (a.status === 'waiting' && b.status !== 'waiting') return -1;
-      if (b.status === 'waiting' && a.status !== 'waiting') return 1;
-      return a.timeMs - b.timeMs;
-    });
-
-    for (const noteInfo of sortedActiveNotes) {
-        const keyName = noteInfo.name;
-        if (!notePerKey.has(keyName)) {
-            notePerKey.set(keyName, noteInfo);
+    // Priority 1: Always show keys that the user has correctly played in the current context.
+    for (const noteInfo of activePlaybackNotesInfo.values()) {
+        if (noteInfo.status === 'user_played') {
+            if (!notePerKey.has(noteInfo.name)) {
+                notePerKey.set(noteInfo.name, noteInfo);
+            }
         }
     }
+
+    // Priority 2: For any other highlights (system-played, waiting), only show what is musically "on"
+    // at the current musical time. This simulates the "autoplay" behavior on the keyboard, even when paused.
+    for (const note of notesForGame) {
+        // Check if the note should be active at the current time
+        if (now >= note.timeMs && now < (note.timeMs + note.durationMs)) {
+            // If this key isn't already highlighted by the user, add the system highlight.
+            if (!notePerKey.has(note.name)) {
+                // Find the original status to maintain color (e.g., 'waiting' color)
+                const originalNoteInfo = activePlaybackNotesInfo.get(note.noteId);
+                
+                notePerKey.set(note.name, {
+                    noteId: note.noteId,
+                    name: note.name,
+                    timeMs: note.timeMs,
+                    midi: note.midi,
+                    pitchClass: note.pitchClass,
+                    // If the note is in the main active map, use its status, otherwise default to 'playing'.
+                    // This ensures waiting notes can still have their unique 'waiting' color if defined.
+                    status: originalNoteInfo ? originalNoteInfo.status : 'playing',
+                    hand: note.hand,
+                    finger: note.finger
+                });
+            }
+        }
+    }
+    
     return notePerKey;
-  }, [activePlaybackNotesInfo]);
+  }, [activePlaybackNotesInfo, musicalCurrentTimeMs, notesForGame]);
 
   const handleClosePerformanceSummary = useCallback(() => {
     setPerformanceSummary(null);
@@ -1778,32 +1979,34 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
   }, [handleStopPlayback]);
 
   const barNavDebounceRef = useRef<number>(0);
-  const DEBOUNCE_TIME_MS = 500;
+  const DEBOUNCE_TIME_MS = 150;
   const handleBarNavigation = useCallback((direction: 'forward' | 'backward') => {
-      const now = Date.now();
-      if (now - barNavDebounceRef.current < DEBOUNCE_TIME_MS) return;
-      barNavDebounceRef.current = now;
+    // Hotkeys should always work unless game logic prevents it (e.g., retical mode)
+    if (notesForGame.length === 0 || barLines.length === 0 || waitMode === 'retical') return;
+    const now = performance.now();
+    if (now - barNavDebounceRef.current < DEBOUNCE_TIME_MS) return;
+    barNavDebounceRef.current = now;
 
-      if (!barLines || barLines.length < 2) return;
-      const currentMusicalTime = isPlayingRef.current ? currentTimeRef.current : pausedMusicalTimeRef.current;
-      
-      let targetBarTime: number | undefined;
-      
-      if (direction === 'forward') {
-          targetBarTime = barLines.find(barTime => barTime > currentMusicalTime + 10); // +10ms to avoid staying on current bar
-      } else { // backward
-          const previousBars = barLines.filter(barTime => barTime < currentMusicalTime - 10);
-          targetBarTime = previousBars.length > 0 ? previousBars[previousBars.length - 1] : barLines[0];
-      }
-      
-      if (targetBarTime !== undefined) {
-          handleSeek(targetBarTime);
-      } else if (direction === 'forward') {
-          // FIX: Cannot find name 'totalDurationMs'. Corrected to 'originalTotalMusicalDurationMs'.
-          handleSeek(originalTotalMusicalDurationMs);
-      }
-  // FIX: Cannot find name 'totalDurationMs'. Corrected to 'originalTotalMusicalDurationMs'.
-  }, [barLines, originalTotalMusicalDurationMs, handleSeek, currentTimeRef, pausedMusicalTimeRef, isPlayingRef]); // Added dependencies
+    const currentTime = currentTimeRef.current; // Use musical time for navigation
+    const nextBarIndex = barLines.findIndex(barTime => barTime > currentTime + 50);
+    let targetBarIndex;
+    if (direction === 'forward') {
+        targetBarIndex = nextBarIndex !== -1 ? nextBarIndex : barLines.length - 1;
+    } else {
+        const currentBarIndex = nextBarIndex !== -1 ? nextBarIndex - 1 : barLines.length - 1;
+        if (currentBarIndex < 0) return;
+        const currentBarStartTime = barLines[currentBarIndex];
+        if (currentTime - currentBarStartTime < 100) {
+            targetBarIndex = Math.max(0, currentBarIndex - 1);
+        } else {
+            targetBarIndex = currentBarIndex;
+        }
+    }
+    const targetTime = barLines[targetBarIndex];
+    if (targetTime !== undefined && Math.abs(targetTime - currentTimeRef.current) > 50) {
+        handleSeek(targetTime);
+    }
+  }, [notesForGame.length, barLines, handleSeek, waitMode]);
 
   // --- QWERTY Keyboard Handling ---
   const handleQwertyKeyDown = useCallback((event: KeyboardEvent) => {
@@ -1874,7 +2077,8 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
   // Handle hotkeys for navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-        if (currentScreen !== 'inGame' || notesForGame.length === 0 || waitMode === 'retical' || hideBarNavigationButtons) return;
+        // Hotkeys should always work unless game logic prevents it (e.g., not inGame, no notes, retical mode)
+        if (currentScreen !== 'inGame' || notesForGame.length === 0 || waitMode === 'retical') return;
         
         if (document.activeElement && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
             return;
@@ -1888,7 +2092,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentScreen, notesForGame, waitMode, hideBarNavigationButtons, handleBarNavigation]);
+  }, [currentScreen, notesForGame, waitMode, handleBarNavigation]);
 
   // NEW: Callbacks for Settings component props
   const onViewModeChange = useCallback((mode: ViewMode) => setViewMode(mode), []);
@@ -1896,6 +2100,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
   const onShowOnlyMajorNotesChange = useCallback((value: boolean) => setShowOnlyMajorNotes(value), []);
   const onShowQwertyShortcutsChange = useCallback((value: boolean) => setShowQwertyShortcuts(value), []);
   const onHideBarNavigationButtonsChange = useCallback((value: boolean) => setHideBarNavigationButtons(value), []);
+  const onAutoHideTopBarChange = useCallback((value: boolean) => setAutoHideTopBar(value), []);
   const onMasterVolumeChange = useCallback((volume: number) => setMasterVolume(volume), []);
   const onMetronomeVolumeChange = useCallback((volume: number) => setMetronomeVolume(volume), []);
   const onThemeSettingsChange = useCallback((settings: ThemeSettings) => setThemeSettings(settings), []);
@@ -1904,26 +2109,10 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
   const onCustomBlackKeyHeightChange = useCallback((height: number) => setCustomBlackKeyHeight(height), []);
   const onCustomKeyLabelHeightChange = useCallback((height: number) => setCustomKeyLabelHeight(height), []);
   const onCustomMinWhiteKeyWidthChange = useCallback((width: number) => setCustomMinWhiteKeyWidth(width), []);
+  const onPianoRangeModeChange = useCallback((mode: 'full' | '61-key' | '37-key' | '25-key' | 'custom') => setPianoRangeMode(mode), []);
+  const onCustomStartNoteChange = useCallback((note: string) => setCustomStartNote(note), []);
+  const onCustomEndNoteChange = useCallback((note: string) => setCustomEndNote(note), []);
 
-  // NEW: Reset Settings to Default
-  const handleResetToDefaults = useCallback(() => {
-    if (window.confirm("Are you sure you want to reset all settings to their default values?")) {
-      setViewMode(DEFAULT_VIEW_MODE);
-      setNoteLabelType(DEFAULT_NOTE_LABEL_TYPE);
-      // setShowOnlyMajorRests(DEFAULT_SHOW_ONLY_MAJOR_RESTS); // REMOVED
-      setShowOnlyMajorNotes(DEFAULT_SHOW_ONLY_MAJOR_NOTES);
-      setShowQwertyShortcuts(DEFAULT_SHOW_QWERTY_SHORTCUTS);
-      setHideBarNavigationButtons(DEFAULT_HIDE_BAR_NAVIGATION_BUTTONS);
-      setMasterVolume(DEFAULT_MASTER_VOLUME);
-      setMetronomeVolume(DEFAULT_METRONOME_VOLUME);
-      setThemeSettings(DEFAULT_THEME_SETTINGS);
-      setDevicePreset('desktop'); // Reset preset
-      setCustomWhiteKeyHeight(DEVICE_LAYOUTS.desktop.whiteKeyHeight);
-      setCustomBlackKeyHeight(DEVICE_LAYOUTS.desktop.blackKeyHeight);
-      setCustomKeyLabelHeight(DEVICE_LAYOUTS.desktop.keyLabelHeight);
-      setCustomMinWhiteKeyWidth(DEVICE_LAYOUTS.desktop.minWhiteKeyWidth);
-    }
-  }, []);
 
   const pixelsPerMillisecond = useMemo(() => {
     return BASE_PIXELS_PER_MILLISECOND * noteSpeedMultiplier;
@@ -1934,6 +2123,55 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     setGameSettings(null);
     setCurrentScreen('songSelection');
   };
+
+  const handleGlobalUiClick = useCallback(async (event: React.MouseEvent<HTMLDivElement>) => {
+    // Deactivated in game
+    if (currentScreen === 'inGame') {
+        return;
+    }
+
+    let target = event.target as HTMLElement | null;
+    let isInteractive = false;
+    
+    // Traverse up from the click target to find an interactive element
+    while (target && target !== appRootRef.current) {
+        // Check for common interactive tags/roles
+        if (target.matches('button, a, [role="button"], input, select, textarea, label')) {
+            isInteractive = true;
+            break;
+        }
+        // As a fallback for elements like divs with onClick handlers, check for cursor style
+        if (window.getComputedStyle(target).cursor === 'pointer') {
+            isInteractive = true;
+            break;
+        }
+        target = target.parentElement;
+    }
+
+    if (!isInteractive) {
+        return;
+    }
+
+    // Ensure audio context is running, awaiting it if it's suspended.
+    const audioReady = await initializeAudioContext();
+    if (!audioReady) {
+      return;
+    }
+
+    const now = performance.now();
+    
+    // Reset combo if delay is too long
+    if (now - lastUiClickTimeRef.current > 500) {
+        uiClickComboIndexRef.current = 0;
+    }
+
+    const midiNote = UI_CLICK_SOUND_SEQUENCE_MIDI[uiClickComboIndexRef.current];
+    playSound(midiNote, INTERACTIVE_NOTE_DURATION_MS, 0.4); // Use a lower velocity for UI sounds
+
+    // Update for next click
+    uiClickComboIndexRef.current = (uiClickComboIndexRef.current + 1) % UI_CLICK_SOUND_SEQUENCE_MIDI.length;
+    lastUiClickTimeRef.current = now;
+  }, [currentScreen, playSound, initializeAudioContext]);
 
 
   const activeTempoBpm = useMemo(() => {
@@ -1953,56 +2191,110 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     return getActiveKeySignature(musicalCurrentTimeMs, signatureEvents, initialKeySignature);
   }, [musicalCurrentTimeMs, signatureEvents, initialKeySignature]);
   
+  const effectiveCurrentTimeMs = useMemo(() => {
+    if (!playbackTempoMultiplier || playbackTempoMultiplier <= 0) {
+      return musicalCurrentTimeMs;
+    }
+    return musicalCurrentTimeMs / playbackTempoMultiplier;
+  }, [musicalCurrentTimeMs, playbackTempoMultiplier]);
+
+  const effectiveTotalMusicalDurationMs = useMemo(() => {
+    if (!playbackTempoMultiplier || playbackTempoMultiplier <= 0) {
+      return totalDurationWithEndDelayMs;
+    }
+    return totalDurationWithEndDelayMs / playbackTempoMultiplier;
+  }, [totalDurationWithEndDelayMs, playbackTempoMultiplier]);
+
   // NEW: When entering inGame, after a short delay, remove the loading state
   // and set user pause to false to allow auto-play if applicable (e.g., on window focus)
   useEffect(() => {
     if (currentScreen === 'inGame' && isLoadingContent) {
       const timer = setTimeout(() => {
         setIsLoadingContent(false);
-        // Only trigger auto-play if waitMode is off.
-        if (waitMode === 'off') {
-            isUserPausedRef.current = false;
-            if (document.hasFocus()) {
-                handlePlay();
-            }
-        } else {
-            // In wait modes, start paused.
-            isUserPausedRef.current = true;
+        // Force auto-play on game start for all modes.
+        isUserPausedRef.current = false;
+        if (document.hasFocus()) {
+            handlePlay();
         }
       }, 500); // Small delay to allow UI to settle
       return () => clearTimeout(timer);
     }
-  }, [currentScreen, isLoadingContent, handlePlay, waitMode]);
+  }, [currentScreen, isLoadingContent, handlePlay]);
 
-  // NEW: Save score to Supabase after game completion in Retical mode
+  // Save or update best score to Supabase after game completion
   useEffect(() => {
     const saveReticalScore = async () => {
-      // Only save if it's an online song, in retical mode, and user is logged in.
-      // The `isCurrentSongRanked` check is removed here to save all retical scores.
-      if (performanceSummary && !isPlaying && gameSettings?.waitMode === 'retical' && session && currentOnlineSongId) {
+      if (performanceSummary && !isPlaying && gameSettings?.waitMode === 'retical' && session && currentOnlineSongId && isCurrentSongRanked === true) {
         try {
-          const { error } = await supabase.from('scores').insert({
-            user_id: session.user.id,
-            song_id: currentOnlineSongId,
-            final_score: performanceSummary.finalScore,
-            accuracy: performanceSummary.accuracy,
-            speed: performanceSummary.speed,
-            rank: performanceSummary.rank,
-            notes_hit: performanceSummary.hitCount,
-            errors: performanceSummary.errorCount,
-            total_notes: performanceSummary.totalNoteCount,
-            mode: 'retical',
-          });
-          if (error) throw error;
+          const newScore = performanceSummary.finalScore;
+
+          // 1. Fetch only the BEST existing score for this user and song to compare against.
+          const { data: bestOldScoreData, error: selectError } = await supabase
+            .from('scores')
+            .select('final_score')
+            .eq('user_id', session.user.id)
+            .eq('song_id', currentOnlineSongId)
+            .order('final_score', { ascending: false })
+            .limit(1);
+
+          if (selectError) {
+            console.error('Error fetching existing best score:', selectError);
+            throw selectError; // Fail fast if we can't check for an existing score
+          }
+          
+          const bestOldScore = bestOldScoreData?.[0]?.final_score ?? -1;
+
+          // 2. Only proceed if the new score is a personal best.
+          if (newScore > bestOldScore) {
+            console.log(`New PB: ${newScore} > ${bestOldScore}. Cleaning up and inserting new score.`);
+
+            // 3. To ensure only one score remains, delete all previous scores for this song and user.
+            // This is necessary because there's no unique constraint on (user_id, song_id).
+            const { error: deleteError } = await supabase
+              .from('scores')
+              .delete()
+              .eq('user_id', session.user.id)
+              .eq('song_id', currentOnlineSongId);
+
+            if (deleteError) {
+              // Log the error but continue. A failed delete might result in a temporary duplicate,
+              // but the display logic in the account modal is designed to handle this by showing only the best score.
+              console.error('Failed to delete old scores, but will attempt to insert new one:', deleteError);
+            }
+
+            // 4. Insert the new, single, best score.
+            const newScoreData = {
+              user_id: session.user.id,
+              song_id: currentOnlineSongId,
+              final_score: performanceSummary.finalScore,
+              accuracy: performanceSummary.accuracy,
+              speed: performanceSummary.speed,
+              rank: performanceSummary.rank,
+              notes_hit: performanceSummary.hitCount,
+              errors: performanceSummary.errorCount,
+              total_notes: performanceSummary.totalNoteCount,
+              mode: 'retical', // Mode is 'retical' as per the condition
+              tempo_multiplier: performanceSummary.playbackTempoMultiplier,
+            };
+
+            const { error: insertError } = await supabase
+              .from('scores')
+              .insert(newScoreData);
+            
+            if (insertError) throw insertError;
+
+            console.log('Successfully saved new personal best!');
+          } else {
+             console.log(`Score of ${newScore} is not better than personal best of ${bestOldScore}. No update.`);
+          }
         } catch (error) {
           console.error("Error saving score:", error);
-          // Optionally, display an error message to the user
         }
       }
     };
 
     saveReticalScore();
-  }, [performanceSummary, isPlaying, gameSettings, session, currentOnlineSongId]); // isCurrentSongRanked removed from dependencies
+  }, [performanceSummary, isPlaying, gameSettings, session, currentOnlineSongId, isCurrentSongRanked]);
 
   // NEW: Function to navigate to SongSelection with a specific online song ID
   const handleGoToOnlineSongSelection = useCallback((songId: string) => {
@@ -2016,12 +2308,13 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
 
   // Main render logic
   return (
-      <div className="bg-slate-900 text-white min-h-screen flex flex-col font-sans">
+      <div ref={appRootRef} onClick={handleGlobalUiClick} className="bg-slate-900 text-white min-h-screen flex flex-col font-sans">
+        {currentScreen !== 'inGame' && <AdBanner />}
         {currentScreen === 'mainMenu' && (
           <MainMenu 
             onPlay={() => setCurrentScreen('songSelection')} 
             onSettings={() => setCurrentScreen('settings')} 
-            onLeaderboard={() => setCurrentScreen('leaderboard')}
+            onSocial={() => setCurrentScreen('leaderboard')}
             onOpenLoginModal={() => setIsAuthModalOpen(true)}
             onOpenAccountModal={() => setIsAccountModalOpen(true)}
           />
@@ -2089,13 +2382,14 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
                 onShowQwertyShortcutsChange={onShowQwertyShortcutsChange}
                 hideBarNavigationButtons={hideBarNavigationButtons}
                 onHideBarNavigationButtonsChange={onHideBarNavigationButtonsChange}
+                autoHideTopBar={autoHideTopBar}
+                onAutoHideTopBarChange={onAutoHideTopBarChange}
                 masterVolume={masterVolume}
                 onMasterVolumeChange={onMasterVolumeChange}
                 metronomeVolume={metronomeVolume}
                 onMetronomeVolumeChange={onMetronomeVolumeChange}
                 themeSettings={themeSettings}
                 onThemeSettingsChange={onThemeSettingsChange}
-                onResetToDefaults={handleResetToDefaults}
                 devicePreset={devicePreset}
                 onDevicePresetChange={onDevicePresetChange}
                 customWhiteKeyHeight={customWhiteKeyHeight}
@@ -2106,38 +2400,60 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
                 onCustomKeyLabelHeightChange={onCustomKeyLabelHeightChange}
                 customMinWhiteKeyWidth={customMinWhiteKeyWidth}
                 onCustomMinWhiteKeyWidthChange={onCustomMinWhiteKeyWidthChange}
+                pianoRangeMode={pianoRangeMode}
+                onPianoRangeModeChange={onPianoRangeModeChange}
+                customStartNote={customStartNote}
+                onCustomStartNoteChange={onCustomStartNoteChange}
+                customEndNote={customEndNote}
+                onCustomEndNoteChange={onCustomEndNoteChange}
             />
         )}
 
         {currentScreen === 'inGame' && (
-          <>
-            <TopBar
-                onPlay={handlePlay}
-                onPause={handlePause}
-                onStop={handleStopPlayback}
-                onExit={handleExitGame}
-                isPlaying={isPlaying}
-                isFileLoaded={playbackNotes.length > 0}
-                fileName={currentFileName}
-                waitMode={waitMode}
-                metronomeMode={metronomeMode}
-                onCycleMetronomeMode={() => setMetronomeMode(prev => prev === 'off' ? 'bar' : 'off')}
-                isMetronomeAvailable={isMetronomeAvailable}
-                hitCount={hitCount}
-                errorCount={errorCount}
-                totalNoteCount={totalNoteCountForGame}
-                currentTimeMs={musicalCurrentTimeMs}
-                totalDurationMs={originalTotalMusicalDurationMs}
-                viewMode={viewMode}
-                noteSpeedMultiplier={noteSpeedMultiplier}
-                onNoteSpeedMultiplierChange={setNoteSpeedMultiplier}
-                sheetMusicZoom={sheetMusicZoom}
-                onSheetMusicZoomChange={setSheetMusicZoom}
-                analysisResult={analysisResult}
-                metronomeBeat={metronomeBeat}
-                totalWaitTimeMs={totalWaitTimeMs} // NEW: Pass the wait time prop
-            />
-            <div ref={contentAreaRef} className="flex-grow flex flex-col justify-end items-center relative overflow-hidden">
+          <div className="flex-grow relative overflow-hidden">
+            <div
+              className={`absolute top-0 left-0 right-0 z-50 transition-transform duration-300 ease-in-out ${
+                autoHideTopBar ? (isTopBarVisible ? 'translate-y-0' : '-translate-y-full') : 'translate-y-0'
+              }`}
+              onMouseEnter={autoHideTopBar ? clearTopBarHideTimer : undefined}
+              onMouseLeave={autoHideTopBar ? startTopBarHideTimer : undefined}
+            >
+              <TopBar
+                  onPlay={handlePlay}
+                  onPause={handlePause}
+                  onStop={handleStopPlayback}
+                  onExit={handleExitGame}
+                  isPlaying={isPlaying}
+                  isFileLoaded={playbackNotes.length > 0}
+                  fileName={currentFileName}
+                  waitMode={waitMode}
+                  metronomeMode={metronomeMode}
+                  onCycleMetronomeMode={() => setMetronomeMode(prev => prev === 'off' ? 'bar' : 'off')}
+                  isMetronomeAvailable={isMetronomeAvailable}
+                  hitCount={hitCount}
+                  errorCount={errorCount}
+                  totalNoteCount={totalNoteCountForGame}
+                  currentTimeMs={effectiveCurrentTimeMs}
+                  totalDurationMs={effectiveTotalMusicalDurationMs}
+                  viewMode={viewMode}
+                  noteSpeedMultiplier={noteSpeedMultiplier}
+                  onNoteSpeedMultiplierChange={setNoteSpeedMultiplier}
+                  sheetMusicZoom={sheetMusicZoom}
+                  onSheetMusicZoomChange={setSheetMusicZoom}
+                  analysisResult={analysisResult}
+                  metronomeBeat={metronomeBeat}
+                  totalWaitTimeMs={totalWaitTimeMs}
+              />
+            </div>
+            
+            <div ref={contentAreaRef} className="w-full h-full flex flex-col justify-end items-center relative overflow-hidden">
+                {autoHideTopBar && (
+                  <div
+                    className="absolute top-0 left-0 right-0 h-10 z-40"
+                    onMouseEnter={() => setIsTopBarVisible(true)}
+                    onClick={() => setIsTopBarVisible(true)}
+                  />
+                )}
                 {isLoadingContent ? (
                   <div className="absolute inset-0 bg-slate-900 flex items-center justify-center z-30">
                      <div className="flex items-center space-x-3 p-4 text-sky-300 font-semibold text-lg">
@@ -2203,7 +2519,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
                             rightHandColor={themeSettings.rightHandColor}
                             leftHandColor={themeSettings.leftHandColor}
                             signatureEvents={signatureEvents}
-                            showOnlyMajorRests={false}
+                            showOnlyMajorRests={DEFAULT_SHOW_ONLY_MAJOR_RESTS}
                             tempoEvents={tempoEvents}
                             playbackTempoMultiplier={playbackTempoMultiplier}
                           />
@@ -2214,7 +2530,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
                         <div className="w-full">
                           <ProgressBar
                             currentTimeMs={musicalCurrentTimeMs}
-                            totalDurationMs={originalTotalMusicalDurationMs}
+                            totalDurationMs={totalDurationWithEndDelayMs}
                             width={baseCalculatedPianoWidth}
                             height={PROGRESS_BAR_HEIGHT_PX}
                             onSeek={handleSeek}
@@ -2256,7 +2572,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
                 summary={performanceSummary} 
                 onClose={handleClosePerformanceSummary}
             />
-          </>
+          </div>
         )}
         
         {/* Auth Modals */}

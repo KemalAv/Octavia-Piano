@@ -1,4 +1,5 @@
 
+
 // FIX: Add types for Supabase auth integration.
 import { Session, User } from '@supabase/supabase-js';
 
@@ -191,6 +192,8 @@ export interface PerformanceSummary {
   hitCount: number;
   errorCount: number;
   totalNoteCount: number;
+  playbackTempoMultiplier: number;
+  totalWaitTimeMs: number;
 }
 
 // FIX: Add UserSession type for Supabase integration.
@@ -214,6 +217,7 @@ export interface Score {
   errors: number;
   total_notes: number;
   mode: string;
+  tempo_multiplier?: number;
   // FIX: Add 'artist' to songs object to match Supabase query in AccountModal.tsx.
   songs?: { title: string; artist: string; } | null;
   profiles?: { username: string; avatar_url: string | null; created_at: string | null; } | null; // Added avatar_url and created_at
@@ -226,6 +230,7 @@ export interface Profile {
   avatar_url: string | null;
   created_at: string | null; // When the profile record was created (proxy for join date)
   last_nickname_change?: string | null;
+  bio?: string | null;
 }
 
 // @FIX: Add UserLike interface for Supabase integration to resolve import error in OnlineSongBrowser.

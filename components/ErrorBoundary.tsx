@@ -7,15 +7,17 @@ interface ErrorBoundaryProps {
 interface ErrorBoundaryState {
   hasError: boolean;
   error: Error | null;
+  isRendered: boolean;
 }
 
 class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   public state: ErrorBoundaryState = {
     hasError: false,
     error: null,
+    isRendered: false,
   };
 
-  public static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+  public static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
     // Update state so the next render will show the fallback UI.
     return { hasError: true, error };
   }
@@ -24,6 +26,15 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
     console.error("Uncaught error:", error, errorInfo);
     // You could also log error messages to an error reporting service here
   }
+  
+  public componentDidUpdate(_: ErrorBoundaryProps, prevState: ErrorBoundaryState) {
+    if (this.state.hasError && !prevState.hasError) {
+        const timer = setTimeout(() => this.setState({ isRendered: true }), 10);
+        // This is a class component, so we don't need a cleanup function here.
+        // If the component could unmount while the timer is active, we'd store the timer id to clear it.
+    }
+  }
+
 
   private handleReturnToMainMenu = () => {
     // Reload the page to reset the application state and return to the main menu
@@ -34,8 +45,8 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
     if (this.state.hasError) {
       // Fallback UI
       return (
-        <div className="fixed inset-0 bg-red-950 bg-opacity-90 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 p-8 md:p-12 rounded-xl shadow-2xl text-center max-w-lg w-full ring-2 ring-red-500">
+        <div className={`fixed inset-0 bg-red-950 flex items-center justify-center z-50 p-4 transition-opacity duration-300 ease-in-out ${this.state.isRendered ? 'bg-opacity-90' : 'bg-opacity-0'}`}>
+          <div className={`bg-slate-800 p-8 md:p-12 rounded-xl shadow-2xl text-center max-w-lg w-full ring-2 ring-red-500 transform transition-all duration-300 ease-in-out ${this.state.isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}>
             <h1 className="text-5xl font-extrabold text-red-400 mb-4 animate-bounce">Oops!</h1>
             <p className="text-xl text-slate-200 mb-6">
               An unexpected error occurred.

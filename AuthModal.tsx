@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 
 interface AuthModalProps {
@@ -9,6 +9,16 @@ interface AuthModalProps {
 const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
+  const [isRendered, setIsRendered] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      const timer = setTimeout(() => setIsRendered(true), 10);
+      return () => clearTimeout(timer);
+    } else {
+      setIsRendered(false);
+    }
+  }, [isOpen]);
 
   const handleGoogleLogin = async () => {
     setLoading(true);
@@ -29,14 +39,14 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
   return (
     <div
-      className="fixed inset-0 bg-slate-950 bg-opacity-80 flex items-center justify-center z-50 p-4"
+      className={`fixed inset-0 bg-slate-950 flex items-center justify-center z-50 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'bg-opacity-80' : 'bg-opacity-0'}`}
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-labelledby="auth-modal-title"
     >
       <div
-        className="bg-slate-800/80 backdrop-blur-sm p-8 md:p-10 rounded-xl shadow-2xl text-center max-w-md w-full ring-1 ring-slate-700"
+        className={`bg-slate-800/80 backdrop-blur-sm p-8 md:p-10 rounded-xl shadow-2xl text-center max-w-md w-full ring-1 ring-slate-700 transform transition-all duration-300 ease-in-out ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
         onClick={(e) => e.stopPropagation()}
         role="document"
       >

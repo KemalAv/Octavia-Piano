@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../AuthContext';
@@ -7,7 +6,7 @@ import ViewProfileModal from './ViewProfileModal';
 
 interface LeaderboardProps {
   onBack: () => void;
-  onGoToOnlineSong: (songId: string) => void; // FIX: Changed prop type from `(file: File, onlineSongId: string) => Promise<void>` to `(songId: string) => void`
+  onGoToOnlineSong: (songId: string) => void;
 }
 
 const PlaceholderAvatar: React.FC = () => (
@@ -20,9 +19,15 @@ const PlaceholderAvatar: React.FC = () => (
 
 const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong }) => {
     const { user } = useAuth();
-    const [activeTab, setActiveTab] = useState<'leaderboard' | 'search' | 'friends'>('leaderboard');
+    const [activeTab, setActiveTab] = useState<'leaderboard' | 'search' | 'friends' | 'requests'>('leaderboard');
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState<{ type: 'error' | 'success', text: string } | null>(null);
+    const [isRendered, setIsRendered] = useState(false);
+
+    useEffect(() => {
+      const timer = setTimeout(() => setIsRendered(true), 10);
+      return () => clearTimeout(timer);
+    }, []);
 
     // Leaderboard State
     const [leaderboardData, setLeaderboardData] = useState<LeaderboardEntry[]>([]);
@@ -32,14 +37,15 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong }) =
     const [searchResults, setSearchResults] = useState<Profile[]>([]);
     const [isSearching, setIsSearching] = useState(false);
 
-    // Friends State
+    // Friends & Requests State
     const [friends, setFriends] = useState<FriendWithProfile[]>([]);
-    const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
+    const [friendRequests, setFriendRequests] = useState<FriendWithProfile[]>([]);
+    const [relationships, setRelationships] = useState<Map<string, { status: 'accepted' | 'pending_sent' | 'pending_received' }>>(new Map());
 
-    const [selectedPlayerProfileId, setSelectedPlayerProfileId] = useState<string | null>(null);
+    const [selectedProfileData, setSelectedProfileData] = useState<{ userId: string; rank: number; totalScore: number; } | null>(null);
 
     const tertiaryButtonStyle = "bg-slate-600 hover:bg-slate-700 text-slate-200 focus:ring-slate-500";
-    const tabStyle = "flex-1 py-3 text-center font-bold text-lg cursor-pointer transition-colors border-b-2";
+    const tabStyle = "flex-1 py-3 text-center font-bold text-lg cursor-pointer transition-colors border-b-2 relative";
     const activeTabStyle = "border-cyan-400 text-cyan-400 bg-slate-700/50";
     const inactiveTabStyle = "border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-700/30";
 
@@ -57,58 +63,74 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong }) =
         }
     }, []);
 
-    const fetchFriends = useCallback(async () => {
+    const fetchRelationships = useCallback(async () => {
         if (!user) return;
         setLoading(true);
         setMessage(null);
         try {
-            // Step 1: Fetch raw friend relationships (user_id and friend_id)
-            const { data: rawFriendsData, error: friendsError } = await supabase
+            const { data: relationshipsData, error } = await supabase
                 .from('friends')
-                .select('user_id, friend_id, created_at')
-                .eq('user_id', user.id);
+                .select('user_id, friend_id, status, created_at')
+                .or(`user_id.eq.${user.id},friend_id.eq.${user.id}`);
+            
+            if (error) throw error;
+            if (!relationshipsData) return;
 
-            if (friendsError) throw friendsError;
+            const otherUserIds = new Set<string>();
+            relationshipsData.forEach(rel => {
+                if (rel.user_id === user.id) {
+                    otherUserIds.add(rel.friend_id);
+                } else {
+                    otherUserIds.add(rel.user_id);
+                }
+            });
 
-            if (!rawFriendsData || rawFriendsData.length === 0) {
+            if (otherUserIds.size === 0) {
                 setFriends([]);
-                setFriendIds(new Set());
+                setFriendRequests([]);
+                setRelationships(new Map());
                 setLoading(false);
                 return;
             }
 
-            const uniqueFriendIds = Array.from(new Set(rawFriendsData.map(f => f.friend_id)));
-
-            // Step 2: Fetch profiles for all unique friend IDs
             const { data: profilesData, error: profilesError } = await supabase
                 .from('profiles')
-                .select('id, username, avatar_url, created_at, last_nickname_change')
-                .in('id', uniqueFriendIds);
-
+                .select('*')
+                .in('id', Array.from(otherUserIds));
+            
             if (profilesError) throw profilesError;
 
             const profilesMap = new Map<string, Profile>();
-            (profilesData as Profile[]).forEach(profile => profilesMap.set(profile.id, profile));
+            (profilesData as Profile[]).forEach(p => profilesMap.set(p.id, p));
 
-            // Step 3: Combine raw friends data with fetched profile data
-            const friendDataWithProfiles: FriendWithProfile[] = rawFriendsData.map(f => ({
-                user_id: f.user_id,
-                friend_id: f.friend_id,
-                created_at: f.created_at,
-                friend_profile: profilesMap.get(f.friend_id) || {
-                    id: f.friend_id,
-                    username: 'Unknown User', // Fallback
-                    avatar_url: null,
-                    created_at: null,
-                    last_nickname_change: null,
+            const newFriends: FriendWithProfile[] = [];
+            const newFriendRequests: FriendWithProfile[] = [];
+            const newRelationshipsMap = new Map<string, { status: 'accepted' | 'pending_sent' | 'pending_received' }>();
+
+            for (const rel of relationshipsData) {
+                const otherUserId = rel.user_id === user.id ? rel.friend_id : rel.user_id;
+                const profile = profilesMap.get(otherUserId);
+                if (!profile) continue;
+
+                if (rel.status === 'accepted') {
+                    newFriends.push({ ...rel, friend_profile: profile });
+                    newRelationshipsMap.set(otherUserId, { status: 'accepted' });
+                } else if (rel.status === 'pending') {
+                    if (rel.friend_id === user.id) { // I am the receiver
+                        newFriendRequests.push({ ...rel, friend_profile: profile });
+                        newRelationshipsMap.set(otherUserId, { status: 'pending_received' });
+                    } else { // I am the sender
+                        newRelationshipsMap.set(otherUserId, { status: 'pending_sent' });
+                    }
                 }
-            }));
-
-            setFriends(friendDataWithProfiles);
-            setFriendIds(new Set(friendDataWithProfiles.map(f => f.friend_id)));
+            }
+            
+            setFriends(newFriends);
+            setFriendRequests(newFriendRequests);
+            setRelationships(newRelationshipsMap);
 
         } catch (err: any) {
-            setMessage({ type: 'error', text: `Failed to load friends: ${err.message}` });
+            setMessage({ type: 'error', text: `Failed to load social data: ${err.message}` });
         } finally {
             setLoading(false);
         }
@@ -118,14 +140,18 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong }) =
         if (activeTab === 'leaderboard') {
             fetchLeaderboard();
         }
-        if (activeTab === 'friends') {
-            fetchFriends();
+        if (user && (activeTab === 'friends' || activeTab === 'requests')) {
+            fetchRelationships();
         }
-        if (user) {
-            // Also fetch friend IDs in background for search results
-            fetchFriends();
+    }, [activeTab, fetchLeaderboard, fetchRelationships, user]);
+
+    // Pre-fetch relationships for search tab button states
+    useEffect(() => {
+        if (user && activeTab === 'search') {
+            fetchRelationships();
         }
-    }, [activeTab, fetchLeaderboard, fetchFriends, user]);
+    }, [user, activeTab, fetchRelationships]);
+
 
     const handleSearch = useCallback(async (query: string) => {
         if (!query.trim()) {
@@ -150,7 +176,8 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong }) =
     }, []);
     
     const debouncedSearch = useMemo(() => {
-        let timeoutId: NodeJS.Timeout;
+        // Fix: Changed NodeJS.Timeout to ReturnType<typeof setTimeout> for browser compatibility.
+        let timeoutId: ReturnType<typeof setTimeout>;
         return (query: string) => {
             clearTimeout(timeoutId);
             timeoutId = setTimeout(() => handleSearch(query), 300);
@@ -159,18 +186,22 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong }) =
 
     const handleAddFriend = async (friendId: string) => {
         if (!user) return;
+        if (relationships.has(friendId)) {
+            setMessage({ type: 'error', text: 'You already have a connection with this user.'});
+            return;
+        }
         if (friends.length >= 50) {
             setMessage({ type: 'error', text: 'You have reached the maximum of 50 friends.'});
             return;
         }
         setMessage(null);
         try {
-            const { error } = await supabase.from('friends').insert({ user_id: user.id, friend_id: friendId });
+            const { error } = await supabase.from('friends').insert({ user_id: user.id, friend_id: friendId, status: 'pending' });
             if (error) throw error;
-            setMessage({ type: 'success', text: 'Friend added!' });
-            fetchFriends(); // Refresh friends list
+            setMessage({ type: 'success', text: 'Friend request sent!' });
+            fetchRelationships(); // Refresh relationships
         } catch(err: any) {
-             setMessage({ type: 'error', text: 'Could not add friend. They may already be on your list.'});
+             setMessage({ type: 'error', text: 'Could not send friend request.'});
         }
     };
     
@@ -180,12 +211,51 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong }) =
         
         setMessage(null);
         try {
-            const { error } = await supabase.from('friends').delete().match({ user_id: user.id, friend_id: friendId });
+            const { error } = await supabase
+                .from('friends')
+                .delete()
+                .or(`and(user_id.eq.${user.id},friend_id.eq.${friendId}),and(user_id.eq.${friendId},friend_id.eq.${user.id})`)
+                .eq('status', 'accepted');
+
             if (error) throw error;
             setMessage({ type: 'success', text: 'Friend removed.' });
-            fetchFriends(); // Refresh friends list
+            fetchRelationships(); // Refresh relationships
         } catch (err: any) {
              setMessage({ type: 'error', text: `Could not remove friend: ${err.message}`});
+        }
+    };
+
+    const handleAcceptRequest = async (requesterId: string) => {
+        if (!user) return;
+        setMessage(null);
+        try {
+            const { error } = await supabase
+                .from('friends')
+                .update({ status: 'accepted' })
+                .match({ user_id: requesterId, friend_id: user.id, status: 'pending' });
+            if (error) throw error;
+            setMessage({ type: 'success', text: 'Friend request accepted!' });
+            fetchRelationships();
+        } catch (err: any) {
+             setMessage({ type: 'error', text: `Could not accept request: ${err.message}`});
+        }
+    };
+
+    const handleDeclineRequest = async (requesterId: string) => {
+        if (!user) return;
+        if (!window.confirm("Are you sure you want to decline this request?")) return;
+        
+        setMessage(null);
+        try {
+            const { error } = await supabase
+                .from('friends')
+                .delete()
+                .match({ user_id: requesterId, friend_id: user.id, status: 'pending' });
+            if (error) throw error;
+            setMessage({ type: 'success', text: 'Request declined.' });
+            fetchRelationships();
+        } catch (err: any) {
+             setMessage({ type: 'error', text: `Could not decline request: ${err.message}`});
         }
     };
 
@@ -194,17 +264,41 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong }) =
             {loading ? <div className="text-center p-8 text-slate-300 animate-pulse">Loading...</div> : children}
         </div>
     );
+    
+    const getFriendButton = (profile: Profile) => {
+        if (!user || user.id === profile.id) return null;
+        const rel = relationships.get(profile.id);
+
+        if (rel?.status === 'accepted') {
+            return <button onClick={() => handleRemoveFriend(profile.id)} className="px-4 py-2 text-sm rounded-lg font-semibold transition bg-red-600 hover:bg-red-700 text-white">Remove Friend</button>;
+        }
+        if (rel?.status === 'pending_sent') {
+            return <button disabled className="px-4 py-2 text-sm rounded-lg font-semibold bg-slate-600 cursor-not-allowed">Request Sent</button>;
+        }
+        if (rel?.status === 'pending_received') {
+            return <button onClick={() => handleAcceptRequest(profile.id)} className="px-4 py-2 text-sm rounded-lg font-semibold transition bg-green-600 hover:bg-green-700 text-white">Accept Request</button>;
+        }
+        return <button onClick={() => handleAddFriend(profile.id)} className="px-4 py-2 text-sm rounded-lg font-semibold transition bg-violet-600 hover:bg-violet-700 text-white">Add Friend</button>;
+    };
 
     return (
-        <div className="fixed inset-0 bg-slate-900 flex flex-col items-center justify-center z-40 p-4">
+        <div className={`fixed inset-0 bg-slate-900 flex flex-col items-center justify-center z-40 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'opacity-100' : 'opacity-0'}`}>
             <div className="absolute top-4 left-4">
                 <button onClick={onBack} className={`${tertiaryButtonStyle} py-2 px-4 text-base shadow-md`}>&larr; Back to Menu</button>
             </div>
-            <div className="bg-slate-800/50 backdrop-blur-sm p-0 rounded-xl shadow-2xl text-center max-w-4xl w-full ring-1 ring-slate-700 max-h-[90vh] flex flex-col overflow-hidden">
+            <div className={`bg-slate-800/50 backdrop-blur-sm p-0 rounded-xl shadow-2xl text-center max-w-4xl w-full ring-1 ring-slate-700 max-h-[90vh] flex flex-col overflow-hidden transform transition-transform duration-300 ease-in-out ${isRendered ? 'scale-100' : 'scale-95'}`}>
                 <div className="flex border-b border-slate-700 bg-slate-800/80">
                     <div className={`${tabStyle} ${activeTab === 'leaderboard' ? activeTabStyle : inactiveTabStyle}`} onClick={() => setActiveTab('leaderboard')}>Leaderboard</div>
                     <div className={`${tabStyle} ${activeTab === 'search' ? activeTabStyle : inactiveTabStyle}`} onClick={() => setActiveTab('search')}>Search</div>
                     <div className={`${tabStyle} ${activeTab === 'friends' ? activeTabStyle : inactiveTabStyle}`} onClick={() => setActiveTab('friends')}>My Friends</div>
+                    <div className={`${tabStyle} ${activeTab === 'requests' ? activeTabStyle : inactiveTabStyle}`} onClick={() => setActiveTab('requests')}>
+                        Requests
+                        {friendRequests.length > 0 && (
+                            <span className="absolute top-2 right-2 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs font-bold text-white">
+                                {friendRequests.length}
+                            </span>
+                        )}
+                    </div>
                 </div>
 
                 <div className="p-8 md:p-12 overflow-y-auto custom-scrollbar flex-grow flex flex-col">
@@ -223,7 +317,7 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong }) =
                                 {leaderboardData.map((entry, index) => (
                                     <tr key={entry.user_id} className="border-b border-slate-700 hover:bg-slate-700/50">
                                         <td className="p-3 font-bold text-slate-300 text-center">{index + 1}</td>
-                                        <td className="p-3 flex items-center gap-4 cursor-pointer" onClick={() => setSelectedPlayerProfileId(entry.user_id)}>
+                                        <td className="p-3 flex items-center gap-4 cursor-pointer" onClick={() => setSelectedProfileData({ userId: entry.user_id, rank: index + 1, totalScore: entry.total_score })}>
                                             {entry.avatar_url ? <img src={entry.avatar_url} alt={entry.username} className="w-12 h-12 rounded-full object-cover" /> : <PlaceholderAvatar />}
                                             <span className="font-semibold text-white truncate">{entry.username}</span>
                                         </td>
@@ -249,19 +343,11 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong }) =
                                 <div className="space-y-2">
                                     {searchResults.map(profile => (
                                         <div key={profile.id} className="flex items-center justify-between p-3 bg-slate-800 rounded-lg">
-                                            <div className="flex items-center gap-4 cursor-pointer" onClick={() => setSelectedPlayerProfileId(profile.id)}>
+                                            <div className="flex items-center gap-4 cursor-pointer flex-grow min-w-0" onClick={() => setSelectedProfileData({ userId: profile.id, rank: 0, totalScore: 0 })}>
                                                 {profile.avatar_url ? <img src={profile.avatar_url} alt={profile.username} className="w-12 h-12 rounded-full object-cover" /> : <PlaceholderAvatar />}
-                                                <span className="font-semibold text-white">{profile.username}</span>
+                                                <span className="font-semibold text-white truncate">{profile.username}</span>
                                             </div>
-                                            {user && user.id !== profile.id && (
-                                                <button 
-                                                    onClick={() => handleAddFriend(profile.id)} 
-                                                    disabled={friendIds.has(profile.id)}
-                                                    className="px-4 py-2 text-sm rounded-lg font-semibold transition bg-violet-600 hover:bg-violet-700 text-white disabled:bg-slate-600 disabled:cursor-not-allowed"
-                                                >
-                                                    {friendIds.has(profile.id) ? 'Friend' : 'Add Friend'}
-                                                </button>
-                                            )}
+                                            <div className="flex-shrink-0">{getFriendButton(profile)}</div>
                                         </div>
                                     ))}
                                 </div>
@@ -274,22 +360,49 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong }) =
                         friends.length === 0 ? <div className="text-center p-8 text-slate-400">You haven't added any friends yet.</div> :
                         <div className="space-y-2">
                              {friends.map(friend => (
-                                <div key={friend.friend_id} className="flex items-center justify-between p-3 bg-slate-800 rounded-lg">
-                                    <div className="flex items-center gap-4 cursor-pointer" onClick={() => setSelectedPlayerProfileId(friend.friend_id)}>
+                                <div key={friend.friend_profile.id} className="flex items-center justify-between p-3 bg-slate-800 rounded-lg">
+                                    <div className="flex items-center gap-4 cursor-pointer" onClick={() => setSelectedProfileData({ userId: friend.friend_profile.id, rank: 0, totalScore: 0 })}>
                                         {friend.friend_profile.avatar_url ? <img src={friend.friend_profile.avatar_url} alt={friend.friend_profile.username} className="w-12 h-12 rounded-full object-cover" /> : <PlaceholderAvatar />}
                                         <span className="font-semibold text-white">{friend.friend_profile.username}</span>
                                     </div>
-                                    <button onClick={() => handleRemoveFriend(friend.friend_id)} className="px-4 py-2 text-sm rounded-lg font-semibold transition bg-red-600 hover:bg-red-700 text-white">
+                                    <button onClick={() => handleRemoveFriend(friend.friend_profile.id)} className="px-4 py-2 text-sm rounded-lg font-semibold transition bg-red-600 hover:bg-red-700 text-white">
                                         Remove
                                     </button>
                                 </div>
                              ))}
                         </div>
                     )}
+
+                    {activeTab === 'requests' && renderList(
+                        !user ? <div className="text-center p-8 text-slate-400">Please log in to see friend requests.</div> :
+                        friendRequests.length === 0 ? <div className="text-center p-8 text-slate-400">No pending friend requests.</div> :
+                        <div className="space-y-2">
+                            {friendRequests.map(request => (
+                                <div key={request.friend_profile.id} className="flex items-center justify-between p-3 bg-slate-800 rounded-lg">
+                                    <div className="flex items-center gap-4 cursor-pointer" onClick={() => setSelectedProfileData({ userId: request.friend_profile.id, rank: 0, totalScore: 0 })}>
+                                        {request.friend_profile.avatar_url ? <img src={request.friend_profile.avatar_url} alt={request.friend_profile.username} className="w-12 h-12 rounded-full object-cover" /> : <PlaceholderAvatar />}
+                                        <span className="font-semibold text-white">{request.friend_profile.username}</span>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => handleAcceptRequest(request.friend_profile.id)} className="px-4 py-2 text-sm rounded-lg font-semibold transition bg-green-600 hover:bg-green-700 text-white">Accept</button>
+                                        <button onClick={() => handleDeclineRequest(request.friend_profile.id)} className="px-4 py-2 text-sm rounded-lg font-semibold transition bg-slate-600 hover:bg-slate-500 text-white">Decline</button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             </div>
-            {/* FIX: Pass 'onGoToOnlineSong' prop to ViewProfileModal */}
-            {selectedPlayerProfileId && <ViewProfileModal isOpen={!!selectedPlayerProfileId} userId={selectedPlayerProfileId} onClose={() => setSelectedPlayerProfileId(null)} onGoToOnlineSong={onGoToOnlineSong} />}
+            {selectedProfileData && (
+                <ViewProfileModal 
+                    isOpen={!!selectedProfileData} 
+                    userId={selectedProfileData.userId} 
+                    globalRank={selectedProfileData.rank > 0 ? selectedProfileData.rank : undefined}
+                    totalScore={selectedProfileData.rank > 0 ? selectedProfileData.totalScore : undefined}
+                    onClose={() => setSelectedProfileData(null)} 
+                    onGoToOnlineSong={onGoToOnlineSong} 
+                />
+            )}
         </div>
     );
 };

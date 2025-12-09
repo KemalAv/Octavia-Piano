@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../AuthContext';
@@ -6,6 +5,7 @@ import { Score, Profile, PerformanceSummary } from '../types'; // Import Perform
 import PerformanceSummaryModal from './PerformanceSummaryModal'; // Import PerformanceSummaryModal
 import { convertScoreToPerformanceSummary } from '../utils'; // Import utility for score conversion
 import { ADMIN_UUID } from '../constants';
+import { LeaderboardEntry } from '../types';
 
 
 interface AccountModalProps {
@@ -20,6 +20,7 @@ const AVATAR_SIGNED_URL_EXPIRY_SECONDS = 1000 * 365.25 * 24 * 60 * 60; // ~3.15e
 
 const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnlineSong }) => {
   const { user, session } = useAuth(); // Also get session for created_at, last_sign_in_at
+  const [isRendered, setIsRendered] = useState(false);
   
   const [profile, setProfile] = useState<Profile | null>(null);
   const [username, setUsername] = useState('');
@@ -37,13 +38,32 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
 
   const [selectedPerformanceSummary, setSelectedPerformanceSummary] = useState<PerformanceSummary | null>(null); // NEW
 
+  const [globalRank, setGlobalRank] = useState<number | null>(null);
+  const [totalScore, setTotalScore] = useState<number | null>(null);
+
+  const [bio, setBio] = useState('');
+  const [isEditingBio, setIsEditingBio] = useState(false);
+  const [loadingBio, setLoadingBio] = useState(false);
+
+
+  useEffect(() => {
+    if (isOpen) {
+      const timer = setTimeout(() => setIsRendered(true), 10);
+      return () => clearTimeout(timer);
+    } else {
+      setIsRendered(false);
+    }
+  }, [isOpen]);
+
   const fetchProfileAndScores = useCallback(async () => {
     if (!user) return;
     
+    setLoadingScores(true);
+
     // Fetch profile (only username and avatar_url are needed for display in this modal)
     const { data: profileData, error: profileError } = await supabase
       .from('profiles')
-      .select('username, avatar_url, last_nickname_change')
+      .select('username, avatar_url, last_nickname_change, bio')
       .eq('id', user.id)
       .single();
 
@@ -53,13 +73,14 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
       setProfile(profileData as Profile);
       setUsername(profileData.username || user.email?.split('@')[0] || '');
       setAvatarUrl(profileData.avatar_url);
+      setBio(profileData.bio || '');
     } else {
       setUsername(user.email?.split('@')[0] || '');
       setAvatarUrl(null);
+      setBio('');
     }
 
     // Fetch scores, only for ranked songs
-    setLoadingScores(true);
     const { data: scoresData, error: scoresError } = await supabase
       .from('scores')
       // Use !inner to ensure only scores related to ranked songs are returned
@@ -88,6 +109,24 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
       // Convert map values back to an array and sort by final_score descending
       const uniqueHighestScores = Array.from(highestScoresMap.values()).sort((a, b) => b.final_score - a.final_score);
       setTopScores(uniqueHighestScores);
+    }
+     // Fetch leaderboard data for rank and total score
+    try {
+        const { data: leaderboardData, error: leaderboardError } = await supabase.rpc('get_leaderboard');
+        if (leaderboardError) throw leaderboardError;
+
+        const userEntry = (leaderboardData as LeaderboardEntry[]).find(entry => entry.user_id === user.id);
+        if (userEntry) {
+            const userRank = (leaderboardData as LeaderboardEntry[]).indexOf(userEntry) + 1;
+            setGlobalRank(userRank);
+            setTotalScore(userEntry.total_score);
+        } else {
+            setGlobalRank(null);
+            setTotalScore(0); // If not on leaderboard, score is 0
+        }
+    } catch (err) {
+        console.error("Error fetching global rank:", err);
+        // Don't set a message, it's not a critical failure
     }
     setLoadingScores(false);
 
@@ -150,6 +189,32 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
     setLoadingUsername(false);
   };
 
+  const handleUpdateBio = async () => {
+    if (!user) {
+        setMessage({ type: 'error', text: 'User not logged in.' });
+        return;
+    }
+
+    setLoadingBio(true);
+    setMessage(null);
+
+    const { error } = await supabase
+        .from('profiles')
+        .upsert({
+            id: user.id,
+            bio: bio,
+        }, { onConflict: 'id' });
+    
+    if (error) {
+        setMessage({ type: 'error', text: error.message || 'Failed to update bio.' });
+    } else {
+        setMessage({ type: 'success', text: 'Bio updated successfully!' });
+        setIsEditingBio(false);
+        fetchProfileAndScores(); // Refresh profile
+    }
+    setLoadingBio(false);
+  };
+
   const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !user) return;
@@ -194,104 +259,62 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
           
           ctx.drawImage(img, sx, sy, sWidth, sHeight, 0, 0, MAX_SIZE, MAX_SIZE);
 
+          // Fix: 'fileExt' was used in `toBlob` arguments before being defined in the callback.
+          // Moved the definition of 'fileExt' to be before the `toBlob` call.
+          const fileExt = file.name.split('.').pop() || 'png';
+
           canvas.toBlob(async (blob) => {
             if (!blob) {
               setMessage({ type: 'error', text: 'Failed to resize image.' });
               setUploadingAvatar(false);
               return;
             }
-
-            const targetBucketName = 'avatars';
-            const filePath = `${user.id}/${Math.random().toString(36).substring(2, 10)}.jpeg`;
-
-            if (avatarUrl) {
-              const pathSegments = avatarUrl.split(`${targetBucketName}/`);
-              let oldFilePathInStorage: string | null = null;
-              if (pathSegments.length > 1) {
-                oldFilePathInStorage = pathSegments[1].split('?')[0];
-              }
-
-              if (oldFilePathInStorage) {
-                const { error: deleteError } = await supabase.storage.from(targetBucketName).remove([oldFilePathInStorage]);
-                if (deleteError) console.warn("Failed to delete old avatar:", String(deleteError.message));
-              }
-            }
-
-            const { error: uploadError } = await supabase.storage
-              .from(targetBucketName)
-              .upload(filePath, blob, { upsert: true, contentType: 'image/jpeg' });
-
-            if (uploadError) {
-              setMessage({ type: 'error', text: `Upload failed: ${uploadError.message || 'Unknown avatar upload error'}` });
-              setUploadingAvatar(false);
-              return;
-            }
-
-            const { data: signedUrlData, error: signedUrlError } = await supabase.storage
-              .from(targetBucketName)
-              .createSignedUrl(filePath, AVATAR_SIGNED_URL_EXPIRY_SECONDS);
+            const resizedFile = new File([blob], `avatar.${fileExt}`, { type: `image/${fileExt}` });
             
-            if (signedUrlError) {
-              setMessage({ type: 'error', text: `Failed to create signed URL: ${signedUrlError.message || 'Unknown signed URL error'}` });
-              setUploadingAvatar(false);
-              return;
-            }
-              
-            if (!signedUrlData || !signedUrlData.signedUrl) {
-              setMessage({ type: 'error', text: 'Could not retrieve avatar signed URL.' });
-              setUploadingAvatar(false);
-              return;
-            }
-              
-            const { error: updateError } = await supabase
-              .from('profiles')
-              .upsert({ id: user.id, avatar_url: signedUrlData.signedUrl }, { onConflict: 'id' });
+            try {
+              const filePath = `${user.id}/avatar.${fileExt}`;
 
-            if (updateError) {
-              setMessage({ type: 'error', text: `Failed to update profile: ${updateError.message || 'Unknown profile update error'}` });
-            } else {
-              setMessage({ type: 'success', text: 'Avatar updated successfully!' });
-              // Re-fetch profile data to ensure UI is updated, even though avatarUrl is set locally
-              await fetchProfileAndScores(); 
-            }
+              const { error: uploadError } = await supabase.storage
+                  .from('avatars')
+                  .upload(filePath, resizedFile, { upsert: true });
 
-            setUploadingAvatar(false);
-          }, 'image/jpeg', 0.8);
+              if (uploadError) throw uploadError;
+
+              const { data: urlData } = supabase.storage
+                .from('avatars')
+                .getPublicUrl(filePath);
+
+              if (urlData) {
+                const newAvatarUrl = `${urlData.publicUrl}?t=${new Date().getTime()}`;
+                const { error: dbError } = await supabase
+                  .from('profiles')
+                  .upsert({ id: user.id, avatar_url: newAvatarUrl }, { onConflict: 'id' });
+
+                if (dbError) throw dbError;
+                setAvatarUrl(newAvatarUrl);
+                setMessage({ type: 'success', text: 'Avatar updated successfully!' });
+              } else {
+                 throw new Error("Could not retrieve public URL for avatar.");
+              }
+            } catch (err: unknown) {
+              setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to upload avatar.' });
+            } finally {
+              setUploadingAvatar(false);
+            }
+          }, `image/${fileExt}`, 0.9); // Quality 90%
         };
 
         img.onerror = () => {
-          setMessage({ type: 'error', text: 'Failed to load image for processing.' });
-          setUploadingAvatar(false);
+            setMessage({ type: 'error', text: 'Could not load image file.' });
+            setUploadingAvatar(false);
         };
       }
     };
-
-    reader.onerror = () => {
-      setMessage({ type: 'error', text: 'Failed to read file.' });
-      setUploadingAvatar(false);
-    };
   };
 
-  const handleLogout = async () => {
+  const handleSignOut = async () => {
     await supabase.auth.signOut();
     onClose();
-  };
-
-  const formatDate = (dateString?: string) => {
-    if (!dateString) return 'N/A';
-    try {
-        return new Date(dateString).toLocaleString(undefined, {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-        });
-    } catch (e) {
-        console.error("Error formatting date:", e, dateString);
-        return 'Invalid Date';
-    }
   };
 
   const PlaceholderAvatar = () => (
@@ -301,10 +324,21 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
       </svg>
     </div>
   );
+  
+  const formatScoreDate = (dateString: string) => {
+    if (!dateString) return 'N/A';
+    try {
+        return new Date(dateString).toLocaleDateString(undefined, {
+            month: 'short',
+            day: 'numeric',
+        });
+    } catch (e) {
+        return 'Invalid';
+    }
+  };
 
   // NEW: Handler to open performance summary
   const handleOpenPerformanceSummary = (score: Score) => {
-    // FIX: Access 'artist' property from 'score.songs' with optional chaining.
     setSelectedPerformanceSummary(convertScoreToPerformanceSummary(score, `${score.songs?.artist || 'Unknown Artist'} - ${score.songs?.title || 'Unknown MIDI'}`));
   };
 
@@ -312,7 +346,7 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
   const handleClosePerformanceSummary = () => {
     setSelectedPerformanceSummary(null);
   };
-
+  
   const handleGoToSongClick = (songId: string) => {
     onClose(); // Close the account modal first
     onGoToOnlineSong(songId); // Then navigate to the song in OnlineSongBrowser
@@ -323,138 +357,162 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
 
   return (
     <div
-      className="fixed inset-0 bg-slate-950 bg-opacity-80 flex items-center justify-center z-50 p-4"
+      className={`fixed inset-0 bg-slate-950 flex items-center justify-center z-50 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'bg-opacity-80' : 'bg-opacity-0'}`}
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-labelledby="account-modal-title"
     >
       <div
-        className="bg-slate-800/80 backdrop-blur-sm p-6 rounded-xl shadow-2xl max-w-2xl w-full ring-1 ring-slate-700 flex flex-col max-h-[90vh]"
+        className={`bg-slate-800/80 backdrop-blur-sm p-8 md:p-10 rounded-xl shadow-2xl max-w-2xl w-full ring-1 ring-slate-700 flex flex-col max-h-[90vh] transform transition-all duration-300 ease-in-out ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
         onClick={(e) => e.stopPropagation()}
         role="document"
       >
-        <div className="flex-shrink-0">
-            <h2 id="account-modal-title" className="text-3xl font-bold text-cyan-400 text-center mb-4">
-            My Profile
-            </h2>
-            
-            <div className="flex flex-col sm:flex-row items-center gap-6 mb-4">
-                {/* Avatar Section */}
-                <div className="relative w-32 h-32 flex-shrink-0">
-                    {avatarUrl ? (
-                        <img src={avatarUrl} alt="User Avatar" className="w-full h-full rounded-full object-cover ring-2 ring-slate-600" />
-                    ) : (
-                        <PlaceholderAvatar />
-                    )}
-                    <label 
-                        htmlFor="avatar-upload" 
-                        className="absolute bottom-0 right-0 bg-violet-500 hover:bg-violet-600 rounded-full p-2 cursor-pointer transition-transform transform hover:scale-110"
-                        title="Upload new avatar"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-white" viewBox="0 0 20 20" fill="currentColor">
-                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                        </svg>
-                    </label>
-                    <input id="avatar-upload" ref={fileInputRef} type="file" accept="image/png, image/jpeg" onChange={handleAvatarUpload} hidden disabled={uploadingAvatar} />
-                    {uploadingAvatar && (
-                        <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center">
-                        <svg className="animate-spin h-8 w-8 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        </div>
-                    )}
-                </div>
-                {/* Username Section */}
-                <div className="w-full text-center sm:text-left">
-                    {isEditingUsername ? (
-                        <div className="flex items-center gap-2">
-                            <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} className="flex-grow p-2 rounded-lg bg-slate-700 text-white border border-slate-600 focus:ring-violet-500 focus:border-violet-500" placeholder="Enter username" disabled={loadingUsername}/>
-                            <button onClick={handleUpdateUsername} disabled={loadingUsername || !username.trim()} className="bg-green-500 hover:bg-green-600 text-white font-bold p-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-wait">
-                                {loadingUsername ? '...' : 'Save'}
-                            </button>
-                            <button onClick={() => { setIsEditingUsername(false); fetchProfileAndScores(); }} disabled={loadingUsername} className="bg-slate-600 hover:bg-slate-500 text-white font-bold p-2 rounded-lg transition-colors">
-                                Cancel
-                            </button>
-                        </div>
-                    ) : (
-                        <div className="flex items-center justify-center sm:justify-start gap-2">
-                            <p className="text-white text-2xl font-bold truncate">{username || 'Not set'}</p>
-                            <button onClick={() => setIsEditingUsername(true)} className="text-violet-400 hover:underline text-sm font-semibold">Edit</button>
-                        </div>
-                    )}
-                    <p className="text-slate-400 mt-1 truncate">{user?.email}</p>
-                    <div className="text-xs text-slate-500 mt-2 space-y-1">
-                      <p>Member since: {formatDate(session?.user?.created_at)}</p>
-                      <p>Last Online: {formatDate(session?.user?.last_sign_in_at)}</p>
-                    </div>
-                </div>
-            </div>
-            {message && <div className={`p-3 mb-4 rounded-lg text-sm w-full ${message.type === 'error' ? 'bg-red-200 text-red-800' : 'bg-green-200 text-green-800'}`} role={message.type === 'error' ? 'alert' : 'status'}>{message.text}</div>}
-        </div>
-
-        {/* Top Performances Section */}
-        <div className="mt-4 flex-grow flex flex-col min-h-0">
-            <h3 className="text-xl font-semibold text-violet-400 mb-2 text-left flex-shrink-0">Top Performances (Highest Score per Ranked Song)</h3>
-            <div className="flex-grow overflow-y-auto custom-scrollbar bg-slate-900/50 rounded-lg p-2 ring-1 ring-slate-700/50">
-                {loadingScores && <div className="text-slate-400 text-center p-4 animate-pulse">Loading scores...</div>}
-                {!loadingScores && topScores.length === 0 && <div className="text-slate-500 text-center p-4">No ranked scores yet. Play a ranked song in Retical mode!</div>}
-                {!loadingScores && topScores.length > 0 && (
-                    <table className="w-full text-left table-auto">
-                        <thead className="sticky top-0 bg-slate-900/80 backdrop-blur-sm">
-                            <tr>
-                                <th className="p-2 text-xs font-semibold text-slate-400">#</th>
-                                <th className="p-2 text-xs font-semibold text-slate-400">MIDI</th>
-                                <th className="p-2 text-xs font-semibold text-slate-400 text-right">Score</th>
-                                <th className="p-2 text-xs font-semibold text-slate-400 text-center">Rank</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {topScores.map((score, index) => (
-                                <tr key={score.song_id} className="border-b border-slate-700">
-                                    <td className="p-2 text-sm text-slate-400">{index + 1}</td>
-                                    {/* Make the song title clickable */}
-                                    <td 
-                                        className="p-2 text-sm text-white truncate cursor-pointer hover:text-cyan-300 hover:underline" 
-                                        title={`View & Play: ${score.songs?.artist || 'Unknown Artist'} - ${score.songs?.title || 'Unknown MIDI'}`}
-                                        onClick={() => handleGoToSongClick(score.song_id)}
-                                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleGoToSongClick(score.song_id); }}
-                                        tabIndex={0}
-                                        role="button"
-                                    >
-                                      {score.songs?.artist || 'Unknown Artist'} - {score.songs?.title || 'Unknown MIDI'}
-                                    </td>
-                                    <td 
-                                        className="p-2 font-mono text-cyan-300 text-right cursor-pointer hover:underline"
-                                        onClick={() => handleOpenPerformanceSummary(score)}
-                                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleOpenPerformanceSummary(score); }}
-                                        tabIndex={0}
-                                        role="button"
-                                    >
-                                        {Math.round(score.final_score).toLocaleString()}
-                                    </td>
-                                    <td 
-                                        className="p-2 font-bold text-lg text-center cursor-pointer hover:underline"
-                                        onClick={() => handleOpenPerformanceSummary(score)}
-                                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleOpenPerformanceSummary(score); }}
-                                        tabIndex={0}
-                                        role="button"
-                                    >
-                                        {score.rank}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                )}
-            </div>
+        <div className="flex justify-between items-center mb-6 flex-shrink-0">
+            <h2 id="account-modal-title" className="text-3xl font-bold text-cyan-400">My Account</h2>
+            <button onClick={onClose} className="text-slate-400 hover:text-white text-3xl leading-none">&times;</button>
         </div>
         
-        <div className="w-full space-y-3 mt-6 flex-shrink-0">
-          <button onClick={handleLogout} className="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-6 rounded-lg text-lg transition-all">Logout</button>
-          <button onClick={onClose} className="w-full bg-slate-600 hover:bg-slate-700 text-slate-200 font-bold py-2 px-6 rounded-lg text-base transition-colors">Close</button>
-        </div>
+        {message && message.text && (
+          <div className={`p-3 mb-4 rounded-lg text-sm ${message.type === 'error' ? 'bg-red-200 text-red-800' : 'bg-green-200 text-green-800'}`} role={message.type === 'error' ? 'alert' : 'status'}>
+            {message.text}
+          </div>
+        )}
+
+        {user && (
+            <div className="flex-grow flex flex-col min-h-0">
+                <div className="flex flex-col sm:flex-row items-center gap-6 mb-6 flex-shrink-0">
+                    <div className="relative w-32 h-32 flex-shrink-0">
+                        {avatarUrl ? (
+                            <img src={avatarUrl} alt="User avatar" className="w-full h-full rounded-full object-cover ring-2 ring-slate-600" />
+                        ) : (
+                            <PlaceholderAvatar />
+                        )}
+                        <input type="file" ref={fileInputRef} onChange={handleAvatarUpload} accept="image/png, image/jpeg" className="hidden" id="avatar-upload-input" />
+                        <label htmlFor="avatar-upload-input" className="absolute bottom-0 right-0 w-9 h-9 bg-violet-600 rounded-full flex items-center justify-center cursor-pointer hover:bg-violet-700 transition-colors">
+                            <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z"></path><path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd"></path></svg>
+                        </label>
+                    </div>
+
+                    <div className="text-center sm:text-left">
+                        {isEditingUsername ? (
+                            <div className="flex items-center gap-2">
+                                <input type="text" value={username} onChange={e => setUsername(e.target.value)} className="p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500" disabled={loadingUsername} />
+                                <button onClick={handleUpdateUsername} className="px-3 py-2 bg-green-600 hover:bg-green-700 rounded" disabled={loadingUsername}>{loadingUsername ? '...' : 'Save'}</button>
+                                <button onClick={() => { setIsEditingUsername(false); setUsername(profile?.username || ''); }} className="px-3 py-2 bg-slate-600 hover:bg-slate-500 rounded" disabled={loadingUsername}>X</button>
+                            </div>
+                        ) : (
+                            <div className="flex items-center gap-3">
+                                <p className="text-white text-3xl font-bold">{username}</p>
+                                <button onClick={() => setIsEditingUsername(true)} className="text-slate-400 hover:text-white"><svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z"></path><path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd"></path></svg></button>
+                            </div>
+                        )}
+                        <p className="text-slate-400 text-sm mt-1">{user.email}</p>
+                        
+                        <div className="mt-2 text-slate-300 text-sm">
+                          {isEditingBio ? (
+                              <div className="space-y-2">
+                                  <textarea
+                                      value={bio}
+                                      onChange={(e) => setBio(e.target.value)}
+                                      maxLength={100}
+                                      className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500 h-20 resize-none"
+                                      placeholder="Tell us about yourself..."
+                                      disabled={loadingBio}
+                                  />
+                                  <div className="flex justify-between items-center">
+                                      <span className={`text-xs ${bio.length > 100 ? 'text-red-400' : 'text-slate-400'}`}>{bio.length}/100</span>
+                                      <div className="flex gap-2">
+                                          <button onClick={handleUpdateBio} className="px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-xs" disabled={loadingBio}>{loadingBio ? '...' : 'Save'}</button>
+                                          <button onClick={() => { setIsEditingBio(false); setBio(profile?.bio || ''); }} className="px-3 py-1 bg-slate-600 hover:bg-slate-500 rounded text-xs" disabled={loadingBio}>Cancel</button>
+                                      </div>
+                                  </div>
+                              </div>
+                          ) : (
+                              <div className="flex items-start gap-2 group">
+                                  <p className="italic whitespace-pre-wrap break-words">
+                                      {bio || <span className="text-slate-500">No bio yet.</span>}
+                                  </p>
+                                  <button onClick={() => setIsEditingBio(true)} className="text-slate-500 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z"></path><path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd"></path></svg>
+                                  </button>
+                              </div>
+                          )}
+                        </div>
+                        
+                         {(globalRank !== null && totalScore !== null) ? (
+                            <div className="flex items-baseline gap-6 mt-2 text-slate-300">
+                                <div>
+                                    <span className="text-sm">Global Rank</span>
+                                    <p className="text-2xl font-bold text-white">#{globalRank > 0 ? globalRank.toLocaleString() : 'N/A'}</p>
+                                </div>
+                                <div>
+                                    <span className="text-sm">Total Score</span>
+                                    <p className="text-2xl font-bold text-white">{Math.round(totalScore).toLocaleString()}</p>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="mt-2 h-12"> {/* Placeholder to prevent layout shift */}
+                                {loadingScores && <div className="text-sm text-slate-400 animate-pulse">Loading rank...</div>}
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {topScores.length > 0 && (
+                    <div className="flex-grow flex flex-col min-h-0 mt-4">
+                        <h3 className="text-xl font-semibold text-violet-400 mb-2 flex-shrink-0">My Top Ranked Performances</h3>
+                        <div className="flex-grow overflow-y-auto custom-scrollbar bg-slate-900/50 rounded-lg p-2 ring-1 ring-slate-700/50">
+                            <table className="w-full text-left table-auto">
+                                <thead className="sticky top-0 bg-slate-900/80 backdrop-blur-sm">
+                                    <tr>
+                                        <th className="p-2 text-xs font-semibold text-slate-400">Song</th>
+                                        <th className="p-2 text-xs font-semibold text-slate-400">Date</th>
+                                        <th className="p-2 text-xs font-semibold text-slate-400 text-right">Score</th>
+                                        <th className="p-2 text-xs font-semibold text-slate-400 text-center">Rank</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                {topScores.map(score => (
+                                    <tr key={score.id} className="border-b border-slate-700">
+                                        <td 
+                                            className="p-2 text-sm text-white truncate cursor-pointer hover:text-cyan-300 hover:underline"
+                                            title={`Play MIDI: ${score.songs?.title}`}
+                                            onClick={() => handleGoToSongClick(score.song_id)}
+                                        >
+                                            {score.songs?.title || 'Unknown MIDI'}
+                                        </td>
+                                        <td className="p-2 text-xs text-slate-400 whitespace-nowrap">{formatScoreDate(score.created_at)}</td>
+                                        <td 
+                                            className="p-2 font-mono text-cyan-300 text-right cursor-pointer hover:underline"
+                                            onClick={() => handleOpenPerformanceSummary(score)}
+                                        >
+                                            {Math.round(score.final_score).toLocaleString()}
+                                        </td>
+                                        <td 
+                                            className="p-2 font-bold text-lg text-center cursor-pointer"
+                                            onClick={() => handleOpenPerformanceSummary(score)}
+                                        >
+                                            {score.rank}
+                                        </td>
+                                    </tr>
+                                ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
+                {loadingScores && <div className="text-center p-4 text-slate-300 animate-pulse">Loading scores...</div>}
+                {!loadingScores && topScores.length === 0 && (
+                    <div className="text-slate-400 text-center p-4">You have no scores on ranked MIDIs yet.</div>
+                )}
+
+
+                <div className="mt-6 flex-shrink-0">
+                    <button onClick={handleSignOut} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg text-base transition-colors">Sign Out</button>
+                </div>
+            </div>
+        )}
       </div>
 
       {/* NEW: Performance Summary Modal */}

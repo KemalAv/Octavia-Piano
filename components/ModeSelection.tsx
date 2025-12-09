@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ExtendedResult, WaitMode, GameSettings, PracticeHand } from '../types';
 import DifficultyAnalysis from './DifficultyAnalysis';
 
@@ -33,6 +32,12 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
   const [selectedMode, setSelectedMode] = useState<Mode>('practice');
   const [practiceHand, setPracticeHand] = useState<PracticeHand>('both');
   const [practiceWaitMode, setPracticeWaitMode] = useState<Extract<WaitMode, 'strict' | 'lenient'>>('strict');
+  const [isRendered, setIsRendered] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setIsRendered(true), 10);
+    return () => clearTimeout(timer);
+  }, []);
   
   const buttonBaseStyle = "w-full font-bold py-3 px-6 rounded-lg text-lg transition-all duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-opacity-50 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100 shadow-lg";
   const primaryButtonStyle = "bg-cyan-500 hover:bg-cyan-600 text-white focus:ring-cyan-400";
@@ -41,6 +46,26 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
   const modeButtonSelected = "bg-violet-500/80 border-violet-400 shadow-lg scale-105 ring-2 ring-violet-400";
   const modeButtonUnselected = "bg-slate-700/50 border-slate-600 hover:bg-slate-700 hover:border-slate-500";
   
+  // Define tempo range based on selected mode
+  const minTempoPercentage = selectedMode === 'retical' ? 75 : 25;
+  const maxTempoPercentage = selectedMode === 'retical' ? 150 : 200;
+
+  // Clamp initialPlaybackTempoMultiplier if mode changes to retical and it's out of bounds
+  useEffect(() => {
+      if (selectedMode === 'retical') {
+          const currentMultiplier = initialPlaybackTempoMultiplier;
+          const minAllowed = minTempoPercentage / 100;
+          const maxAllowed = maxTempoPercentage / 100;
+
+          if (currentMultiplier < minAllowed || currentMultiplier > maxAllowed) {
+              const newMultiplier = Math.max(minAllowed, Math.min(maxAllowed, currentMultiplier));
+              if (newMultiplier !== currentMultiplier) {
+                  onPlaybackTempoMultiplierChange(newMultiplier);
+              }
+          }
+      }
+  }, [selectedMode, initialPlaybackTempoMultiplier, onPlaybackTempoMultiplierChange, minTempoPercentage, maxTempoPercentage]);
+
   const handleStart = () => {
     let waitMode: WaitMode;
 
@@ -70,11 +95,11 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
   const displayedPlaybackPercentage = Math.round(initialPlaybackTempoMultiplier * 100);
 
   return (
-     <div className="fixed inset-0 bg-slate-900 flex flex-col items-center justify-center z-40 p-4">
+     <div className={`fixed inset-0 bg-slate-900 flex flex-col items-center justify-center z-40 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'opacity-100' : 'opacity-0'}`}>
        <div className="absolute top-4 left-4">
             <button onClick={onBack} className={`${tertiaryButtonStyle} py-2 px-4 text-base shadow-md`}>&larr; Back to MIDIs</button>
        </div>
-      <div className="bg-slate-800/50 backdrop-blur-sm p-8 md:p-12 rounded-xl shadow-2xl max-w-4xl w-full ring-1 ring-slate-700 max-h-[90vh] overflow-y-auto custom-scrollbar">
+      <div className={`bg-slate-800/50 backdrop-blur-sm p-8 md:p-12 rounded-xl shadow-2xl max-w-4xl w-full ring-1 ring-slate-700 max-h-[90vh] overflow-y-auto custom-scrollbar transform transition-transform duration-300 ease-in-out ${isRendered ? 'scale-100' : 'scale-95'}`}>
         <div className="text-center mb-6">
             <h2 className="text-4xl font-bold text-cyan-400 mb-2">Game Mode</h2>
             {fileName && <p className="text-lg text-slate-300 truncate">{fileName}</p>}
@@ -138,13 +163,18 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
              <input
                 id="bpm-slider"
                 type="range"
-                min="25"
-                max="200"
+                min={minTempoPercentage}
+                max={maxTempoPercentage}
                 step="1"
-                value={displayedPlaybackPercentage}
+                value={Math.max(minTempoPercentage, Math.min(maxTempoPercentage, displayedPlaybackPercentage))}
                 onChange={(e) => onPlaybackTempoMultiplierChange(parseInt(e.target.value, 10) / 100)}
                 className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer"
              />
+             {selectedMode === 'retical' && (
+                <p className="text-xs text-slate-500 text-center mt-2">
+                    Tempo restricted to {minTempoPercentage}% - {maxTempoPercentage}% in Retical Mode.
+                </p>
+             )}
         </div>
 
         <button onClick={handleStart} className={`${buttonBaseStyle} ${primaryButtonStyle}`}>

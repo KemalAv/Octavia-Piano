@@ -34,17 +34,47 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
   const [songs, setSongs] = useState<OnlineSong[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [isLoginReminderModalOpen, setIsLoginReminderModalOpen] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null); // NEW: State for deletion errors
   // FIX: Corrected state initialization for personalBests
-  const [personalBests, setPersonalBests] = useState<Map<string, number>>(() => new Map()); // NEW: For personal bests
+  const [personalBests, setPersonalBests] = useState<Map<string, Score>>(() => new Map()); // NEW: For personal bests
   const [leaderboardSong, setLeaderboardSong] = useState<OnlineSong | null>(null); // NEW: For leaderboard modal
   const [userLikes, setUserLikes] = useState<Map<string, 1 | -1>>(new Map());
   const [userUploadCount, setUserUploadCount] = useState(0); // NEW: To track user's uploads
+  const [isRendered, setIsRendered] = useState(false); // For modal animations
 
   // NEW: State for sorting and filtering
   const [sortOrder, setSortOrder] = useState<SortOrder>('newest_desc'); // Default to newest_desc
-  const [rankedFilter, setRankedFilter] = useState<'all' | 'ranked' | 'nonRanked'>('ranked'); // Default to ranked only
+  const [rankedFilter, setRankedFilter] = useState<'all' | 'ranked' | 'nonRanked' | 'liked'>('ranked'); // Default to ranked only
+
+  // NEW: State for performance summary modal
+  const [selectedPerformanceSummary, setSelectedPerformanceSummary] = useState<PerformanceSummary | null>(null);
+
+  // Fix: The 'isEditModalOpen' variable was used before its declaration.
+  // Moved the 'Edit State' block before the useEffect hook that uses it.
+  // Edit State
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [songToEdit, setSongToEdit] = useState<OnlineSong | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editArtist, setEditArtist] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+  const [editMessage, setEditMessage] = useState<{ type: 'error' | 'success', text: string } | null>(null);
+
+  useEffect(() => {
+    if (isUploadModalOpen || isLoginReminderModalOpen || isEditModalOpen) {
+      const timer = setTimeout(() => setIsRendered(true), 10);
+      return () => clearTimeout(timer);
+    } else {
+      setIsRendered(false);
+    }
+  }, [isUploadModalOpen, isLoginReminderModalOpen, isEditModalOpen]);
+
+  useEffect(() => {
+    if (!user && rankedFilter === 'liked') {
+        setRankedFilter('ranked'); // Revert to a default filter if user logs out
+    }
+  }, [user, rankedFilter]);
 
 
   // Upload State
@@ -55,16 +85,9 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
   const [uploadMessage, setUploadMessage] = useState<{ type: 'error' | 'success', text: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Edit State
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [songToEdit, setSongToEdit] = useState<OnlineSong | null>(null);
-  const [editTitle, setEditTitle] = useState('');
-  const [editArtist, setEditArtist] = useState('');
-  const [isEditing, setIsEditing] = useState(false);
-  const [editMessage, setEditMessage] = useState<{ type: 'error' | 'success', text: string } | null>(null);
-
   // Memoize midiNoteToNameMap for parsing, consistent with App.tsx
   const midiNoteToNameMap = useMemo(() => {
+    // FIX: The key for this map should be a number (MIDI note), not a string.
     const map = new Map<number, string>();
     PIANO_KEYS_CONFIG.forEach(key => map.set(key.midiNote, key.name));
     return map;
@@ -102,7 +125,23 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
               .select('*, difficulty_level, performance_score, total_notes, duration_sec, total_nps, is_ranked, like_count, dislike_count');
           
           // Apply filters
-          if (rankedFilter === 'ranked') {
+          if (user && rankedFilter === 'liked') {
+              const { data: likedSongIds, error: likedSongsError } = await supabase
+                  .from('song_likes')
+                  .select('song_id')
+                  .eq('user_id', user.id)
+                  .eq('like_type', 1);
+
+              if (likedSongsError) throw likedSongsError;
+
+              const songIds = likedSongIds.map(s => s.song_id);
+              if (songIds.length === 0) {
+                  setSongs([]);
+                  setLoadingState(false);
+                  return;
+              }
+              query = query.in('id', songIds);
+          } else if (rankedFilter === 'ranked') {
               query = query.eq('is_ranked', true);
           } else if (rankedFilter === 'nonRanked') {
               query = query.eq('is_ranked', false);
@@ -110,16 +149,18 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
 
           // Apply search query
           if (searchQuery) {
-              query = query.or(`title.ilike.%${searchQuery}%,artist.ilike.%${searchQuery}%`);
+              // Escape double quotes and wrap the search term in quotes to handle commas correctly in .or() filter.
+              const safeSearchQuery = searchQuery.replace(/"/g, '\\"');
+              query = query.or(`title.ilike."%${safeSearchQuery}%",artist.ilike."%${safeSearchQuery}%"`);
           }
   
           // Apply sorting
           switch (sortOrder) {
             case 'newest_desc':
-              query = query.order('created_at', { ascending: true });
+              query = query.order('created_at', { ascending: false });
               break;
             case 'newest_asc':
-              query = query.order('created_at', { ascending: false });
+              query = query.order('created_at', { ascending: true });
               break;
             case 'difficulty_desc':
               query = query.order('performance_score', { ascending: false });
@@ -154,20 +195,20 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
               // Fetch personal bests
               const { data: scoresData, error: scoresError } = await supabase
                   .from('scores')
-                  .select('song_id, final_score')
+                  .select('*, songs!inner(title, artist)') // Select all score fields and related song info
                   .eq('user_id', user.id);
   
               if (scoresError) {
                   console.error("Error fetching personal bests:", scoresError);
               } else if (scoresData) {
-                  const bestsMap = new Map<string, number>();
+                  const bestsMap = new Map<string, Score>();
                   for (const score of scoresData) {
                       const existing = bestsMap.get(score.song_id);
-                      if (!existing || score.final_score > existing) {
-                          bestsMap.set(score.song_id, score.final_score);
+                      if (!existing || score.final_score > existing.final_score) {
+                          bestsMap.set(score.song_id, score as Score);
                       }
                   }
-                  setPersonalBests(bestsMap); // Correct usage of setPersonalBests
+                  setPersonalBests(bestsMap);
               }
 
               // Fetch user likes
@@ -240,7 +281,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
   
   const handleUploadClick = async () => {
     if (!session || !user) {
-        alert("Please log in to upload MIDIs.");
+        setIsLoginReminderModalOpen(true);
         return;
     }
 
@@ -533,6 +574,14 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
     }
   };
 
+  const handleOpenPerformanceSummary = (score: Score) => {
+    setSelectedPerformanceSummary(convertScoreToPerformanceSummary(score, `${score.songs?.artist || 'Unknown Artist'} - ${score.songs?.title || 'Unknown MIDI'}`));
+  };
+
+  const handleClosePerformanceSummary = () => {
+    setSelectedPerformanceSummary(null);
+  };
+
   const formatDate = (dateString: string) => new Date(dateString).toLocaleDateString();
 
   const currentUserIsUploader = (uploaderId: string) => session?.user?.id === uploaderId;
@@ -611,7 +660,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
         {/* Filter By */}
         <div className="flex items-center gap-2 ml-auto">
             <span className="text-slate-300 text-sm font-semibold">Show:</span>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
                 <label className="flex items-center">
                     <input
                         type="radio"
@@ -645,6 +694,18 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                     />
                     <span className="ml-1 text-slate-300 text-sm">Non-Ranked Only</span>
                 </label>
+                <label className={`flex items-center ${!user ? 'cursor-not-allowed' : ''}`}>
+                    <input
+                        type="radio"
+                        name="rankedFilter"
+                        value="liked"
+                        checked={rankedFilter === 'liked'}
+                        onChange={() => setRankedFilter('liked')}
+                        className="form-radio text-violet-500 focus:ring-violet-400 disabled:opacity-50"
+                        disabled={!user}
+                    />
+                    <span className={`ml-1 text-sm ${!user ? 'text-slate-500' : 'text-slate-300'}`}>Liked by Me</span>
+                </label>
             </div>
         </div>
       </div>
@@ -660,7 +721,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
 
         <div className="flex flex-col gap-4"> {/* Changed to flex-col for full-width rows */}
           {songs.map((song) => { {/* Changed from filteredSongs to songs */}
-            const personalBest = personalBests.get(song.id);
+            const personalBestScore = personalBests.get(song.id);
             const userLikeStatus = userLikes.get(song.id);
             return (
               <div 
@@ -681,9 +742,12 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                       </p>
                   )}
                   
-                  {personalBest && (
-                    <div className="mt-2 text-sm text-yellow-300 bg-yellow-900/30 border border-yellow-700/50 rounded-md px-2 py-1 inline-block">
-                        <strong>Best:</strong> {Math.round(personalBest).toLocaleString()}
+                  {personalBestScore && (
+                    <div 
+                        className="mt-2 text-sm text-yellow-300 bg-yellow-900/30 border border-yellow-700/50 rounded-md px-2 py-1 inline-block cursor-pointer hover:bg-yellow-800/50"
+                        onClick={() => handleOpenPerformanceSummary(personalBestScore)}
+                    >
+                        <strong>Best:</strong> {Math.round(personalBestScore.final_score).toLocaleString()}
                     </div>
                   )}
 
@@ -757,12 +821,41 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
         </div>
       </div>
 
+      {isLoginReminderModalOpen && (
+        <div
+          className={`fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'bg-opacity-80' : 'bg-opacity-0'}`}
+          onClick={() => setIsLoginReminderModalOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="login-reminder-title"
+        >
+          <div
+            className={`bg-slate-800 p-8 rounded-xl shadow-2xl max-w-sm w-full ring-1 ring-slate-600 text-center transform transition-all duration-300 ease-in-out ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
+            onClick={(e) => e.stopPropagation()}
+            role="document"
+          >
+            <h2 id="login-reminder-title" className="text-2xl font-bold text-cyan-400 mb-4">
+              Login Required
+            </h2>
+            <p className="text-slate-300 mb-6">
+              Please log in to upload MIDIs and share them with the community.
+            </p>
+            <button
+              onClick={() => setIsLoginReminderModalOpen(false)}
+              className="px-6 py-2 bg-slate-600 hover:bg-slate-500 text-white font-bold rounded-lg transition-colors"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* FIX: Pass 'onGoToOnlineSong' prop to LeaderboardModal */}
       {leaderboardSong && <LeaderboardModal song={leaderboardSong} onClose={() => setLeaderboardSong(null)} onGoToOnlineSong={onGoToOnlineSong} />}
 
       {isUploadModalOpen && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setIsUploadModalOpen(false)}>
-          <div className="bg-slate-800 p-8 rounded-xl shadow-2xl max-w-md w-full ring-1 ring-slate-600" onClick={e => e.stopPropagation()}>
+        <div className={`fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'bg-opacity-80' : 'bg-opacity-0'}`} onClick={() => setIsUploadModalOpen(false)}>
+          <div className={`bg-slate-800 p-8 rounded-xl shadow-2xl max-w-md w-full ring-1 ring-slate-600 transform transition-all duration-300 ease-in-out ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`} onClick={e => e.stopPropagation()}>
             <h2 className="text-2xl font-bold text-white mb-2">Upload MIDI</h2>
             {user && user.id !== ADMIN_UUID && (
                 <p className="text-sm text-slate-400 mb-4">
@@ -832,8 +925,8 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
       )}
 
       {isEditModalOpen && songToEdit && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setIsEditModalOpen(false)}>
-          <div className="bg-slate-800 p-8 rounded-xl shadow-2xl max-w-md w-full ring-1 ring-slate-600" onClick={e => e.stopPropagation()}>
+        <div className={`fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'bg-opacity-80' : 'bg-opacity-0'}`} onClick={() => setIsEditModalOpen(false)}>
+          <div className={`bg-slate-800 p-8 rounded-xl shadow-2xl max-w-md w-full ring-1 ring-slate-600 transform transition-all duration-300 ease-in-out ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`} onClick={e => e.stopPropagation()}>
             <h2 className="text-2xl font-bold text-white mb-6">Edit MIDI</h2>
             
             {editMessage && (
@@ -886,6 +979,14 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
             </form>
           </div>
         </div>
+      )}
+
+      {selectedPerformanceSummary && (
+        <PerformanceSummaryModal 
+            isVisible={!!selectedPerformanceSummary} 
+            summary={selectedPerformanceSummary} 
+            onClose={handleClosePerformanceSummary}
+        />
       )}
     </div>
   );

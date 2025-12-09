@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { ViewMode, WaitMode, MetronomeMode, ExtendedResult } from '../types'; 
 import VisualMetronome from './VisualMetronome';
@@ -86,7 +87,7 @@ const TopBar: React.FC<TopBarProps> = (props) => {
   };
 
   return (
-    <div className="bg-slate-800/50 backdrop-blur-sm text-white p-2 shadow-lg min-h-[60px] flex flex-wrap items-center justify-between gap-4 flex-shrink-0 no-select ring-1 ring-slate-700">
+    <div className="bg-slate-800 text-white p-2 shadow-lg min-h-[60px] flex flex-wrap items-center justify-between gap-4 no-select ring-1 ring-slate-700">
       {/* Left Group */}
       <div className="flex items-center gap-2">
         <button onClick={onExit} className={`${iconButtonStyles} ${secondaryButtonStyles}`} aria-label="Exit to song selection" title="Exit">
@@ -119,29 +120,26 @@ const TopBar: React.FC<TopBarProps> = (props) => {
 
       {/* Right Group */}
       <div className="flex items-center gap-4">
-        <div className="hidden md:flex flex-col items-end text-xs">
-          <span className="font-semibold text-slate-200">{waitModeLabel} Mode</span>
-          {waitMode !== 'off' && (
-            <div className="flex gap-2 tabular-nums">
-              <span className="text-lime-400">Hits: {hitCount}</span>
-              <span className="text-red-400">Errors: {errorCount}</span>
-            </div>
-          )}
+        <div className="hidden md:flex flex-col items-end text-xs font-mono tabular-nums">
+            <span className="text-lime-400">Hits: {hitCount}</span>
+            <span className="text-red-400">Errors: {errorCount}</span>
         </div>
+        
+        <ZoomControls />
+        
         <div className="flex items-center gap-2">
-            <ZoomControls />
-            <div className="w-px h-6 bg-slate-600 self-center"></div>
-            <div className="flex items-center gap-2">
-              <button onClick={onStop} disabled={!isFileLoaded} className={`${iconButtonStyles} ${secondaryButtonStyles}`} aria-label="Stop" title="Stop">
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 5a1 1 0 011-1h8a1 1 0 110 2H6a1 1 0 01-1-1z" clipRule="evenodd"></path><path d="M5 5a1 1 0 011-1h8a1 1 0 110 2H6a1 1 0 01-1-1z"></path></svg>
-              </button>
-              <button onClick={isPlaying ? onPause : onPlay} disabled={!isFileLoaded} className={`${iconButtonStyles} ${primaryButtonStyles}`} aria-label={isPlaying ? "Pause" : "Play"} title={isPlaying ? "Pause" : "Play"}>
-                {isPlaying 
-                  ? <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 4h3v12H5V4zm7 0h3v12h-3V4z" clipRule="evenodd"></path></svg>
-                  : <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M6.3 4.31A1 1 0 018 5.2v9.6a1 1 0 01-1.7.71l-5-4.8a1 1 0 010-1.42l5-4.8z"></path></svg>
-                }
-              </button>
-            </div>
+            {!isPlaying ? (
+                <button onClick={onPlay} disabled={!isFileLoaded || waitMode === 'retical'} className={`${iconButtonStyles} ${primaryButtonStyles}`} aria-label="Play" title="Play">
+                    <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z"></path></svg>
+                </button>
+            ) : (
+                <button onClick={onPause} disabled={!isFileLoaded || waitMode === 'retical'} className={`${iconButtonStyles} ${primaryButtonStyles}`} aria-label="Pause" title="Pause">
+                    <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 4a1 1 0 00-1 1v10a1 1 0 001 1h1a1 1 0 001-1V5a1 1 0 00-1-1H5zM12 4a1 1 0 00-1 1v10a1 1 0 001 1h1a1 1 0 001-1V5a1 1 0 00-1-1h-1z" clipRule="evenodd"></path></svg>
+                </button>
+            )}
+            <button onClick={onStop} disabled={!isFileLoaded} className={`${iconButtonStyles} ${secondaryButtonStyles}`} aria-label="Stop playback and reset" title="Stop">
+                <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path d="M5 5a1 1 0 00-1 1v8a1 1 0 001 1h8a1 1 0 001-1V6a1 1 0 00-1-1H5z"></path></svg>
+            </button>
         </div>
       </div>
     </div>

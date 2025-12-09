@@ -1,7 +1,6 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
-import { Profile, Score, OnlineSong, PerformanceSummary } from '../types'; // Import PerformanceSummary type
+import { Profile, Score, OnlineSong, PerformanceSummary, LeaderboardEntry } from '../types'; // Import PerformanceSummary type
 import PerformanceSummaryModal from './PerformanceSummaryModal'; // Import PerformanceSummaryModal
 import { convertScoreToPerformanceSummary } from '../utils'; // Import utility for score conversion
 
@@ -10,17 +9,31 @@ interface ViewProfileModalProps {
   isOpen: boolean;
   userId: string | null;
   onClose: () => void;
-  onGoToOnlineSong: (songId: string) => void; // FIX: Changed prop type from `(file: File, onlineSongId: string) => Promise<void>` to `(songId: string) => void`
+  onGoToOnlineSong: (songId: string) => void; 
+  globalRank?: number;
+  totalScore?: number;
 }
 
-const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onClose, onGoToOnlineSong }) => {
+const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onClose, onGoToOnlineSong, globalRank, totalScore }) => {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [userTopScores, setUserTopScores] = useState<Score[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isRendered, setIsRendered] = useState(false);
+
+  const [profileRank, setProfileRank] = useState<number | null>(globalRank ?? null);
+  const [profileTotalScore, setProfileTotalScore] = useState<number | null>(totalScore ?? null);
 
   const [selectedPerformanceSummary, setSelectedPerformanceSummary] = useState<PerformanceSummary | null>(null); // NEW
 
+  useEffect(() => {
+    if (isOpen) {
+        const timer = setTimeout(() => setIsRendered(true), 10);
+        return () => clearTimeout(timer);
+    } else {
+        setIsRendered(false);
+    }
+  }, [isOpen]);
 
   const fetchProfileData = useCallback(async () => {
     if (!userId) {
@@ -36,7 +49,7 @@ const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onC
       // Fetch user profile
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
-        .select('id, username, avatar_url, created_at') // Fetch created_at from profiles table
+        .select('id, username, avatar_url, created_at, bio') // Fetch created_at from profiles table
         .eq('id', userId)
         .single();
 
@@ -46,13 +59,45 @@ const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onC
       // Fetch user's top scores
       const { data: scoresData, error: scoresError } = await supabase
         .from('scores')
-        .select('*, songs(title, artist)') // Fetch song title and artist for context
+        .select('*, songs!inner(title, artist, is_ranked)') // Fetch song title and artist for context
         .eq('user_id', userId)
+        .eq('songs.is_ranked', true)
         .order('final_score', { ascending: false })
         .limit(5); // Show top 5 scores
 
       if (scoresError) throw scoresError;
-      setUserTopScores(scoresData as Score[]);
+      
+      const highestScoresMap = new Map<string, Score>();
+      for (const score of scoresData) {
+        if (score.songs?.is_ranked === true) { 
+          const existingHighestScore = highestScoresMap.get(score.song_id);
+          if (!existingHighestScore || score.final_score > existingHighestScore.final_score) {
+            highestScoresMap.set(score.song_id, score as Score);
+          }
+        }
+      }
+      
+      const uniqueHighestScores = Array.from(highestScoresMap.values()).sort((a, b) => b.final_score - a.final_score);
+      setUserTopScores(uniqueHighestScores);
+
+      // Fetch rank and score if not passed in props
+      if (globalRank === undefined || totalScore === undefined) {
+        const { data: leaderboardData, error: leaderboardError } = await supabase.rpc('get_leaderboard');
+        if (leaderboardError) throw leaderboardError;
+        
+        const userEntry = (leaderboardData as LeaderboardEntry[]).find(entry => entry.user_id === userId);
+        if (userEntry) {
+            const userRank = (leaderboardData as LeaderboardEntry[]).indexOf(userEntry) + 1;
+            setProfileRank(userRank);
+            setProfileTotalScore(userEntry.total_score);
+        } else {
+            setProfileRank(null);
+            setProfileTotalScore(0);
+        }
+      } else {
+        setProfileRank(globalRank);
+        setProfileTotalScore(totalScore);
+      }
 
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err);
@@ -61,7 +106,7 @@ const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onC
     } finally {
       setLoading(false);
     }
-  }, [userId]);
+  }, [userId, globalRank, totalScore]);
 
   useEffect(() => {
     if (isOpen) {
@@ -73,8 +118,22 @@ const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onC
         setLoading(true);
         setError(null);
         setSelectedPerformanceSummary(null); // NEW: Clear summary on close
+        setProfileRank(null);
+        setProfileTotalScore(null);
     }
   }, [isOpen, fetchProfileData]);
+
+  const formatScoreDate = (dateString: string) => {
+    if (!dateString) return 'N/A';
+    try {
+        return new Date(dateString).toLocaleDateString(undefined, {
+            month: 'short',
+            day: 'numeric',
+        });
+    } catch (e) {
+        return 'Invalid';
+    }
+  };
 
   const formatDate = (dateString: string | null) => {
     if (!dateString) return 'N/A';
@@ -118,14 +177,14 @@ const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onC
 
   return (
     <div
-      className="fixed inset-0 bg-slate-950 bg-opacity-80 flex items-center justify-center z-50 p-4"
+      className={`fixed inset-0 bg-slate-950 flex items-center justify-center z-50 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'bg-opacity-80' : 'bg-opacity-0'}`}
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-labelledby="view-profile-modal-title"
     >
       <div
-        className="bg-slate-800/80 backdrop-blur-sm p-6 rounded-xl shadow-2xl max-w-xl w-full ring-1 ring-slate-700 flex flex-col max-h-[90vh]"
+        className={`bg-slate-800/80 backdrop-blur-sm p-6 rounded-xl shadow-2xl max-w-xl w-full ring-1 ring-slate-700 flex flex-col max-h-[90vh] transform transition-all duration-300 ease-in-out ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
         onClick={(e) => e.stopPropagation()}
         role="document"
       >
@@ -153,6 +212,23 @@ const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onC
               <div className="text-center sm:text-left">
                 <p className="text-white text-3xl font-bold">{profile.username}</p>
                 <p className="text-slate-400 text-sm mt-1">Member since: {formatDate(profile.created_at)}</p>
+                {profile.bio && (
+                    <p className="text-slate-300 text-sm mt-2 italic border-l-2 border-slate-600 pl-3">
+                        {profile.bio}
+                    </p>
+                )}
+                 {(profileRank !== null && profileTotalScore !== null) && (
+                    <div className="flex items-baseline gap-6 mt-2 text-slate-300">
+                        <div>
+                            <span className="text-sm">Global Rank</span>
+                            <p className="text-2xl font-bold text-white">#{profileRank > 0 ? profileRank.toLocaleString() : 'N/A'}</p>
+                        </div>
+                        <div>
+                            <span className="text-sm">Total Score</span>
+                            <p className="text-2xl font-bold text-white">{Math.round(profileTotalScore).toLocaleString()}</p>
+                        </div>
+                    </div>
+                )}
               </div>
             </div>
 
@@ -164,6 +240,7 @@ const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onC
                     <thead className="sticky top-0 bg-slate-900/80 backdrop-blur-sm">
                       <tr>
                         <th className="p-2 text-xs font-semibold text-slate-400">Song</th>
+                        <th className="p-2 text-xs font-semibold text-slate-400">Date</th>
                         <th className="p-2 text-xs font-semibold text-slate-400 text-right">Score</th>
                         <th className="p-2 text-xs font-semibold text-slate-400 text-center">Rank</th>
                       </tr>
@@ -181,6 +258,7 @@ const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onC
                           >
                             {score.songs?.artist || 'Unknown Artist'} - {score.songs?.title || 'Unknown MIDI'}
                           </td>
+                          <td className="p-2 text-xs text-slate-400 whitespace-nowrap">{formatScoreDate(score.created_at)}</td>
                           <td 
                               className="p-2 font-mono text-cyan-300 text-right cursor-pointer hover:underline"
                               onClick={() => handleOpenPerformanceSummary(score)}

@@ -1,85 +1,85 @@
 import { MidiNotePlaybackItem, AnalysisResult, ExtendedResult, AnalysisConfig } from './types';
 
 export const DEFAULT_ANALYSIS_CONFIG: AnalysisConfig = {
-  densityWindowMs: 1000,
-  densityStepMs: 250,
-  densityMinNorm: 0.1,
-  densityMaxNorm: 80,
-  awkwardIntervalMin: 3.1,
-  awkwardIntervalMax: 4.2,
-  awkwardGapMin: 0.017,
-  awkwardGapMax: 0.092,
-  awkwardWeightMax: 0.36,
-  zigzagGapMin: 0.054,
-  zigzagGapMax: 0.032,
-  zigzagWeightMax: 0.95,
-  repetitionWindow: 7.0,
-  repetitionWeightMin: -0.25,
-  repetitionWeightMax: 0.95,
-  abstractnessWeightMax: 33,
-  timingVarianceMax: 869,
-  complexityAwkwardWeight: 0.42,
-  complexityZigzagWeight: 0.25,
-  complexityAbstractWeight: 0.062,
-  complexityTimingWeight: 0.34,
-  complexityFinalMin: 0.064,
-  complexityFinalMax: 0.35,
-  tightIntervalMax: 6.1,
-  tightIntervalDtMax: 202,
-  tightIntervalMinNorm: 0.078,
-  tightIntervalMaxNorm: 0.68,
-  chordMobilityMinInterval: 5.7,
-  chordMobilityMinNorm: 22,
-  chordMobilityMaxNorm: 217,
-  effortWindow: 500,
-  effortStep: 250,
-  effortNormMin: 0.4,
-  effortNormMax: 88,
-  effortConsistencyDiscount: 0.08,
-  rangeWindow: 2000,
-  rangeStep: 500,
-  rangeNormMin: 20,
-  rangeNormMax: 118,
-  arpNpsMin: 0.6,
-  arpNpsMax: 123,
-  arpRangeMin: 5.9,
-  arpRangeMax: 39,
-  arpJumpSmall: 4.9,
-  arpJumpLarge: 8.8,
-  arpJumpWeight: 0.16,
-  arpZigzagWeight: 0.12,
-  arpSpeedWeight: 0.29,
-  arpRangeWeight: 0.41,
-  arpJumpZigzagWeight: 0.20,
-  arpConsistencyWeight: 0.052,
-  trillMaxInterval: 3.1,
-  trillMaxGap: 279,
-  trillNormMin: 0.08,
-  trillNormMax: 0.28,
-  npsNormMin: 0.2,
-  npsNormMax: 192,
-  weightSpeedNps: 0.20,
-  weightSpeedDensity: 0.55,
-  weightSpeedEffort: 0.40,
-  polyphonyNormMin: 0.50,
-  polyphonyNormMax: 6.0,
-  weightCompPolyphony: 0.12,
-  weightCompAbstract: 0.34,
-  weightCompInterval: 0.14,
-  weightCompChordMobility: 0.04,
-  weightCompRange: 0.35,
-  durationNormMin: 19,
-  durationNormMax: 265,
-  finalWeightSpeed: 3.4,
-  finalWeightComplexity: 5.4,
-  finalWeightArpeggio: 2.55,
-  penaltyRepetition: 0.20,
-  penaltyTrill: 0.40,
-  bonusStamina: 0.25,
-  expFactor: 2.85,
-  scale: 0.45,
-  base: 0.3
-}
+    densityWindowMs: 1000,
+    densityStepMs: 250,
+    densityMinNorm: 0.1,
+    densityMaxNorm: 80,
+    awkwardIntervalMin: 3.1,
+    awkwardIntervalMax: 4.2,
+    awkwardGapMin: 0.017,
+    awkwardGapMax: 0.092,
+    awkwardWeightMax: 0.36,
+    zigzagGapMin: 0.054,
+    zigzagGapMax: 0.032,
+    zigzagWeightMax: 0.95,
+    repetitionWindow: 7,
+    repetitionWeightMin: -0.25,
+    repetitionWeightMax: 0.95,
+    abstractnessWeightMax: 33,
+    timingVarianceMax: 869,
+    complexityAwkwardWeight: 0.42,
+    complexityZigzagWeight: 0.25,
+    complexityAbstractWeight: 0.062,
+    complexityTimingWeight: 0.34,
+    complexityFinalMin: 0.064,
+    complexityFinalMax: 0.35,
+    tightIntervalMax: 6.1,
+    tightIntervalDtMax: 202,
+    tightIntervalMinNorm: 0.078,
+    tightIntervalMaxNorm: 0.68,
+    chordMobilityMinInterval: 5.7,
+    chordMobilityMinNorm: 22,
+    chordMobilityMaxNorm: 217,
+    effortWindow: 500,
+    effortStep: 250,
+    effortNormMin: 0.4,
+    effortNormMax: 88,
+    effortConsistencyDiscount: 0.08,
+    rangeWindow: 2000,
+    rangeStep: 500,
+    rangeNormMin: 20,
+    rangeNormMax: 118,
+    arpNpsMin: 0.6,
+    arpNpsMax: 123,
+    arpRangeMin: 5.9,
+    arpRangeMax: 39,
+    arpJumpSmall: 4.9,
+    arpJumpLarge: 8.8,
+    arpJumpWeight: 0.16,
+    arpZigzagWeight: 0.12,
+    arpSpeedWeight: 0.29,
+    arpRangeWeight: 0.41,
+    arpJumpZigzagWeight: 0.2,
+    arpConsistencyWeight: 0.05,
+    trillMaxInterval: 3.1,
+    trillMaxGap: 279,
+    trillNormMin: 0.08,
+    trillNormMax: 0.28,
+    npsNormMin: 0.2,
+    npsNormMax: 192,
+    weightSpeedNps: 0.2,
+    weightSpeedDensity: 0.54,
+    weightSpeedEffort: 0.4,
+    polyphonyNormMin: 0,
+    polyphonyNormMax: 6,
+    weightCompPolyphony: 0.12,
+    weightCompAbstract: 0.34,
+    weightCompInterval: 0.12,
+    weightCompChordMobility: 0.04,
+    weightCompRange: 0.35,
+    durationNormMin: 19,
+    durationNormMax: 265,
+    finalWeightSpeed: 3.2,
+    finalWeightComplexity: 5.4,
+    finalWeightArpeggio: 2.52,
+    penaltyRepetition: 0.2,
+    penaltyTrill: 0.1,
+    bonusStamina: 0.25,
+    expFactor: 2.85,
+    scale: 0.45,
+    base: 0.3
+};
 
 
 // ============================================================
@@ -604,9 +604,9 @@ function _analyzeMidiChunk(
 }
 
 // ============================================================
-// MAIN ANALYSIS (with chunking logic)
+// MAIN ANALYSIS INTERNAL (with chunking logic)
 // ============================================================
-export function analyzeMidi(
+function analyzeMidiInternal(
     notes: MidiNotePlaybackItem[],
     totalDurationMs: number,
     config: AnalysisConfig = DEFAULT_ANALYSIS_CONFIG,
@@ -710,4 +710,63 @@ export function analyzeMidi(
     };
 
     return finalResult;
+}
+
+// ============================================================
+// MAIN EXPORTED ANALYSIS FUNCTION (with special scaling logic)
+// ============================================================
+export function analyzeMidi(
+    notes: MidiNotePlaybackItem[],
+    totalDurationMs: number,
+    config: AnalysisConfig = DEFAULT_ANALYSIS_CONFIG,
+    originalDurationMsForChunking?: number
+): ExtendedResult | null {
+    // This is the main analysis for the given (potentially scaled) tempo
+    const currentResult = analyzeMidiInternal(notes, totalDurationMs, config, originalDurationMsForChunking);
+
+    // Determine if tempo has been scaled
+    const playbackTempoMultiplier = (originalDurationMsForChunking && totalDurationMs > 0 && originalDurationMsForChunking > 0)
+        ? originalDurationMsForChunking / totalDurationMs
+        : 1.0;
+    
+    // If tempo is not scaled, or if we couldn't get a result, return as is
+    if (Math.abs(playbackTempoMultiplier - 1.0) < 0.001 || !currentResult) {
+        return currentResult;
+    }
+
+    // If tempo is scaled, we need the original score to apply the special logic.
+    // Un-scale the notes to get their original timings.
+    const originalNotes = notes.map(n => ({
+        ...n,
+        timeMs: n.timeMs * playbackTempoMultiplier,
+        durationMs: n.durationMs * playbackTempoMultiplier,
+    }));
+    
+    const originalAnalysis = analyzeMidiInternal(originalNotes, originalDurationMsForChunking!, config, originalDurationMsForChunking);
+    const originalScore = originalAnalysis?.performanceScore;
+
+    // The special "imitation" logic only applies if the ORIGINAL score is below 100.
+    if (originalScore && originalScore < 100) {
+        let scaledScore;
+        if (playbackTempoMultiplier < 1.0) { // Slower tempo
+            // Apply a more aggressive penalty for slowing down easy songs. Power > 1.
+            scaledScore = Math.round(originalScore * Math.pow(playbackTempoMultiplier, 0.67));
+        } else { // Faster tempo
+            // Apply a less aggressive bonus for speeding up easy songs. Power < 1.
+            scaledScore = Math.round(originalScore * Math.pow(playbackTempoMultiplier, 1.5));
+        }
+        
+        // Recalculate levels based on the new "imitated" score
+        const { difficultyLevel, starLevel } = calculateDifficultyLevels(scaledScore);
+        
+        // We use the detailed analysis from the *current* tempo (for parameters like NPS),
+        // but override the final summary scores with our imitated values.
+        currentResult.performanceScore = scaledScore;
+        currentResult.difficultyLevel = difficultyLevel;
+        currentResult.parameters.starLevel = starLevel;
+    }
+    
+    // For songs with original score >= 100, or if original score couldn't be calculated,
+    // return the result from the standard analysis, which is working as expected.
+    return currentResult;
 }
