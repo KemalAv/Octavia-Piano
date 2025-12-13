@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { OnlineSong, ExtendedResult, Score, PerformanceSummary } from '../types';
@@ -26,6 +27,7 @@ interface OnlineSongBrowserProps {
 // Example: const ADMIN_UUID = 'a1b2c3d4-e5f6-7890-1234-567890abcdef';
 const ADMIN_UUID = '9701e6dc-05de-40f3-81e7-54da7b9d8b9a'; // Corrected UUID based on constants.ts, assuming it's the correct one 
 const UPLOAD_LIMIT = 5;
+const PAGE_SIZE = 20;
 
 type SortOrder = 'newest_desc' | 'newest_asc' | 'difficulty_desc' | 'difficulty_asc' | 'alphabetical_asc' | 'alphabetical_desc' | 'mostLiked_desc' | 'mostLiked_asc';
 
@@ -44,9 +46,12 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
   const [userUploadCount, setUserUploadCount] = useState(0); // NEW: To track user's uploads
   const [isRendered, setIsRendered] = useState(false); // For modal animations
 
-  // NEW: State for sorting and filtering
+  // NEW: State for sorting, filtering, and pagination
   const [sortOrder, setSortOrder] = useState<SortOrder>('newest_desc'); // Default to newest_desc
   const [rankedFilter, setRankedFilter] = useState<'all' | 'ranked' | 'nonRanked' | 'liked'>('ranked'); // Default to ranked only
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   // NEW: State for performance summary modal
   const [selectedPerformanceSummary, setSelectedPerformanceSummary] = useState<PerformanceSummary | null>(null);
@@ -114,12 +119,22 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
     return username;
   }, []);
 
-  const fetchSongsAndInteractions = useCallback(async () => {
-      setLoadingState(true);
+  const fetchSongsAndInteractions = useCallback(async (isLoadMore = false) => {
+      if (isLoadMore) {
+          setIsLoadingMore(true);
+      } else {
+          setLoadingState(true);
+          setSongs([]); // Clear songs only on initial load/filter change
+      }
       setFetchError(null);
       setDeleteError(null);
   
       try {
+          // Pagination Logic
+          const currentPage = isLoadMore ? page + 1 : 0;
+          const from = currentPage * PAGE_SIZE;
+          const to = from + PAGE_SIZE - 1;
+
           let query = supabase
               .from('songs')
               .select('*, difficulty_level, performance_score, total_notes, duration_sec, total_nps, is_ranked, like_count, dislike_count');
@@ -136,8 +151,10 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
 
               const songIds = likedSongIds.map(s => s.song_id);
               if (songIds.length === 0) {
-                  setSongs([]);
+                  if (!isLoadMore) setSongs([]);
+                  setHasMore(false);
                   setLoadingState(false);
+                  setIsLoadingMore(false);
                   return;
               }
               query = query.in('id', songIds);
@@ -185,77 +202,99 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
               break;
           }
 
+          // Apply Pagination Range
+          query = query.range(from, to);
+
           const { data: songsData, error: songsError } = await query;
           if (songsError) throw songsError;
   
           const safeSongsData = (songsData || []) as unknown as OnlineSong[];
+
+          // Update Pagination State
+          if (safeSongsData.length < PAGE_SIZE) {
+              setHasMore(false);
+          } else {
+              setHasMore(true);
+          }
   
           // Fetch personal interactions if user is logged in
-          if (user) {
+          if (user && safeSongsData.length > 0) {
+              const fetchedSongIds = safeSongsData.map(s => s.id);
+
               // Fetch personal bests
               const { data: scoresData, error: scoresError } = await supabase
                   .from('scores')
                   .select('*, songs!inner(title, artist)') // Select all score fields and related song info
-                  .eq('user_id', user.id);
+                  .eq('user_id', user.id)
+                  .in('song_id', fetchedSongIds);
   
               if (scoresError) {
                   console.error("Error fetching personal bests:", scoresError);
               } else if (scoresData) {
-                  const bestsMap = new Map<string, Score>();
-                  for (const score of scoresData) {
-                      const existing = bestsMap.get(score.song_id);
-                      if (!existing || score.final_score > existing.final_score) {
-                          bestsMap.set(score.song_id, score as Score);
+                  setPersonalBests(prev => {
+                      const newMap = new Map<string, Score>(prev);
+                      const data = scoresData as unknown as Score[];
+                      for (const score of data) {
+                          const existing = newMap.get(score.song_id);
+                          if (!existing || score.final_score > existing.final_score) {
+                              newMap.set(score.song_id, score);
+                          }
                       }
-                  }
-                  setPersonalBests(bestsMap);
+                      return newMap;
+                  });
               }
 
               // Fetch user likes
               const { data: likesData, error: likesError } = await supabase
                   .from('song_likes')
                   .select('song_id, like_type')
-                  .eq('user_id', user.id);
+                  .eq('user_id', user.id)
+                  .in('song_id', fetchedSongIds);
               
               if (likesError) {
                   console.error("Error fetching user likes:", likesError);
               } else if (likesData) {
-                  const likesMap = new Map<string, 1 | -1>();
-                  for (const like of likesData) {
-                      likesMap.set(like.song_id, like.like_type as (1 | -1));
-                  }
-                  setUserLikes(likesMap);
+                  setUserLikes(prev => {
+                      const newMap = new Map(prev);
+                      for (const like of likesData) {
+                          newMap.set(like.song_id, like.like_type as (1 | -1));
+                      }
+                      return newMap;
+                  });
               }
           }
   
-          // Fetch usernames
+          // Fetch usernames for the new batch
           const uniqueUploaderIds = Array.from(new Set(safeSongsData.map(s => s.uploader_id)));
           await Promise.all(uniqueUploaderIds.map(id => fetchUsername(id)));
   
-          setSongs(safeSongsData);
+          if (isLoadMore) {
+              setSongs(prev => [...prev, ...safeSongsData]);
+              setPage(currentPage);
+          } else {
+              setSongs(safeSongsData);
+              setPage(0);
+          }
+
       } catch (error: unknown) {
           console.error('Error fetching data:', error);
           const errorMessage = error instanceof Error ? error.message : String(error);
           setFetchError(`Failed to load online library: ${errorMessage}`);
       } finally {
           setLoadingState(false);
+          setIsLoadingMore(false);
       }
-  }, [setLoadingState, user, fetchUsername, sortOrder, rankedFilter, searchQuery]);
+  }, [setLoadingState, user, fetchUsername, sortOrder, rankedFilter, searchQuery, page]); // page added to dependency to ensure correct ref, but strictly handled via arg
   
+  // Initial fetch
   useEffect(() => {
-    fetchSongsAndInteractions();
-  }, [fetchSongsAndInteractions]);
+    fetchSongsAndInteractions(false);
+  }, [sortOrder, rankedFilter, searchQuery]); // Only re-fetch on filter changes, not on 'page' change
 
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value);
   };
-
-  // Filtered songs are now handled directly by fetchSongsAndInteractions due to searchQuery dependency
-  // const filteredSongs = songs.filter(song => 
-  //   song.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-  //   song.artist.toLowerCase().includes(searchQuery.toLowerCase())
-  // );
 
   const handlePlaySong = async (song: OnlineSong) => {
     setLoadingState(true);
@@ -382,7 +421,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
       setUploadFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
       
-      fetchSongsAndInteractions();
+      fetchSongsAndInteractions(false);
       
       setTimeout(() => {
         setIsUploadModalOpen(false);
@@ -426,7 +465,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
       if (error) throw error;
 
       setEditMessage({ type: 'success', text: 'MIDI updated successfully!' });
-      fetchSongsAndInteractions();
+      fetchSongsAndInteractions(false);
       setTimeout(() => setIsEditModalOpen(false), 1500);
     } catch (err: unknown) {
       console.error("Update error:", err);
@@ -451,7 +490,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
 
       if (error) throw error;
 
-      fetchSongsAndInteractions();
+      fetchSongsAndInteractions(false);
     } catch (err: unknown) {
       console.error("Error toggling ranked status:", err);
       alert(`Failed to update ranked status: ${(err instanceof Error ? err.message : String(err))}`);
@@ -482,14 +521,18 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
       if (fetchError) throw fetchError;
       if (!songData?.file_path) throw new Error("File path not found for MIDI.");
 
+      // 1. DELETE FROM STORAGE
       const { error: deleteStorageError } = await supabase.storage
         .from('midi-files')
         .remove([songData.file_path]);
 
       if (deleteStorageError) {
-        console.warn("Could not delete file from storage (might not exist or RLS issue):", String(deleteStorageError.message));
+        console.error("Storage delete error:", deleteStorageError);
+        // Throw error to stop DB deletion if storage deletion fails
+        throw new Error(`Failed to delete file from storage: ${deleteStorageError.message}`);
       }
 
+      // 2. DELETE FROM DATABASE (Only if storage delete succeeds)
       const { error: dbError } = await supabase
         .from('songs')
         .delete()
@@ -499,7 +542,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
 
       setSongs(prevSongs => prevSongs.filter(song => song.id !== songId));
       setFetchError(null);
-      fetchSongsAndInteractions();
+      // No need to fetch all, just removed from local state
     } catch (err: unknown) {
       console.error("Delete error:", err);
       setDeleteError(`Failed to delete MIDI: ${(err instanceof Error ? err.message : String(err))}`);
@@ -606,6 +649,10 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
     });
   };
 
+  const handleLoadMore = () => {
+      fetchSongsAndInteractions(true);
+  };
+
   return (
     <div className="w-full h-full flex flex-col">
       <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
@@ -624,7 +671,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
         </button>
       </div>
 
-      {/* NEW: Sorting and Filtering Controls */}
+      {/* Sorting and Filtering Controls */}
       <div className="flex flex-wrap items-center gap-4 mb-6 p-4 bg-slate-800/50 rounded-lg ring-1 ring-slate-700">
         {/* Sort By */}
         <div className="flex items-center gap-2">
@@ -719,10 +766,11 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
             <div className="text-slate-400 text-center p-8">No MIDIs found matching your criteria.</div>
         )}
 
-        <div className="flex flex-col gap-4"> {/* Changed to flex-col for full-width rows */}
-          {songs.map((song) => { {/* Changed from filteredSongs to songs */}
+        <div className="flex flex-col gap-4"> 
+          {songs.map((song) => { 
             const personalBestScore = personalBests.get(song.id);
             const userLikeStatus = userLikes.get(song.id);
+            const netScore = (song.like_count ?? 0) - (song.dislike_count ?? 0);
             return (
               <div 
                   key={song.id} 
@@ -777,14 +825,15 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                   )}
                 </div>
                 <div className="mt-4 flex flex-wrap justify-between gap-2 items-center">
-                  <div className="flex gap-3">
-                    <button onClick={() => handleLikeDislike(song, 'like')} disabled={!user} className={`flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-colors ${userLikeStatus === 1 ? 'bg-green-600 text-white' : 'bg-slate-700 hover:bg-slate-600 text-slate-300 disabled:opacity-50'}`} title="Like MIDI">
-                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M2 10.5a1.5 1.5 0 113 0v6a1.5 1.5 0 01-3 0v-6zM6 10.333v5.43a2 2 0 001.106 1.79l.05.025A4 4 0 008.943 18h5.416a2 2 0 001.962-1.608l1.2-6A2 2 0 0015.562 8H12V4a2 2 0 00-2-2 1 1 0 00-1 1v.667a4 4 0 01-.8 2.4L6.8 7.933a4 4 0 00-.8 2.4z"></path></svg>
-                      <span>{song.like_count ?? 0}</span>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => handleLikeDislike(song, 'like')} disabled={!user} className={`flex items-center justify-center text-xs px-2 py-1 rounded-lg transition-colors ${userLikeStatus === 1 ? 'bg-green-600 text-white' : 'bg-slate-700 hover:bg-slate-600 text-slate-300 disabled:opacity-50'}`} title="Like MIDI">
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M2 10.5a1.5 1.5 0 113 0v6a1.5 1.5 0 01-3 0v-6zM6 10.333v5.43a2 2 0 001.106 1.79l.05.025A4 4 0 008.943 18h5.416a2 2 0 001.962-1.608l1.2-6A2 2 0 0015.562 8H12V4a2 2 0 00-2-2 1 1 0 00-1 1v.667a4 4 0 01-.8 2.4L6.8 7.933a4 4 0 00-.8 2.4z"></path></svg>
                     </button>
-                    <button onClick={() => handleLikeDislike(song, 'dislike')} disabled={!user} className={`flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-colors ${userLikeStatus === -1 ? 'bg-red-600 text-white' : 'bg-slate-700 hover:bg-slate-600 text-slate-300 disabled:opacity-50'}`} title="Dislike MIDI">
-                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M18 9.5a1.5 1.5 0 11-3 0v-6a1.5 1.5 0 013 0v6zM14 9.667v-5.43a2 2 0 00-1.106-1.79l-.05-.025A4 4 0 0011.057 2H5.642a2 2 0 00-1.962 1.608l-1.2 6A2 2 0 004.438 12H8v4a2 2 0 002 2 1 1 0 001-1v-.667a4 4 0 01.8-2.4l1.2-2.8a4 4 0 00.8-2.4z"></path></svg>
-                      <span>{song.dislike_count ?? 0}</span>
+                    <span className={`text-sm font-bold w-8 text-center tabular-nums ${netScore > 0 ? 'text-green-400' : netScore < 0 ? 'text-red-400' : 'text-slate-400'}`}>
+                        {netScore}
+                    </span>
+                    <button onClick={() => handleLikeDislike(song, 'dislike')} disabled={!user} className={`flex items-center justify-center text-xs px-2 py-1 rounded-lg transition-colors ${userLikeStatus === -1 ? 'bg-red-600 text-white' : 'bg-slate-700 hover:bg-slate-600 text-slate-300 disabled:opacity-50'}`} title="Dislike MIDI">
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M18 9.5a1.5 1.5 0 11-3 0v-6a1.5 1.5 0 013 0v6zM14 9.667v-5.43a2 2 0 00-1.106-1.79l-.05-.025A4 4 0 0011.057 2H5.642a2 2 0 00-1.962 1.608l-1.2 6A2 2 0 004.438 12H8v4a2 2 0 002 2 1 1 0 001-1v-.667a4 4 0 01.8-2.4l1.2-2.8a4 4 0 00.8-2.4z"></path></svg>
                     </button>
                   </div>
                   <div className="flex gap-2 items-center">
@@ -819,6 +868,29 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
             );
           })}
         </div>
+        
+        {/* Load More Button */}
+        {hasMore && !isLoading && songs.length > 0 && (
+            <div className="mt-4 flex justify-center pb-2">
+                <button
+                    onClick={handleLoadMore}
+                    disabled={isLoadingMore}
+                    className="px-6 py-2 bg-slate-700 hover:bg-slate-600 text-white font-semibold rounded-lg shadow-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                    {isLoadingMore ? (
+                        <>
+                            <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Loading...
+                        </>
+                    ) : (
+                        'Load More'
+                    )}
+                </button>
+            </div>
+        )}
       </div>
 
       {isLoginReminderModalOpen && (
@@ -891,7 +963,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">MIDI/XML File</label>
+                <label className="block text-sm font-medium text-slate-300 mb-1">MIDI File</label>
                 <input
                   type="file"
                   required

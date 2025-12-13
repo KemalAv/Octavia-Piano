@@ -1,21 +1,20 @@
-
-
-
 import React, { useState, useCallback, useRef, useMemo, useEffect } from 'react';
-import { KeyPosition, PianoKeyDefinition, MidiNotePlaybackItem, ActiveMidiNoteInfo, MIDIInput, MIDIMessageEvent, MIDIAccess, MIDIOutput, TimeSignatureInfo, FileType, ExtendedResult, MidiAccessStatus, MetronomeMode, WaitMode, ViewMode, Screen, GameSettings, NoteLabelType, PracticeHand, ThemeSettings, PerformanceSummary, TempoEvent, DevicePreset, LayoutDimensions } from './types';
+import { KeyPosition, PianoKeyDefinition, MidiNotePlaybackItem, ActiveMidiNoteInfo, MIDIInput, MIDIMessageEvent, MIDIAccess, MIDIOutput, TimeSignatureInfo, FileType, ExtendedResult, MidiAccessStatus, MetronomeMode, WaitMode, ViewMode, Screen, GameSettings, NoteLabelType, PracticeHand, ThemeSettings, PerformanceSummary, TempoEvent, DevicePreset, LayoutDimensions, QwertyLayout, BeatInfo } from './types';
 import {
   PIANO_KEYS_CONFIG,
   BLACK_KEY_WIDTH_RATIO, BLACK_KEY_OFFSET_RATIO,
   PROGRESS_BAR_HEIGHT_PX,
-  HAND_SPLIT_MIDI_NOTE, CHORD_RECOGNITION_WINDOW_MS,
+  HAND_SPLIT_MIDI_NOTE,
   BASE_PIXELS_PER_MILLISECOND,
-  QWERTY_MINI_KEYBOARD_MAPPING, OCTAVE_DOWN_KEYS, OCTAVE_UP_KEYS, INTERACTIVE_NOTE_DURATION_MS,
+  QWERTY_MINI_KEYBOARD_MAPPING, MIRP_KEYBOARD_MAPPING, OCTAVE_DOWN_KEYS, OCTAVE_UP_KEYS, INTERACTIVE_NOTE_DURATION_MS,
   DEFAULT_QWERTY_OCTAVE_SHIFT, MIN_QWERTY_OCTAVE_SHIFT, MAX_QWERTY_OCTAVE_SHIFT,
   DEFAULT_MASTER_VOLUME, DEFAULT_METRONOME_VOLUME, DEFAULT_VIEW_MODE,
-  DEFAULT_NOTE_LABEL_TYPE, DEFAULT_SHOW_ONLY_MAJOR_RESTS, DEFAULT_SHOW_ONLY_MAJOR_NOTES,
+  DEFAULT_NOTE_LABEL_TYPE, DEFAULT_SHOW_ONLY_MAJOR_NOTES,
   DEFAULT_SHOW_QWERTY_SHORTCUTS, DEFAULT_HIDE_BAR_NAVIGATION_BUTTONS,
   DEFAULT_THEME_SETTINGS, DEVICE_LAYOUTS,
-  DEFAULT_AUTO_HIDE_TOP_BAR
+  DEFAULT_AUTO_HIDE_TOP_BAR,
+  DEFAULT_SHOW_PIANO_TILES_BACKGROUND,
+  VISUAL_NOTE_CAP_MS
 } from './constants';
 import PianoKeyboard from './components/PianoKeyboard';
 import TopBar from './components/TopBar';
@@ -33,7 +32,7 @@ import VexFlowSheetMusicView from './components/VexFlowSheetMusicView';
 import BarNavigationControls from './components/BarNavigationControls';
 import PerformanceSummaryModal from './components/PerformanceSummaryModal';
 import { FallingNotesArea } from './components/FallingNotesArea';
-import { getActiveKeySignature, getActiveTimeSignature, SignatureEvent } from './utils'; // Import getActiveTimeSignature and SignatureEvent
+import { getActiveKeySignature, getActiveTimeSignature, SignatureEvent, getActiveTempoBpmAtOriginalTime, getBeatTimesInWindow } from './utils'; // Import getActiveTimeSignature and SignatureEvent
 import { AuthProvider, useAuth } from './AuthContext'; // Import AuthProvider and useAuth
 import { supabase } from './supabaseClient'; // Import supabase client
 import { 
@@ -46,6 +45,7 @@ import {
 } from './midiParser'; 
 import Leaderboard from './components/Leaderboard';
 import AdBanner from './components/AdBanner';
+import ChordDisplay from './components/ChordDisplay';
 
 
 const generateKeyPositions = (keysConfig: PianoKeyDefinition[], totalWidth: number): Map<string, KeyPosition> => {
@@ -113,6 +113,28 @@ interface ActiveAudioNode {
 const END_PLAYBACK_DELAY_MS = 2000;
 const UI_CLICK_SOUND_SEQUENCE_MIDI = [60, 62, 64, 65, 67, 69, 71]; // C4 Major Scale
 
+// Chord detection constants
+const PITCH_CLASS_TO_NAME: { [key: number]: string } = {
+  0: 'C', 1: 'C#', 2: 'D', 3: 'D#', 4: 'E', 5: 'F',
+  6: 'F#', 7: 'G', 8: 'G#', 9: 'A', 10: 'A#', 11: 'B'
+};
+
+const CHORD_FORMULAS: { [key: string]: { name: string, intervals: number[] } } = {
+  '0,4,7': { name: '', intervals: [0, 4, 7] }, // Major
+  '0,3,7': { name: 'm', intervals: [0, 3, 7] }, // Minor
+  '0,3,6': { name: 'dim', intervals: [0, 3, 6] },
+  '0,4,8': { name: 'aug', intervals: [0, 4, 8] },
+  '0,2,7': { name: 'sus2', intervals: [0, 2, 7] },
+  '0,5,7': { name: 'sus4', intervals: [0, 5, 7] },
+  '0,4,7,11': { name: 'maj7', intervals: [0, 4, 7, 11] },
+  '0,3,7,10': { name: 'm7', intervals: [0, 3, 7, 10] },
+  '0,4,7,10': { name: '7', intervals: [0, 4, 7, 10] }, // Dominant 7th
+  '0,3,6,9': { name: 'dim7', intervals: [0, 3, 6, 9] },
+  '0,3,6,10': { name: 'm7b5', intervals: [0, 3, 6, 10] }, // Half-diminished
+  '0,4,7,9': { name: '6', intervals: [0, 4, 7, 9] }, // Major 6th
+  '0,3,7,9': { name: 'm6', intervals: [0, 3, 7, 9] }, // Minor 6th
+};
+
 const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth hook
   // --- Screen & Flow Management ---
   const [currentScreen, setCurrentScreen] = useState<Screen>('mainMenu');
@@ -121,6 +143,11 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false); // NEW: Auth modal state
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false); // NEW: Account modal state
   const { session } = useAuth(); // Get session for ranked mode logic
+
+  // --- Free Play Mode ---
+  const [isFreePlayMode, setIsFreePlayMode] = useState(false);
+  const [detectedChord, setDetectedChord] = useState<string | null>(null);
+  const chordDetectionTimeoutRef = useRef<number | null>(null);
 
   // NEW: State for navigating to SongSelection with a specific online song pre-selected
   const [selectedOnlineSongIdForNavigation, setSelectedOnlineSongIdForNavigation] = useState<string | null>(null);
@@ -246,6 +273,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
   const nextNoteIndexRef = useRef<number>(0);
   const scheduledNoteTimeoutsRef = useRef<Map<string, number>>(new Map());
   const activeNoteInstancesRef = useRef<Map<string, MidiNotePlaybackItem>>(new Map());
+  const gameRealStartTimeRef = useRef<number | null>(null);
   // NEW: Ref to track if the user explicitly paused the game.
   const isUserPausedRef = useRef<boolean>(false); 
   // NEW: Ref to track previous musical time for metronome visual beat.
@@ -274,6 +302,10 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
   const [totalWaitTimeMs, setTotalWaitTimeMs] = useState<number>(0);
   const accumulatedWaitTimeRef = useRef<number>(0);
   const waitStartTimeRef = useRef<number | null>(null);
+
+  // --- Manual Pause Time Tracking ---
+  const accumulatedPauseTimeRef = useRef<number>(0);
+  const pauseStartTimeRef = useRef<number | null>(null);
   
   // --- Music Metadata State ---
   const [initialTimeSignature, setInitialTimeSignature] = useState<TimeSignatureInfo>(DEFAULT_TIME_SIGNATURE); // Rename to initial
@@ -288,6 +320,8 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
   const lastMetronomeScheduleTimeRef = useRef<number>(0);
   // FIX: Added state for visual metronome beat
   const [metronomeBeat, setMetronomeBeat] = useState<'strong' | 'weak' | null>(null);
+  const lastMetronomeVisualBeatRef = useRef<'strong' | 'weak' | null>(null);
+  const scheduledMetronomeBeatsRef = useRef<BeatInfo[]>([]); // Store future beats
   // NEW: State for metronome audio offset
   const [metronomeOffsetMs, setMetronomeOffsetMs] = useState<number>(-25);
   
@@ -300,6 +334,8 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
   // FIX: Declare errorCountRef using useRef
   const errorCountRef = useRef<number>(0);
   useEffect(() => { errorCountRef.current = errorCount; }, [errorCount]); // Sync ref with state
+  const [liveAccuracy, setLiveAccuracy] = useState<number>(100);
+  const [liveSpeed, setLiveSpeed] = useState<number>(100);
   const [totalNoteCountForGame, setTotalNoteCountForGame] = useState<number>(0);
   const [analysisResult, setAnalysisResult] = useState<ExtendedResult | null>(null);
   const hitNoteIdsRef = useRef<Set<string>>(new Set());
@@ -329,17 +365,20 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
   const [masterVolume, setMasterVolume] = useState(DEFAULT_MASTER_VOLUME); // Changed to use constant
   const [metronomeVolume, setMetronomeVolume] = useState(DEFAULT_METRONOME_VOLUME); // Changed to use constant
   const [themeSettings, setThemeSettings] = useState<ThemeSettings>(DEFAULT_THEME_SETTINGS); // Changed to use constant
-  // FIX: Renamed state variable from showOnlyMajorRusta to showOnlyMajorRests to match prop name in Settings.tsx and VexFlowSheetMusicView.tsx.
-  // const [showOnlyMajorRests, setShowOnlyMajorRests] = useState<boolean>(DEFAULT_SHOW_ONLY_MAJOR_RESTS); // REMOVED
-  const [showOnlyMajorNotes, setShowOnlyMajorNotes] = useState<boolean>(DEFAULT_SHOW_ONLY_MAJOR_NOTES); // Changed to use constant
+  const [showOnlyMajorNotes, setShowOnlyMajorNotes] = useState<boolean>(DEFAULT_SHOW_ONLY_MAJOR_NOTES);
   // NEW: State variables for QWERTY shortcuts and Bar Navigation Buttons.
   const [showQwertyShortcuts, setShowQwertyShortcuts] = useState<boolean>(DEFAULT_SHOW_QWERTY_SHORTCUTS);
   const [hideBarNavigationButtons, setHideBarNavigationButtons] = useState<boolean>(DEFAULT_HIDE_BAR_NAVIGATION_BUTTONS);
   const [autoHideTopBar, setAutoHideTopBar] = useState<boolean>(DEFAULT_AUTO_HIDE_TOP_BAR);
+  // NEW: State variable for Piano Tiles Background
+  const [showPianoTilesBackground, setShowPianoTilesBackground] = useState<boolean>(DEFAULT_SHOW_PIANO_TILES_BACKGROUND);
 
   // NEW: QWERTY Keyboard State
+  const [qwertyLayout, setQwertyLayout] = useState<QwertyLayout>('mirp'); // Default set to 'mirp' (Layout 1)
   const [qwertyCurrentOctaveShift, setQwertyCurrentOctaveShift] = useState<number>(DEFAULT_QWERTY_OCTAVE_SHIFT);
   const qwertyActiveKeysRef = useRef<Set<string>>(new Set());
+  const [mirpTranspose, setMirpTranspose] = useState<number>(0);
+  const activeMirpNotesRef = useRef<Map<string, number>>(new Map()); // code -> midi
 
   // NEW: Playback tempo multiplier for actual game
   const [playbackTempoMultiplier, setPlaybackTempoMultiplier] = useState<number>(1);
@@ -368,6 +407,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
 
   // NEW: Memoized `notesForGame` derived from `playbackNotes` and `gameSettings.practiceHand`
   const notesForGame = useMemo(() => {
+    if (isFreePlayMode) return [];
     if (!gameSettings?.practiceHand || !playbackNotes) {
       return playbackNotes; // If no settings or no notes, return all
     }
@@ -375,7 +415,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
       return playbackNotes;
     }
     return playbackNotes.filter(note => note.hand === gameSettings.practiceHand);
-  }, [playbackNotes, gameSettings?.practiceHand]);
+  }, [playbackNotes, gameSettings?.practiceHand, isFreePlayMode]);
 
   const numWhiteKeys = useMemo(() => {
     return visiblePianoKeys.filter(key => key.type === 'white').length;
@@ -395,13 +435,14 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
   const baseCalculatedPianoWidth = useMemo(() => {
     if (!keyPositionsMap || keyPositionsMap.size === 0) return containerWidth; // Fallback
     const maxWhiteKeyX = Array.from(keyPositionsMap.values())
-        .filter(kp => kp.type === 'white')
-        .reduce((max, kp) => Math.max(max, kp.x + kp.width), 0);
+        // FIX: Explicitly type parameter 'kp' for type safety
+        .filter((kp: KeyPosition) => kp.type === 'white')
+        .reduce((max: number, kp: KeyPosition) => Math.max(max, kp.x + kp.width), 0);
     return maxWhiteKeyX;
   }, [keyPositionsMap, containerWidth]);
 
   // NEW: Memoized `waitMode` from gameSettings
-  const waitMode: WaitMode = gameSettings?.waitMode || 'strict';
+  const waitMode: WaitMode = isFreePlayMode ? 'off' : gameSettings?.waitMode || 'strict';
 
 
   const isMetronomeAvailable = useMemo(() => {
@@ -409,10 +450,12 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
   }, [notesForGame.length, tempoEvents.length]);
 
   const originalTotalMusicalDurationMs = useMemo(() => {
-    if (!playbackNotes || playbackNotes.length === 0) return 0;
-    const maxTime = playbackNotes.reduce((max, note) => Math.max(max, note.timeMs + note.durationMs), 0);
-    return maxTime;
-  }, [playbackNotes]);
+    if (!notesForGame || notesForGame.length === 0) return 0;
+    const startTime = notesForGame.reduce((min, note) => Math.min(min, note.timeMs), Infinity);
+    const endTime = notesForGame.reduce((max, note) => Math.max(max, note.timeMs + note.durationMs), 0);
+    if (!isFinite(startTime)) return 0;
+    return endTime - startTime;
+  }, [notesForGame]);
 
   const totalDurationWithEndDelayMs = useMemo(() => {
     if (originalTotalMusicalDurationMs === 0) return 0;
@@ -649,14 +692,10 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     promises.push(metronomeStrongPromise, metronomeWeakPromise);
 
     try {
-      const results = await Promise.all(promises);
+      await Promise.all(promises);
       // NEW: Assign metronome buffers
-      metronomeBuffersRef.current.strong = results[results.length - 2] as AudioBuffer | undefined;
-      metronomeBuffersRef.current.weak = results[results.length - 1] as AudioBuffer | undefined;
-      // Remove metronome results from the main array so it doesn't interfere with piano notes
-      results.pop(); 
-      results.pop();
-
+      metronomeBuffersRef.current.strong = (await metronomeStrongPromise) as AudioBuffer | undefined;
+      metronomeBuffersRef.current.weak = (await metronomeWeakPromise) as AudioBuffer | undefined;
     } catch (error) {
       console.error("An error occurred during sample preloading:", error);
     } finally {
@@ -844,13 +883,14 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
       });
     }
     scheduledMetronomeAudioNodesRef.current = [];
+    scheduledMetronomeBeatsRef.current = []; // Clear scheduled beats for visual
+    lastMetronomeVisualBeatRef.current = null;
   }, []);
   
 
   const scheduleMetronomeSounds = useCallback((songTimeAtSchedulingStartMs: number) => {
     clearScheduledMetronomeSounds();
-    // The metronome now only supports 'bar' mode, as requested.
-    if (metronomeMode !== 'bar' || !audioContextRef.current || audioContextRef.current.state !== 'running' || originalTotalMusicalDurationMs <= 0 || !barLines || barLines.length === 0) {
+    if (metronomeMode === 'off' || !audioContextRef.current || audioContextRef.current.state !== 'running' || originalTotalMusicalDurationMs <= 0) {
       return;
     }
 
@@ -859,22 +899,43 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     const SCHEDULING_WINDOW_MUSICAL_MS = 4000;
     const endSchedulingMusicalTimeMs = songTimeAtSchedulingStartMs + SCHEDULING_WINDOW_MUSICAL_MS;
 
-    const upcomingBarLines = barLines.filter(
-      barTimeMs => barTimeMs >= songTimeAtSchedulingStartMs && barTimeMs < endSchedulingMusicalTimeMs
-    );
+    let beatsToSchedule: BeatInfo[] = [];
 
-    upcomingBarLines.forEach(barTimeMs => {
-      const musicalDelayFromSchedulingStartMs = barTimeMs - songTimeAtSchedulingStartMs;
+    if (metronomeMode === 'bar') {
+        const upcomingBarLines = barLines.filter(
+            barTimeMs => barTimeMs >= songTimeAtSchedulingStartMs && barTimeMs < endSchedulingMusicalTimeMs
+        );
+        beatsToSchedule = upcomingBarLines.map(barTimeMs => ({ timeMs: barTimeMs, isStrong: true }));
+    } else if (metronomeMode === 'beat') {
+        // Calculate original time values for utils functions
+        const originalStartTempoEvents = tempoEvents.map(te => ({ ...te }));
+        const originalStartSignatureEvents = signatureEvents.map(se => ({ ...se }));
+        
+        beatsToSchedule = getBeatTimesInWindow(
+            songTimeAtSchedulingStartMs,
+            endSchedulingMusicalTimeMs,
+            playbackTempoMultiplier,
+            currentTempoBpm || DEFAULT_MUSICXML_TEMPO_BPM,
+            originalStartTempoEvents,
+            initialTimeSignature,
+            originalStartSignatureEvents,
+            barLines // Already scaled bar lines
+        );
+    }
+    
+    beatsToSchedule.forEach(beat => {
+      const musicalDelayFromSchedulingStartMs = beat.timeMs - songTimeAtSchedulingStartMs;
       const realDelayFromSchedulingStartMs = musicalDelayFromSchedulingStartMs / playbackTempoMultiplier;
       const targetAudioContextTimeForBeat = audioContextTimeAtSchedulingStart + (realDelayFromSchedulingStartMs / 1000);
       const adjustedTargetAudioContextTimeForBeat = targetAudioContextTimeForBeat + (metronomeOffsetMs / 1000);
       
-      if (adjustedTargetAudioContextTimeForBeat >= audioCtx.currentTime - 0.05) {
-        const audioNodes = playMetronomeSound(true, adjustedTargetAudioContextTimeForBeat); // Bar lines are always strong beats
+      if (adjustedTargetAudioContextTimeForBeat >= audioCtx.currentTime - 0.05) { // Schedule slightly in the past allowed
+        const audioNodes = playMetronomeSound(beat.isStrong, adjustedTargetAudioContextTimeForBeat);
         if (audioNodes) scheduledMetronomeAudioNodesRef.current.push(audioNodes);
       }
     });
-  }, [ metronomeMode, barLines, originalTotalMusicalDurationMs, playMetronomeSound, clearScheduledMetronomeSounds, playbackTempoMultiplier, metronomeOffsetMs ]);
+    scheduledMetronomeBeatsRef.current = beatsToSchedule; // Store for visual
+  }, [metronomeMode, barLines, originalTotalMusicalDurationMs, playMetronomeSound, clearScheduledMetronomeSounds, playbackTempoMultiplier, metronomeOffsetMs, tempoEvents, currentTempoBpm, initialTimeSignature, signatureEvents]);
 
   const clearScheduledNotes = useCallback(() => {
     scheduledNoteTimeoutsRef.current.forEach(clearTimeout);
@@ -953,22 +1014,20 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
 
     // The ideal duration at the CHOSEN tempo
     const idealDurationAtChosenTempo = originalTotalMusicalDurationMs / tempoMultiplier;
-    // For non-autoplay modes, subtract wait time from the total elapsed time.
-    // For autoplay, waitTime is 0 and actualPlayedRealDurationMs is already the ideal duration for the chosen tempo.
-    const netActualDuration = actualPlayedRealDurationMs - waitTime;
 
     let speed = 0;
     if (isAutoPlay) {
       speed = 100;
-    } else if (netActualDuration > 0 && idealDurationAtChosenTempo > 0) {
-      speed = (idealDurationAtChosenTempo / netActualDuration) * 100;
-      if (speed > 100) speed = 100; // Cap at 100%
+    } else if (idealDurationAtChosenTempo > 0 && actualPlayedRealDurationMs > 0) {
+      // Per user request, speed efficiency is the ratio of the song's ideal duration
+      // to the actual real-world time the user took to play it, capped at 100%.
+      speed = Math.min(100, (idealDurationAtChosenTempo / actualPlayedRealDurationMs) * 100);
     }
     
     const gameplayPS = (accuracy * 0.5) + (speed * 0.5)
 
-    const exponent = 5;
-    let finalScore = midiPerformanceScore * Math.pow(accuracy / 100, exponent);
+    const exponent = 4;
+    let finalScore = midiPerformanceScore * Math.pow(gameplayPS / 100, exponent);
     finalScore = Math.max(0, Math.min(midiPerformanceScore, finalScore));
     
     let rank = 'D';
@@ -990,7 +1049,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
       playbackTempoMultiplier: tempoMultiplier,
       totalWaitTimeMs: waitTime,
     });
-  }, [analysisResult, notesForGame.length, originalTotalMusicalDurationMs, setPerformanceSummary]);
+  }, [analysisResult, notesForGame, originalTotalMusicalDurationMs, setPerformanceSummary]);
 
 
   const handleStopPlayback = useCallback(() => {
@@ -1026,17 +1085,26 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     setHitCount(0);
     // @fix: Changed 'setError' to 'setErrorCount' to match state setter.
     setErrorCount(0);
+    setLiveAccuracy(100);
+    setLiveSpeed(100);
+    gameRealStartTimeRef.current = null;
     
     // Reset wait time counters
     setTotalWaitTimeMs(0);
     accumulatedWaitTimeRef.current = 0;
     waitStartTimeRef.current = null;
+    
+    // Reset pause time counters
+    accumulatedPauseTimeRef.current = 0;
+    pauseStartTimeRef.current = null;
 
     playerInputTimesRef.current = [];
     firstInputRealTimeRef.current = null;
     lastInputRealTimeRef.current = null;
     setPerformanceSummary(null);
     setIsLoadingContent(false); // Ensure loading is off on stop
+    setIsFreePlayMode(false);
+    setDetectedChord(null);
     setMetronomeBeat(null);
   }, [clearScheduledNotes, clearScheduledMetronomeSounds, updateNotesCurrentlyWaitingFor, setActivePlaybackNotesInfo, setHitCount, setErrorCount, setMusicalCurrentTimeMs]);
 
@@ -1067,7 +1135,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     });
 
     const nowMusical = currentTimeRef.current;
-    const musicalTimeUntilNoteEnd = (noteDef.timeMs + noteDef.durationMs) - nowMusical;
+    const musicalTimeUntilNoteEnd = (noteDef.timeMs + Math.min(noteDef.durationMs, VISUAL_NOTE_CAP_MS)) - nowMusical;
     const realTimeUntilNoteEnd = musicalTimeUntilNoteEnd / playbackTempoMultiplier;
     
     const clearHighlightTimeoutId = window.setTimeout(() => {
@@ -1101,7 +1169,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
         clearTimeout(scheduledNoteTimeoutsRef.current.get(noteId)!);
     }
 
-    const realDurationMs = noteDefForWait.durationMs / playbackTempoMultiplier;
+    const highlightDurationMs = Math.min(noteDefForWait.durationMs, VISUAL_NOTE_CAP_MS) / playbackTempoMultiplier;
     const clearHighlightTimeoutId = window.setTimeout(() => {
         activeNoteInstancesRef.current.delete(noteId);
         scheduledNoteTimeoutsRef.current.delete(noteId);
@@ -1110,7 +1178,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
             newMap.delete(noteId);
             return newMap;
         });
-    }, realDurationMs);
+    }, highlightDurationMs);
     scheduledNoteTimeoutsRef.current.set(noteId, clearHighlightTimeoutId);
   }, [playbackTempoMultiplier]);
 
@@ -1162,31 +1230,58 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     currentTimeRef.current = actualMusicalTimeForGameLogic;
     prevMusicalTimeRef.current = actualMusicalTimeForGameLogic; // update for next frame
 
+    if (isPlayingRef.current && gameRealStartTimeRef.current !== null) {
+        const idealTimeElapsedSoFar = currentTimeRef.current / playbackTempoMultiplier;
+        const actualDurationSoFar = (performance.now() - gameRealStartTimeRef.current) - accumulatedPauseTimeRef.current;
+        
+        if (actualDurationSoFar > 500 && idealTimeElapsedSoFar > 0) { // Add a small delay to avoid weird values at start
+            const currentSpeed = Math.min(100, (idealTimeElapsedSoFar / actualDurationSoFar) * 100);
+            setLiveSpeed(currentSpeed);
+        } else if (actualDurationSoFar <= 500) {
+            setLiveSpeed(100);
+        }
+    }
+
+
     // Metronome Logic
     if (isPlayingRef.current && metronomeMode !== 'off') {
         if (isInWaitState) {
             // Sounds are now cleared immediately upon entering wait mode.
             // This ensures the visual beat is also cleared.
             setMetronomeBeat(null);
+            lastMetronomeVisualBeatRef.current = null;
         } else {
-            // If not waiting, continue scheduling metronome sounds normally
+            // Schedule metronome sounds if needed
             const SCHEDULING_WINDOW_MUSICAL_MS = 4000;
             if (currentTimeRef.current > lastMetronomeScheduleTimeRef.current + SCHEDULING_WINDOW_MUSICAL_MS / 2) {
                 scheduleMetronomeSounds(currentTimeRef.current);
                 lastMetronomeScheduleTimeRef.current = currentTimeRef.current;
             }
 
-            // Visual metronome logic (now only for 'bar' mode)
-            if (metronomeMode === 'bar' && barLines && barLines.length > 0) {
-                const barCrossed = barLines.find(barTimeMs => barTimeMs > lastMusicalTime && barTimeMs <= actualMusicalTimeForGameLogic);
-                if (barCrossed) {
-                    setMetronomeBeat('strong');
+            // Visual metronome logic: Check if a beat has just been crossed
+            if (scheduledMetronomeBeatsRef.current.length > 0) {
+              const currentBeat = scheduledMetronomeBeatsRef.current.find(beat =>
+                beat.timeMs > lastMusicalTime && beat.timeMs <= actualMusicalTimeForGameLogic
+              );
+              if (currentBeat) {
+                const newBeatState = currentBeat.isStrong ? 'strong' : 'weak';
+                if (newBeatState !== lastMetronomeVisualBeatRef.current) {
+                  setMetronomeBeat(newBeatState);
+                  lastMetronomeVisualBeatRef.current = newBeatState;
                 }
+              } else if (actualMusicalTimeForGameLogic > lastMusicalTime) { // If no beat, but time is advancing, clear state
+                  setMetronomeBeat(null);
+                  lastMetronomeVisualBeatRef.current = null;
+              }
+            } else {
+                setMetronomeBeat(null);
+                lastMetronomeVisualBeatRef.current = null;
             }
         }
     } else {
         // If not playing or metronome is off, ensure metronome is off visually
         setMetronomeBeat(null);
+        lastMetronomeVisualBeatRef.current = null;
     }
 
 
@@ -1222,7 +1317,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
               finger: note.finger
             }));
 
-            const realDurationMs = note.durationMs / playbackTempoMultiplier;
+            const highlightDurationMs = Math.min(note.durationMs, VISUAL_NOTE_CAP_MS) / playbackTempoMultiplier;
             const timeoutId = window.setTimeout(() => {
               activeNoteInstancesRef.current.delete(noteId);
               scheduledNoteTimeoutsRef.current.delete(noteId);
@@ -1231,7 +1326,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
                 newMap.delete(noteId);
                 return newMap;
               });
-            }, realDurationMs);
+            }, highlightDurationMs);
             scheduledNoteTimeoutsRef.current.set(noteId, timeoutId);
           }
         } else {
@@ -1247,13 +1342,16 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
         // This note is the anchor for our potential chord block.
         const firstDueNote = notesToSetWaitingThisFrame[0];
         const blockStartTime = firstDueNote.timeMs;
-        const CHORD_WINDOW_MS = 150; // User-requested window
+        // The user requested: "I have reduced the chord/note grouping window from 150ms to 30ms
+        // specifically for strict mode."
+        const CHORD_WINDOW_MS = (waitMode === 'strict') ? 30 : 150;
     
         // The block starts with all notes that are already due and within the window.
+        // FIX: Replaced `notesToSetWaitingForThisFrame` with `notesToSetWaitingThisFrame` to fix typo.
         const chordBlock = notesToSetWaitingThisFrame.filter(n => (n.timeMs - blockStartTime) < CHORD_WINDOW_MS);
     
         // Now look ahead for notes that are NOT yet due, but are still within the window.
-        // `currentProcessingIdx` is the index of the first note *not* in `notesToSetWaitingThisFrame`.
+        // `currentProcessingIdx` is the index of the first note *not* in `notesToSetWaitingForThisFrame`.
         let lookaheadIndex = currentProcessingIdx;
         while (lookaheadIndex < notesForGame.length) {
             const nextFutureNote = notesForGame[lookaheadIndex];
@@ -1273,6 +1371,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
                 clearScheduledMetronomeSounds();
                 lastMetronomeScheduleTimeRef.current = 0;
                 setMetronomeBeat(null);
+                lastMetronomeVisualBeatRef.current = null;
             }
     
             waitingBlockTimeRef.current = blockStartTime;
@@ -1309,7 +1408,8 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
 
         if (waitMode !== 'off') {
             if (playerInputTimesRef.current.length > 1 && firstInputRealTimeRef.current !== null && lastInputRealTimeRef.current !== null) {
-                actualDurationForSpeedCalculation = lastInputRealTimeRef.current - firstInputRealTimeRef.current;
+                const rawDuration = lastInputRealTimeRef.current - firstInputRealTimeRef.current;
+                actualDurationForSpeedCalculation = rawDuration - accumulatedPauseTimeRef.current;
             } else {
                 actualDurationForSpeedCalculation = 0;
             }
@@ -1318,13 +1418,32 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
             actualDurationForSpeedCalculation = originalTotalMusicalDurationMs / playbackTempoMultiplier; 
         }
         
+        // Re-calculate final stats and update live display before finishing to ensure they match summary
+        const finalHitCount = hitCountRef.current;
+        const finalErrorCount = errorCountRef.current;
+        const totalNotes = notesForGame.length;
+        let effectiveHitNotes = isAutoPlay ? totalNotes : finalHitCount;
+        let effectiveErrorNotes = isAutoPlay ? 0 : finalErrorCount;
+        if (effectiveErrorNotes > effectiveHitNotes) effectiveErrorNotes = effectiveHitNotes;
+        if (effectiveHitNotes > totalNotes) effectiveHitNotes = totalNotes;
+        const finalAccuracy = totalNotes > 0 ? (Math.max(0, effectiveHitNotes - effectiveErrorNotes) / totalNotes) * 100 : 0;
+        const idealDurationAtChosenTempo = originalTotalMusicalDurationMs / playbackTempoMultiplier;
+        let finalSpeed = 0;
+        if (isAutoPlay) {
+          finalSpeed = 100;
+        } else if (idealDurationAtChosenTempo > 0 && actualDurationForSpeedCalculation > 0) {
+          finalSpeed = Math.min(100, (idealDurationAtChosenTempo / actualDurationForSpeedCalculation) * 100);
+        }
+        setLiveAccuracy(finalAccuracy);
+        setLiveSpeed(finalSpeed);
+        
         calculateAndSetPerformanceSummary(
           actualDurationForSpeedCalculation, 
           isAutoPlay,
           hitCountRef.current,
           errorCountRef.current,
           playbackTempoMultiplier,
-          totalWaitTimeMs
+          accumulatedWaitTimeRef.current // Use ref directly for accuracy
         );
         setHitCount(hitCountRef.current);
         // @fix: Changed 'setError' to 'setErrorCount' to match state setter.
@@ -1352,6 +1471,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
         // Ensure both musical and visual times end at the total duration
         setMusicalCurrentTimeMs(totalDurationWithEndDelayMs);
         setMetronomeBeat(null);
+        lastMetronomeVisualBeatRef.current = null;
 
         return;
     }
@@ -1366,6 +1486,8 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     clearScheduledMetronomeSounds, updateNotesCurrentlyWaitingFor, setActivePlaybackNotesInfo,
     setHitCount, setErrorCount, resumePlaybackFromWait, activePlaybackNotesInfo, 
     barLines, totalWaitTimeMs, prevMusicalTimeRef, totalDurationWithEndDelayMs, // Added dependencies
+    liveSpeed, scheduledMetronomeBeatsRef, lastMetronomeVisualBeatRef, metronomeOffsetMs, // Added metronome dependencies
+    initialTimeSignature, signatureEvents, tempoEvents, currentTempoBpm // Original metadata for beat calculation
   ]);
 
   const handleStartGame = (settings: GameSettings) => {
@@ -1378,11 +1500,28 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     setPreviewPlaybackTempoMultiplier(1); 
     setIsLoadingContent(true); // NEW: Start loading when entering inGame
     isUserPausedRef.current = true; // Set to true initially to prevent autoplay on focus
+    
+    // Reset pause time tracking
+    accumulatedPauseTimeRef.current = 0;
+    pauseStartTimeRef.current = null;
+
+    setLiveAccuracy(100);
+    setLiveSpeed(100);
+    gameRealStartTimeRef.current = null;
+
+
     if (autoHideTopBar) {
       setIsTopBarVisible(false); // Reset top bar to be hidden when a game starts
     } else {
       setIsTopBarVisible(true);
     }
+  };
+
+  const handleStartFreePlay = () => {
+    handleStopPlayback(); // Reset everything first
+    setIsFreePlayMode(true);
+    setCurrentScreen('inGame');
+    initializeAudioContext();
   };
 
   useEffect(() => {
@@ -1391,14 +1530,41 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     }
   }, [notesForGame, currentScreen]);
 
+  useEffect(() => {
+    if (isPlaying) {
+      const notesPlayed = hitCount + errorCount;
+      if (notesPlayed > 0) {
+        setLiveAccuracy((hitCount / notesPlayed) * 100);
+      } else {
+        setLiveAccuracy(100);
+      }
+    }
+  }, [hitCount, errorCount, isPlaying]);
+
 
   const handlePlay = useCallback(async () => {
-    if (notesForGame.length === 0 || isPlayingRef.current) return;
+    if (isFreePlayMode || notesForGame.length === 0 || isPlayingRef.current) return;
     const audioReady = await initializeAudioContext();
     if (!audioReady) {
       alert("AudioContext could not be started. Please interact with the page and try again.");
       return;
     }
+
+    if (gameRealStartTimeRef.current === null) {
+      const idealTimeElapsedSoFar = pausedMusicalTimeRef.current / playbackTempoMultiplier;
+      gameRealStartTimeRef.current = performance.now() - idealTimeElapsedSoFar;
+    }
+
+
+    if (pauseStartTimeRef.current !== null) {
+      // Only accumulate pause time if it was an auto-pause (unfocused), not a manual pause.
+      // Manual pauses should count against speed efficiency.
+      if (!isUserPausedRef.current) {
+        accumulatedPauseTimeRef.current += performance.now() - pauseStartTimeRef.current;
+      }
+      pauseStartTimeRef.current = null;
+    }
+
     setIsPlaying(true);
     isPlayingRef.current = true;
     isUserPausedRef.current = false; // User explicitly pressed play
@@ -1414,15 +1580,18 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
       lastMetronomeScheduleTimeRef.current = pausedMusicalTimeRef.current;
     }
     playbackRequestRef.current = requestAnimationFrame(playbackLoop);
-  }, [notesForGame.length, initializeAudioContext, playbackLoop, metronomeMode, scheduleMetronomeSounds, pausedMusicalTimeRef, setMusicalCurrentTimeMs]);
+  }, [notesForGame.length, initializeAudioContext, playbackLoop, metronomeMode, scheduleMetronomeSounds, pausedMusicalTimeRef, setMusicalCurrentTimeMs, isFreePlayMode, playbackTempoMultiplier]);
 
   const handlePause = useCallback(() => {
-    if (waitMode === 'retical') return; // Disable pause in retical mode
+    if (isFreePlayMode || waitMode === 'retical') return; // Disable pause in free play and retical mode
     if (!isPlayingRef.current) return;
     setIsPlaying(false);
     isPlayingRef.current = false;
     isUserPausedRef.current = true; // User explicitly pressed pause
     pausedMusicalTimeRef.current = currentTimeRef.current; // currentTimeRef.current holds the last musical time
+    
+    pauseStartTimeRef.current = performance.now(); // Record when pause starts
+
     if (playbackRequestRef.current) {
       cancelAnimationFrame(playbackRequestRef.current);
       playbackRequestRef.current = null;
@@ -1434,7 +1603,8 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
         chordRecognitionTimeoutIdRef.current = null;
     }
     setMetronomeBeat(null);
-  }, [clearScheduledNotes, clearScheduledMetronomeSounds, waitMode]);
+    lastMetronomeVisualBeatRef.current = null;
+  }, [clearScheduledNotes, clearScheduledMetronomeSounds, waitMode, isFreePlayMode]);
 
   // NEW: Automatic Pause/Resume on tab visibility or window focus
   useEffect(() => {
@@ -1444,6 +1614,9 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
         setIsPlaying(false);
         isPlayingRef.current = false;
         pausedMusicalTimeRef.current = currentTimeRef.current;
+        
+        pauseStartTimeRef.current = performance.now(); // Record when auto-pause starts
+
         if (playbackRequestRef.current) {
           cancelAnimationFrame(playbackRequestRef.current);
           playbackRequestRef.current = null;
@@ -1535,15 +1708,26 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
         setHitCount(hitNoteIdsRef.current.size); // Use setter for state update
     }
 
-    // Reset accumulated wait time on seek
-    setTotalWaitTimeMs(0);
-    accumulatedWaitTimeRef.current = 0;
-    waitStartTimeRef.current = null;
+    // In practice modes, don't reset performance metrics on seek.
+    if (waitMode !== 'strict' && waitMode !== 'lenient') {
+        // Reset accumulated wait time on seek
+        setTotalWaitTimeMs(0);
+        accumulatedWaitTimeRef.current = 0;
+        waitStartTimeRef.current = null;
+        
+        // Reset pause time on seek as well
+        accumulatedPauseTimeRef.current = 0;
+        pauseStartTimeRef.current = null;
+    
+        playerInputTimesRef.current = [];
+        firstInputRealTimeRef.current = null;
+        lastInputRealTimeRef.current = null;
+        setPerformanceSummary(null);
 
-    playerInputTimesRef.current = [];
-    firstInputRealTimeRef.current = null;
-    lastInputRealTimeRef.current = null;
-    setPerformanceSummary(null);
+        gameRealStartTimeRef.current = null;
+        setLiveSpeed(100);
+    }
+    
     lastPlayerInputRealTimeRef.current = performance.now();
 
     pausedMusicalTimeRef.current = clampedTime;
@@ -1573,6 +1757,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
       }
     }
     setMetronomeBeat(null);
+    lastMetronomeVisualBeatRef.current = null;
   }, [notesForGame, totalDurationWithEndDelayMs, clearScheduledNotes, metronomeMode, scheduleMetronomeSounds, clearScheduledMetronomeSounds, setHitCount, updateNotesCurrentlyWaitingFor, waitMode, setErrorCount, setMusicalCurrentTimeMs]);
 
   const processKeyPressInWaitMode = useCallback((midiNote: number) => {
@@ -1710,10 +1895,10 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
   const handleUiKeyPress = useCallback((keyName: string, midiNote: number) => {
     setUserSustainedKeys(prev => new Set(prev).add(keyName));
     startSustainedSound(keyName, midiNote);
-    if (isPlayingRef.current) {
+    if (isPlayingRef.current && !isFreePlayMode) {
       processKeyPressInWaitMode(midiNote);
     }
-  }, [isPlayingRef, processKeyPressInWaitMode, startSustainedSound]);
+  }, [isPlayingRef, processKeyPressInWaitMode, startSustainedSound, isFreePlayMode]);
 
   const handleUiKeyRelease = useCallback((keyName: string, midiNote: number) => {
     setUserSustainedKeys(prev => {
@@ -1755,6 +1940,10 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     setTotalWaitTimeMs(0);
     accumulatedWaitTimeRef.current = 0;
     waitStartTimeRef.current = null;
+    
+    // Reset pause time counters
+    accumulatedPauseTimeRef.current = 0;
+    pauseStartTimeRef.current = null;
 
     if (!file) { // Handle null file case
         setIsLoadingFile(false);
@@ -1869,9 +2058,11 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
 
       if (command === 144 && velocity > 0) {
           setUserActiveKeys(prev => new Set(prev).add(keyName));
+          // NEW: Add key to userSustainedKeys for chord detection in free play
+          setUserSustainedKeys(prev => new Set(prev).add(keyName)); 
           startSustainedSound(keyName, note, velocity / 127);
           
-          if (isPlayingRef.current) {
+          if (isPlayingRef.current && !isFreePlayMode) {
             processKeyPressInWaitMode(note);
           }
       } else if (command === 128 || (command === 144 && velocity === 0)) {
@@ -1880,9 +2071,15 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
               newSet.delete(keyName);
               return newSet;
           });
+          // NEW: Remove key from userSustainedKeys for chord detection in free play
+          setUserSustainedKeys(prev => {
+              const newSet = new Set(prev);
+              newSet.delete(keyName);
+              return newSet;
+          });
           stopSustainedSound(keyName, note);
       }
-  }, [midiNoteToNameMap, startSustainedSound, stopSustainedSound, processKeyPressInWaitMode, isPlayingRef]);
+  }, [midiNoteToNameMap, startSustainedSound, stopSustainedSound, processKeyPressInWaitMode, isPlayingRef, isFreePlayMode]);
 
   const connectMidi = useCallback(async () => {
     if (!navigator.requestMIDIAccess) {
@@ -1933,6 +2130,8 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
 
   const activeMidiNotesInfoForKeyboard = useMemo(() => {
     const notePerKey = new Map<string, ActiveMidiNoteInfo>();
+    if (isFreePlayMode) return notePerKey;
+
     const now = musicalCurrentTimeMs;
     
     // Priority 1: Always show keys that the user has correctly played in the current context.
@@ -1948,7 +2147,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     // at the current musical time. This simulates the "autoplay" behavior on the keyboard, even when paused.
     for (const note of notesForGame) {
         // Check if the note should be active at the current time
-        if (now >= note.timeMs && now < (note.timeMs + note.durationMs)) {
+        if (now >= note.timeMs && now < (note.timeMs + Math.min(note.durationMs, VISUAL_NOTE_CAP_MS))) {
             // If this key isn't already highlighted by the user, add the system highlight.
             if (!notePerKey.has(note.name)) {
                 // Find the original status to maintain color (e.g., 'waiting' color)
@@ -1971,7 +2170,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
     }
     
     return notePerKey;
-  }, [activePlaybackNotesInfo, musicalCurrentTimeMs, notesForGame]);
+  }, [activePlaybackNotesInfo, musicalCurrentTimeMs, notesForGame, isFreePlayMode]);
 
   const handleClosePerformanceSummary = useCallback(() => {
     setPerformanceSummary(null);
@@ -2010,46 +2209,108 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
 
   // --- QWERTY Keyboard Handling ---
   const handleQwertyKeyDown = useCallback((event: KeyboardEvent) => {
-    const code = event.code.toLowerCase();
-    if (qwertyActiveKeysRef.current.has(code) || event.repeat) return;
+    // Prevent default handling for certain keys to stop scrolling or other browser actions
+    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) {
+        if (event.target === document.body) {
+            event.preventDefault();
+        }
+    }
+
+    const code = event.code;
+    const lowerCode = code.toLowerCase();
+    
+    // Check repeating
+    if (event.repeat) return;
+
+    // Handle MIRP Layout Logic
+    if (qwertyLayout === 'mirp') {
+      // MIRP Transpose Logic
+      if (lowerCode === 'arrowup') {
+        setMirpTranspose(prev => prev + 1);
+        return;
+      }
+      if (lowerCode === 'arrowdown') {
+        setMirpTranspose(prev => prev - 1);
+        return;
+      }
+
+      // Note Playing Logic
+      const entry = MIRP_KEYBOARD_MAPPING.find(
+        m => m.code === code && m.shift === event.shiftKey
+      );
+
+      if (entry) {
+        const midiNote = entry.midi + mirpTranspose;
+        const keyDef = midiNoteToKeyDefMap.get(midiNote);
+        
+        // Track active note to handle keyup correctly
+        // Store mapping: Physical Code -> Played MIDI Note
+        activeMirpNotesRef.current.set(code, midiNote);
+        
+        if (keyDef) {
+          handleUiKeyPress(keyDef.name, keyDef.midiNote);
+        }
+      }
+      return; // Exit MIRP logic
+    }
+
+    // Handle Default Layout Logic
+    if (qwertyActiveKeysRef.current.has(lowerCode)) return;
     
     // Octave Shift
-    if (OCTAVE_DOWN_KEYS.includes(code)) {
+    if (OCTAVE_DOWN_KEYS.includes(lowerCode)) {
       setQwertyCurrentOctaveShift(prev => Math.max(MIN_QWERTY_OCTAVE_SHIFT, prev - 1));
-      qwertyActiveKeysRef.current.add(code);
+      qwertyActiveKeysRef.current.add(lowerCode);
       return;
     }
-    if (OCTAVE_UP_KEYS.includes(code)) {
+    if (OCTAVE_UP_KEYS.includes(lowerCode)) {
       setQwertyCurrentOctaveShift(prev => Math.min(MAX_QWERTY_OCTAVE_SHIFT, prev + 1));
-      qwertyActiveKeysRef.current.add(code);
+      qwertyActiveKeysRef.current.add(lowerCode);
       return;
     }
     
     // Note Playing
-    const mapping = QWERTY_MINI_KEYBOARD_MAPPING.find(m => m.qwertyKey === code);
+    const mapping = QWERTY_MINI_KEYBOARD_MAPPING.find(m => m.qwertyKey === lowerCode);
     if (mapping) {
       const midiNote = mapping.midiBase + (qwertyCurrentOctaveShift * 12);
       const keyDef = midiNoteToKeyDefMap.get(midiNote);
       if (keyDef) {
-        qwertyActiveKeysRef.current.add(code);
+        qwertyActiveKeysRef.current.add(lowerCode);
         handleUiKeyPress(keyDef.name, keyDef.midiNote);
       }
     }
-  }, [qwertyCurrentOctaveShift, midiNoteToKeyDefMap, handleUiKeyPress]);
+  }, [qwertyLayout, mirpTranspose, qwertyCurrentOctaveShift, midiNoteToKeyDefMap, handleUiKeyPress]);
   
   const handleQwertyKeyUp = useCallback((event: KeyboardEvent) => {
-    const code = event.code.toLowerCase();
+    const code = event.code;
+    const lowerCode = code.toLowerCase();
     
-    if (qwertyActiveKeysRef.current.has(code)) {
-        qwertyActiveKeysRef.current.delete(code);
+    // Handle MIRP Layout Logic
+    if (qwertyLayout === 'mirp') {
+      // Retrieve the note triggered by this physical key
+      const triggeredMidi = activeMirpNotesRef.current.get(code);
+      
+      if (triggeredMidi !== undefined) {
+        const keyDef = midiNoteToKeyDefMap.get(triggeredMidi);
+        if (keyDef) {
+          handleUiKeyRelease(keyDef.name, keyDef.midiNote);
+        }
+        activeMirpNotesRef.current.delete(code);
+      }
+      return;
+    }
+
+    // Handle Default Layout Logic
+    if (qwertyActiveKeysRef.current.has(lowerCode)) {
+        qwertyActiveKeysRef.current.delete(lowerCode);
     }
     
     // Octave keys don't play notes, so just return
-    if (OCTAVE_DOWN_KEYS.includes(code) || OCTAVE_UP_KEYS.includes(code)) {
+    if (OCTAVE_DOWN_KEYS.includes(lowerCode) || OCTAVE_UP_KEYS.includes(lowerCode)) {
       return;
     }
     
-    const mapping = QWERTY_MINI_KEYBOARD_MAPPING.find(m => m.qwertyKey === code);
+    const mapping = QWERTY_MINI_KEYBOARD_MAPPING.find(m => m.qwertyKey === lowerCode);
     if (mapping) {
       const midiNote = mapping.midiBase + (qwertyCurrentOctaveShift * 12);
       const keyDef = midiNoteToKeyDefMap.get(midiNote);
@@ -2057,7 +2318,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
         handleUiKeyRelease(keyDef.name, keyDef.midiNote);
       }
     }
-  }, [qwertyCurrentOctaveShift, midiNoteToKeyDefMap, handleUiKeyRelease]);
+  }, [qwertyLayout, qwertyCurrentOctaveShift, midiNoteToKeyDefMap, handleUiKeyRelease]);
 
   useEffect(() => {
     if (currentScreen === 'inGame') {
@@ -2112,6 +2373,12 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
   const onPianoRangeModeChange = useCallback((mode: 'full' | '61-key' | '37-key' | '25-key' | 'custom') => setPianoRangeMode(mode), []);
   const onCustomStartNoteChange = useCallback((note: string) => setCustomStartNote(note), []);
   const onCustomEndNoteChange = useCallback((note: string) => setCustomEndNote(note), []);
+  // NEW: Callback for layout change
+  const onQwertyLayoutChange = useCallback((layout: QwertyLayout) => setQwertyLayout(layout), []);
+  // NEW: Callback for Piano Tiles Background change
+  const onShowPianoTilesBackgroundChange = useCallback((value: boolean) => setShowPianoTilesBackground(value), []);
+  // NEW: Callback for metronome offset change
+  const onMetronomeOffsetChange = useCallback((offset: number) => setMetronomeOffsetMs(offset), []);
 
 
   const pixelsPerMillisecond = useMemo(() => {
@@ -2120,6 +2387,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
   
   const handleExitGame = () => {
     handleStopPlayback();
+    setIsFreePlayMode(false);
     setGameSettings(null);
     setCurrentScreen('songSelection');
   };
@@ -2213,13 +2481,13 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
         setIsLoadingContent(false);
         // Force auto-play on game start for all modes.
         isUserPausedRef.current = false;
-        if (document.hasFocus()) {
+        if (document.hasFocus() && !isFreePlayMode) {
             handlePlay();
         }
       }, 500); // Small delay to allow UI to settle
       return () => clearTimeout(timer);
     }
-  }, [currentScreen, isLoadingContent, handlePlay]);
+  }, [currentScreen, isLoadingContent, handlePlay, isFreePlayMode]);
 
   // Save or update best score to Supabase after game completion
   useEffect(() => {
@@ -2275,6 +2543,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
               total_notes: performanceSummary.totalNoteCount,
               mode: 'retical', // Mode is 'retical' as per the condition
               tempo_multiplier: performanceSummary.playbackTempoMultiplier,
+              total_wait_time_ms: performanceSummary.totalWaitTimeMs,
             };
 
             const { error: insertError } = await supabase
@@ -2302,13 +2571,65 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
       setCurrentScreen('songSelection');
   }, []);
 
+  // NEW: Chord detection logic for Free Play mode
+  useEffect(() => {
+    if (!isFreePlayMode) {
+      setDetectedChord(null);
+      return;
+    }
 
-  // Destructure hand colors from themeSettings
+    if (chordDetectionTimeoutRef.current) {
+      clearTimeout(chordDetectionTimeoutRef.current);
+    }
+
+    chordDetectionTimeoutRef.current = window.setTimeout(() => {
+      const sustainedMidiNotes = Array.from(userSustainedKeys)
+        .map(keyName => noteNameToKeyDefMap.get(keyName)?.midiNote)
+        .filter((midi): midi is number => midi !== undefined);
+
+      if (sustainedMidiNotes.length < 2) {
+        setDetectedChord(null);
+        return;
+      }
+
+      const pitchClasses = [...new Set(sustainedMidiNotes.map(midi => midi % 12))].sort((a, b) => a - b);
+      
+      if (pitchClasses.length < 2 && sustainedMidiNotes.length >= 2) {
+        setDetectedChord(null);
+        return;
+      }
+
+      let bestMatch: { root: number, name: string } | null = null;
+
+      for (const root of pitchClasses) {
+        const intervals = pitchClasses.map(pc => (pc - root + 12) % 12).sort((a, b) => a - b);
+        const intervalString = intervals.join(',');
+
+        const matchedFormula = CHORD_FORMULAS[intervalString];
+        if (matchedFormula) {
+          const rootName = PITCH_CLASS_TO_NAME[root];
+          bestMatch = { root, name: `${rootName}${matchedFormula.name}` };
+          break; // Found the first match (based on lowest root), so we can stop.
+        }
+      }
+      
+      setDetectedChord(bestMatch ? bestMatch.name : null);
+
+    }, 100); // 100ms debounce
+
+    return () => {
+      if (chordDetectionTimeoutRef.current) {
+        clearTimeout(chordDetectionTimeoutRef.current);
+      }
+    };
+  }, [userSustainedKeys, isFreePlayMode, noteNameToKeyDefMap]);
+
+
   const { rightHandColor, leftHandColor } = themeSettings;
 
   // Main render logic
   return (
-      <div ref={appRootRef} onClick={handleGlobalUiClick} className="bg-slate-900 text-white min-h-screen flex flex-col font-sans">
+      <div ref={appRootRef} onClick={handleGlobalUiClick} className="text-white min-h-screen flex flex-col font-sans">
         {currentScreen !== 'inGame' && <AdBanner />}
         {currentScreen === 'mainMenu' && (
           <MainMenu 
@@ -2341,6 +2662,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
                 isLoading={isLoadingFile || isPreloading}
                 selectedOnlineSongIdForNavigation={selectedOnlineSongIdForNavigation}
                 onGoToOnlineSong={handleGoToOnlineSongSelection}
+                onStartFreePlay={handleStartFreePlay}
             />
         )}
         
@@ -2374,8 +2696,6 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
                 onViewModeChange={onViewModeChange}
                 noteLabelType={noteLabelType}
                 onNoteLabelTypeChange={onNoteLabelTypeChange}
-                // showOnlyMajorRests={showOnlyMajorRests} // REMOVED
-                // onShowOnlyMajorRestsChange={onShowOnlyMajorRestsChange} // REMOVED
                 showOnlyMajorNotes={showOnlyMajorNotes}
                 onShowOnlyMajorNotesChange={onShowOnlyMajorNotesChange}
                 showQwertyShortcuts={showQwertyShortcuts}
@@ -2388,6 +2708,8 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
                 onMasterVolumeChange={onMasterVolumeChange}
                 metronomeVolume={metronomeVolume}
                 onMetronomeVolumeChange={onMetronomeVolumeChange}
+                metronomeOffsetMs={metronomeOffsetMs} // NEW: Pass metronome offset
+                onMetronomeOffsetChange={onMetronomeOffsetChange} // NEW: Pass metronome offset handler
                 themeSettings={themeSettings}
                 onThemeSettingsChange={onThemeSettingsChange}
                 devicePreset={devicePreset}
@@ -2406,6 +2728,12 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
                 onCustomStartNoteChange={onCustomStartNoteChange}
                 customEndNote={customEndNote}
                 onCustomEndNoteChange={onCustomEndNoteChange}
+                // NEW: Layout Props
+                qwertyLayout={qwertyLayout}
+                onQwertyLayoutChange={onQwertyLayoutChange}
+                // NEW: Show Piano Tiles Background Prop
+                showPianoTilesBackground={showPianoTilesBackground}
+                onShowPianoTilesBackgroundChange={onShowPianoTilesBackgroundChange}
             />
         )}
 
@@ -2428,10 +2756,16 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
                   fileName={currentFileName}
                   waitMode={waitMode}
                   metronomeMode={metronomeMode}
-                  onCycleMetronomeMode={() => setMetronomeMode(prev => prev === 'off' ? 'bar' : 'off')}
+                  onCycleMetronomeMode={() => setMetronomeMode(prev => {
+                    if (prev === 'off') return 'beat';
+                    if (prev === 'beat') return 'bar';
+                    return 'off';
+                  })}
                   isMetronomeAvailable={isMetronomeAvailable}
                   hitCount={hitCount}
                   errorCount={errorCount}
+                  liveAccuracy={liveAccuracy}
+                  liveSpeed={liveSpeed}
                   totalNoteCount={totalNoteCountForGame}
                   currentTimeMs={effectiveCurrentTimeMs}
                   totalDurationMs={effectiveTotalMusicalDurationMs}
@@ -2443,6 +2777,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
                   analysisResult={analysisResult}
                   metronomeBeat={metronomeBeat}
                   totalWaitTimeMs={totalWaitTimeMs}
+                  isFreePlayMode={isFreePlayMode}
               />
             </div>
             
@@ -2466,12 +2801,14 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
                   </div>
                 ) : (
                   <>
-                    <BarNavigationControls
-                      onNavigate={handleBarNavigation}
-                      isFileLoaded={notesForGame.length > 0}
-                      waitMode={waitMode}
-                      hideControls={hideBarNavigationButtons}
-                    />
+                    {!isFreePlayMode && (
+                      <BarNavigationControls
+                        onNavigate={handleBarNavigation}
+                        isFileLoaded={notesForGame.length > 0}
+                        waitMode={waitMode}
+                        hideControls={hideBarNavigationButtons}
+                      />
+                    )}
 
                     {/* NEW: Single wrapper for all horizontally transformed content */}
                     <div
@@ -2482,7 +2819,9 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
                       }}
                     >
                       <div className="relative flex-grow w-full">
-                        {viewMode === 'falling' ? (
+                        {isFreePlayMode ? (
+                          <ChordDisplay chord={detectedChord} />
+                        ) : viewMode === 'falling' ? (
                           <FallingNotesArea
                             notes={notesForGame}
                             currentTimeMs={musicalCurrentTimeMs}
@@ -2497,8 +2836,13 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
                             leftHandColor={themeSettings.leftHandColor}
                             backgroundColor={themeSettings.fallingNotesBackgroundColor}
                             activeKeySignature={effectiveKeySignature}
-                            showOnlyMajorNotes={showOnlyMajorNotes}
                             activeTempoBpm={activeTempoBpm}
+                            showOnlyMajorNotes={showOnlyMajorNotes}
+                            showPianoTilesBackground={showPianoTilesBackground} // Pass new prop
+                            // NEW: Pass keyboard state for QWERTY labels
+                            qwertyLayout={qwertyLayout}
+                            qwertyCurrentOctaveShift={qwertyCurrentOctaveShift}
+                            mirpTranspose={mirpTranspose}
                           />
                         ) : (
                           <VexFlowSheetMusicView
@@ -2519,14 +2863,14 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
                             rightHandColor={themeSettings.rightHandColor}
                             leftHandColor={themeSettings.leftHandColor}
                             signatureEvents={signatureEvents}
-                            showOnlyMajorRests={DEFAULT_SHOW_ONLY_MAJOR_RESTS}
+                            showOnlyMajorRests={true}
                             tempoEvents={tempoEvents}
                             playbackTempoMultiplier={playbackTempoMultiplier}
                           />
                         )}
                       </div>
                       
-                      {notesForGame.length > 0 && (
+                      {!isFreePlayMode && notesForGame.length > 0 && (
                         <div className="w-full">
                           <ProgressBar
                             currentTimeMs={musicalCurrentTimeMs}
@@ -2557,9 +2901,12 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
                           rightHandColor={rightHandColor}
                           leftHandColor={leftHandColor}
                           showQwertyShortcuts={showQwertyShortcuts}
-                          qwertyCurrentOctaveShift={qwertyCurrentOctaveShift}
+                          qwertyCurrentOctaveShift={qwertyLayout === 'mirp' ? 0 : qwertyCurrentOctaveShift} // MIRP ignores standard octave shift
                           width={baseCalculatedPianoWidth}
                           layoutConfig={layoutConfig}
+                          // NEW: Props for layout handling
+                          qwertyLayout={qwertyLayout}
+                          mirpTranspose={mirpTranspose}
                         />
                       </div>
                     </div>
@@ -2579,7 +2926,7 @@ const AppContent: React.FC = () => { // Renamed App to AppContent to use useAuth
         <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
         <AccountModal 
           isOpen={isAccountModalOpen} 
-          onClose={() => setIsAccountModalOpen(false)} 
+          onClose={() => setIsAccountModalOpen(false)}
           onGoToOnlineSong={handleGoToOnlineSongSelection}
         />
       </div>

@@ -1,4 +1,4 @@
-import { PianoKeyDefinition, PianoKeyType, QwertyKeyMapEntry, ViewMode, NoteLabelType, ThemeSettings, DevicePreset, LayoutDimensions } from './types';
+import { PianoKeyDefinition, PianoKeyType, QwertyKeyMapEntry, ViewMode, NoteLabelType, ThemeSettings, DevicePreset, LayoutDimensions, MirpKeyMapEntry } from './types';
 
 // Admin UUID - IMPORTANT: Replace with the actual UUID of your admin user in Supabase
 // You can find your user's UUID in the Supabase Auth -> Users table.
@@ -66,7 +66,7 @@ const getScaledWhiteKeyWidth = (totalKeys: number, baseWidth88: number): number 
 export const DEVICE_LAYOUTS = (totalKeys: number): Record<DevicePreset, LayoutDimensions> => {
   const whiteWidthDesktop = getScaledWhiteKeyWidth(totalKeys, 24.5);
   const whiteWidthTablet = getScaledWhiteKeyWidth(totalKeys, 19.5);
-  const whiteWidthPhone = getScaledWhiteKeyWidth(totalKeys, 14.5);
+  const whiteWidthPhone = getScaledWhiteKeyWidth(totalKeys, 7.5);
 
   return {
     desktop: {
@@ -76,15 +76,15 @@ export const DEVICE_LAYOUTS = (totalKeys: number): Record<DevicePreset, LayoutDi
       minWhiteKeyWidth: whiteWidthDesktop,
     },
     tablet: {
-      whiteKeyHeight: 170,
-      blackKeyHeight: 110,
-      keyLabelHeight: 95,
+      whiteKeyHeight: 150,
+      blackKeyHeight: 100,
+      keyLabelHeight: 100,
       minWhiteKeyWidth: whiteWidthTablet,
     },
     phone: {
-      whiteKeyHeight: 100,
-      blackKeyHeight: 65,
-      keyLabelHeight: 95,
+      whiteKeyHeight: 90,
+      blackKeyHeight: 50,
+      keyLabelHeight: 100,
       minWhiteKeyWidth: whiteWidthPhone,
     },
     custom: { // Provide a default calculation for custom, which can be overridden by user state.
@@ -102,6 +102,7 @@ export const ACTIVE_KEY_HIGHLIGHT_DURATION_MS = 200;
 
 // --- Falling Notes Constants ---
 export const BASE_PIXELS_PER_MILLISECOND = 0.15; // Base speed, will be multiplied by zoomLevel
+export const VISUAL_NOTE_CAP_MS = 200; // Cap duration for visual "major note" style
 // VIEWABLE_DURATION_MS is calculated in FallingNotesArea.tsx based on its actual height & actual PPM
 // --- End Falling Notes Constants ---
 
@@ -202,6 +203,83 @@ export const QWERTY_MINI_KEYBOARD_MAPPING: QwertyKeyMapEntry[] = [
   { qwertyKey: 'enter', midiBase: 84 },       // C6
 ];
 
+// NEW: MIRP QWERTY Layout Mapping (C2 - C7)
+// Uses `code` instead of `key` to be layout-independent, but checks `shift` state.
+export const MIRP_KEYBOARD_MAPPING: MirpKeyMapEntry[] = [
+  // C2 - B2
+  { code: 'Digit1', shift: false, midi: 36, label: '1' },
+  { code: 'Digit1', shift: true, midi: 37, label: '!' },
+  { code: 'Digit2', shift: false, midi: 38, label: '2' },
+  { code: 'Digit2', shift: true, midi: 39, label: '@' },
+  { code: 'Digit3', shift: false, midi: 40, label: '3' },
+  { code: 'Digit4', shift: false, midi: 41, label: '4' },
+  { code: 'Digit4', shift: true, midi: 42, label: '$' },
+  { code: 'Digit5', shift: false, midi: 43, label: '5' },
+  { code: 'Digit5', shift: true, midi: 44, label: '%' },
+  { code: 'Digit6', shift: false, midi: 45, label: '6' },
+  { code: 'Digit6', shift: true, midi: 46, label: '^' },
+  { code: 'Digit7', shift: false, midi: 47, label: '7' },
+
+  // C3 - B3
+  { code: 'Digit8', shift: false, midi: 48, label: '8' },
+  { code: 'Digit8', shift: true, midi: 49, label: '*' },
+  { code: 'Digit9', shift: false, midi: 50, label: '9' },
+  { code: 'Digit9', shift: true, midi: 51, label: '(' },
+  { code: 'Digit0', shift: false, midi: 52, label: '0' },
+  { code: 'KeyQ', shift: false, midi: 53, label: 'q' },
+  { code: 'KeyQ', shift: true, midi: 54, label: 'Q' },
+  { code: 'KeyW', shift: false, midi: 55, label: 'w' },
+  { code: 'KeyW', shift: true, midi: 56, label: 'W' },
+  { code: 'KeyE', shift: false, midi: 57, label: 'e' },
+  { code: 'KeyE', shift: true, midi: 58, label: 'E' },
+  { code: 'KeyR', shift: false, midi: 59, label: 'r' },
+
+  // C4 - B4
+  { code: 'KeyT', shift: false, midi: 60, label: 't' },
+  { code: 'KeyT', shift: true, midi: 61, label: 'T' },
+  { code: 'KeyY', shift: false, midi: 62, label: 'y' },
+  { code: 'KeyY', shift: true, midi: 63, label: 'Y' },
+  { code: 'KeyU', shift: false, midi: 64, label: 'u' },
+  { code: 'KeyI', shift: false, midi: 65, label: 'i' },
+  { code: 'KeyI', shift: true, midi: 66, label: 'I' },
+  { code: 'KeyO', shift: false, midi: 67, label: 'o' },
+  { code: 'KeyO', shift: true, midi: 68, label: 'O' },
+  { code: 'KeyP', shift: false, midi: 69, label: 'p' },
+  { code: 'KeyP', shift: true, midi: 70, label: 'P' },
+  { code: 'KeyA', shift: false, midi: 71, label: 'a' },
+
+  // C5 - B5
+  { code: 'KeyS', shift: false, midi: 72, label: 's' },
+  { code: 'KeyS', shift: true, midi: 73, label: 'S' },
+  { code: 'KeyD', shift: false, midi: 74, label: 'd' },
+  { code: 'KeyD', shift: true, midi: 75, label: 'D' },
+  { code: 'KeyF', shift: false, midi: 76, label: 'f' },
+  { code: 'KeyG', shift: false, midi: 77, label: 'g' },
+  { code: 'KeyG', shift: true, midi: 78, label: 'G' },
+  { code: 'KeyH', shift: false, midi: 79, label: 'h' },
+  { code: 'KeyH', shift: true, midi: 80, label: 'H' },
+  { code: 'KeyJ', shift: false, midi: 81, label: 'j' },
+  { code: 'KeyJ', shift: true, midi: 82, label: 'J' },
+  { code: 'KeyK', shift: false, midi: 83, label: 'k' },
+
+  // C6 - B6
+  { code: 'KeyL', shift: false, midi: 84, label: 'l' },
+  { code: 'KeyL', shift: true, midi: 85, label: 'L' },
+  { code: 'KeyZ', shift: false, midi: 86, label: 'z' },
+  { code: 'KeyZ', shift: true, midi: 87, label: 'Z' },
+  { code: 'KeyX', shift: false, midi: 88, label: 'x' },
+  { code: 'KeyC', shift: false, midi: 89, label: 'c' },
+  { code: 'KeyC', shift: true, midi: 90, label: 'C' },
+  { code: 'KeyV', shift: false, midi: 91, label: 'v' },
+  { code: 'KeyV', shift: true, midi: 92, label: 'V' },
+  { code: 'KeyB', shift: false, midi: 93, label: 'b' },
+  { code: 'KeyB', shift: true, midi: 94, label: 'B' },
+  { code: 'KeyN', shift: false, midi: 95, label: 'n' },
+
+  // C7
+  { code: 'KeyM', shift: false, midi: 96, label: 'm' },
+];
+
 export const OCTAVE_DOWN_KEYS = ['arrowdown'];
 export const OCTAVE_UP_KEYS = ['arrowup'];
 
@@ -218,15 +296,23 @@ export const MAX_QWERTY_OCTAVE_SHIFT = 2;
 export const DEFAULT_MASTER_VOLUME = 0.5;
 export const DEFAULT_METRONOME_VOLUME = 0.5;
 export const DEFAULT_VIEW_MODE: ViewMode = 'falling';
-export const DEFAULT_NOTE_LABEL_TYPE: NoteLabelType = 'none';
-export const DEFAULT_SHOW_ONLY_MAJOR_RESTS = true; // Changed to true
+export const DEFAULT_NOTE_LABEL_TYPE: NoteLabelType = 'qwerty'; // Updated to 'qwerty'
 export const DEFAULT_SHOW_ONLY_MAJOR_NOTES = false;
 export const DEFAULT_SHOW_QWERTY_SHORTCUTS = true;
 export const DEFAULT_HIDE_BAR_NAVIGATION_BUTTONS = true;
 export const DEFAULT_AUTO_HIDE_TOP_BAR = false;
+export const DEFAULT_SHOW_PIANO_TILES_BACKGROUND = false; // New Default
 export const DEFAULT_THEME_SETTINGS: ThemeSettings = {
   rightHandColor: '#A855F7', // purple-500
   leftHandColor: '#3B82F6',  // blue-500
   fallingNotesBackgroundColor: '#000000',
 };
 // --- End Default Settings Constants ---
+
+// --- Key Code Display Mapping ---
+export const KEY_CODES_TO_DISPLAY: { [key: string]: string } = {
+  'tab': '⇥', 'digit1': '1', 'keyq': 'Q', 'digit2': '2', 'keyw': 'W', 'keye': 'E', 'digit4': '4', 'keyr': 'R', 'digit5': '5', 'keyt': 'T', 'digit6': '6', 'keyy': 'Y',
+  'keyu': 'U', 'digit8': '8', 'keyi': 'I', 'digit9': '9', 'keyo': 'O', 'keyp': 'P', 'minus': '-', 'bracketleft': '[', 'equal': '=', 'bracketright': ']', 'backspace': '⌫', 'backslash': '\\', 'enter': '⏎',
+  'shiftleft': 'L ⇧', 'keya': 'A', 'keyz': 'Z', 'keys': 'S', 'keyx': 'X', 'keyc': 'C', 'keyf': 'F', 'keyv': 'V', 'keyg': 'G', 'keyb': 'B', 'keyh': 'H', 'keyn': 'N',
+  'keym': 'M', 'keyk': 'K', 'comma': ',', 'keyl': 'L', 'period': '.', 'slash': '/', 'quote': "'", 'shiftright': 'R ⇧',
+};

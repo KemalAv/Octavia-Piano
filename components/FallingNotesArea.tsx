@@ -1,7 +1,9 @@
+
+
 import React from 'react';
-import { MidiNotePlaybackItem, KeyPosition, ActiveMidiNoteInfo, NoteLabelType } from '../types';
+import { MidiNotePlaybackItem, KeyPosition, ActiveMidiNoteInfo, NoteLabelType, QwertyLayout } from '../types';
 import Note from './Note';
-import { PLAY_LINE_THICKNESS_PX } from '../constants';
+import { PLAY_LINE_THICKNESS_PX, VISUAL_NOTE_CAP_MS } from '../constants';
 
 interface FallingNotesAreaProps {
   notes: MidiNotePlaybackItem[];
@@ -17,8 +19,13 @@ interface FallingNotesAreaProps {
   leftHandColor: string;
   backgroundColor: string;
   activeKeySignature: string; // NEW: Added activeKeySignature prop
-  showOnlyMajorNotes: boolean; // NEW: Added showOnlyMajorNotes prop
   activeTempoBpm: number; // NEW: For displaying current BPM
+  showOnlyMajorNotes: boolean;
+  showPianoTilesBackground: boolean; // NEW: Show Piano Tiles Background Prop
+  // NEW: Props for QWERTY labels
+  qwertyLayout?: QwertyLayout;
+  qwertyCurrentOctaveShift?: number;
+  mirpTranspose?: number;
 }
 
 export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
@@ -35,8 +42,12 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
   leftHandColor,
   backgroundColor,
   activeKeySignature, // Destructure the new prop
-  showOnlyMajorNotes, // Destructure the new prop
   activeTempoBpm,
+  showOnlyMajorNotes,
+  showPianoTilesBackground,
+  qwertyLayout = 'default',
+  qwertyCurrentOctaveShift = 0,
+  mirpTranspose = 0,
 }) => {
 
   const VIEWABLE_DURATION_MS = actualHeight > 0 && pixelsPerMillisecond > 0
@@ -45,10 +56,45 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
 
   const visibleNotes = notes.filter(note => {
     if (actualHeight <=0 || pixelsPerMillisecond <= 0) return false;
+    const duration = showOnlyMajorNotes ? Math.min(note.durationMs, VISUAL_NOTE_CAP_MS) : note.durationMs;
     const noteStartTimeVisible = note.timeMs < currentTimeMs + VIEWABLE_DURATION_MS;
-    const noteEndTimeVisible = note.timeMs + note.durationMs > currentTimeMs;
+    const noteEndTimeVisible = note.timeMs + duration > currentTimeMs;
     return noteStartTimeVisible && noteEndTimeVisible;
   });
+
+  // NEW: Piano Tiles Background Rendering
+  const pianoTilesBackground = React.useMemo(() => {
+    if (!showPianoTilesBackground || actualHeight <= 0) return null;
+    const whiteTiles: React.JSX.Element[] = [];
+    const blackTiles: React.JSX.Element[] = [];
+
+    keyPositions.forEach((kp) => {
+        const style: React.CSSProperties = {
+            left: `${kp.x}px`,
+            width: `${kp.width}px`,
+            height: '100%',
+            backgroundColor: kp.type === 'white' 
+                ? 'rgba(255, 255, 255, 0.05)' // Subtle grid
+                : 'rgba(0, 0, 0, 0.2)',     // Darker tracks for black keys
+            zIndex: kp.type === 'white' ? 0 : 1
+        };
+        const tile = <div key={`bg-tile-${kp.name}`} className="absolute top-0 border-r border-white/5" style={style} />;
+        
+        if (kp.type === 'white') {
+            whiteTiles.push(tile);
+        } else {
+            blackTiles.push(tile);
+        }
+    });
+
+    return (
+        <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
+            {whiteTiles}
+            {blackTiles}
+        </div>
+    );
+  }, [keyPositions, actualHeight, showPianoTilesBackground]);
+
 
   const whiteKeyGridLines = React.useMemo(() => {
     if (actualHeight <= 0) return null;
@@ -58,8 +104,8 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
         lines.push(
           <div
             key={`grid-line-start-${keyPos.name}`}
-            className="absolute top-0 bottom-0 w-px bg-slate-700 opacity-60"
-            style={{ left: `${keyPos.x}px` }}
+            className="absolute top-0 bottom-0 w-px bg-white opacity-10"
+            style={{ left: `${keyPos.x}px`, zIndex: 2 }} 
           />
         );
       }
@@ -68,8 +114,8 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
        lines.push(
           <div
             key={`grid-line-end`}
-            className="absolute top-0 bottom-0 w-px bg-slate-700 opacity-60"
-            style={{ left: `${width -1}px` }}
+            className="absolute top-0 bottom-0 w-px bg-white opacity-10"
+            style={{ left: `${width -1}px`, zIndex: 2 }}
           />
         );
     }
@@ -88,8 +134,8 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
         return (
           <div
             key={`bar-line-${barTimeMs}`}
-            className="absolute left-0 w-full border-t border-dashed border-slate-600 opacity-75"
-            style={{ top: `${yPositionPx}px` }}
+            className="absolute left-0 w-full border-t border-slate-500 opacity-50 shadow-[0_0_5px_rgba(255,255,255,0.3)]"
+            style={{ top: `${yPositionPx}px`, zIndex: 5 }} // Ensure bar lines are visible
             aria-hidden="true"
           />
         );
@@ -100,32 +146,33 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
   if (actualHeight <= 0 || pixelsPerMillisecond <= 0) {
     return (
         <div
-            className="relative shadow-inner overflow-hidden no-select"
+            className="relative shadow-2xl overflow-hidden no-select"
             style={{ width: `${width}px`, height: `${actualHeight}px`, margin: '0 auto', backgroundColor: backgroundColor }}
             aria-hidden="true"
         >
              <div
-                className="absolute bottom-0 left-0 w-full bg-sky-300 opacity-75"
-                style={{ height: `${PLAY_LINE_THICKNESS_PX}px` }}
+                className="absolute bottom-0 left-0 w-full"
+                style={{ height: `${PLAY_LINE_THICKNESS_PX * 2}px`, backgroundColor: 'rgba(34,211,238,0.2)' }}
             ></div>
         </div>
     );
   }
 
-  const VISUAL_NOTE_CAP_MS = 200; // Cap duration for visual "major note" style
   const containerTransform = `translateY(${actualHeight + currentTimeMs * pixelsPerMillisecond}px)`;
 
   return (
     <div
-      className="relative shadow-inner overflow-hidden no-select"
+      className="relative shadow-2xl overflow-hidden no-select"
       style={{
         width: `${width}px`,
         height: `${actualHeight}px`,
         margin: '0 auto',
+        // Use solid background
         backgroundColor: backgroundColor,
       }}
       aria-hidden="true"
     >
+      {pianoTilesBackground}
       {whiteKeyGridLines}
       {renderedBarLines}
 
@@ -134,14 +181,15 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
         style={{
           transform: containerTransform,
           willChange: 'transform',
+          zIndex: 10 // Ensure notes are above background tiles
         }}
       >
         {visibleNotes.map(note => {
           const keyPos = keyPositions.get(note.name);
           if (!keyPos) return null;
 
-          const visualDurationMs = showOnlyMajorNotes ? Math.min(note.durationMs, VISUAL_NOTE_CAP_MS) : note.durationMs;
-          const noteHeightPx = Math.max(3, visualDurationMs * pixelsPerMillisecond);
+          const durationForHeight = showOnlyMajorNotes ? Math.min(note.durationMs, VISUAL_NOTE_CAP_MS) : note.durationMs;
+          const noteHeightPx = Math.max(3, durationForHeight * pixelsPerMillisecond);
           
           const activeInfo = activeMidiNotesInfo.get(note.noteId);
           const currentStatus = activeInfo ? activeInfo.status : null;
@@ -166,23 +214,33 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
               rightHandColor={rightHandColor}
               leftHandColor={leftHandColor}
               activeKeySignature={activeKeySignature}
+              // NEW: Pass keyboard props
+              qwertyLayout={qwertyLayout}
+              qwertyCurrentOctaveShift={qwertyCurrentOctaveShift}
+              mirpTranspose={mirpTranspose}
             />
           );
         })}
       </div>
 
       <div
-        className="absolute bottom-2 left-2 bg-slate-900/70 text-white px-3 py-2 rounded-md text-sm font-mono tabular-nums shadow-lg space-y-1"
-        style={{ backdropFilter: 'blur(2px)' }}
+        className="absolute bottom-2 left-2 text-white px-3 py-2 rounded-lg text-sm font-mono tabular-nums shadow-lg space-y-1 border border-white/10"
+        style={{ background: 'rgba(15, 23, 42, 0.8)', backdropFilter: 'blur(4px)', zIndex: 20 }}
         aria-hidden="true"
       >
-        <div>Key: {activeKeySignature}</div>
-        <div>BPM: {Math.round(activeTempoBpm)}</div>
+        <div className="flex justify-between w-24"><span>Key:</span> <span className="text-cyan-400 font-bold">{activeKeySignature}</span></div>
+        <div className="flex justify-between w-24"><span>BPM:</span> <span className="text-yellow-400 font-bold">{Math.round(activeTempoBpm)}</span></div>
       </div>
 
+      {/* Hit Line / Judgment Line */}
       <div
-        className="absolute bottom-0 left-0 w-full bg-sky-300 opacity-75"
-        style={{ height: `${PLAY_LINE_THICKNESS_PX}px` }}
+        className="absolute bottom-0 left-0 w-full"
+        style={{ 
+            height: `${PLAY_LINE_THICKNESS_PX}px`, 
+            zIndex: 20,
+            backgroundColor: 'rgba(34,211,238,0.8)',
+            boxShadow: '0 0 10px rgba(34, 211, 238, 0.5)'
+        }}
       ></div>
     </div>
   );

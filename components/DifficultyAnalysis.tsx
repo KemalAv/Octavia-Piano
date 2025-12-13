@@ -102,7 +102,7 @@ const DifficultyAnalysis: React.FC<DifficultyAnalysisProps> = ({ analysisResult 
             </div>
 
             <p className="text-sm text-slate-500 mt-8 text-center">
-              The scoring system isn’t perfectly accurate. It’s just for fun, so please don’t rely on it.
+              This scoring system is only a calculation based on MIDI data and is not accurate at all. It is made purely for fun and simplicity, so the results can be wrong and do not reflect any real or precise evaluation. Because of that, the score should not be relied on as a serious or correct measurement.
             </p>
 
             <div className="mt-6 text-center">

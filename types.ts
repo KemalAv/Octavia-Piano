@@ -11,6 +11,8 @@ export type PianoKeyType = 'white' | 'black';
 
 export type DevicePreset = 'desktop' | 'tablet' | 'phone' | 'custom';
 
+export type QwertyLayout = 'default' | 'mirp'; // NEW: Added layout option
+
 export interface LayoutDimensions {
   whiteKeyHeight: number;
   blackKeyHeight: number;
@@ -40,6 +42,14 @@ export interface KeyPosition {
 export interface QwertyKeyMapEntry {
   qwertyKey: string;
   midiBase: number;
+}
+
+// NEW: MIRP Layout Entry
+export interface MirpKeyMapEntry {
+  code: string;
+  shift: boolean;
+  midi: number;
+  label: string;
 }
 
 // ========================================
@@ -148,7 +158,7 @@ export type MidiAccessStatus =
   | 'denied'
   | 'unsupported';
 
-export type MetronomeMode = 'off' | 'beat' | 'bar';
+export type MetronomeMode = 'off' | 'beat' | 'bar'; // UPDATED: Added 'beat' mode
 // @FIX: Add 'lenient' to WaitMode to resolve typing errors in App.tsx and ModeSelection.tsx.
 export type WaitMode = 'off' | 'strict' | 'rhythm' | 'retical' | 'lenient';
 export type ViewMode = 'falling' | 'sheet';
@@ -161,7 +171,7 @@ export type Screen =
   | 'finetune'
   | 'leaderboard';
 export type PracticeHand = 'left' | 'right' | 'both';
-export type NoteLabelType = 'none' | 'fingering' | 'noteName';
+export type NoteLabelType = 'none' | 'fingering' | 'noteName' | 'qwerty';
 
 export interface GameSettings {
   waitMode: WaitMode;
@@ -218,6 +228,7 @@ export interface Score {
   total_notes: number;
   mode: string;
   tempo_multiplier?: number;
+  total_wait_time_ms?: number;
   // FIX: Add 'artist' to songs object to match Supabase query in AccountModal.tsx.
   songs?: { title: string; artist: string; } | null;
   profiles?: { username: string; avatar_url: string | null; created_at: string | null; } | null; // Added avatar_url and created_at
@@ -294,6 +305,12 @@ export enum FileType {
   MIDI = 'midi',
   MUSICXML = 'musicxml',
   UNKNOWN = 'unknown',
+}
+
+// NEW: Interface for calculated beat times
+export interface BeatInfo {
+  timeMs: number;
+  isStrong: boolean;
 }
 
 // ========================================

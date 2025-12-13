@@ -1,11 +1,11 @@
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../AuthContext';
-import { Score, Profile, PerformanceSummary } from '../types'; // Import PerformanceSummary type
+import { Score, Profile, PerformanceSummary, LeaderboardEntry } from '../types'; // Import PerformanceSummary type
 import PerformanceSummaryModal from './PerformanceSummaryModal'; // Import PerformanceSummaryModal
 import { convertScoreToPerformanceSummary } from '../utils'; // Import utility for score conversion
 import { ADMIN_UUID } from '../constants';
-import { LeaderboardEntry } from '../types';
 
 
 interface AccountModalProps {
@@ -95,6 +95,8 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
     if (scoresError) {
       console.error("Error fetching top scores:", scoresError);
       setMessage({ type: 'error', text: 'Could not load top performances.' });
+      setTotalScore(0);
+      setTopScores([]);
     } else if (scoresData) {
       // Process scoresData to get the highest score for each unique song
       const highestScoresMap = new Map<string, Score>();
@@ -109,8 +111,14 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
       // Convert map values back to an array and sort by final_score descending
       const uniqueHighestScores = Array.from(highestScoresMap.values()).sort((a, b) => b.final_score - a.final_score);
       setTopScores(uniqueHighestScores);
+
+      // NEW: Calculate Total Score with the new formula
+      const newTotalScore = uniqueHighestScores.reduce((acc, score, index) => {
+        return acc + score.final_score * Math.pow(0.98, index);
+      }, 0);
+      setTotalScore(newTotalScore);
     }
-     // Fetch leaderboard data for rank and total score
+     // Fetch leaderboard data for rank only
     try {
         const { data: leaderboardData, error: leaderboardError } = await supabase.rpc('get_leaderboard');
         if (leaderboardError) throw leaderboardError;
@@ -119,10 +127,8 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
         if (userEntry) {
             const userRank = (leaderboardData as LeaderboardEntry[]).indexOf(userEntry) + 1;
             setGlobalRank(userRank);
-            setTotalScore(userEntry.total_score);
         } else {
             setGlobalRank(null);
-            setTotalScore(0); // If not on leaderboard, score is 0
         }
     } catch (err) {
         console.error("Error fetching global rank:", err);
@@ -259,9 +265,8 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
           
           ctx.drawImage(img, sx, sy, sWidth, sHeight, 0, 0, MAX_SIZE, MAX_SIZE);
 
-          // Fix: 'fileExt' was used in `toBlob` arguments before being defined in the callback.
-          // Moved the definition of 'fileExt' to be before the `toBlob` call.
-          const fileExt = file.name.split('.').pop() || 'png';
+          // Force use of JPEG for consistency and to ensure upsert replaces the file correctly.
+          const fileExt = 'jpg';
 
           canvas.toBlob(async (blob) => {
             if (!blob) {
@@ -269,9 +274,22 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
               setUploadingAvatar(false);
               return;
             }
-            const resizedFile = new File([blob], `avatar.${fileExt}`, { type: `image/${fileExt}` });
+            const resizedFile = new File([blob], `avatar.${fileExt}`, { type: `image/jpeg` });
             
             try {
+              // 1. CLEANUP: Delete any existing avatars for this user first
+              // This handles cases where previous avatar was .png and new is .jpg (or vice versa)
+              const { data: existingFiles } = await supabase.storage.from('avatars').list(user.id);
+              if (existingFiles && existingFiles.length > 0) {
+                  const filesToRemove = existingFiles.map(f => `${user.id}/${f.name}`);
+                  const { error: removeError } = await supabase.storage.from('avatars').remove(filesToRemove);
+                  if (removeError) {
+                      console.warn("Failed to clean up old avatars:", removeError);
+                      // Continue anyway, upsert might handle it if name matches, or we just leave a ghost file
+                  }
+              }
+
+              // 2. UPLOAD: New Avatar
               const filePath = `${user.id}/avatar.${fileExt}`;
 
               const { error: uploadError } = await supabase.storage
@@ -301,7 +319,7 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
             } finally {
               setUploadingAvatar(false);
             }
-          }, `image/${fileExt}`, 0.9); // Quality 90%
+          }, `image/jpeg`, 0.9); // Quality 90%, Force JPEG
         };
 
         img.onerror = () => {
@@ -440,15 +458,15 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
                           )}
                         </div>
                         
-                         {(globalRank !== null && totalScore !== null) ? (
+                         {(globalRank !== null || totalScore !== null) ? (
                             <div className="flex items-baseline gap-6 mt-2 text-slate-300">
                                 <div>
                                     <span className="text-sm">Global Rank</span>
-                                    <p className="text-2xl font-bold text-white">#{globalRank > 0 ? globalRank.toLocaleString() : 'N/A'}</p>
+                                    <p className="text-2xl font-bold text-white">#{globalRank ? globalRank.toLocaleString() : 'N/A'}</p>
                                 </div>
                                 <div>
                                     <span className="text-sm">Total Score</span>
-                                    <p className="text-2xl font-bold text-white">{Math.round(totalScore).toLocaleString()}</p>
+                                    <p className="text-2xl font-bold text-white">{totalScore !== null ? Math.round(totalScore).toLocaleString() : '...'}</p>
                                 </div>
                             </div>
                         ) : (

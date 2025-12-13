@@ -11,18 +11,17 @@ interface ViewProfileModalProps {
   onClose: () => void;
   onGoToOnlineSong: (songId: string) => void; 
   globalRank?: number;
-  totalScore?: number;
 }
 
-const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onClose, onGoToOnlineSong, globalRank, totalScore }) => {
+const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onClose, onGoToOnlineSong, globalRank }) => {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [userTopScores, setUserTopScores] = useState<Score[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isRendered, setIsRendered] = useState(false);
 
-  const [profileRank, setProfileRank] = useState<number | null>(globalRank ?? null);
-  const [profileTotalScore, setProfileTotalScore] = useState<number | null>(totalScore ?? null);
+  const [profileRank, setProfileRank] = useState<number | null>(null);
+  const [profileTotalScore, setProfileTotalScore] = useState<number | null>(null);
 
   const [selectedPerformanceSummary, setSelectedPerformanceSummary] = useState<PerformanceSummary | null>(null); // NEW
 
@@ -62,8 +61,7 @@ const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onC
         .select('*, songs!inner(title, artist, is_ranked)') // Fetch song title and artist for context
         .eq('user_id', userId)
         .eq('songs.is_ranked', true)
-        .order('final_score', { ascending: false })
-        .limit(5); // Show top 5 scores
+        .order('final_score', { ascending: false });
 
       if (scoresError) throw scoresError;
       
@@ -80,8 +78,14 @@ const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onC
       const uniqueHighestScores = Array.from(highestScoresMap.values()).sort((a, b) => b.final_score - a.final_score);
       setUserTopScores(uniqueHighestScores);
 
-      // Fetch rank and score if not passed in props
-      if (globalRank === undefined || totalScore === undefined) {
+      // NEW: Calculate Total Score with the new formula
+      const newTotalScore = uniqueHighestScores.reduce((acc, score, index) => {
+          return acc + score.final_score * Math.pow(0.98, index);
+      }, 0);
+      setProfileTotalScore(newTotalScore);
+
+      // Fetch rank if not passed in props
+      if (globalRank === undefined) {
         const { data: leaderboardData, error: leaderboardError } = await supabase.rpc('get_leaderboard');
         if (leaderboardError) throw leaderboardError;
         
@@ -89,24 +93,24 @@ const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onC
         if (userEntry) {
             const userRank = (leaderboardData as LeaderboardEntry[]).indexOf(userEntry) + 1;
             setProfileRank(userRank);
-            setProfileTotalScore(userEntry.total_score);
         } else {
             setProfileRank(null);
-            setProfileTotalScore(0);
         }
       } else {
         setProfileRank(globalRank);
-        setProfileTotalScore(totalScore);
       }
 
     } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
+      // Supabase errors are objects with a `message` property, not instances of Error.
+      const errorMessage = (err && typeof err === 'object' && 'message' in err)
+        ? (err as { message: string }).message
+        : String(err);
       setError(`Failed to load profile: ${errorMessage}`);
       console.error("Error fetching profile data:", err);
     } finally {
       setLoading(false);
     }
-  }, [userId, globalRank, totalScore]);
+  }, [userId, globalRank]);
 
   useEffect(() => {
     if (isOpen) {
@@ -217,15 +221,15 @@ const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onC
                         {profile.bio}
                     </p>
                 )}
-                 {(profileRank !== null && profileTotalScore !== null) && (
+                 {(profileRank !== null || profileTotalScore !== null) && (
                     <div className="flex items-baseline gap-6 mt-2 text-slate-300">
                         <div>
                             <span className="text-sm">Global Rank</span>
-                            <p className="text-2xl font-bold text-white">#{profileRank > 0 ? profileRank.toLocaleString() : 'N/A'}</p>
+                            <p className="text-2xl font-bold text-white">#{profileRank ? profileRank.toLocaleString() : 'N/A'}</p>
                         </div>
                         <div>
                             <span className="text-sm">Total Score</span>
-                            <p className="text-2xl font-bold text-white">{Math.round(profileTotalScore).toLocaleString()}</p>
+                            <p className="text-2xl font-bold text-white">{profileTotalScore !== null ? Math.round(profileTotalScore).toLocaleString() : '...'}</p>
                         </div>
                     </div>
                 )}

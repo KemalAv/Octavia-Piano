@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { MidiAccessStatus, MIDIInput, MIDIOutput, NoteLabelType, ViewMode, ThemeSettings, DevicePreset, LayoutDimensions } from '../types';
-import { DEFAULT_SHOW_ONLY_MAJOR_RESTS, DEVICE_LAYOUTS } from '../constants'; // Import DEVICE_LAYOUTS
+import { MidiAccessStatus, MIDIInput, MIDIOutput, NoteLabelType, ViewMode, ThemeSettings, DevicePreset, LayoutDimensions, QwertyLayout } from '../types';
+import { DEVICE_LAYOUTS } from '../constants'; // Import DEVICE_LAYOUTS
 
 interface SettingsProps {
   onBack: () => void;
@@ -16,9 +16,7 @@ interface SettingsProps {
   onViewModeChange: (mode: ViewMode) => void;
   noteLabelType: NoteLabelType;
   onNoteLabelTypeChange: (type: NoteLabelType) => void;
-  // showOnlyMajorRests: boolean; // REMOVED
-  // onShowOnlyMajorRestsChange: (value: boolean) => void; // REMOVED
-  showOnlyMajorNotes: boolean;
+  showOnlyMajorNotes: boolean; 
   onShowOnlyMajorNotesChange: (value: boolean) => void;
   showQwertyShortcuts: boolean;
   onShowQwertyShortcutsChange: (value: boolean) => void;
@@ -30,6 +28,8 @@ interface SettingsProps {
   onMasterVolumeChange: (volume: number) => void;
   metronomeVolume: number;
   onMetronomeVolumeChange: (volume: number) => void;
+  metronomeOffsetMs: number; // NEW: Metronome offset prop
+  onMetronomeOffsetChange: (offset: number) => void; // NEW: Metronome offset handler
   themeSettings: ThemeSettings;
   onThemeSettingsChange: (settings: ThemeSettings) => void;
   devicePreset: DevicePreset;
@@ -50,6 +50,12 @@ interface SettingsProps {
   onCustomStartNoteChange: (note: string) => void;
   customEndNote: string;
   onCustomEndNoteChange: (note: string) => void;
+  // NEW: Keyboard Layout Props
+  qwertyLayout: QwertyLayout;
+  onQwertyLayoutChange: (layout: QwertyLayout) => void;
+  // NEW: Piano Tiles Background Prop
+  showPianoTilesBackground: boolean;
+  onShowPianoTilesBackgroundChange: (value: boolean) => void;
 }
 
 const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
@@ -88,11 +94,12 @@ const Settings: React.FC<SettingsProps> = (props) => {
     onBack, midiAccessStatus, midiInputs, selectedMidiInputId, onSelectMidiInput,
     midiOutputs, selectedMidiOutputId, onSelectMidiOutput, connectMidi,
     viewMode, onViewModeChange, noteLabelType, onNoteLabelTypeChange,
-    // showOnlyMajorRests, onShowOnlyMajorRestsChange, // REMOVED
-    showOnlyMajorNotes, onShowOnlyMajorNotesChange, showQwertyShortcuts,
+    showOnlyMajorNotes, onShowOnlyMajorNotesChange,
+    showQwertyShortcuts,
     onShowQwertyShortcutsChange, hideBarNavigationButtons, onHideBarNavigationButtonsChange,
     autoHideTopBar, onAutoHideTopBarChange,
     masterVolume, onMasterVolumeChange, metronomeVolume, onMetronomeVolumeChange,
+    metronomeOffsetMs, onMetronomeOffsetChange, // NEW: Destructure metronome offset props
     themeSettings, onThemeSettingsChange,
     devicePreset, onDevicePresetChange,
     customWhiteKeyHeight, onCustomWhiteKeyHeightChange,
@@ -100,6 +107,8 @@ const Settings: React.FC<SettingsProps> = (props) => {
     customKeyLabelHeight, onCustomKeyLabelHeightChange,
     customMinWhiteKeyWidth, onCustomMinWhiteKeyWidthChange,
     pianoRangeMode, onPianoRangeModeChange, customStartNote, onCustomStartNoteChange, customEndNote, onCustomEndNoteChange,
+    qwertyLayout, onQwertyLayoutChange, 
+    showPianoTilesBackground, onShowPianoTilesBackgroundChange, // Destructure new props
   } = props;
 
   const commonButtonStyles = "px-3 py-1.5 rounded text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-300 focus:ring-opacity-75 flex items-center justify-center shadow-md";
@@ -141,7 +150,7 @@ const Settings: React.FC<SettingsProps> = (props) => {
 
   return (
     <div className={`fixed inset-0 bg-slate-950 flex items-center justify-center z-50 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'bg-opacity-80' : 'bg-opacity-0'}`}>
-      <div className={`bg-slate-800/50 backdrop-blur-sm p-6 md:p-8 rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto custom-scrollbar ring-1 ring-slate-700 transform transition-all duration-300 ease-in-out ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}>
+      <div className={`bg-slate-800/80 backdrop-blur-sm p-6 md:p-8 rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto custom-scrollbar ring-1 ring-slate-700 transform transition-all duration-300 ease-in-out ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}>
         <div className="flex justify-between items-center mb-6">
             <h2 className="text-3xl font-bold text-cyan-400">Settings</h2>
             <button onClick={onBack} className="text-slate-400 hover:text-white text-3xl leading-none" aria-label="Close settings">&times;</button>
@@ -247,6 +256,15 @@ const Settings: React.FC<SettingsProps> = (props) => {
             )}
           </Section>
 
+          <Section title="Controls">
+            <SettingRow label="QWERTY Keyboard Layout" htmlFor="qwerty-layout">
+              <select id="qwerty-layout" value={qwertyLayout} onChange={e => onQwertyLayoutChange(e.target.value as QwertyLayout)} className={selectStyles}>
+                <option value="mirp">Layout 1 (Roblox): Shift = black keys, ↑/↓ = ±1 semitones</option>
+                <option value="default">Layout 2 (Standard): ↑/↓ = ±1 octave</option>
+              </select>
+            </SettingRow>
+          </Section>
+
           <Section title="MIDI">
             <SettingRow label="Status">{renderMidiConnectButton()}</SettingRow>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -280,12 +298,12 @@ const Settings: React.FC<SettingsProps> = (props) => {
                   <option value="none">None</option>
                   <option value="fingering">Fingering (Beta)</option>
                   <option value="noteName">Note Name</option>
+                  <option value="qwerty">QWERTY Keys</option>
                 </select>
               </SettingRow>
             </div>
-            {/* REMOVED: ToggleRow for showOnlyMajorRests */}
-            {/* <ToggleRow id="major-rests" label="Show only major rests (Sheet Music)" checked={showOnlyMajorRests} onChange={onShowOnlyMajorRestsChange} /> */}
-            <ToggleRow id="major-notes" label="Show only major notes (Falling Notes)" checked={showOnlyMajorNotes} onChange={onShowOnlyMajorNotesChange} />
+            <ToggleRow id="major-notes-only" label="Show Only Major Notes (Falling Notes)" checked={showOnlyMajorNotes} onChange={onShowOnlyMajorNotesChange} />
+            <ToggleRow id="show-piano-tiles" label="Show Piano Tiles Background" checked={showPianoTilesBackground} onChange={onShowPianoTilesBackgroundChange} />
             <ToggleRow id="qwerty-shortcuts" label="Show QWERTY Shortcuts on Keys" checked={showQwertyShortcuts} onChange={onShowQwertyShortcutsChange} />
             <ToggleRow id="hide-bar-nav" label="Hide Bar Navigation Buttons" checked={hideBarNavigationButtons} onChange={onHideBarNavigationButtonsChange} />
             <ToggleRow id="auto-hide-top-bar" label="Auto-hide Top Bar" checked={autoHideTopBar} onChange={onAutoHideTopBarChange} />
@@ -313,6 +331,18 @@ const Settings: React.FC<SettingsProps> = (props) => {
                 step="0.25" // Snap every 25%
                 value={metronomeVolume} 
                 onChange={e => onMetronomeVolumeChange(parseFloat(e.target.value))} 
+                className={`${rangeSliderStyle} max-w-xs`} 
+              />
+            </SettingRow>
+            <SettingRow label={`Metronome Offset (${metronomeOffsetMs}ms)`} htmlFor="metronome-offset">
+              <input 
+                id="metronome-offset" 
+                type="range" 
+                min="-100" 
+                max="100" 
+                step="5" 
+                value={metronomeOffsetMs} 
+                onChange={e => onMetronomeOffsetChange(parseInt(e.target.value, 10))} 
                 className={`${rangeSliderStyle} max-w-xs`} 
               />
             </SettingRow>
