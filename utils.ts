@@ -1,5 +1,4 @@
 
-
 /**
  * Calculates a non-linear scaling factor for note widths based on a power curve.
  * This function makes the zoom effect more pronounced at lower values.
@@ -44,7 +43,7 @@ export const ENHARMONIC_MAP_TO_SHARP: { [flat: string]: string } = { 'Db': 'C#',
 export const ENHARMONIC_MAP_TO_FLAT: { [sharp: string]: string } = { 'C#': 'Db', 'D#': 'Eb', 'F#': 'Gb', 'G#': 'Ab', 'A#': 'Bb' };
 
 // --- Signature Event Type (Moved from App.tsx and vexflow-helper.ts) ---
-import { TimeSignatureInfo, Score, PerformanceSummary } from './types'; // Import TimeSignatureInfo and other types
+import { TimeSignatureInfo, Score, PerformanceSummary, TempoEvent, BeatInfo } from './types'; // Import TimeSignatureInfo and other types
 
 export interface SignatureEvent {
   timeMs: number;
@@ -106,6 +105,164 @@ export const getActiveTimeSignature = (
 };
 
 /**
+ * Gets the active tempo (BPM) at a given original musical time.
+ * This function does NOT account for `playbackTempoMultiplier`.
+ * @param originalTimeMs The original musical time in milliseconds (unscaled).
+ * @param tempoEvents An array of original tempo change events.
+ * @param initialTempoBpm The initial BPM of the song.
+ * @returns The active BPM at the given original time.
+ */
+export const getActiveTempoBpmAtOriginalTime = (
+  originalTimeMs: number,
+  tempoEvents: TempoEvent[], // Original tempo events
+  initialTempoBpm: number // Original initial BPM
+): number => {
+  let activeBpm = initialTempoBpm;
+  const sortedEvents = [...tempoEvents].sort((a, b) => a.timeMs - b.timeMs);
+  for (const event of sortedEvents) {
+    if (event.timeMs <= originalTimeMs) {
+      activeBpm = event.bpm;
+    } else {
+      break;
+    }
+  }
+  return activeBpm;
+};
+
+/**
+ * Calculates all beat times (and their strong/weak status) within a given scaled musical time window.
+ * This function handles tempo and time signature changes within the window.
+ * 
+ * @param windowStartScaledTimeMs The start of the time window in scaled milliseconds.
+ * @param windowEndScaledTimeMs The end of the time window in scaled milliseconds.
+ * @param playbackTempoMultiplier The current playback tempo multiplier.
+ * @param originalInitialTempoBpm The original initial BPM of the song.
+ * @param originalTempoEvents An array of original tempo change events.
+ * @param originalInitialTimeSignature The original initial time signature of the song.
+ * @param originalSignatureEvents An array of original time/key signature change events.
+ * @param scaledBarLinesMs An array of bar line times, already scaled by `playbackTempoMultiplier`.
+ * @returns An array of `BeatInfo` objects for all beats within the window.
+ */
+export const getBeatTimesInWindow = (
+  windowStartScaledTimeMs: number,
+  windowEndScaledTimeMs: number,
+  playbackTempoMultiplier: number,
+  originalInitialTempoBpm: number,
+  originalTempoEvents: TempoEvent[],
+  originalInitialTimeSignature: TimeSignatureInfo,
+  originalSignatureEvents: SignatureEvent[],
+  scaledBarLinesMs: number[] // Already scaled bar lines
+): BeatInfo[] => {
+  const beatTimes: BeatInfo[] = [];
+
+  // Filter relevant bar lines within the scheduling window or just before/after
+  // to ensure we capture beats around the edge and detect upcoming measure starts.
+  const relevantBarLines = scaledBarLinesMs.filter(
+    (barTime) => barTime >= windowStartScaledTimeMs - 500 && barTime <= windowEndScaledTimeMs + 500
+  );
+
+  // If there are no bar lines, or only one, we can't reliably determine measures.
+  // In this case, fall back to a simpler beat calculation, or return empty if no tempo/time signature.
+  if (relevantBarLines.length < 1 && scaledBarLinesMs.length < 1) {
+    return []; // Cannot determine beats without at least an implied measure structure.
+  }
+  
+  // If no specific bar lines, but there are notes, use a virtual bar line at 0 scaled time.
+  let currentRelevantBarLines = relevantBarLines;
+  if (relevantBarLines.length === 0 && scaledBarLinesMs.length === 0) {
+      currentRelevantBarLines = [0]; // Assume a measure starts at time 0
+  } else if (relevantBarLines.length === 0 && scaledBarLinesMs.length > 0) {
+      // Find the closest bar line before the window start if the window itself has no bar lines
+      const closestPrevBar = scaledBarLinesMs.reduce((prev, curr) => 
+          (curr <= windowStartScaledTimeMs && curr > prev) ? curr : prev, 0);
+      currentRelevantBarLines = [closestPrevBar];
+  }
+
+
+  // Iterate through relevant bar lines to determine beats within each measure
+  for (let i = 0; i < currentRelevantBarLines.length; i++) {
+    const barStartScaledTime = currentRelevantBarLines[i];
+    // Find the actual next bar line time, not just the next in relevantBarLines
+    let nextBarStartScaledTime = windowEndScaledTimeMs + 1000; // Default far future
+    for (const b of scaledBarLinesMs) {
+        if (b > barStartScaledTime) {
+            nextBarStartScaledTime = b;
+            break;
+        }
+    }
+
+
+    // Convert scaled bar time back to original time to query original tempo/time signature events
+    const barStartOriginalTime = barStartScaledTime / playbackTempoMultiplier;
+
+    const activeTimeSignature = getActiveTimeSignature(
+      barStartOriginalTime,
+      originalSignatureEvents,
+      originalInitialTimeSignature
+    );
+    const activeTempoBpm = getActiveTempoBpmAtOriginalTime(
+      barStartOriginalTime,
+      originalTempoEvents,
+      originalInitialTempoBpm
+    );
+
+    const msPerQuarterNoteOriginal = 60000 / activeTempoBpm;
+    // msPerBeatOriginal: The duration of one beat in original milliseconds.
+    // Example: 4/4 time, denominator is 4 (quarter note). msPerBeatOriginal = msPerQuarterNoteOriginal * (4/4) = msPerQuarterNoteOriginal.
+    // Example: 3/8 time, denominator is 8 (eighth note). msPerBeatOriginal = msPerQuarterNoteOriginal * (4/8) = msPerQuarterNoteOriginal / 2.
+    const msPerBeatOriginal = msPerQuarterNoteOriginal * (4 / activeTimeSignature.denominator);
+
+    if (msPerBeatOriginal <= 0) continue; // Avoid infinite loop
+
+    // Iterate through beats within this measure (based on numerator of time signature)
+    for (let beat = 0; beat < activeTimeSignature.numerator; beat++) {
+      const beatOriginalTime = barStartOriginalTime + (beat * msPerBeatOriginal);
+      const beatScaledTime = beatOriginalTime * playbackTempoMultiplier;
+
+      // Only add beat if it's within the scheduling window
+      // Use a small tolerance for the window boundary to catch beats very close to it
+      if (beatScaledTime >= windowStartScaledTimeMs - 50 && beatScaledTime < windowEndScaledTimeMs + 50) {
+        beatTimes.push({
+          timeMs: beatScaledTime,
+          isStrong: beat === 0, // First beat of measure is strong
+        });
+      }
+      
+      // Optimization: if we're past the next bar or window end, no more beats in this "measure interval"
+      if (beatScaledTime >= nextBarStartScaledTime - 50 || beatScaledTime >= windowEndScaledTimeMs + 50) {
+          break;
+      }
+    }
+  }
+
+  // Sort and filter out near-duplicates (due to floating point arithmetic or overlapping windows)
+  beatTimes.sort((a, b) => a.timeMs - b.timeMs);
+  const uniqueBeatTimes: BeatInfo[] = [];
+  const processedTimestamps = new Set<number>(); // Store rounded timestamps to check for uniqueness
+  
+  beatTimes.forEach(beat => {
+      // Round to nearest 10ms to group very close beats as one
+      const roundedTime = Math.round(beat.timeMs / 10) * 10; 
+      
+      if (!processedTimestamps.has(roundedTime)) {
+          uniqueBeatTimes.push(beat);
+          processedTimestamps.add(roundedTime);
+      } else {
+          // If a beat at this rounded time already exists, check if the new one is strong.
+          // If existing is weak and new is strong, replace it.
+          const existingBeatIndex = uniqueBeatTimes.findIndex(ub => Math.round(ub.timeMs / 10) * 10 === roundedTime);
+          if (existingBeatIndex !== -1 && beat.isStrong && !uniqueBeatTimes[existingBeatIndex].isStrong) {
+              uniqueBeatTimes[existingBeatIndex] = beat;
+          }
+      }
+  });
+
+
+  return uniqueBeatTimes;
+};
+
+
+/**
  * Converts a Score object from Supabase into a PerformanceSummary object for display.
  * @param score The Supabase Score object.
  * @param songTitle The title of the song (for context in summary).
@@ -136,6 +293,6 @@ export function convertScoreToPerformanceSummary(score: Score, songTitle: string
     errorCount,
     totalNoteCount: totalNotes,
     playbackTempoMultiplier: score.tempo_multiplier ?? 1, // Use stored tempo, default to 1
-    totalWaitTimeMs: 0, // Default to 0 as wait time is not stored.
+    totalWaitTimeMs: score.total_wait_time_ms ?? 0, // Use stored value, fallback to 0
   };
 }

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { PerformanceSummary } from '../types';
 
@@ -34,6 +35,12 @@ const PerformanceSummaryModal: React.FC<PerformanceSummaryProps> = ({ isVisible,
     }
   };
   
+  const formatDelayTime = (ms: number) => {
+    if (isNaN(ms) || ms < 0) return '0.000s';
+    const seconds = (ms / 1000).toFixed(3);
+    return `${seconds}s`;
+  };
+
   const StatRow: React.FC<{label: string; value: string | number; valueColor: string;}> = ({label, value, valueColor}) => (
       <div className="flex justify-between items-baseline">
         <span className="text-slate-300">{label}:</span>
@@ -50,7 +57,7 @@ const PerformanceSummaryModal: React.FC<PerformanceSummaryProps> = ({ isVisible,
       aria-labelledby="performance-summary-title"
     >
       <div
-        className={`bg-slate-800/80 backdrop-blur-sm p-8 md:p-10 rounded-xl shadow-2xl text-center max-w-md w-full ring-1 ring-slate-700 transform transition-all duration-300 ease-in-out ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
+        className={`bg-slate-800/80 backdrop-blur-sm p-8 md:p-10 rounded-xl shadow-2xl text-center max-w-md w-full ring-1 ring-slate-700 transform transition-all duration-300 ease-in-out ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'} max-h-[90vh] overflow-y-auto custom-scrollbar`}
         onClick={e => e.stopPropagation()}
         role="document"
       >
@@ -65,6 +72,7 @@ const PerformanceSummaryModal: React.FC<PerformanceSummaryProps> = ({ isVisible,
              <StatRow label="Accuracy" value={`${summary.accuracy}%`} valueColor="text-cyan-300" />
              <StatRow label="Speed Efficiency" value={`${summary.speed}%`} valueColor="text-yellow-300" />
              <StatRow label="Tempo" value={`${Math.round(summary.playbackTempoMultiplier * 100)}%`} valueColor="text-purple-300" />
+             <StatRow label="Total Delay" value={formatDelayTime(summary.totalWaitTimeMs)} valueColor="text-red-300" />
           </div>
 
           <div className="bg-slate-900/50 p-4 rounded-lg space-y-4 ring-1 ring-slate-700">

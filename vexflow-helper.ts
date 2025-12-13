@@ -4,10 +4,10 @@ import { getNoteZoom, getLayoutZoom, SHARP_KEYS, FLAT_KEYS, NEUTRAL_KEYS, ENHARM
 import { StaveNote, Beam } from 'vexflow'; // Import StaveNote and Beam directly
 
 // --- Universal Scaling ---
-const UNIVERSAL_SCALE = 0.40; 
+const UNIVERSAL_SCALE = 0.35; 
 
 // --- Constants ---
-const GRAND_STAFF_VERTICAL_SPACING = 400 * UNIVERSAL_SCALE;
+const GRAND_STAFF_VERTICAL_SPACING = 350 * UNIVERSAL_SCALE;
 const HORIZONTAL_PADDING = 15 * UNIVERSAL_SCALE;
 const MIDDLE_C_MIDI = 60; // C4
 const CLEF_CHANGE_THRESHOLD_RATIO = 0.75;
@@ -594,15 +594,15 @@ export const getVexFlowRenderData = (
             // Add extra padding for the new key signature
             const keySpec = KEY_SIGNATURE_SPEC[newKey] || {};
             const numAccidentals = Object.keys(keySpec).length;
-            const keySignaturePadding = (200 * numAccidentals + 50) * UNIVERSAL_SCALE;
+            const keySignaturePadding = (200 * numAccidentals + 200) * UNIVERSAL_SCALE;
             extraPadding += keySignaturePadding;
         }
 
         if (newTime) {
-            extraPadding += 100 * UNIVERSAL_SCALE;
+            extraPadding += 200 * UNIVERSAL_SCALE;
         }
         if (hasNewClefRH || hasNewClefLH) {
-            extraPadding += 100 * UNIVERSAL_SCALE;
+            extraPadding += 200 * UNIVERSAL_SCALE;
         }
 
         const measureWidth = Math.max(minWidth, dynamicWidth) + extraPadding;
@@ -646,7 +646,7 @@ export const getVexFlowRenderData = (
         if (measureData.is8vbActiveLH && (i === 0 || !tempMeasures[i - 1].is8vbActiveLH)) {
             let endBlockIndex = i; let currentBlockWidth = 0;
             while (endBlockIndex < tempMeasures.length && tempMeasures[endBlockIndex].is8vbActiveLH) { currentBlockWidth += tempMeasures[endBlockIndex].width; endBlockIndex++; }
-            octaveLines.push({ type: '8vb', hand: 'left', startX: cumulativeWidth, endX: cumulativeWidth + currentBlockWidth, startY: topStaveYOffset + GRAND_STAFF_VERTICAL_SPACING + 200 * UNIVERSAL_SCALE, endY: topStaveYOffset + GRAND_STAFF_VERTICAL_SPACING + 200 * UNIVERSAL_SCALE });
+            octaveLines.push({ type: '8vb', hand: 'left', startX: cumulativeWidth, endX: cumulativeWidth + currentBlockWidth, startY: topStaveYOffset + GRAND_STAFF_VERTICAL_SPACING + 300 * UNIVERSAL_SCALE, endY: topStaveYOffset + GRAND_STAFF_VERTICAL_SPACING + 300 * UNIVERSAL_SCALE });
         }
 
         // Use the clipped fragments for this measure

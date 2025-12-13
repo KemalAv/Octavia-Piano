@@ -1,3 +1,5 @@
+
+
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { ExtendedResult, OnlineSong } from '../types';
 import DifficultyAnalysis from './DifficultyAnalysis';
@@ -13,6 +15,7 @@ interface SongSelectionProps {
   isLoading: boolean;
   selectedOnlineSongIdForNavigation: string | null; // NEW: Prop to indicate a song was selected for direct navigation
   onGoToOnlineSong: (songId: string) => void; // NEW: Callback to navigate to online song browser
+  onStartFreePlay: () => void;
 }
 
 const SongSelection: React.FC<SongSelectionProps> = ({
@@ -24,6 +27,7 @@ const SongSelection: React.FC<SongSelectionProps> = ({
   isLoading,
   selectedOnlineSongIdForNavigation, // Destructure new prop
   onGoToOnlineSong, // Destructure new prop
+  onStartFreePlay,
 }) => {
   const [activeTab, setActiveTab] = useState<'local' | 'online'>('online'); // Changed default to 'online'
   const [isOnlineLoading, setIsOnlineLoading] = useState(false);
@@ -90,13 +94,13 @@ const SongSelection: React.FC<SongSelectionProps> = ({
   };
 
   const buttonBaseStyle = "w-full font-bold py-3 px-6 rounded-lg text-lg transition-all duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-opacity-50 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100 shadow-lg";
-  const primaryButtonStyle = "bg-cyan-500 hover:bg-cyan-600 text-white focus:ring-cyan-400";
-  const secondaryButtonStyle = "bg-violet-500 hover:bg-violet-600 text-white focus:ring-violet-400";
-  const tertiaryButtonStyle = "bg-slate-600 hover:bg-slate-700 text-slate-200 focus:ring-slate-500";
+  const primaryButtonStyle = "bg-cyan-600 hover:bg-cyan-500 text-white shadow-cyan-500/20";
+  const secondaryButtonStyle = "bg-slate-700 hover:bg-slate-600 text-white border border-slate-600";
+  const tertiaryButtonStyle = "bg-slate-800 hover:bg-slate-700 text-slate-300";
   
-  const tabStyle = "flex-1 py-3 text-center font-bold text-lg cursor-pointer transition-colors border-b-2";
-  const activeTabStyle = "border-cyan-400 text-cyan-400 bg-slate-700/50";
-  const inactiveTabStyle = "border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-700/30";
+  const tabStyle = "flex-1 py-4 text-center font-bold text-lg cursor-pointer transition-all duration-200 border-b-4 relative overflow-hidden";
+  const activeTabStyle = "border-cyan-500 text-white bg-slate-800/50 shadow-[inset_0_-10px_20px_rgba(6,182,212,0.1)]";
+  const inactiveTabStyle = "border-transparent text-slate-500 hover:text-slate-300 hover:bg-slate-800/30";
 
   // When an online song is loaded, we treat it like a file load
   const handleOnlineSongLoaded = async (file: File, onlineSongId: string, isRanked: boolean) => {
@@ -106,75 +110,87 @@ const SongSelection: React.FC<SongSelectionProps> = ({
   const showLoading = isLoading || isOnlineLoading;
 
   return (
-    <div className={`fixed inset-0 bg-slate-900 flex flex-col items-center justify-center z-40 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'opacity-100' : 'opacity-0'}`}>
+    <div className={`fixed inset-0 bg-slate-950 flex flex-col items-center justify-center z-40 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'opacity-100' : 'opacity-0'}`}>
+       
        <div className="absolute top-4 left-4">
-            <button onClick={onBack} className={`${tertiaryButtonStyle} py-2 px-4 text-base shadow-md`}>&larr; Back to Menu</button>
+            <button onClick={onBack} className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors bg-slate-800/50 px-4 py-2 rounded-full border border-white/10 hover:border-white/30 backdrop-blur-sm">
+                <span>&larr;</span> <span>Back</span>
+            </button>
        </div>
 
-      <div className={`bg-slate-800/50 backdrop-blur-sm p-0 rounded-xl shadow-2xl text-center max-w-4xl w-full ring-1 ring-slate-700 max-h-[90vh] flex flex-col overflow-hidden transform transition-transform duration-300 ease-in-out ${isRendered ? 'scale-100' : 'scale-95'}`}>
+      <div className={`bg-slate-900/60 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl text-center max-w-5xl w-full max-h-[90vh] flex flex-col overflow-hidden transform transition-transform duration-300 ease-in-out ${isRendered ? 'scale-100' : 'scale-95'}`}>
         
         {/* Header / Tabs */}
-        <div className="flex border-b border-slate-700 bg-slate-800/80">
+        <div className="flex border-b border-white/5 bg-black/20">
             {/* Swapped order: Online / Ranked first */}
             <div 
                 className={`${tabStyle} ${activeTab === 'online' ? activeTabStyle : inactiveTabStyle}`}
                 onClick={() => setActiveTab('online')}
             >
-                Online / Ranked
+                Community Library
             </div>
             <div 
                 className={`${tabStyle} ${activeTab === 'local' ? activeTabStyle : inactiveTabStyle}`}
                 onClick={() => setActiveTab('local')}
             >
-                Offline / Local
+                Local Import
             </div>
         </div>
 
-        <div className="p-8 md:p-12 overflow-y-auto custom-scrollbar flex-grow flex flex-col">
-            <h2 className="text-4xl font-bold text-cyan-400 mb-6">
-                {activeTab === 'online' ? 'Community MIDIs' : 'Import a MIDI'}
+        <div className="p-6 md:p-10 overflow-y-auto custom-scrollbar flex-grow flex flex-col">
+            <h2 className="text-3xl font-black text-cyan-400 mb-8 tracking-tight uppercase">
+                {activeTab === 'online' ? 'Select a Track' : 'Upload Your File'}
             </h2>
 
             {/* Shared Loaded State Area (Top) */}
-            <div className="bg-slate-900/50 p-6 rounded-lg mb-6 min-h-[120px] flex flex-col items-center justify-center ring-1 ring-slate-700 flex-shrink-0">
+            <div className="bg-slate-800/40 p-6 rounded-xl mb-8 min-h-[120px] flex flex-col items-center justify-center border border-white/5 shadow-inner flex-shrink-0 relative overflow-hidden group">
+                <div className="absolute top-0 left-0 w-full h-1 bg-cyan-500 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                
                 {showLoading ? (
-                    <div className="flex items-center space-x-3 p-4 text-cyan-300 font-semibold text-lg">
-                        <svg className="animate-spin h-6 w-6 text-cyan-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        <span>{isOnlineLoading ? 'Loading MIDI data...' : 'Analyzing and preloading audio...'}</span>
+                    <div className="flex flex-col items-center gap-3">
+                        <div className="relative">
+                            <div className="w-12 h-12 rounded-full border-4 border-slate-700 border-t-cyan-500 animate-spin"></div>
+                            <div className="absolute inset-0 flex items-center justify-center">
+                                <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse"></div>
+                            </div>
+                        </div>
+                        <span className="text-cyan-300 font-medium text-lg animate-pulse">{isOnlineLoading ? 'Fetching Track Data...' : 'Preparing Audio Engine...'}</span>
                     </div>
                 ) : loadedSongName ? (
                     <div className="text-center w-full">
-                        <div className="bg-green-900/30 border border-green-700/50 rounded-lg p-4 mb-4">
-                            <span className="text-green-400 text-sm font-bold uppercase tracking-wider">Ready to Play</span>
-                            <p className="text-2xl font-semibold text-white truncate mt-1">{loadedSongName}</p>
+                        <div className="flex items-center justify-center gap-3 mb-4">
+                            <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-bold border border-emerald-500/30 uppercase tracking-wide">Ready</span>
                         </div>
-                        {analysisResult && <DifficultyAnalysis analysisResult={analysisResult} />}
+                        <p className="text-2xl font-bold text-white truncate max-w-2xl mx-auto drop-shadow-md">{loadedSongName}</p>
+                        
+                        <div className="my-4">
+                            {analysisResult && <DifficultyAnalysis analysisResult={analysisResult} />}
+                        </div>
                         
                         <div className="mt-6">
                             <button 
                                 onClick={onSongSelected}
-                                className={`${buttonBaseStyle} ${primaryButtonStyle} max-w-sm mx-auto animate-pulse`}
+                                className={`${buttonBaseStyle} ${primaryButtonStyle} max-w-sm mx-auto animate-bounce-slight shadow-[0_0_20px_rgba(6,182,212,0.4)] hover:shadow-[0_0_30px_rgba(6,182,212,0.6)]`}
                             >
-                                Start Game &rarr;
+                                START GAME
                             </button>
                         </div>
                     </div>
                 ) : (
-                    <p className="text-xl text-slate-400">
-                        {activeTab === 'online' 
-                            ? "Browse and play MIDIs uploaded by the community."
-                            : "Select a MIDI file from your device."}
-                    </p>
+                    <div className="text-center">
+                        <p className="text-xl text-slate-300 font-light">
+                            {activeTab === 'online' 
+                                ? "Choose a track from the global database below."
+                                : "Drag & drop a MIDI file or browse your device."}
+                        </p>
+                    </div>
                 )}
             </div>
             
             {/* Tab Content */}
-            <div className="flex-grow flex flex-col">
+            <div className="flex-grow flex flex-col min-h-[400px]">
                 {activeTab === 'online' ? (
-                    <div className="flex-grow min-h-[400px]">
+                    <div className="flex-grow">
                         <OnlineSongBrowser 
                             onSongLoaded={handleOnlineSongLoaded} 
                             isLoading={isOnlineLoading}
@@ -183,7 +199,7 @@ const SongSelection: React.FC<SongSelectionProps> = ({
                         />
                     </div>
                 ) : (
-                    <div className="space-y-4 max-w-sm mx-auto w-full mt-4">
+                    <div className="flex flex-col items-center justify-center h-full gap-6 p-8 border-2 border-dashed border-slate-700 rounded-xl bg-slate-900/20">
                         <input
                             type="file"
                             accept="audio/midi,.mid,.midi,application/vnd.recordare.musicxml+xml,.musicxml,.xml,.mxl"
@@ -192,15 +208,28 @@ const SongSelection: React.FC<SongSelectionProps> = ({
                             className="hidden"
                             id="song-selection-file-input"
                         />
+                        
+                        <div className="bg-slate-800 p-6 rounded-full">
+                            <svg className="w-16 h-16 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"></path></svg>
+                        </div>
+
                         <label
                             htmlFor="song-selection-file-input"
-                            className={`${buttonBaseStyle} ${secondaryButtonStyle} cursor-pointer block text-center`}
+                            className="bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-3 px-8 rounded-lg cursor-pointer transition-all shadow-lg hover:shadow-cyan-500/30 hover:-translate-y-1"
                             role="button"
                         >
-                            Browse Local Files
+                            Select Local File
                         </label>
-                        <p className="text-sm text-slate-500 text-center mt-2">
-                            Supported: MIDI (.mid). For best accuracy, MIDI files should be converted from MusicXML.
+                        
+                        <div className="text-center space-y-2">
+                            <p className="text-slate-400">or</p>
+                            <button onClick={onStartFreePlay} className="text-violet-400 hover:text-violet-300 font-semibold underline decoration-2 underline-offset-4 hover:decoration-violet-300 transition-colors">
+                                Enter Free Play Mode
+                            </button>
+                        </div>
+
+                        <p className="text-xs text-slate-600 mt-4 max-w-xs text-center">
+                            Supports .mid, .midi, .xml, .musicxml. <br/>Best results with quantized MIDI files.
                         </p>
                     </div>
                 )}

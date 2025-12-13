@@ -19,7 +19,7 @@ const PlaceholderAvatar: React.FC = () => (
 
 const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong }) => {
     const { user } = useAuth();
-    const [activeTab, setActiveTab] = useState<'leaderboard' | 'search' | 'friends' | 'requests'>('leaderboard');
+    const [activeTab, setActiveTab] = useState<'leaderboard' | 'search' | 'friends' | 'requests' | 'community'>('leaderboard');
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState<{ type: 'error' | 'success', text: string } | null>(null);
     const [isRendered, setIsRendered] = useState(false);
@@ -42,7 +42,7 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong }) =
     const [friendRequests, setFriendRequests] = useState<FriendWithProfile[]>([]);
     const [relationships, setRelationships] = useState<Map<string, { status: 'accepted' | 'pending_sent' | 'pending_received' }>>(new Map());
 
-    const [selectedProfileData, setSelectedProfileData] = useState<{ userId: string; rank: number; totalScore: number; } | null>(null);
+    const [selectedProfileData, setSelectedProfileData] = useState<{ userId: string; rank: number; } | null>(null);
 
     const tertiaryButtonStyle = "bg-slate-600 hover:bg-slate-700 text-slate-200 focus:ring-slate-500";
     const tabStyle = "flex-1 py-3 text-center font-bold text-lg cursor-pointer transition-colors border-b-2 relative";
@@ -299,6 +299,7 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong }) =
                             </span>
                         )}
                     </div>
+                    <div className={`${tabStyle} ${activeTab === 'community' ? activeTabStyle : inactiveTabStyle}`} onClick={() => setActiveTab('community')}>Community</div>
                 </div>
 
                 <div className="p-8 md:p-12 overflow-y-auto custom-scrollbar flex-grow flex flex-col">
@@ -317,7 +318,7 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong }) =
                                 {leaderboardData.map((entry, index) => (
                                     <tr key={entry.user_id} className="border-b border-slate-700 hover:bg-slate-700/50">
                                         <td className="p-3 font-bold text-slate-300 text-center">{index + 1}</td>
-                                        <td className="p-3 flex items-center gap-4 cursor-pointer" onClick={() => setSelectedProfileData({ userId: entry.user_id, rank: index + 1, totalScore: entry.total_score })}>
+                                        <td className="p-3 flex items-center gap-4 cursor-pointer" onClick={() => setSelectedProfileData({ userId: entry.user_id, rank: index + 1 })}>
                                             {entry.avatar_url ? <img src={entry.avatar_url} alt={entry.username} className="w-12 h-12 rounded-full object-cover" /> : <PlaceholderAvatar />}
                                             <span className="font-semibold text-white truncate">{entry.username}</span>
                                         </td>
@@ -343,7 +344,7 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong }) =
                                 <div className="space-y-2">
                                     {searchResults.map(profile => (
                                         <div key={profile.id} className="flex items-center justify-between p-3 bg-slate-800 rounded-lg">
-                                            <div className="flex items-center gap-4 cursor-pointer flex-grow min-w-0" onClick={() => setSelectedProfileData({ userId: profile.id, rank: 0, totalScore: 0 })}>
+                                            <div className="flex items-center gap-4 cursor-pointer flex-grow min-w-0" onClick={() => setSelectedProfileData({ userId: profile.id, rank: 0 })}>
                                                 {profile.avatar_url ? <img src={profile.avatar_url} alt={profile.username} className="w-12 h-12 rounded-full object-cover" /> : <PlaceholderAvatar />}
                                                 <span className="font-semibold text-white truncate">{profile.username}</span>
                                             </div>
@@ -361,7 +362,7 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong }) =
                         <div className="space-y-2">
                              {friends.map(friend => (
                                 <div key={friend.friend_profile.id} className="flex items-center justify-between p-3 bg-slate-800 rounded-lg">
-                                    <div className="flex items-center gap-4 cursor-pointer" onClick={() => setSelectedProfileData({ userId: friend.friend_profile.id, rank: 0, totalScore: 0 })}>
+                                    <div className="flex items-center gap-4 cursor-pointer" onClick={() => setSelectedProfileData({ userId: friend.friend_profile.id, rank: 0 })}>
                                         {friend.friend_profile.avatar_url ? <img src={friend.friend_profile.avatar_url} alt={friend.friend_profile.username} className="w-12 h-12 rounded-full object-cover" /> : <PlaceholderAvatar />}
                                         <span className="font-semibold text-white">{friend.friend_profile.username}</span>
                                     </div>
@@ -379,7 +380,7 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong }) =
                         <div className="space-y-2">
                             {friendRequests.map(request => (
                                 <div key={request.friend_profile.id} className="flex items-center justify-between p-3 bg-slate-800 rounded-lg">
-                                    <div className="flex items-center gap-4 cursor-pointer" onClick={() => setSelectedProfileData({ userId: request.friend_profile.id, rank: 0, totalScore: 0 })}>
+                                    <div className="flex items-center gap-4 cursor-pointer" onClick={() => setSelectedProfileData({ userId: request.friend_profile.id, rank: 0 })}>
                                         {request.friend_profile.avatar_url ? <img src={request.friend_profile.avatar_url} alt={request.friend_profile.username} className="w-12 h-12 rounded-full object-cover" /> : <PlaceholderAvatar />}
                                         <span className="font-semibold text-white">{request.friend_profile.username}</span>
                                     </div>
@@ -391,6 +392,35 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong }) =
                             ))}
                         </div>
                     )}
+
+                    {activeTab === 'community' && (
+                        <div className="p-8 text-center flex-grow flex flex-col items-center justify-center">
+                            <h3 className="text-2xl font-bold text-white mb-6">Join the Community</h3>
+                            <div className="space-y-4 max-w-sm w-full">
+                                <a 
+                                    href="https://discord.gg/Ms8d6guHf2" 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    className="w-full font-bold py-3 px-6 rounded-lg text-xl transition-all duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-opacity-50 shadow-lg bg-indigo-500 hover:bg-indigo-600 text-white focus:ring-indigo-400 flex items-center justify-center gap-3"
+                                >
+                                    <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.36981C18.879 3.65681 17.311 3.11181 15.654 2.76481C15.604 2.88081 15.541 3.00881 15.479 3.13681C13.896 2.84281 12.234 2.84281 10.513 3.13681C10.459 3.00881 10.395 2.88081 10.345 2.76481C8.688 3.11181 7.12 3.65681 5.683 4.36981C2.515 8.64781 1.766 12.6178 2.214 16.5518C4.004 17.7438 5.683 18.3978 7.332 18.8578C7.479 18.5908 7.614 18.3098 7.737 18.0288C7.12 17.8468 6.531 17.6258 5.964 17.3688C6.037 17.2958 6.11 17.2228 6.183 17.1488C10.159 19.0148 13.831 19.0148 17.817 17.1488C17.881 17.2228 17.953 17.2958 18.026 17.3688C17.459 17.6258 16.87 17.8468 16.263 18.0288C16.386 18.3098 16.521 18.5908 16.668 18.8578C18.317 18.3978 19.996 17.7438 21.786 16.5518C22.284 12.2988 21.365 8.42781 20.317 4.36981ZM8.021 13.9188C7.307 13.9188 6.727 13.2798 6.727 12.4998C6.727 11.7198 7.295 11.0808 8.021 11.0808C8.747 11.0808 9.327 11.7198 9.315 12.4998C9.315 13.2798 8.747 13.9188 8.021 13.9188ZM15.979 13.9188C15.265 13.9188 14.685 13.2798 14.685 12.4998C14.685 11.7198 15.253 11.0808 15.979 11.0808C16.705 11.0808 17.285 11.7198 17.273 12.4998C17.273 13.2798 16.705 13.9188 15.979 13.9188Z"></path></svg>
+                                    Join our Discord
+                                </a>
+                                <a 
+                                    href="https://ko-fi.com/kemalavicennafaza" 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    className="w-full font-bold py-3 px-6 rounded-lg text-xl transition-all duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-opacity-50 shadow-lg bg-pink-500 hover:bg-pink-600 text-white focus:ring-pink-400 flex items-center justify-center gap-3"
+                                >
+                                    <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor"><path d="M18.5 3H6c-1.1 0-2 .9-2 2v5.71c0 3.83 2.95 7.18 6.78 7.29 3.96.12 7.22-3.06 7.22-7v-1h.5c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-1.5 6h-11V5h11v4z"></path></svg>
+                                    Donate Link
+                                </a>
+                            </div>
+                             <p className="text-slate-400 mt-8 text-sm">
+                                Your support helps keep Octavia running and evolving. Thank you!
+                            </p>
+                        </div>
+                    )}
                 </div>
             </div>
             {selectedProfileData && (
@@ -398,7 +428,6 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong }) =
                     isOpen={!!selectedProfileData} 
                     userId={selectedProfileData.userId} 
                     globalRank={selectedProfileData.rank > 0 ? selectedProfileData.rank : undefined}
-                    totalScore={selectedProfileData.rank > 0 ? selectedProfileData.totalScore : undefined}
                     onClose={() => setSelectedProfileData(null)} 
                     onGoToOnlineSong={onGoToOnlineSong} 
                 />

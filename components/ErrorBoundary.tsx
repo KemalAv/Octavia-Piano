@@ -1,3 +1,4 @@
+
 import React, { ErrorInfo, ReactNode } from 'react';
 
 interface ErrorBoundaryProps {
@@ -10,16 +11,23 @@ interface ErrorBoundaryState {
   isRendered: boolean;
 }
 
+// Fix: Explicitly extend React.Component and use a constructor to initialize state.
+// This ensures that TypeScript correctly identifies ErrorBoundary as a React component 
+// and recognizes inherited properties and methods like 'setState' and 'props'.
 class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  public state: ErrorBoundaryState = {
-    hasError: false,
-    error: null,
-    isRendered: false,
-  };
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = {
+      hasError: false,
+      error: null,
+      isRendered: false,
+    };
+  }
 
-  public static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
+  // Fix: Explicitly define the return type for static state derivation from error.
+  public static getDerivedStateFromError(error: Error): ErrorBoundaryState {
     // Update state so the next render will show the fallback UI.
-    return { hasError: true, error };
+    return { hasError: true, error, isRendered: false };
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
@@ -28,10 +36,9 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
   }
   
   public componentDidUpdate(_: ErrorBoundaryProps, prevState: ErrorBoundaryState) {
+    // Fix: Accessing this.setState within a class component lifecycle method correctly.
     if (this.state.hasError && !prevState.hasError) {
-        const timer = setTimeout(() => this.setState({ isRendered: true }), 10);
-        // This is a class component, so we don't need a cleanup function here.
-        // If the component could unmount while the timer is active, we'd store the timer id to clear it.
+        setTimeout(() => this.setState({ isRendered: true }), 10);
     }
   }
 
@@ -42,6 +49,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
   };
 
   public render() {
+    // Fix: Accessing this.state and this.props.children within the render method.
     if (this.state.hasError) {
       // Fallback UI
       return (
@@ -52,7 +60,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
               An unexpected error occurred.
             </p>
             <p className="text-lg text-red-200 mb-8 italic">
-              "Opps, theres bug that if you change screen size etc it will be error because dev very lazy to fix it."
+              "Oops, there's a bug because the dev is too lazy to fix it." 
             </p>
             <button
               onClick={this.handleReturnToMainMenu}

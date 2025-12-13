@@ -1,6 +1,9 @@
+
+
 import React from 'react';
-import { KeyPosition, MidiNotePlaybackItem, ActiveMidiNoteInfo, NoteLabelType } from '../types';
+import { KeyPosition, MidiNotePlaybackItem, ActiveMidiNoteInfo, NoteLabelType, QwertyLayout } from '../types';
 import { SHARP_KEYS, FLAT_KEYS, NEUTRAL_KEYS, ENHARMONIC_MAP_TO_SHARP, ENHARMONIC_MAP_TO_FLAT } from '../utils'; // Import enharmonic constants
+import { QWERTY_MINI_KEYBOARD_MAPPING, MIRP_KEYBOARD_MAPPING, KEY_CODES_TO_DISPLAY } from '../constants';
 
 interface NoteProps {
   noteItem: MidiNotePlaybackItem;
@@ -12,28 +15,53 @@ interface NoteProps {
   rightHandColor: string;
   leftHandColor: string;
   activeKeySignature: string; // NEW: Added activeKeySignature prop
+  // NEW: QWERTY Label Props
+  qwertyLayout?: QwertyLayout;
+  qwertyCurrentOctaveShift?: number;
+  mirpTranspose?: number;
 }
 
-const Note: React.FC<NoteProps> = ({ noteItem, keyPosition, yPositionPx, heightPx, status, noteLabelType, rightHandColor, leftHandColor, activeKeySignature }) => {
+const Note: React.FC<NoteProps> = ({ 
+  noteItem, 
+  keyPosition, 
+  yPositionPx, 
+  heightPx, 
+  status, 
+  noteLabelType, 
+  rightHandColor, 
+  leftHandColor, 
+  activeKeySignature,
+  qwertyLayout = 'default',
+  qwertyCurrentOctaveShift = 0,
+  mirpTranspose = 0,
+}) => {
   // Use the passed height directly
   
   let bgStyle: React.CSSProperties = {};
+  const baseColor = noteItem.hand === 'left' ? leftHandColor : rightHandColor;
 
-  // For playing, user_played, or default states, use the dynamic color from props
+  // New Visual Style: Beveled/Gem look
   bgStyle = {
-    backgroundColor: noteItem.hand === 'left' ? leftHandColor : rightHandColor,
+    backgroundColor: baseColor,
+    // Add a top border for highlight and bottom/right for shadow to create 3D bar effect
+    borderTop: '1px solid rgba(255,255,255,0.6)',
+    borderLeft: '1px solid rgba(255,255,255,0.4)',
+    borderRight: '1px solid rgba(0,0,0,0.3)',
+    borderBottom: '1px solid rgba(0,0,0,0.5)',
+    boxShadow: `0 0 10px ${baseColor}80, inset 0 0 10px rgba(0,0,0,0.2)`, // Outer glow + inner shadow
   };
 
   // If status is waiting, the background color is already set by the above logic.
   // The original WAITING_NOTE_BG_COLOR (purple) is no longer directly applied via bgColorClass.
   
-  const visualWidth = keyPosition.type === 'black' ? keyPosition.width * 0.8 : keyPosition.width - 1; 
-  const visualX = keyPosition.type === 'black' ? keyPosition.x + (keyPosition.width * 0.1) : keyPosition.x + 0.5;
+  const visualWidth = keyPosition.type === 'black' ? keyPosition.width * 0.8 : keyPosition.width - 2; // Slightly narrower for spacing
+  const visualX = keyPosition.type === 'black' ? keyPosition.x + (keyPosition.width * 0.1) : keyPosition.x + 1;
 
-  let displayedPitchClass = noteItem.pitchClass;
+  let displayedLabel = '';
 
-  // Apply enharmonic correction if note labels are 'noteName'
   if (noteLabelType === 'noteName') {
+    let displayedPitchClass = noteItem.pitchClass;
+    // Apply enharmonic correction if note labels are 'noteName'
     const isSharpContext = SHARP_KEYS.includes(activeKeySignature) || NEUTRAL_KEYS.includes(activeKeySignature);
     const isFlatContext = FLAT_KEYS.includes(activeKeySignature);
 
@@ -48,11 +76,36 @@ const Note: React.FC<NoteProps> = ({ noteItem, keyPosition, yPositionPx, heightP
             displayedPitchClass = flatEquivalent;
         }
     }
+    displayedLabel = displayedPitchClass;
+  } else if (noteLabelType === 'fingering') {
+    if (noteItem.finger) {
+      displayedLabel = String(noteItem.finger);
+    }
+  } else if (noteLabelType === 'qwerty') {
+    // Calculate which key triggers this note
+    if (qwertyLayout === 'mirp') {
+      // For MIRP: Played Note = Base Key Midi + Transpose
+      // So Base Key Midi = Played Note - Transpose
+      const targetBaseMidi = noteItem.midi - mirpTranspose;
+      const match = MIRP_KEYBOARD_MAPPING.find(m => m.midi === targetBaseMidi);
+      if (match) {
+        displayedLabel = match.label;
+      }
+    } else {
+      // For Default: Played Note = Base Key Midi + (Shift * 12)
+      // So Base Key Midi = Played Note - (Shift * 12)
+      const targetBaseMidi = noteItem.midi - (qwertyCurrentOctaveShift * 12);
+      const match = QWERTY_MINI_KEYBOARD_MAPPING.find(m => m.midiBase === targetBaseMidi);
+      if (match) {
+        // Use the display mapping if available, otherwise capitalize key code
+        displayedLabel = KEY_CODES_TO_DISPLAY[match.qwertyKey] || match.qwertyKey.replace('key', '').toUpperCase();
+      }
+    }
   }
 
   return (
     <div
-      className={`absolute rounded flex items-center justify-center shadow-md text-white font-bold text-sm`}
+      className={`absolute rounded-sm flex items-end justify-center pb-1 text-white font-bold text-xs overflow-hidden z-10 transition-transform duration-75`}
       style={{
         left: `${visualX}px`,
         top: `${yPositionPx}px`,
@@ -62,11 +115,8 @@ const Note: React.FC<NoteProps> = ({ noteItem, keyPosition, yPositionPx, heightP
       }}
       aria-hidden="true" 
     >
-      {noteLabelType === 'fingering' && noteItem.finger && (
-        <span>{noteItem.finger}</span>
-      )}
-      {noteLabelType === 'noteName' && (
-        <span>{displayedPitchClass}</span>
+      {displayedLabel && (
+        <span className="select-none pointer-events-none drop-shadow-md z-20 relative">{displayedLabel}</span>
       )}
     </div>
   );
