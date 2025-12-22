@@ -26,6 +26,8 @@ const PerformanceSummaryModal: React.FC<PerformanceSummaryProps> = ({ isVisible,
 
   const getRankColorClass = (rank: string) => {
     switch (rank) {
+      case 'X': return 'animate-rainbow-pulse'; // Legendary/Perfect - Rainbow RGB Pulse
+      case 'SS': return 'text-fuchsia-400 drop-shadow-[0_0_8px_rgba(232,121,249,0.7)]'; // Near Perfect
       case 'S': return 'text-purple-400';
       case 'A': return 'text-lime-400';
       case 'B': return 'text-cyan-400';

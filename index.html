@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -83,6 +84,29 @@
     }
     .metronome-pulse-strong { animation: pulse-strong 0.5s ease-out; }
     .metronome-pulse-weak { animation: pulse-weak 0.5s ease-out; }
+
+    /* Rank X Rainbow RGB Pulse Animation */
+    @keyframes rainbow-pulse {
+      0%, 100% { 
+        color: #ff0000; 
+        filter: drop-shadow(0 0 15px rgba(255, 0, 0, 0.8));
+        transform: scale(1);
+      }
+      33% { 
+        color: #00ff00; 
+        filter: drop-shadow(0 0 15px rgba(0, 255, 0, 0.8));
+        transform: scale(1.1);
+      }
+      66% { 
+        color: #0000ff; 
+        filter: drop-shadow(0 0 15px rgba(0, 0, 255, 0.8));
+        transform: scale(1);
+      }
+    }
+    .animate-rainbow-pulse {
+      animation: rainbow-pulse 2s linear infinite;
+      display: inline-block;
+    }
 
     /* QWERTY Keyboard Display Styles */
     .qwerty-keyboard-display {
@@ -215,6 +239,71 @@
         box-shadow: 0 0 15px rgba(239, 68, 68, 0.8);
         z-index: 10;
         pointer-events: none;
+    }
+
+    /* === Ad Banner Specific Styles === */
+    .side-ad-banner {
+      position: fixed;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 1000;
+      width: 160px;
+      height: 66.66vh;
+      max-height: 600px;
+      background-color: rgba(30, 41, 59, 0.5);
+      backdrop-filter: blur(4px);
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid rgba(51, 65, 85, 0.7);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center; /* Center ad content if it doesn't fill */
+      /* Added for smoother transitions if we decide to animate show/hide */
+      transition: opacity 0.3s ease-in-out; 
+    }
+
+    .ad-close-button {
+      position: absolute;
+      top: 5px;
+      right: 5px;
+      background: rgba(0, 0, 0, 0.6);
+      color: #fff;
+      border: none;
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.2rem;
+      cursor: pointer;
+      z-index: 1001; /* Above ad content */
+      transition: background-color 0.2s ease;
+      line-height: 1; /* Adjust line height to center 'x' */
+      padding: 0; /* Remove default padding */
+      text-shadow: 0 0 5px rgba(255,255,255,0.5);
+    }
+
+    .ad-close-button:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    /* Media queries for responsiveness of ad banners */
+    @media (max-width: 1024px) {
+      .side-ad-banner {
+        width: 120px; /* Smaller width for tablets */
+        left: 10px;
+        right: 10px;
+        height: 50vh; /* Smaller height */
+        max-height: 400px;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .side-ad-banner {
+        display: none; /* Hide on smaller mobile screens */
+      }
     }
 
   </style>

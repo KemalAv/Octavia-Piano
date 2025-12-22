@@ -375,7 +375,8 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
     try {
       const analysisData = await parseFileForAnalysis(uploadFile, midiNoteToNameMap);
       if (analysisData && analysisData.notes.length > 0) {
-        const analysisResult = analyzeMidi(analysisData.notes, analysisData.originalTotalMusicalDurationMs);
+        // Correctly pass originalTotalMusicalDurationMs for consistent imitation logic
+        const analysisResult = analyzeMidi(analysisData.notes, analysisData.originalTotalMusicalDurationMs, undefined, analysisData.originalTotalMusicalDurationMs);
         if (analysisResult) {
           difficultyLevel = analysisResult.difficultyLevel;
           performanceScore = analysisResult.performanceScore;
