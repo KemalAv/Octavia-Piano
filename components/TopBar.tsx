@@ -67,9 +67,9 @@ const TopBar: React.FC<TopBarProps> = (props) => {
     return `+${seconds}.${String(milliseconds).padStart(3, '0')}`;
   };
 
-  const adjustZoom = (isFalling: boolean, increment: boolean) => {
-      const current = isFalling ? noteSpeedMultiplier : sheetMusicZoom;
-      const setter = isFalling ? onNoteSpeedMultiplierChange : onSheetMusicZoomChange;
+  const adjustZoom = (isSpeedControl: boolean, increment: boolean) => {
+      const current = isSpeedControl ? noteSpeedMultiplier : sheetMusicZoom;
+      const setter = isSpeedControl ? onNoteSpeedMultiplierChange : onSheetMusicZoomChange;
       const step = 0.1;
       let newValue = increment ? current + step : current - step;
       newValue = Math.round(newValue * 10) / 10;
@@ -95,15 +95,15 @@ const TopBar: React.FC<TopBarProps> = (props) => {
   const waitModeLabel = waitMode === 'off' ? 'Autoplay' : waitMode === 'retical' ? 'Retical' : 'Practice';
 
   const ZoomControls = () => {
-    const isFalling = viewMode === 'falling';
-    const value = isFalling ? noteSpeedMultiplier : sheetMusicZoom;
+    const isSpeedControl = viewMode === 'falling' || viewMode === 'sheet-roll';
+    const value = isSpeedControl ? noteSpeedMultiplier : sheetMusicZoom;
     return (
-        <div className="flex items-center gap-1 bg-slate-800/50 rounded-lg p-1 border border-slate-700" title={isPlaying ? "Pause to adjust zoom" : (isFalling ? "Note Falling Speed" : "Sheet Music Zoom")}>
-            <button onClick={() => adjustZoom(isFalling, false)} disabled={!isFileLoaded || isPlaying} className={`${iconButtonStyles} w-7 h-7 bg-transparent hover:bg-slate-700 text-slate-400 hover:text-white`} aria-label="Decrease zoom">−</button>
+        <div className="flex items-center gap-1 bg-slate-800/50 rounded-lg p-1 border border-slate-700" title={isPlaying ? "Pause to adjust zoom" : (isSpeedControl ? "Note Speed" : "Sheet Music Zoom")}>
+            <button onClick={() => adjustZoom(isSpeedControl, false)} disabled={!isFileLoaded || isPlaying} className={`${iconButtonStyles} w-7 h-7 bg-transparent hover:bg-slate-700 text-slate-400 hover:text-white`} aria-label="Decrease zoom">−</button>
             <span className="text-xs font-bold w-10 text-center tabular-nums text-slate-200">
               {Math.round(value * 100)}%
             </span>
-            <button onClick={() => adjustZoom(isFalling, true)} disabled={!isFileLoaded || isPlaying} className={`${iconButtonStyles} w-7 h-7 bg-transparent hover:bg-slate-700 text-slate-400 hover:text-white`} aria-label="Increase zoom">+</button>
+            <button onClick={() => adjustZoom(isSpeedControl, true)} disabled={!isFileLoaded || isPlaying} className={`${iconButtonStyles} w-7 h-7 bg-transparent hover:bg-slate-700 text-slate-400 hover:text-white`} aria-label="Increase zoom">+</button>
         </div>
     );
   };

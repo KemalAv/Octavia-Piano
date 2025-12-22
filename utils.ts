@@ -1,4 +1,3 @@
-
 /**
  * Calculates a non-linear scaling factor for note widths based on a power curve.
  * This function makes the zoom effect more pronounced at lower values.
@@ -6,9 +5,11 @@
  * - For zoom < 1.0, scaling follows `zoom^1.6`.
  *
  * @param zoom The raw zoom factor (e.g., 1.0 for 100%, 0.5 for 50%).
+ * @param isRollView If true, returns a linear zoom factor. Defaults to false.
  * @returns The adjusted scaling factor for note widths.
  */
-export const getNoteZoom = (zoom: number): number => {
+export const getNoteZoom = (zoom: number, isRollView: boolean = false): number => {
+  if (isRollView) return zoom; // Use linear zoom for roll view to keep sync
   if (zoom <= 0) return 0;
   if (zoom >= 1) return zoom;
   // A power of 1.6 provides an aggressive curve that matches the desired behavior
@@ -24,9 +25,11 @@ export const getNoteZoom = (zoom: number): number => {
  * - For zoom < 1.0, scaling follows `zoom^0.25`.
  *
  * @param zoom The raw zoom factor (e.g., 1.0 for 100%, 0.5 for 50%).
+ * @param isRollView If true, returns a linear zoom factor. Defaults to false.
  * @returns The adjusted scaling factor for layout widths.
  */
-export const getLayoutZoom = (zoom: number): number => {
+export const getLayoutZoom = (zoom: number, isRollView: boolean = false): number => {
+  if (isRollView) return zoom; // Use linear zoom for roll view to keep sync
   if (zoom <= 0) return 0;
   if (zoom >= 1) return zoom;
   // The 4th root (power of 0.25) provides a gentle curve that keeps the layout
@@ -214,24 +217,27 @@ export const getBeatTimesInWindow = (
 
     if (msPerBeatOriginal <= 0) continue; // Avoid infinite loop
 
-    // Iterate through beats within this measure (based on numerator of time signature)
-    for (let beat = 0; beat < activeTimeSignature.numerator; beat++) {
-      const beatOriginalTime = barStartOriginalTime + (beat * msPerBeatOriginal);
-      const beatScaledTime = beatOriginalTime * playbackTempoMultiplier;
+    // NEW LOGIC: Continuously generate beats until the next bar line to handle irregular measures.
+    let beatCount = 0;
+    while (true) {
+        const beatOriginalTime = barStartOriginalTime + (beatCount * msPerBeatOriginal);
+        const beatScaledTime = beatOriginalTime * playbackTempoMultiplier;
 
-      // Only add beat if it's within the scheduling window
-      // Use a small tolerance for the window boundary to catch beats very close to it
-      if (beatScaledTime >= windowStartScaledTimeMs - 50 && beatScaledTime < windowEndScaledTimeMs + 50) {
-        beatTimes.push({
-          timeMs: beatScaledTime,
-          isStrong: beat === 0, // First beat of measure is strong
-        });
-      }
-      
-      // Optimization: if we're past the next bar or window end, no more beats in this "measure interval"
-      if (beatScaledTime >= nextBarStartScaledTime - 50 || beatScaledTime >= windowEndScaledTimeMs + 50) {
-          break;
-      }
+        // Stop if we've passed the next measure or are well beyond the scheduling window
+        if (beatScaledTime >= nextBarStartScaledTime || beatScaledTime >= windowEndScaledTimeMs + 50) {
+            break;
+        }
+        
+        // Add beat if it falls within the scheduling window (with tolerance)
+        if (beatScaledTime >= windowStartScaledTimeMs - 50) {
+            beatTimes.push({
+                timeMs: beatScaledTime,
+                // The first beat generated after a bar line is always the strong beat
+                isStrong: beatCount === 0,
+            });
+        }
+        
+        beatCount++;
     }
   }
 

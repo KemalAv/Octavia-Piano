@@ -1,6 +1,4 @@
 
-
-// FIX: Add types for Supabase auth integration.
 import { Session, User } from '@supabase/supabase-js';
 
 // ========================================
@@ -161,7 +159,7 @@ export type MidiAccessStatus =
 export type MetronomeMode = 'off' | 'beat' | 'bar'; // UPDATED: Added 'beat' mode
 // @FIX: Add 'lenient' to WaitMode to resolve typing errors in App.tsx and ModeSelection.tsx.
 export type WaitMode = 'off' | 'strict' | 'rhythm' | 'retical' | 'lenient';
-export type ViewMode = 'falling' | 'sheet';
+export type ViewMode = 'falling' | 'sheet' | 'sheet-roll';
 export type Screen =
   | 'mainMenu'
   | 'songSelection'
@@ -301,6 +299,7 @@ export interface TimeSignatureInfo {
   denominator: number;
 }
 
+// FIX: Corrected FileType enum to include UNKNOWN and proper values
 export enum FileType {
   MIDI = 'midi',
   MUSICXML = 'musicxml',
@@ -340,6 +339,12 @@ export interface VexFlowNoteInfo {
   originalNoteIds?: string[];
   isTieStart?: boolean[];
   isTieEnd?: boolean[];
+  // NEW: Add timing info for scrolling views
+  timeMs?: number;
+  durationMs?: number;
+  originalNotes?: NoteFragment[]; // For rendering chords in sheet-roll
+  vexNoteYPositions?: number[];
+  vexNoteKeyProps?: { line: number }[];
 }
 
 export interface VexFlowMeasureData {
@@ -361,20 +366,23 @@ export interface VexFlowMeasureData {
   newClefLH?: 'treble' | 'bass';
   starts8vaRH: boolean;
   ends8vaRH: boolean;
+  starts15maRH: boolean; // NEW: 15ma support
+  ends15maRH: boolean;   // NEW: 15ma support
   starts8vbLH: boolean;
   ends8vbLH: boolean;
-  // FIX: Add 'is8vaActiveRH' property to resolve type errors.
+  starts15mbLH: boolean; // NEW: 15mb support
+  ends15mbLH: boolean;   // NEW: 15mb support
   is8vaActiveRH: boolean; 
-  // FIX: Add 'is8vbActiveLH' property to resolve type errors in vexflow-helper.ts.
+  is15maActiveRH: boolean; // NEW: 15ma support
   is8vbActiveLH: boolean;
-  // FIX: Added missing properties for tempo, time signature, and beaming logic.
+  is15mbActiveLH: boolean; // NEW: 15mb support
   newTempoBpm?: number;
   effectiveTimeSignature: TimeSignatureInfo;
   hasDottedBeamableNotes: boolean;
 }
 
 export interface OctaveLineInfo {
-  type: '8va' | '8vb';
+  type: '8va' | '8vb' | '15ma' | '15mb'; // Updated
   hand: 'right' | 'left';
   startX: number;
   endX: number;
@@ -388,8 +396,10 @@ export interface VexFlowRenderData {
   tempoMarkings: TempoMarkingInfo[];
   topStaveYOffset: number;
   fragments: NoteFragment[];
-  // FIX: Added missing properties for tempo markings and fragment mapping.
   noteIdToFragmentsMap: Map<string, NoteFragment[]>;
+  keySignature: string;
+  timeSignature: TimeSignatureInfo;
+  verticalSpacing: number; // NEW: Pass vertical spacing information
 }
 
 // ========================================
@@ -441,7 +451,9 @@ export interface AnalysisConfig {
     arpRangeMin: number;
     arpRangeMax: number;
     arpJumpSmall: number;
+    arpJumpSmallWeight: number;
     arpJumpLarge: number;
+    arpJumpLargeWeight: number;
     arpJumpWeight: number;
     arpZigzagWeight: number;
     arpSpeedWeight: number;

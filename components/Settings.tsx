@@ -291,6 +291,7 @@ const Settings: React.FC<SettingsProps> = (props) => {
                 <select id="view-mode" value={viewMode} onChange={e => onViewModeChange(e.target.value as ViewMode)} className={`${selectStyles} max-w-xs`}>
                   <option value="falling">Falling Notes</option>
                   <option value="sheet">Sheet Music</option>
+                  <option value="sheet-roll">Sheet Music Roll</option>
                 </select>
               </SettingRow>
               <SettingRow label="Falling Note Labels" htmlFor="note-label">

@@ -172,7 +172,20 @@ export async function parseMidiData(
       noteId: `midi-${n.originalTrackSourceInfo}-${n.ticks}-${counter++}`
     }));
 
-    const originalTotalMusicalDurationMs = notes.length > 0 ? Math.max(...notes.map(n => n.timeMs + n.durationMs)) : 0;
+    // FIX: Calculate duration as (Last Note End - First Note Start) to match App.tsx logic.
+    // This ignores the arbitrary INITIAL_PLAYBACK_DELAY_MS added to start times.
+    let firstNoteTime = Infinity;
+    let lastNoteEndTime = 0;
+    if (notes.length > 0) {
+        for (const n of notes) {
+            if (n.timeMs < firstNoteTime) firstNoteTime = n.timeMs;
+            const end = n.timeMs + n.durationMs;
+            if (end > lastNoteEndTime) lastNoteEndTime = end;
+        }
+    }
+    const originalTotalMusicalDurationMs = (isFinite(firstNoteTime) && lastNoteEndTime > 0) 
+        ? lastNoteEndTime - firstNoteTime 
+        : 0;
     
     return { notes, timeSignature: initialTimeSignature, keySignature, initialTempoBpm, tempoEvents, barLinesMs, signatureEvents, originalTotalMusicalDurationMs };
 }
@@ -388,7 +401,20 @@ export async function parseMusicXmlData(
     const finalBarLinesMs = barLinesMs.map(b => b + INITIAL_PLAYBACK_DELAY_MS);
     const finalSignatureEvents = signatureEventsFromXml.map(e => ({...e, timeMs: e.timeMs + INITIAL_PLAYBACK_DELAY_MS}));
     
-    const originalTotalMusicalDurationMs = finalNotes.length > 0 ? Math.max(...finalNotes.map(n => n.timeMs + n.durationMs)) : 0;
+    // FIX: Calculate duration as (Last Note End - First Note Start) to match App.tsx logic.
+    // This ignores the arbitrary INITIAL_PLAYBACK_DELAY_MS added to start times.
+    let firstNoteTime = Infinity;
+    let lastNoteEndTime = 0;
+    if (finalNotes.length > 0) {
+        for (const n of finalNotes) {
+            if (n.timeMs < firstNoteTime) firstNoteTime = n.timeMs;
+            const end = n.timeMs + n.durationMs;
+            if (end > lastNoteEndTime) lastNoteEndTime = end;
+        }
+    }
+    const originalTotalMusicalDurationMs = (isFinite(firstNoteTime) && lastNoteEndTime > 0) 
+        ? lastNoteEndTime - firstNoteTime 
+        : 0;
     
     return { notes: finalNotes, timeSignature: initialTimeSignature || DEFAULT_TIME_SIGNATURE, keySignature, initialTempoBpm, tempoEvents: finalTempoEvents, barLinesMs: finalBarLinesMs, signatureEvents: finalSignatureEvents, originalTotalMusicalDurationMs };
 }
