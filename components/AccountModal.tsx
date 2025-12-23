@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../AuthContext';
@@ -63,7 +64,7 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
     // Fetch profile (only username and avatar_url are needed for display in this modal)
     const { data: profileData, error: profileError } = await supabase
       .from('profiles')
-      .select('username, avatar_url, last_nickname_change, bio')
+      .select('username, avatar_url, last_nickname_change, bio, total_playtime_ms, total_notes_hit')
       .eq('id', user.id)
       .single();
 
@@ -153,6 +154,10 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
   const handleUpdateUsername = async () => {
     if (!username.trim()) {
       setMessage({ type: 'error', text: 'Username cannot be empty.' });
+      return;
+    }
+    if (username.length > 20) {
+      setMessage({ type: 'error', text: 'Username cannot be longer than 20 characters.' });
       return;
     }
     if (!user) {
@@ -298,12 +303,14 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
 
               if (uploadError) throw uploadError;
 
-              const { data: urlData } = supabase.storage
+              const { data: signedUrlData, error: signedUrlError } = await supabase.storage
                 .from('avatars')
-                .getPublicUrl(filePath);
+                .createSignedUrl(filePath, AVATAR_SIGNED_URL_EXPIRY_SECONDS);
+              
+              if (signedUrlError) throw signedUrlError;
 
-              if (urlData) {
-                const newAvatarUrl = `${urlData.publicUrl}?t=${new Date().getTime()}`;
+              if (signedUrlData) {
+                const newAvatarUrl = signedUrlData.signedUrl;
                 const { error: dbError } = await supabase
                   .from('profiles')
                   .upsert({ id: user.id, avatar_url: newAvatarUrl }, { onConflict: 'id' });
@@ -312,7 +319,7 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
                 setAvatarUrl(newAvatarUrl);
                 setMessage({ type: 'success', text: 'Avatar updated successfully!' });
               } else {
-                 throw new Error("Could not retrieve public URL for avatar.");
+                 throw new Error("Could not retrieve signed URL for avatar.");
               }
             } catch (err: unknown) {
               setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to upload avatar.' });
@@ -353,6 +360,14 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
     } catch (e) {
         return 'Invalid';
     }
+  };
+
+  const formatPlaytime = (ms: number) => {
+    if (!ms || ms < 0) return '0h 0m';
+    const totalSeconds = ms / 1000;
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    return `${hours}h ${minutes}m`;
   };
 
   // NEW: Handler to open performance summary
@@ -414,10 +429,22 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
 
                     <div className="text-center sm:text-left">
                         {isEditingUsername ? (
-                            <div className="flex items-center gap-2">
-                                <input type="text" value={username} onChange={e => setUsername(e.target.value)} className="p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500" disabled={loadingUsername} />
-                                <button onClick={handleUpdateUsername} className="px-3 py-2 bg-green-600 hover:bg-green-700 rounded" disabled={loadingUsername}>{loadingUsername ? '...' : 'Save'}</button>
-                                <button onClick={() => { setIsEditingUsername(false); setUsername(profile?.username || ''); }} className="px-3 py-2 bg-slate-600 hover:bg-slate-500 rounded" disabled={loadingUsername}>X</button>
+                            <div className="flex flex-col gap-1">
+                                <div className="flex items-center gap-2">
+                                    <input 
+                                        type="text" 
+                                        value={username} 
+                                        onChange={e => setUsername(e.target.value)} 
+                                        className="p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500 flex-grow" 
+                                        disabled={loadingUsername}
+                                        maxLength={20}
+                                    />
+                                    <button onClick={handleUpdateUsername} className="px-3 py-2 bg-green-600 hover:bg-green-700 rounded disabled:opacity-50 disabled:cursor-not-allowed" disabled={loadingUsername || username.length > 20 || !username.trim()}>{loadingUsername ? '...' : 'Save'}</button>
+                                    <button onClick={() => { setIsEditingUsername(false); setUsername(profile?.username || ''); }} className="px-3 py-2 bg-slate-600 hover:bg-slate-500 rounded" disabled={loadingUsername}>X</button>
+                                </div>
+                                <div className={`text-xs text-right pr-1 ${username.length > 20 ? 'text-red-400' : 'text-slate-400'}`}>
+                                    {username.length} / 20
+                                </div>
                             </div>
                         ) : (
                             <div className="flex items-center gap-3">
@@ -458,8 +485,8 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
                           )}
                         </div>
                         
-                         {(globalRank !== null || totalScore !== null) ? (
-                            <div className="flex items-baseline gap-6 mt-2 text-slate-300">
+                         {(globalRank !== null || totalScore !== null || profile?.total_playtime_ms !== undefined) ? (
+                            <div className="flex items-baseline gap-4 mt-2 text-slate-300 flex-wrap justify-center sm:justify-start">
                                 <div>
                                     <span className="text-sm">Global Rank</span>
                                     <p className="text-2xl font-bold text-white">#{globalRank ? globalRank.toLocaleString() : 'N/A'}</p>
@@ -467,6 +494,14 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
                                 <div>
                                     <span className="text-sm">Total Score</span>
                                     <p className="text-2xl font-bold text-white">{totalScore !== null ? Math.round(totalScore).toLocaleString() : '...'}</p>
+                                </div>
+                                <div>
+                                    <span className="text-sm">Playtime</span>
+                                    <p className="text-2xl font-bold text-white">{formatPlaytime(profile?.total_playtime_ms || 0)}</p>
+                                </div>
+                                <div>
+                                    <span className="text-sm">Notes Hit</span>
+                                    <p className="text-2xl font-bold text-white">{(profile?.total_notes_hit || 0).toLocaleString()}</p>
                                 </div>
                             </div>
                         ) : (

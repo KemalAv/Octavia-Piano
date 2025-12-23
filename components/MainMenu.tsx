@@ -101,7 +101,7 @@ const MainMenu: React.FC<MainMenuProps> = ({ onPlay, onSettings, onSocial, onOpe
         </div>
         
         <div className="mt-8 text-xs text-slate-500">
-            v0.9.0 &bull; Beta Access
+            v1.0.3 &bull; Created by Kemal Av
         </div>
       </div>
     </div>

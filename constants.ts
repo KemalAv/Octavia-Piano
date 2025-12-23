@@ -1,8 +1,12 @@
+
+
+
 import { PianoKeyDefinition, PianoKeyType, QwertyKeyMapEntry, ViewMode, NoteLabelType, ThemeSettings, DevicePreset, LayoutDimensions, MirpKeyMapEntry } from './types';
 
 // Admin UUID - IMPORTANT: Replace with the actual UUID of your admin user in Supabase
 // You can find your user's UUID in the Supabase Auth -> Users table.
-export const ADMIN_UUID = '9701e6dc-05de-40f3-81e7-54da7b9d8ba'; 
+// FIX: Corrected typo in UUID.
+export const ADMIN_UUID = '9701e6dc-05de-40f3-81e7-54da7b9d8b9a'; 
 
 // --- Dynamic Scaling Ratios ---
 export const BLACK_KEY_WIDTH_RATIO = 0.58; // Black key width as a ratio of its associated white key width.
@@ -43,7 +47,7 @@ const getWhiteKeyCount = (totalKeys: number): number => {
         }
       }
       return count;
-  }
+    }
 };
 
 /**
@@ -65,33 +69,33 @@ const getScaledWhiteKeyWidth = (totalKeys: number, baseWidth88: number): number 
  */
 export const DEVICE_LAYOUTS = (totalKeys: number): Record<DevicePreset, LayoutDimensions> => {
   const whiteWidthDesktop = getScaledWhiteKeyWidth(totalKeys, 24.5);
-  const whiteWidthTablet = getScaledWhiteKeyWidth(totalKeys, 19.5);
-  const whiteWidthPhone = getScaledWhiteKeyWidth(totalKeys, 7.5);
+  const whiteWidthTablet = getScaledWhiteKeyWidth(totalKeys, 24.5);
 
   return {
     desktop: {
       whiteKeyHeight: 140,
-      blackKeyHeight: 90,
+      blackKeyHeight: 91,
       keyLabelHeight: 25,
       minWhiteKeyWidth: whiteWidthDesktop,
     },
     tablet: {
-      whiteKeyHeight: 150,
-      blackKeyHeight: 100,
-      keyLabelHeight: 100,
+      whiteKeyHeight: 240,
+      blackKeyHeight: 156,
+      keyLabelHeight: 25,
       minWhiteKeyWidth: whiteWidthTablet,
     },
+    // @FIX: Add layouts for 'phone' and 'custom' to match the updated DevicePreset type.
     phone: {
-      whiteKeyHeight: 90,
-      blackKeyHeight: 50,
-      keyLabelHeight: 100,
-      minWhiteKeyWidth: whiteWidthPhone,
+      whiteKeyHeight: 160,
+      blackKeyHeight: 110,
+      keyLabelHeight: 85,
+      minWhiteKeyWidth: getScaledWhiteKeyWidth(totalKeys, 16),
     },
-    custom: { // Provide a default calculation for custom, which can be overridden by user state.
-      whiteKeyHeight: 130,
-      blackKeyHeight: 83,
+    custom: { // Fallback for custom to prevent runtime errors. Custom dimensions are handled in App state.
+      whiteKeyHeight: 140,
+      blackKeyHeight: 90,
       keyLabelHeight: 25,
-      minWhiteKeyWidth: getScaledWhiteKeyWidth(totalKeys, 22.8),
+      minWhiteKeyWidth: whiteWidthDesktop,
     },
   };
 };
@@ -118,11 +122,13 @@ export const USER_PLAY_COLOR = '#F59E0B';   // A richer amber-500 for user playb
 
 
 export const CHORD_RECOGNITION_WINDOW_MS = 30; // Milliseconds to wait for subsequent notes in a chord
+export const FREE_PLAY_ARPEGGIO_WINDOW_MS = 1500; // Window for arpeggio detection in Free Play
 
 // Use flat notation for black keys as it's more common and soundfont files exist for them.
 const NOTE_NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
 const KEY_TYPES: PianoKeyType[] = ['white', 'black', 'white', 'black', 'white', 'white', 'black', 'white', 'black', 'white', 'black', 'white'];
 
+// Fix: Changed function to return PianoKeyDefinition[] instead of PianoKeyDefinition
 const generatePianoKeys = (): PianoKeyDefinition[] => {
   const keys: PianoKeyDefinition[] = [];
   const startMidiNote = 21; // A0
@@ -296,16 +302,16 @@ export const MAX_QWERTY_OCTAVE_SHIFT = 2;
 export const DEFAULT_MASTER_VOLUME = 0.5;
 export const DEFAULT_METRONOME_VOLUME = 0.5;
 export const DEFAULT_VIEW_MODE: ViewMode = 'falling';
-export const DEFAULT_NOTE_LABEL_TYPE: NoteLabelType = 'qwerty'; // Updated to 'qwerty'
+export const DEFAULT_NOTE_LABEL_TYPE: NoteLabelType = 'none'; // Updated to 'none'
 export const DEFAULT_SHOW_ONLY_MAJOR_NOTES = false;
-export const DEFAULT_SHOW_QWERTY_SHORTCUTS = true;
-export const DEFAULT_HIDE_BAR_NAVIGATION_BUTTONS = true;
+export const DEFAULT_SHOW_QWERTY_SHORTCUTS = false;
+export const DEFAULT_HIDE_BAR_NAVIGATION_BUTTONS = false; // CHANGED: Always show bar nav buttons by default
 export const DEFAULT_AUTO_HIDE_TOP_BAR = false;
-export const DEFAULT_SHOW_PIANO_TILES_BACKGROUND = false; // New Default
+export const DEFAULT_SHOW_PIANO_TILES_BACKGROUND = true; // New Default
 export const DEFAULT_THEME_SETTINGS: ThemeSettings = {
-  rightHandColor: '#A855F7', // purple-500
-  leftHandColor: '#3B82F6',  // blue-500
-  fallingNotesBackgroundColor: '#000000',
+  rightHandColor: '#a000ff',
+  leftHandColor: '#007dff',  
+  fallingNotesBackgroundColor: '#1c2636',
 };
 // --- End Default Settings Constants ---
 

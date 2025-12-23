@@ -54,6 +54,81 @@ export interface SignatureEvent {
   time?: TimeSignatureInfo;
 }
 
+// Maps an input key signature (major or minor) to its canonical Major Root and Minor Root pair.
+// Uses canonical spellings (e.g., prefers Bb over A# for 2 flats, Db over C# for 5 flats)
+const KEY_SIGNATURE_TO_RELATIVE_PAIR: { [inputKey: string]: { major: string; minor: string } } = {
+    'C': { major: 'C', minor: 'A' },
+    'Am': { major: 'C', minor: 'A' },
+
+    'G': { major: 'G', minor: 'E' },
+    'Em': { major: 'G', minor: 'E' },
+
+    'D': { major: 'D', minor: 'B' },
+    'Bm': { major: 'D', minor: 'B' },
+
+    'A': { major: 'A', minor: 'F#' },
+    'F#m': { major: 'A', minor: 'F#' },
+
+    'E': { major: 'E', minor: 'C#' },
+    'C#m': { major: 'E', minor: 'C#' },
+
+    'B': { major: 'B', minor: 'G#' },
+    'G#m': { major: 'B', minor: 'G#' },
+    // Enharmonic for B/G#m
+    'Cb': { major: 'Cb', minor: 'Ab' }, // Cb is enharmonic to B
+    'Abm': { major: 'Cb', minor: 'Ab' }, // Abm is enharmonic to G#m
+
+    'F#': { major: 'F#', minor: 'D#' },
+    'D#m': { major: 'F#', minor: 'D#' },
+    // Enharmonic for F#/D#m
+    'Gb': { major: 'Gb', minor: 'Eb' }, // Gb is enharmonic to F#
+    'Ebm': { major: 'Gb', minor: 'Eb' }, // Ebm is enharmonic to D#m
+
+
+    'C#': { major: 'C#', minor: 'A#' },
+    'A#m': { major: 'C#', minor: 'A#' },
+    // Enharmonic for C#/A#m
+    'Db': { major: 'Db', minor: 'Bb' }, // Db is enharmonic to C#
+    'Bbm': { major: 'Db', minor: 'Bb' }, // Bbm is enharmonic to A#m
+
+
+    'F': { major: 'F', minor: 'D' },
+    'Dm': { major: 'F', minor: 'D' },
+
+    'Bb': { major: 'Bb', minor: 'G' },
+    'Gm': { major: 'Bb', minor: 'G' },
+
+    'Eb': { major: 'Eb', minor: 'C' },
+    'Cm': { major: 'Eb', minor: 'C' }, // This is the user's specific case.
+
+    'Ab': { major: 'Ab', minor: 'F' },
+    'Fm': { major: 'Ab', minor: 'F' },
+};
+
+
+/**
+ * Formats a key signature string for display to show both the major key and its relative minor.
+ * e.g., "C" -> "Cmaj/Amin", "Am" -> "Cmaj/Amin", "Eb" -> "Ebmaj/Cmin"
+ * @param key The key signature string from the MIDI data (e.g., "C", "Am", "Eb", "Cm").
+ * @returns A formatted string for UI display.
+ */
+export const formatKeySignatureForDisplay = (key: string): string => {
+  if (!key) return 'N/A';
+
+  const pair = KEY_SIGNATURE_TO_RELATIVE_PAIR[key];
+
+  if (pair) {
+      return `${pair.major}maj/${pair.minor}min`;
+  }
+
+  // Fallback for unrecognized or very unusual key signatures
+  // It will try to format as Major or Minor based on 'm' suffix
+  const isMinor = key.endsWith('m');
+  const rootNote = isMinor ? key.slice(0, -1) : key;
+
+  return isMinor ? `${rootNote}min` : `${rootNote}maj`;
+};
+
 /**
  * Determines the active key signature at a given musical time.
  * @param currentTimeMs The current musical time in milliseconds.
@@ -172,9 +247,9 @@ export const getBeatTimesInWindow = (
   
   // If no specific bar lines, but there are notes, use a virtual bar line at 0 scaled time.
   let currentRelevantBarLines = relevantBarLines;
-  if (relevantBarLines.length === 0 && scaledBarLinesMs.length === 0) {
+  if (currentRelevantBarLines.length === 0 && scaledBarLinesMs.length === 0) {
       currentRelevantBarLines = [0]; // Assume a measure starts at time 0
-  } else if (relevantBarLines.length === 0 && scaledBarLinesMs.length > 0) {
+  } else if (currentRelevantBarLines.length === 0 && scaledBarLinesMs.length > 0) {
       // Find the closest bar line before the window start if the window itself has no bar lines
       const closestPrevBar = scaledBarLinesMs.reduce((prev, curr) => 
           (curr <= windowStartScaledTimeMs && curr > prev) ? curr : prev, 0);
@@ -196,7 +271,7 @@ export const getBeatTimesInWindow = (
 
 
     // Convert scaled bar time back to original time to query original tempo/time signature events
-    const barStartOriginalTime = barStartScaledTime / playbackTempoMultiplier;
+    const barStartOriginalTime = barStartScaledTime * playbackTempoMultiplier;
 
     const activeTimeSignature = getActiveTimeSignature(
       barStartOriginalTime,
@@ -212,7 +287,7 @@ export const getBeatTimesInWindow = (
     const msPerQuarterNoteOriginal = 60000 / activeTempoBpm;
     // msPerBeatOriginal: The duration of one beat in original milliseconds.
     // Example: 4/4 time, denominator is 4 (quarter note). msPerBeatOriginal = msPerQuarterNoteOriginal * (4/4) = msPerQuarterNoteOriginal.
-    // Example: 3/8 time, denominator is 8 (eighth note). msPerBeatOriginal = msPerQuarterNoteOriginal * (4/8) = msPerQuarterNoteOriginal / 2.
+    // Example: 3/8 time, denominator is 8 (eighth note). msPerBeatOriginal = msPerQuarterNoteOriginal / 2.
     const msPerBeatOriginal = msPerQuarterNoteOriginal * (4 / activeTimeSignature.denominator);
 
     if (msPerBeatOriginal <= 0) continue; // Avoid infinite loop
@@ -221,7 +296,7 @@ export const getBeatTimesInWindow = (
     let beatCount = 0;
     while (true) {
         const beatOriginalTime = barStartOriginalTime + (beatCount * msPerBeatOriginal);
-        const beatScaledTime = beatOriginalTime * playbackTempoMultiplier;
+        const beatScaledTime = beatOriginalTime / playbackTempoMultiplier;
 
         // Stop if we've passed the next measure or are well beyond the scheduling window
         if (beatScaledTime >= nextBarStartScaledTime || beatScaledTime >= windowEndScaledTimeMs + 50) {
@@ -300,5 +375,65 @@ export function convertScoreToPerformanceSummary(score: Score, songTitle: string
     totalNoteCount: totalNotes,
     playbackTempoMultiplier: score.tempo_multiplier ?? 1, // Use stored tempo, default to 1
     totalWaitTimeMs: score.total_wait_time_ms ?? 0, // Use stored value, fallback to 0
+    gameplayStyle: score.gameplay_style,
   };
 }
+
+/**
+ * Darkens a hex color by a given percentage.
+ * @param hex The hex color string (e.g., '#RRGGBB').
+ * @param percent The percentage to darken (0-100).
+ * @returns The new darkened hex color string.
+ */
+export const darkenHex = (hex: string, percent: number): string => {
+    if (!hex || typeof hex !== 'string' || !hex.startsWith('#')) return hex;
+    const p = Math.min(100, Math.max(0, percent)) / 100;
+    
+    let f = parseInt(hex.slice(1), 16);
+    if (isNaN(f)) return hex;
+    
+    const R = f >> 16;
+    const G = (f >> 8) & 0x00ff;
+    const B = f & 0x0000ff;
+    
+    const newR = Math.round(R * (1 - p));
+    const newG = Math.round(G * (1 - p));
+    const newB = Math.round(B * (1 - p));
+
+    const toHex = (c: number) => ('00' + c.toString(16)).slice(-2);
+
+    return `#${toHex(newR)}${toHex(newG)}${toHex(newB)}`;
+};
+
+/**
+ * Converts a hex color string to an RGBA string.
+ * @param hex The hex color string (e.g., '#RGB' or '#RRGGBB').
+ * @param alpha The alpha value (0-1).
+ * @returns The RGBA color string.
+ */
+export const hexToRgba = (hex: string, alpha: number): string => {
+    let r = 0, g = 0, b = 0;
+    if (!hex || typeof hex !== 'string') return `rgba(255, 255, 255, ${alpha})`;
+    if (hex.length === 4) {
+        r = parseInt(hex[1] + hex[1], 16);
+        g = parseInt(hex[2] + hex[2], 16);
+        b = parseInt(hex[3] + hex[3], 16);
+    } else if (hex.length === 7) {
+        r = parseInt(hex.substring(1, 3), 16);
+        g = parseInt(hex.substring(3, 5), 16);
+        b = parseInt(hex.substring(5, 7), 16);
+    }
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
+/**
+ * Lightens a hex color by a given percentage.
+ * @param hex The hex color string (e.g., '#RRGGBB').
+ * @param percent The percentage to lighten (0-100).
+ * @returns The new lightened hex color string.
+ */
+export const lightenHex = (hex: string, percent: number): string => {
+    if (!hex || typeof hex !== 'string') return '#FFFFFF';
+    const f=parseInt(hex.slice(1),16),t=255,p=percent/100,R=f>>16,G=f>>8&0x00FF,B=f&0x0000FF;
+    return "#"+(0x1000000+(Math.round((t-R)*p)+R)*0x10000+(Math.round((t-G)*p)+G)*0x100+(Math.round((t-B)*p)+B)).toString(16).slice(1);
+};

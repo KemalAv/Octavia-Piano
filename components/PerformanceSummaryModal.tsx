@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { PerformanceSummary } from '../types';
 
@@ -69,6 +70,9 @@ const PerformanceSummaryModal: React.FC<PerformanceSummaryProps> = ({ isVisible,
 
         <div className="space-y-6 mb-8 text-lg text-slate-200 font-semibold tabular-nums">
           <div className="bg-slate-900/50 p-4 rounded-lg space-y-3 ring-1 ring-slate-700">
+             {summary.gameplayStyle && (
+                 <StatRow label="Style" value={summary.gameplayStyle === 'computer' ? 'PC Keyboard' : 'Piano / MIDI'} valueColor="text-slate-300" />
+             )}
              <StatRow label="Notes Hit" value={`${summary.hitCount} / ${summary.totalNoteCount}`} valueColor="text-lime-400" />
              <StatRow label="Errors" value={summary.errorCount} valueColor="text-red-400" />
              <StatRow label="Accuracy" value={`${summary.accuracy}%`} valueColor="text-cyan-300" />

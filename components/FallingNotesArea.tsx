@@ -1,12 +1,13 @@
-
-
 import React from 'react';
-import { MidiNotePlaybackItem, KeyPosition, ActiveMidiNoteInfo, NoteLabelType, QwertyLayout } from '../types';
+import { MidiNotePlaybackItem, KeyPosition, ActiveMidiNoteInfo, NoteLabelType, QwertyLayout, FreePlayLiveNote } from '../types';
 import Note from './Note';
-import { PLAY_LINE_THICKNESS_PX, VISUAL_NOTE_CAP_MS } from '../constants';
+import { PLAY_LINE_THICKNESS_PX, USER_PLAY_COLOR, VISUAL_NOTE_CAP_MS } from '../constants';
+import { darkenHex, formatKeySignatureForDisplay, hexToRgba } from '../utils';
 
 interface FallingNotesAreaProps {
   notes: MidiNotePlaybackItem[];
+  liveNotes?: FreePlayLiveNote[]; // NEW: Added for live rendering
+  isRising?: boolean; // NEW: Added for Free Play rising effect
   currentTimeMs: number;
   keyPositions: Map<string, KeyPosition>;
   activeMidiNotesInfo: Map<string, ActiveMidiNoteInfo>; // Key is now noteId
@@ -30,6 +31,8 @@ interface FallingNotesAreaProps {
 
 export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
   notes,
+  liveNotes = [],
+  isRising = false,
   currentTimeMs,
   keyPositions,
   activeMidiNotesInfo,
@@ -54,13 +57,15 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
     ? actualHeight / pixelsPerMillisecond
     : 0;
 
-  const visibleNotes = notes.filter(note => {
-    if (actualHeight <=0 || pixelsPerMillisecond <= 0) return false;
-    const duration = showOnlyMajorNotes ? Math.min(note.durationMs, VISUAL_NOTE_CAP_MS) : note.durationMs;
-    const noteStartTimeVisible = note.timeMs < currentTimeMs + VIEWABLE_DURATION_MS;
-    const noteEndTimeVisible = note.timeMs + duration > currentTimeMs;
-    return noteStartTimeVisible && noteEndTimeVisible;
-  });
+  const visibleNotes = React.useMemo(() => {
+    if (actualHeight <= 0 || pixelsPerMillisecond <= 0 || isRising) return [];
+    return notes.filter(note => {
+        const duration = showOnlyMajorNotes ? Math.min(note.durationMs, VISUAL_NOTE_CAP_MS) : note.durationMs;
+        const noteStartTimeVisible = note.timeMs < currentTimeMs + VIEWABLE_DURATION_MS;
+        const noteEndTimeVisible = note.timeMs + duration > currentTimeMs;
+        return noteStartTimeVisible && noteEndTimeVisible;
+    });
+  }, [notes, actualHeight, pixelsPerMillisecond, currentTimeMs, VIEWABLE_DURATION_MS, showOnlyMajorNotes, isRising]);
 
   // NEW: Piano Tiles Background Rendering
   const pianoTilesBackground = React.useMemo(() => {
@@ -123,7 +128,7 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
   }, [keyPositions, width, actualHeight]);
 
   const renderedBarLines = React.useMemo(() => {
-    if (!barLines || actualHeight <= 0 || pixelsPerMillisecond <= 0) return null;
+    if (!barLines || actualHeight <= 0 || pixelsPerMillisecond <= 0 || isRising) return null;
 
     return barLines
       .map(barTimeMs => {
@@ -141,7 +146,7 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
         );
       })
       .filter(Boolean);
-  }, [barLines, currentTimeMs, actualHeight, pixelsPerMillisecond]);
+  }, [barLines, currentTimeMs, actualHeight, pixelsPerMillisecond, isRising]);
 
   if (actualHeight <= 0 || pixelsPerMillisecond <= 0) {
     return (
@@ -158,8 +163,6 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
     );
   }
 
-  const containerTransform = `translateY(${actualHeight + currentTimeMs * pixelsPerMillisecond}px)`;
-
   return (
     <div
       className="relative shadow-2xl overflow-hidden no-select"
@@ -167,7 +170,6 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
         width: `${width}px`,
         height: `${actualHeight}px`,
         margin: '0 auto',
-        // Use solid background
         backgroundColor: backgroundColor,
       }}
       aria-hidden="true"
@@ -176,61 +178,133 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
       {whiteKeyGridLines}
       {renderedBarLines}
 
-      <div
-        className="absolute top-0 left-0"
-        style={{
-          transform: containerTransform,
-          willChange: 'transform',
-          zIndex: 10 // Ensure notes are above background tiles
-        }}
-      >
-        {visibleNotes.map(note => {
-          const keyPos = keyPositions.get(note.name);
-          if (!keyPos) return null;
+      {isRising ? (
+        <div className="absolute top-0 left-0 w-full h-full" style={{ zIndex: 10 }}>
+            {liveNotes.map(note => {
+                const keyPos = keyPositions.get(note.name);
+                if (!keyPos) return null;
+                
+                let heightPx: number, bottomPx: number;
 
-          const durationForHeight = showOnlyMajorNotes ? Math.min(note.durationMs, VISUAL_NOTE_CAP_MS) : note.durationMs;
-          const noteHeightPx = Math.max(3, durationForHeight * pixelsPerMillisecond);
-          
-          const activeInfo = activeMidiNotesInfo.get(note.noteId);
-          const currentStatus = activeInfo ? activeInfo.status : null;
+                if (note.endTime === null) {
+                    // Note is being held: Grow upwards from the play-line (bottom 0).
+                    bottomPx = 0;
+                    heightPx = (currentTimeMs - note.startTime) * pixelsPerMillisecond;
+                } else {
+                    // Note is released: Scroll the entire note upwards.
+                    heightPx = (note.endTime - note.startTime) * pixelsPerMillisecond;
+                    bottomPx = (currentTimeMs - note.endTime) * pixelsPerMillisecond;
+                }
+                
+                // Ensure note has at least some visibility
+                heightPx = Math.max(4, heightPx);
+                
+                let baseColor = note.hand === 'left' ? leftHandColor : rightHandColor;
+                if (keyPos.type === 'black') {
+                  baseColor = darkenHex(baseColor, 25);
+                }
 
-          let yPositionPxCalc = -note.timeMs * pixelsPerMillisecond - noteHeightPx;
+                // Don't render if it's way off-screen (top)
+                if (bottomPx > actualHeight + 50) {
+                    return null;
+                }
 
-          if (currentStatus === 'waiting') {
-            // Adjust yPosition for waiting notes to align them precisely with the play line,
-            // accounting for the container's transform.
-            yPositionPxCalc = - (PLAY_LINE_THICKNESS_PX / 2) - noteHeightPx - note.timeMs * pixelsPerMillisecond;
-          }
-          
-          return (
-            <Note
-              key={note.noteId}
-              noteItem={note}
-              keyPosition={keyPos}
-              yPositionPx={yPositionPxCalc}
-              heightPx={noteHeightPx}
-              status={currentStatus}
-              noteLabelType={noteLabelType}
-              rightHandColor={rightHandColor}
-              leftHandColor={leftHandColor}
-              activeKeySignature={activeKeySignature}
-              // NEW: Pass keyboard props
-              qwertyLayout={qwertyLayout}
-              qwertyCurrentOctaveShift={qwertyCurrentOctaveShift}
-              mirpTranspose={mirpTranspose}
-            />
-          );
-        })}
-      </div>
+                const isHeld = note.endTime === null;
 
-      <div
-        className="absolute bottom-2 left-2 text-white px-3 py-2 rounded-lg text-sm font-mono tabular-nums shadow-lg space-y-1 border border-white/10"
-        style={{ background: 'rgba(15, 23, 42, 0.8)', backdropFilter: 'blur(4px)', zIndex: 20 }}
-        aria-hidden="true"
-      >
-        <div className="flex justify-between w-24"><span>Key:</span> <span className="text-cyan-400 font-bold">{activeKeySignature}</span></div>
-        <div className="flex justify-between w-24"><span>BPM:</span> <span className="text-yellow-400 font-bold">{Math.round(activeTempoBpm)}</span></div>
-      </div>
+                let borderStyle: React.CSSProperties;
+                let boxShadow: string;
+
+                if (isHeld) {
+                    // Gold border and glow for held notes
+                    borderStyle = { border: `2px solid ${USER_PLAY_COLOR}` };
+                    boxShadow = `0 0 15px ${USER_PLAY_COLOR}, inset 0 0 10px ${hexToRgba(USER_PLAY_COLOR, 0.3)}`;
+                } else {
+                    // Default style for released notes
+                    borderStyle = {
+                        borderTop: '1px solid rgba(255,255,255,0.6)',
+                        borderLeft: '1px solid rgba(255,255,255,0.4)',
+                        borderRight: '1px solid rgba(0,0,0,0.3)',
+                        borderBottom: '1px solid rgba(0,0,0,0.5)',
+                    };
+                    boxShadow = `0 0 10px ${baseColor}80, inset 0 0 10px rgba(0,0,0,0.2)`;
+                }
+
+                return (
+                    <div
+                        key={note.id}
+                        className="absolute rounded-sm flex items-end justify-center pb-1 text-white font-bold text-xs overflow-hidden"
+                        style={{
+                            left: `${keyPos.type === 'black' ? keyPos.x + (keyPos.width * 0.1) : keyPos.x + 1}px`,
+                            bottom: `${bottomPx}px`,
+                            width: `${keyPos.type === 'black' ? keyPos.width * 0.8 : keyPos.width - 2}px`,
+                            height: `${Math.max(1, heightPx - 2)}px`,
+                            backgroundColor: baseColor,
+                            ...borderStyle,
+                            boxShadow,
+                            zIndex: isHeld ? 20 : 15,
+                            willChange: 'height, bottom'
+                        }}
+                    >
+                    </div>
+                );
+            })}
+        </div>
+      ) : (
+        <div
+            className="absolute top-0 left-0"
+            style={{
+            transform: `translateY(${actualHeight + currentTimeMs * pixelsPerMillisecond}px)`,
+            willChange: 'transform',
+            zIndex: 10
+            }}
+        >
+            {visibleNotes.map(note => {
+                const keyPos = keyPositions.get(note.name);
+                if (!keyPos) return null;
+
+                const durationForHeight = showOnlyMajorNotes ? Math.min(note.durationMs, VISUAL_NOTE_CAP_MS) : note.durationMs;
+                const noteHeightPx = Math.max(3, durationForHeight * pixelsPerMillisecond);
+                
+                const activeInfo = activeMidiNotesInfo.get(note.noteId);
+                const currentStatus = activeInfo ? activeInfo.status : null;
+
+                let yPositionPxCalc = -note.timeMs * pixelsPerMillisecond - noteHeightPx;
+
+                if (currentStatus === 'waiting') {
+                    yPositionPxCalc = - (PLAY_LINE_THICKNESS_PX / 2) - noteHeightPx - note.timeMs * pixelsPerMillisecond;
+                }
+                
+                return (
+                    <Note
+                    key={note.noteId}
+                    noteItem={note}
+                    keyPosition={keyPos}
+                    yPositionPx={yPositionPxCalc}
+                    heightPx={noteHeightPx}
+                    status={currentStatus}
+                    noteLabelType={noteLabelType}
+                    rightHandColor={rightHandColor}
+                    leftHandColor={leftHandColor}
+                    activeKeySignature={activeKeySignature}
+                    qwertyLayout={qwertyLayout}
+                    qwertyCurrentOctaveShift={qwertyCurrentOctaveShift}
+                    mirpTranspose={mirpTranspose}
+                    />
+                );
+            })}
+        </div>
+      )}
+
+      {!isRising && (
+          <div
+            className="absolute bottom-2 left-2 text-white px-3 py-2 rounded-lg text-sm font-mono tabular-nums shadow-lg space-y-1 border border-white/10"
+            style={{ background: 'rgba(15, 23, 42, 0.8)', backdropFilter: 'blur(4px)', zIndex: 20 }}
+            aria-hidden="true"
+          >
+            <div className="flex justify-between"><span>Key:</span> <span className="text-cyan-400 font-bold">{formatKeySignatureForDisplay(activeKeySignature)}</span></div>
+            <div className="flex justify-between"><span>BPM:</span> <span className="text-yellow-400 font-bold">{Math.round(activeTempoBpm)}</span></div>
+          </div>
+      )}
 
       {/* Hit Line / Judgment Line */}
       <div
@@ -238,8 +312,8 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
         style={{ 
             height: `${PLAY_LINE_THICKNESS_PX}px`, 
             zIndex: 20,
-            backgroundColor: 'rgba(34,211,238,0.8)',
-            boxShadow: '0 0 10px rgba(34, 211, 238, 0.5)'
+            backgroundColor: isRising ? 'rgba(255, 255, 255, 0.1)' : 'rgba(34,211,238,0.8)', // Subtler line in Free Play
+            boxShadow: isRising ? 'none' : '0 0 10px rgba(34, 211, 238, 0.5)'
         }}
       ></div>
     </div>

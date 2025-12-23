@@ -10,7 +10,7 @@ import { PIANO_KEYS_CONFIG } from '../constants'; // Import PIANO_KEYS_CONFIG
 import LeaderboardModal from './LeaderboardModal';
 import PerformanceSummaryModal from './PerformanceSummaryModal'; // NEW: Import PerformanceSummaryModal
 import { convertScoreToPerformanceSummary } from '../utils'; // NEW: Import utility for score conversion
-
+import AdBanner from './AdBanner'; // Import AdBanner
 
 // Temporary cache for user usernames to avoid redundant Supabase calls
 const userUsernameCache = new Map<string, string>();
@@ -42,7 +42,8 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
   // FIX: Corrected state initialization for personalBests
   const [personalBests, setPersonalBests] = useState<Map<string, Score>>(() => new Map()); // NEW: For personal bests
   const [leaderboardSong, setLeaderboardSong] = useState<OnlineSong | null>(null); // NEW: For leaderboard modal
-  const [userLikes, setUserLikes] = useState<Map<string, 1 | -1>>(new Map());
+  // FIX: Corrected useState initialization for userLikes to be a Map
+  const [userLikes, setUserLikes] = useState<Map<string, 1 | -1>>(() => new Map());
   const [userUploadCount, setUserUploadCount] = useState(0); // NEW: To track user's uploads
   const [isRendered, setIsRendered] = useState(false); // For modal animations
 
@@ -63,8 +64,16 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
   const [songToEdit, setSongToEdit] = useState<OnlineSong | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editArtist, setEditArtist] = useState('');
+  const [editArranger, setEditArranger] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [editMessage, setEditMessage] = useState<{ type: 'error' | 'success', text: string } | null>(null);
+
+  const isFilterChange = useRef(true);
+
+  useEffect(() => {
+    isFilterChange.current = true;
+  }, [sortOrder, rankedFilter, searchQuery]);
+
 
   useEffect(() => {
     if (isUploadModalOpen || isLoginReminderModalOpen || isEditModalOpen) {
@@ -85,6 +94,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
   // Upload State
   const [uploadTitle, setUploadTitle] = useState('');
   const [uploadArtist, setUploadArtist] = useState('');
+  const [uploadArranger, setUploadArranger] = useState('');
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<{ type: 'error' | 'success', text: string } | null>(null);
@@ -137,7 +147,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
 
           let query = supabase
               .from('songs')
-              .select('*, difficulty_level, performance_score, total_notes, duration_sec, total_nps, is_ranked, like_count, dislike_count');
+              .select('*, difficulty_level, performance_score, total_notes, duration_sec, total_nps, is_ranked, like_count, dislike_count, arranger');
           
           // Apply filters
           if (user && rankedFilter === 'liked') {
@@ -284,12 +294,15 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
           setLoadingState(false);
           setIsLoadingMore(false);
       }
-  }, [setLoadingState, user, fetchUsername, sortOrder, rankedFilter, searchQuery, page]); // page added to dependency to ensure correct ref, but strictly handled via arg
+  }, [setLoadingState, user, fetchUsername, sortOrder, rankedFilter, searchQuery, page, setUserLikes]);
   
-  // Initial fetch
+  // Initial fetch and re-fetch on filter change
   useEffect(() => {
-    fetchSongsAndInteractions(false);
-  }, [sortOrder, rankedFilter, searchQuery]); // Only re-fetch on filter changes, not on 'page' change
+    if (isFilterChange.current) {
+      fetchSongsAndInteractions(false);
+      isFilterChange.current = false;
+    }
+  }, [sortOrder, rankedFilter, searchQuery, fetchSongsAndInteractions]);
 
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -362,6 +375,19 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
     e.preventDefault();
     if (!uploadFile || !session) return;
     
+    if (uploadTitle.length > 50) {
+      setUploadMessage({ type: 'error', text: 'Title cannot exceed 50 characters.' });
+      return;
+    }
+    if (uploadArtist.length > 25) {
+      setUploadMessage({ type: 'error', text: 'Artist cannot exceed 25 characters.' });
+      return;
+    }
+    if (uploadArranger.length > 25) {
+      setUploadMessage({ type: 'error', text: 'Arranger cannot exceed 25 characters.' });
+      return;
+    }
+
     setIsUploading(true);
     setUploadMessage(null);
     setDeleteError(null);
@@ -403,6 +429,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
         .insert({
           title: uploadTitle,
           artist: uploadArtist,
+          arranger: uploadArranger.trim() || null,
           file_path: filePath,
           uploader_id: session.user.id,
           difficulty_level: difficultyLevel,
@@ -419,6 +446,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
       
       setUploadTitle('');
       setUploadArtist('');
+      setUploadArranger('');
       setUploadFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
       
@@ -441,6 +469,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
     setSongToEdit(song);
     setEditTitle(song.title);
     setEditArtist(song.artist);
+    setEditArranger(song.arranger || '');
     setEditMessage(null);
     setDeleteError(null);
     setIsEditModalOpen(true);
@@ -449,6 +478,19 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
   const handleUpdateSong = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!songToEdit || !session) return;
+
+    if (editTitle.length > 50) {
+      setEditMessage({ type: 'error', text: 'Title cannot exceed 50 characters.' });
+      return;
+    }
+    if (editArtist.length > 25) {
+      setEditMessage({ type: 'error', text: 'Artist cannot exceed 25 characters.' });
+      return;
+    }
+    if (editArranger.length > 25) {
+      setEditMessage({ type: 'error', text: 'Arranger cannot exceed 25 characters.' });
+      return;
+    }
 
     setIsEditing(true);
     setEditMessage(null);
@@ -460,6 +502,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
         .update({
           title: editTitle,
           artist: editArtist,
+          arranger: editArranger.trim() || null,
         })
         .eq('id', songToEdit.id);
 
@@ -579,9 +622,9 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
         } else {
             if (newLikeType === 1) {
                 updatedSong.like_count = currentLikes + 1;
+                // FIX: Corrected typo 'updated.song_id' to 'updatedSong.dislike_count' to correctly decrement dislikes.
                 updatedSong.dislike_count = currentDislikes - 1;
             } else {
-                // FIX: Corrected typo 'updated.song_id' to 'updatedSong.like_count' to correctly decrement likes.
                 updatedSong.like_count = currentLikes - 1;
                 updatedSong.dislike_count = currentDislikes + 1;
             }
@@ -656,6 +699,9 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
 
   return (
     <div className="w-full h-full flex flex-col">
+      {/* Show AdBanner only if there are songs listed (i.e. content is present) */}
+      {!isLoading && songs.length > 0 && <AdBanner />}
+
       <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
         <input
           type="text"
@@ -767,7 +813,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
             <div className="text-slate-400 text-center p-8">No MIDIs found matching your criteria.</div>
         )}
 
-        <div className="flex flex-col gap-4"> 
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4"> 
           {songs.map((song) => { 
             const personalBestScore = personalBests.get(song.id);
             const userLikeStatus = userLikes.get(song.id);
@@ -785,9 +831,12 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                     )}
                   </div>
                   <p className="text-sm text-slate-400 truncate" title={song.artist}>{song.artist}</p>
+                  {song.arranger && (
+                    <p className="text-xs text-slate-400 mt-1" title={`Arranged by ${song.arranger}`}>Arr. by {song.arranger}</p>
+                  )}
                   {song.uploader_id && (
                       <p className="text-xs text-slate-500 mt-1">
-                          by {userUsernameCache.get(song.uploader_id) || song.uploader_id.substring(0, 8)} on {formatDate(song.created_at)}
+                          Uploaded by {userUsernameCache.get(song.uploader_id) || song.uploader_id.substring(0, 8)} on {formatDate(song.created_at)}
                       </p>
                   )}
                   
@@ -820,7 +869,8 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                                       highestNote: 0, lowestNote: 0,
                                       avgGapMs: 0, gapVariance: 0, irregularityIndex: 0,
                                   }
-                              }} 
+                              }}
+                              isInteractive={false}
                           />
                       </div>
                   )}
@@ -951,7 +1001,11 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                   value={uploadTitle}
                   onChange={e => setUploadTitle(e.target.value)}
                   className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500"
+                  maxLength={50}
                 />
+                <div className={`text-xs text-right mt-1 ${uploadTitle.length > 50 ? 'text-red-400' : 'text-slate-400'}`}>
+                    {uploadTitle.length} / 50
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1">Artist</label>
@@ -961,7 +1015,25 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                   value={uploadArtist}
                   onChange={e => setUploadArtist(e.target.value)}
                   className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500"
+                  maxLength={25}
                 />
+                 <div className={`text-xs text-right mt-1 ${uploadArtist.length > 25 ? 'text-red-400' : 'text-slate-400'}`}>
+                    {uploadArtist.length} / 25
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Arrangement by (Optional)</label>
+                <input
+                  type="text"
+                  value={uploadArranger}
+                  onChange={e => setUploadArranger(e.target.value)}
+                  placeholder="Your name or alias"
+                  className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500"
+                  maxLength={25}
+                />
+                <div className={`text-xs text-right mt-1 ${uploadArranger.length > 25 ? 'text-red-400' : 'text-slate-400'}`}>
+                    {uploadArranger.length} / 25
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1">MIDI File</label>
@@ -969,10 +1041,13 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                   type="file"
                   required
                   ref={fileInputRef}
-                  accept=".mid,.midi,.xml,.musicxml,.mxl"
+                  accept=".mid,.midi"
                   onChange={e => setUploadFile(e.target.files?.[0] || null)}
                   className="w-full text-slate-300 text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-600 file:text-white hover:file:bg-violet-700"
                 />
+                <p className="text-xs text-slate-500 mt-2 text-left">
+                  Only MIDI files (.mid) are supported. For best results, use MIDI files (.mid) that have been converted from MusicXML files.
+                </p>
               </div>
 
               <div className="flex justify-end gap-3 mt-6">
@@ -986,8 +1061,8 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                 </button>
                 <button
                   type="submit"
-                  disabled={isUploading || !uploadTitle.trim() || !uploadArtist.trim() || !uploadFile}
-                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center"
+                  disabled={isUploading || !uploadTitle.trim() || uploadTitle.length > 50 || !uploadArtist.trim() || uploadArtist.length > 25 || uploadArranger.length > 25 || !uploadFile}
+                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isUploading ? 'Uploading...' : 'Upload'}
                 </button>
@@ -1018,7 +1093,11 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                   onChange={e => setEditTitle(e.target.value)}
                   className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500"
                   disabled={isEditing}
+                  maxLength={50}
                 />
+                 <div className={`text-xs text-right mt-1 ${editTitle.length > 50 ? 'text-red-400' : 'text-slate-400'}`}>
+                    {editTitle.length} / 50
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1">Artist</label>
@@ -1029,7 +1108,26 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                   onChange={e => setEditArtist(e.target.value)}
                   className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500"
                   disabled={isEditing}
+                  maxLength={25}
                 />
+                 <div className={`text-xs text-right mt-1 ${editArtist.length > 25 ? 'text-red-400' : 'text-slate-400'}`}>
+                    {editArtist.length} / 25
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Arrangement by (Optional)</label>
+                <input
+                  type="text"
+                  value={editArranger}
+                  onChange={e => setEditArranger(e.target.value)}
+                  className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500"
+                  disabled={isEditing}
+                  placeholder="Arranger's name or alias"
+                  maxLength={25}
+                />
+                <div className={`text-xs text-right mt-1 ${editArranger.length > 25 ? 'text-red-400' : 'text-slate-400'}`}>
+                    {editArranger.length} / 25
+                </div>
               </div>
 
               <div className="flex justify-end gap-3 mt-6">
@@ -1043,8 +1141,8 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                 </button>
                 <button
                   type="submit"
-                  disabled={isEditing || !editTitle.trim() || !editArtist.trim()}
-                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center"
+                  disabled={isEditing || !editTitle.trim() || editTitle.length > 50 || !editArtist.trim() || editArtist.length > 25 || editArranger.length > 25}
+                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isEditing ? 'Saving...' : 'Save Changes'}
                 </button>

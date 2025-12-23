@@ -6,30 +6,7 @@ import {
   USER_GLOW_SHADOW,
   USER_PLAY_COLOR // Import new constant
 } from '../constants';
-
-// --- Color Utility Functions ---
-const hexToRgba = (hex: string, alpha: number): string => {
-    let r = 0, g = 0, b = 0;
-    if (!hex || typeof hex !== 'string') return `rgba(255, 255, 255, ${alpha})`;
-    if (hex.length === 4) {
-        r = parseInt(hex[1] + hex[1], 16);
-        g = parseInt(hex[2] + hex[2], 16);
-        b = parseInt(hex[3] + hex[3], 16);
-    } else if (hex.length === 7) {
-        r = parseInt(hex.substring(1, 3), 16);
-        g = parseInt(hex.substring(3, 5), 16);
-        b = parseInt(hex.substring(5, 7), 16);
-    }
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-};
-
-const lightenHex = (hex: string, percent: number): string => {
-    if (!hex || typeof hex !== 'string') return '#FFFFFF';
-    const f=parseInt(hex.slice(1),16),t=255,p=percent/100,R=f>>16,G=f>>8&0x00FF,B=f&0x0000FF;
-    return "#"+(0x1000000+(Math.round((t-R)*p)+R)*0x10000+(Math.round((t-G)*p)+G)*0x100+(Math.round((t-B)*p)+B)).toString(16).slice(1);
-};
-// --- End Color Utility Functions ---
-
+import { hexToRgba, lightenHex } from '../utils';
 
 interface PianoKeyProps {
   keyDef: PianoKeyDefinition;

@@ -51,6 +51,7 @@ export async function parseMidiData(
     originalTotalMusicalDurationMs: number;
 }> {
     const midi = new Midi(arrayBuffer);
+    const ppq = midi.header.ppq;
 
     midi.tracks.forEach(track => {
         delete track.controlChanges['64'];
@@ -133,6 +134,11 @@ export async function parseMidiData(
     const rawNotes: Omit<MidiNotePlaybackItem, 'noteId'>[] = [];
     midi.tracks.forEach((track, trackIndex) => {
         track.notes.forEach(note => {
+            // A 128th note duration in ticks is (ppq * 4) / 128 = ppq / 32.
+            if (note.durationTicks < (ppq / 32)) {
+                return; // Skip this note
+            }
+
             const noteName = midiNoteToNameMap.get(note.midi);
             if (noteName) {
                 let hand: 'left' | 'right';
@@ -314,6 +320,16 @@ export async function parseMusicXmlData(
                     const durationEl = element.getElementsByTagName('duration')[0];
                     const durationTicks = durationEl ? parseInt(durationEl.textContent || '0', 10) : 0;
                     const isChord = element.getElementsByTagName('chord').length > 0;
+
+                    // Duration of a 128th note in MusicXML ticks is divisions / 32
+                    if (divisions > 0 && durationTicks > 0 && (durationTicks * 32 < divisions)) {
+                        if (!isChord) {
+                            const durationMs = musicXmlDurationToMs(durationTicks, divisions, currentTempoBpm);
+                            cursorTicks += durationTicks;
+                            cursorMs += durationMs;
+                        }
+                        return; // continue to next element in forEach
+                    }
 
                     const durationMs = musicXmlDurationToMs(durationTicks, divisions, currentTempoBpm);
                     

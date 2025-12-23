@@ -1,8 +1,10 @@
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../AuthContext';
 import { LeaderboardEntry, Profile, FriendWithProfile } from '../types';
 import ViewProfileModal from './ViewProfileModal';
+import AdBanner from './AdBanner'; // Import AdBanner
 
 interface LeaderboardProps {
   onBack: () => void;
@@ -283,7 +285,10 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong }) =
 
     return (
         <div className={`fixed inset-0 bg-slate-900 flex flex-col items-center justify-center z-40 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'opacity-100' : 'opacity-0'}`}>
-            <div className="absolute top-4 left-4">
+            {/* Show AdBanner only if there is content (leaderboard data loaded) */}
+            {!loading && leaderboardData.length > 0 && <AdBanner />}
+
+            <div className="absolute top-4 left-4" style={{ zIndex: 9999 }}>
                 <button onClick={onBack} className={`${tertiaryButtonStyle} py-2 px-4 text-base shadow-md`}>&larr; Back to Menu</button>
             </div>
             <div className={`bg-slate-800/50 backdrop-blur-sm p-0 rounded-xl shadow-2xl text-center max-w-4xl w-full ring-1 ring-slate-700 max-h-[90vh] flex flex-col overflow-hidden transform transition-transform duration-300 ease-in-out ${isRendered ? 'scale-100' : 'scale-95'}`}>
@@ -407,7 +412,7 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong }) =
                                     Join our Discord
                                 </a>
                                 <a 
-                                    href="https://ko-fi.com/kemalavicennafaza" 
+                                    href="https://sociabuzz.com/kemalavicennafaza/tribe" 
                                     target="_blank" 
                                     rel="noopener noreferrer"
                                     className="w-full font-bold py-3 px-6 rounded-lg text-xl transition-all duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-opacity-50 shadow-lg bg-pink-500 hover:bg-pink-600 text-white focus:ring-pink-400 flex items-center justify-center gap-3"

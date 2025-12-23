@@ -1,4 +1,6 @@
 
+
+
 import { Session, User } from '@supabase/supabase-js';
 
 // ========================================
@@ -7,6 +9,7 @@ import { Session, User } from '@supabase/supabase-js';
 
 export type PianoKeyType = 'white' | 'black';
 
+// @FIX: Add 'phone' and 'custom' to DevicePreset to match options in the UI and fix type comparison errors.
 export type DevicePreset = 'desktop' | 'tablet' | 'phone' | 'custom';
 
 export type QwertyLayout = 'default' | 'mirp'; // NEW: Added layout option
@@ -69,6 +72,19 @@ export interface MidiNotePlaybackItem {
   durationTicks?: number;
   isRepeatStart?: boolean;
   isRepeatEnd?: boolean;
+}
+
+/**
+ * Represents a note being played in Free Play mode for visual rendering.
+ */
+export interface FreePlayLiveNote {
+  id: string;
+  midi: number;
+  name: string;
+  startTime: number;
+  endTime: number | null;
+  pitchClass: string;
+  hand: 'left' | 'right';
 }
 
 /**
@@ -157,9 +173,9 @@ export type MidiAccessStatus =
   | 'unsupported';
 
 export type MetronomeMode = 'off' | 'beat' | 'bar'; // UPDATED: Added 'beat' mode
-// @FIX: Add 'lenient' to WaitMode to resolve typing errors in App.tsx and ModeSelection.tsx.
-export type WaitMode = 'off' | 'strict' | 'rhythm' | 'retical' | 'lenient';
-export type ViewMode = 'falling' | 'sheet' | 'sheet-roll';
+// @FIX: 'lenient' and 'strict' modes are merged into a single practice mode with adjustable tolerance.
+export type WaitMode = 'off' | 'strict' | 'rhythm' | 'retical';
+export type ViewMode = 'falling' | 'sheet' | 'sheet-roll' | 'sheet-qwerty';
 export type Screen =
   | 'mainMenu'
   | 'songSelection'
@@ -176,6 +192,7 @@ export interface GameSettings {
   playbackTempoMultiplier: number;
   practiceHand: PracticeHand;
   hideBarNavigationButtons?: boolean;
+  noteToleranceMs?: number;
 }
 
 export interface ThemeSettings {
@@ -202,6 +219,7 @@ export interface PerformanceSummary {
   totalNoteCount: number;
   playbackTempoMultiplier: number;
   totalWaitTimeMs: number;
+  gameplayStyle?: 'piano' | 'computer';
 }
 
 // FIX: Add UserSession type for Supabase integration.
@@ -227,6 +245,7 @@ export interface Score {
   mode: string;
   tempo_multiplier?: number;
   total_wait_time_ms?: number;
+  gameplay_style?: 'piano' | 'computer';
   // FIX: Add 'artist' to songs object to match Supabase query in AccountModal.tsx.
   songs?: { title: string; artist: string; } | null;
   profiles?: { username: string; avatar_url: string | null; created_at: string | null; } | null; // Added avatar_url and created_at
@@ -240,6 +259,8 @@ export interface Profile {
   created_at: string | null; // When the profile record was created (proxy for join date)
   last_nickname_change?: string | null;
   bio?: string | null;
+  total_playtime_ms?: number;
+  total_notes_hit?: number;
 }
 
 // @FIX: Add UserLike interface for Supabase integration to resolve import error in OnlineSongBrowser.
@@ -257,6 +278,7 @@ export interface OnlineSong {
   created_at: string;
   title: string;
   artist: string;
+  arranger?: string;
   file_path: string;
   uploader_id: string;
   difficulty_level: number | null;
@@ -460,6 +482,7 @@ export interface AnalysisConfig {
     arpRangeWeight: number;
     arpJumpZigzagWeight: number;
     arpConsistencyWeight: number;
+    trillRatio: number;
     trillMaxInterval: number;
     trillMaxGap: number;
     trillNormMin: number;

@@ -34,6 +34,14 @@ const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onC
     }
   }, [isOpen]);
 
+  const formatPlaytime = (ms: number) => {
+    if (!ms || ms < 0) return '0h 0m';
+    const totalSeconds = ms / 1000;
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    return `${hours}h ${minutes}m`;
+  };
+
   const fetchProfileData = useCallback(async () => {
     if (!userId) {
       setProfile(null);
@@ -48,7 +56,7 @@ const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onC
       // Fetch user profile
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
-        .select('id, username, avatar_url, created_at, bio') // Fetch created_at from profiles table
+        .select('id, username, avatar_url, created_at, bio, total_playtime_ms, total_notes_hit')
         .eq('id', userId)
         .single();
 
@@ -221,8 +229,8 @@ const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onC
                         {profile.bio}
                     </p>
                 )}
-                 {(profileRank !== null || profileTotalScore !== null) && (
-                    <div className="flex items-baseline gap-6 mt-2 text-slate-300">
+                 {(profileRank !== null || profileTotalScore !== null || profile?.total_playtime_ms !== undefined) && (
+                    <div className="flex items-baseline gap-4 mt-2 text-slate-300 flex-wrap justify-center sm:justify-start">
                         <div>
                             <span className="text-sm">Global Rank</span>
                             <p className="text-2xl font-bold text-white">#{profileRank ? profileRank.toLocaleString() : 'N/A'}</p>
@@ -230,6 +238,14 @@ const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onC
                         <div>
                             <span className="text-sm">Total Score</span>
                             <p className="text-2xl font-bold text-white">{profileTotalScore !== null ? Math.round(profileTotalScore).toLocaleString() : '...'}</p>
+                        </div>
+                         <div>
+                            <span className="text-sm">Playtime</span>
+                            <p className="text-2xl font-bold text-white">{formatPlaytime(profile?.total_playtime_ms || 0)}</p>
+                        </div>
+                        <div>
+                            <span className="text-sm">Notes Hit</span>
+                            <p className="text-2xl font-bold text-white">{(profile?.total_notes_hit || 0).toLocaleString()}</p>
                         </div>
                     </div>
                 )}
