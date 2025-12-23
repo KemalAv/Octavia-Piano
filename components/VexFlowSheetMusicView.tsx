@@ -1,4 +1,3 @@
-
 import React, {
   useEffect,
   useRef,
@@ -35,7 +34,7 @@ import {
 import { getVexFlowRenderData } from '../vexflow-helper';
 import { SYSTEM_PLAY_COLOR, USER_PLAY_COLOR } from '../constants'; 
 
-const HORIZONTAL_PADDING = 30;
+const HORIZONTAL_PADDING = 0; // Set to 0 to remove initial padding
 const SIDEBAR_WIDTH = 200; // Increased from 140
 
 interface HighlightInfo {
@@ -154,13 +153,13 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const cursorRef = useRef<HTMLDivElement>(null);
-  const vexflowRenderDivRef = useRef<HTMLDivElement>(null); 
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const vexFlowRenderRef = useRef<HTMLDivElement>(null); // New ref for VexFlow rendering
+  const scrollOffsetRef = useRef(0);
 
   const [highlights, setHighlights] = useState<HighlightInfo[]>([]);
   const notePositionsRef = useRef<Map<string, BoundingBox>>(new Map());
   const [renderedLayoutId, setRenderedLayoutId] = useState(0);
-  const [currentPage, setCurrentPage] = useState(0);
-  const [horizontalOffset, setHorizontalOffset] = useState(0);
 
   const vexFlowData = useMemo(() => {
     if (!notes.length || !timeSignature || initialTempoBpm <= 0) return null;
@@ -174,62 +173,29 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
     } catch (e) { return null; }
   }, [notes, timeSignature, initialTempoBpm, keySignature, sheetMusicZoom, barLines, signatureEvents, width, height, tempoEvents, playbackTempoMultiplier]);
 
-  const pages = useMemo(() => {
-    if (!vexFlowData) return [];
-    const newPages: VexFlowMeasureData[][] = [];
-    let currentPageMeasures: VexFlowMeasureData[] = [];
-    let currentWidth = 0;
-    const pagePadding = HORIZONTAL_PADDING * 2, availableWidth = width - SIDEBAR_WIDTH - pagePadding;
-    vexFlowData.measures.forEach(measure => {
-      if (currentWidth + measure.width > availableWidth && currentPageMeasures.length > 0) { newPages.push(currentPageMeasures); currentPageMeasures = []; currentWidth = 0; }
-      currentPageMeasures.push(measure); currentWidth += measure.width;
-    });
-    if (currentPageMeasures.length > 0) newPages.push(currentPageMeasures);
-    return newPages;
+  const PLAY_LINE_X = SIDEBAR_WIDTH + (width > SIDEBAR_WIDTH ? (width - SIDEBAR_WIDTH) * 0.1 : 0);
+
+  const totalMusicWidth = useMemo(() => {
+    if (!vexFlowData) return width;
+    return vexFlowData.measures.reduce((sum, m) => sum + m.width, 0) + (HORIZONTAL_PADDING * 2);
   }, [vexFlowData, width]);
-  
-  const absoluteStartXOfCurrentPage = useMemo(() => {
-    if (!pages.length || currentPage < 0) return 0;
-    let startX = 0; for (let i = 0; i < currentPage; i++) startX += pages[i].reduce((sum, m) => sum + m.width, 0);
-    return startX;
-  }, [pages, currentPage]);
-
-  useEffect(() => {
-    if (!pages.length) return;
-    let pageIndex = pages.findIndex(pageMeasures => {
-      if (!pageMeasures || pageMeasures.length === 0) return false;
-      return currentTimeMs >= pageMeasures[0].startTimeMs && currentTimeMs < pageMeasures[pageMeasures.length - 1].endTimeMs;
-    });
-    if (pageIndex === -1 && currentTimeMs >= totalDurationMs) pageIndex = pages.length - 1;
-    if (pageIndex === -1 && pages.length > 0 && currentTimeMs < pages[0][0].startTimeMs) pageIndex = 0;
-    if (pageIndex !== -1 && pageIndex !== currentPage) setCurrentPage(pageIndex);
-  }, [currentTimeMs, pages, totalDurationMs, currentPage]);
-
-  const updateCursorPosition = useCallback((timeToDisplay: number) => {
-    if (!pages.length || !cursorRef.current || width <= 0) return;
-    const measuresOnPage = pages[currentPage];
-    if (!measuresOnPage || !measuresOnPage.length) return;
-    const cursor = cursorRef.current;
-    let measureIndex = measuresOnPage.findIndex((m) => timeToDisplay >= m.startTimeMs && timeToDisplay < m.endTimeMs);
-    if (measureIndex === -1) measureIndex = timeToDisplay < measuresOnPage[0].startTimeMs ? 0 : measuresOnPage.length - 1;
-    const currentMeasure = measuresOnPage[measureIndex], startX = HORIZONTAL_PADDING + measuresOnPage.slice(0, measureIndex).reduce((sum, m) => sum + m.width, 0);
-    const progress = Math.min(1, Math.max(0, (timeToDisplay - currentMeasure.startTimeMs) / Math.max(1, currentMeasure.durationMs)));
-    cursor.style.transform = `translateX(${startX + progress * currentMeasure.width + horizontalOffset}px)`;
-  }, [pages, currentPage, width, horizontalOffset]);
 
   useLayoutEffect(() => {
-    const renderContainer = vexflowRenderDivRef.current;
-    if (!renderContainer || !vexFlowData || !pages.length || !pages[currentPage]) { if(renderContainer) while(renderContainer.lastChild) renderContainer.removeChild(renderContainer.lastChild); notePositionsRef.current.clear(); setHorizontalOffset(0); return; }
-    if (width <= 0 || height <= 0) return;
+    const renderContainer = vexFlowRenderRef.current;
+    if (!renderContainer || !vexFlowData || width <= 0 || height <= 0) { 
+        if(renderContainer) while(renderContainer.lastChild) renderContainer.removeChild(renderContainer.lastChild);
+        notePositionsRef.current.clear(); 
+        return; 
+    }
     while(renderContainer.lastChild) renderContainer.removeChild(renderContainer.lastChild);
     const newNotePositions = new Map<string, BoundingBox>();
     try {
-      const { topStaveYOffset, verticalSpacing } = vexFlowData, measuresToRender = pages[currentPage];
-      const pageContentWidth = measuresToRender.reduce((sum, m) => sum + m.width, 0) + HORIZONTAL_PADDING * 2;
-      const newOffset = Math.max(0, (width - SIDEBAR_WIDTH - pageContentWidth) / 2); setHorizontalOffset(newOffset);
+      const { topStaveYOffset, verticalSpacing } = vexFlowData;
+      const measuresToRender = vexFlowData.measures;
       const renderer = new Renderer(renderContainer, Renderer.Backends.SVG);
-      renderer.resize(pageContentWidth, height);
-      const ctx = renderer.getContext(); let currentX = HORIZONTAL_PADDING;
+      renderer.resize(totalMusicWidth, height);
+      const ctx = renderer.getContext();
+      let currentX = HORIZONTAL_PADDING;
       measuresToRender.forEach((measure) => {
         const treble = new Stave(currentX, topStaveYOffset, measure.width), bass = new Stave(currentX, topStaveYOffset + verticalSpacing, measure.width);
         
@@ -258,10 +224,16 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
         const capture = (notes: StaveNote[], map: Map<string, VexFlowNoteInfo>) => notes.forEach(sn => { if (sn.isRest()) return; const info = map.get(sn.getAttribute('id')); if (info?.fragmentMapping) sn.noteHeads.forEach((nh, hi) => { const m = info.fragmentMapping!.find(x => x.keyIndex === hi); if (m) { const bb = nh.getBoundingBox(); if (bb) newNotePositions.set(m.fragmentId, bb); } }); });
         capture(rightStaveNotes, rightInfoMap); capture(leftStaveNotes, leftInfoMap); currentX += measure.width;
       });
+
+      // Render tempo markings
+      vexFlowData.tempoMarkings.forEach(mark => {
+        ctx.setFont('Arial', 14, 'bold').fillText(`♩ = ${mark.bpm}`, mark.x, mark.y);
+      });
+
       notePositionsRef.current = newNotePositions; setRenderedLayoutId(prev => { onLayoutRendered(prev + 1); return prev + 1; });
     } catch (e) { if(renderContainer) while (renderContainer.lastChild) renderContainer.removeChild(renderContainer.lastChild); notePositionsRef.current.clear(); }
     return () => { if (renderContainer) while (renderContainer.lastChild) renderContainer.removeChild(renderContainer.lastChild); notePositionsRef.current.clear(); };
-  }, [vexFlowData, pages, currentPage, width, height, keySignature, timeSignature, totalDurationMs]);
+  }, [vexFlowData, width, height, keySignature, timeSignature, totalDurationMs, onLayoutRendered]);
 
   useEffect(() => {
     if (!vexFlowData) { setHighlights([]); return; }
@@ -278,7 +250,31 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
     setHighlights(newHighlights);
   }, [activePlaybackNotesInfo, vexFlowData, renderedLayoutId, leftHandColor, rightHandColor]);
 
-  useEffect(() => { updateCursorPosition(currentTimeMs); }, [currentTimeMs, updateCursorPosition]);
+  useEffect(() => {
+    if (!vexFlowData || !scrollContainerRef.current || width <= 0) return;
+
+    const measures = vexFlowData.measures;
+    if (!measures.length) return;
+
+    let currentMeasureIndex = measures.findIndex(m => currentTimeMs >= m.startTimeMs && currentTimeMs < m.endTimeMs);
+    if (currentMeasureIndex === -1) {
+        if (currentTimeMs < measures[0].startTimeMs) {
+            currentMeasureIndex = 0;
+        } else {
+            currentMeasureIndex = measures.length - 1;
+        }
+    }
+    
+    const currentMeasure = measures[currentMeasureIndex];
+    const measureStartX = HORIZONTAL_PADDING + measures.slice(0, currentMeasureIndex).reduce((sum, m) => sum + m.width, 0);
+    const progress = Math.min(1, Math.max(0, (currentTimeMs - currentMeasure.startTimeMs) / Math.max(1, currentMeasure.durationMs)));
+    const absoluteCursorX = measureStartX + progress * currentMeasure.width;
+    
+    const newScrollOffset = (PLAY_LINE_X - SIDEBAR_WIDTH) - absoluteCursorX;
+    scrollOffsetRef.current = newScrollOffset;
+
+    scrollContainerRef.current.style.transform = `translateX(${newScrollOffset}px)`;
+  }, [currentTimeMs, vexFlowData, width, PLAY_LINE_X]);
 
   return (
     <div className="sheet-container no-select" style={{ width: `${width}px`, height: `${height}px` }}>
@@ -294,34 +290,47 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
         className="sheet-content-wrapper" 
         style={{ left: `${SIDEBAR_WIDTH}px`, width: `calc(100% - ${SIDEBAR_WIDTH}px)`}}
         onClick={(e) => {
-        if (!containerRef.current || !pages.length || !pages[currentPage] || totalDurationMs <= 0) return;
-        const rect = containerRef.current.getBoundingClientRect(), clickX = e.clientX - rect.left - horizontalOffset;
-        let acc = HORIZONTAL_PADDING;
-        for(const m of pages[currentPage]) { if (clickX >= acc && clickX < acc + m.width) { onSeek(m.startTimeMs + ((clickX - acc) / m.width * m.durationMs)); return; } acc += m.width; }
-      }}>
-        <div key={currentPage} ref={vexflowRenderDivRef} style={{ position: 'absolute', left: `${horizontalOffset}px`, top: '0px' }} />
-        <svg style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 20 }}>
-          {vexFlowData?.octaveLines.map((line, index) => {
-            const mOnP = pages[currentPage]; if (!mOnP || mOnP.length === 0) return null;
-            const pAbsS = absoluteStartXOfCurrentPage + HORIZONTAL_PADDING, pAbsE = pAbsS + mOnP.reduce((sum, m) => sum + m.width, 0);
-            if (line.endX <= pAbsS || line.startX >= pAbsE) return null;
-            const x1r = (Math.max(line.startX, pAbsS) - pAbsS) + horizontalOffset + HORIZONTAL_PADDING;
-            const x2r = (Math.min(line.endX, pAbsE) - pAbsS) + horizontalOffset + HORIZONTAL_PADDING;
-            const y = line.startY, text = line.type, shouldDrawText = line.startX >= pAbsS && line.startX < pAbsE;
-            const textX = (line.startX - pAbsS) + horizontalOffset + HORIZONTAL_PADDING;
-            return (
-                <g key={`octave-${index}`} fill="#000" stroke="#000" strokeWidth="1.5">
-                    {shouldDrawText && <text x={textX} y={y} fontSize="16" fontStyle="italic" fontWeight="bold">{text}</text>}
-                    <path d={`M ${shouldDrawText ? textX + (text.length * 10) : x1r} ${y + 4} L ${x2r} ${y + 4}`} strokeDasharray="4,3" fill="none" />
-                    <path d={`M ${x2r} ${y + 4} L ${x2r} ${y + 14}`} fill="none" />
-                </g>
-            );
-          })}
-        </svg>
-        {highlights.map(h => <div key={h.key} style={{ position: 'absolute', left: `${h.x + horizontalOffset}px`, top: `${h.y}px`, width: `${h.w}px`, height: `${h.h}px`, backgroundColor: h.color, borderRadius: '50%', opacity: 0.5, pointerEvents: 'none', zIndex: 5 }}/>)}
-        <div ref={cursorRef} className="cursor-line" style={{ willChange: 'transform' }} />
-        {!vexFlowData && notes.length > 0 && <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-20"><p className="text-slate-600 font-medium animate-pulse">Rendering Sheet Music...</p></div>}
+          if (!containerRef.current || !vexFlowData || totalDurationMs <= 0) return;
+          const rect = containerRef.current.getBoundingClientRect();
+          const clickXInContainer = e.clientX - rect.left;
+          const clickXInContent = clickXInContainer - scrollOffsetRef.current;
+          
+          let accumulatedWidth = HORIZONTAL_PADDING;
+          for(const measure of vexFlowData.measures) {
+              if (clickXInContent >= accumulatedWidth && clickXInContent < accumulatedWidth + measure.width) {
+                  const progress = (clickXInContent - accumulatedWidth) / measure.width;
+                  onSeek(measure.startTimeMs + progress * measure.durationMs); 
+                  return; 
+              }
+              accumulatedWidth += measure.width;
+          }
+        }}
+      >
+        <div ref={scrollContainerRef} style={{ position: 'relative', width: totalMusicWidth, height, willChange: 'transform' }}>
+          <div ref={vexFlowRenderRef} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }} />
+          <svg style={{ position: 'absolute', top: 0, left: 0, width: totalMusicWidth, height: '100%', pointerEvents: 'none', zIndex: 15 }}>
+            {vexFlowData?.octaveLines.map((line, index) => {
+              const y = line.startY;
+              const text = line.type;
+              const isAbove = line.type === '8va' || line.type === '15ma';
+              const textY = y;
+              const lineY = isAbove ? y + 4 : y + 16;
+              const hookEndY = isAbove ? lineY + 10 : lineY - 10;
+
+              return (
+                  <g key={`octave-${index}`} fill="#000" stroke="#000" strokeWidth="1.5">
+                      <text x={line.startX} y={textY} fontSize="16" fontStyle="italic" fontWeight="bold">{text}</text>
+                      <path d={`M ${line.startX + (text.length * 10)} ${lineY} L ${line.endX} ${lineY}`} strokeDasharray="4,3" fill="none" />
+                      <path d={`M ${line.endX} ${lineY} L ${line.endX} ${hookEndY}`} fill="none" />
+                  </g>
+              );
+            })}
+          </svg>
+          {highlights.map(h => <div key={h.key} style={{ position: 'absolute', left: `${h.x}px`, top: `${h.y}px`, width: `${h.w}px`, height: `${h.h}px`, backgroundColor: h.color, borderRadius: '50%', opacity: 0.5, pointerEvents: 'none', zIndex: 5 }}/>)}
+        </div>
       </div>
+      <div ref={cursorRef} className="cursor-line" style={{ left: `${PLAY_LINE_X}px` }} />
+      {!vexFlowData && notes.length > 0 && <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-20"><p className="text-slate-600 font-medium animate-pulse">Rendering Sheet Music...</p></div>}
     </div>
   );
 };

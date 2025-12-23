@@ -1,7 +1,7 @@
-import React, { ErrorInfo, ReactNode } from 'react';
+import React, { Component, ErrorInfo, ReactNode } from 'react';
 
 interface ErrorBoundaryProps {
-  children: ReactNode;
+  children?: ReactNode; // Made optional to fix 'missing in type {}' error in strict mode
 }
 
 interface ErrorBoundaryState {
@@ -10,43 +10,41 @@ interface ErrorBoundaryState {
   isRendered: boolean;
 }
 
-// FIX: This component has been converted to a class component to function as a React Error Boundary.
-// Functional components cannot be error boundaries as they do not support the required
-// lifecycle methods like getDerivedStateFromError and componentDidCatch. This change resolves
-// errors related to using state and props, allowing the component to correctly catch rendering errors.
 class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  // Explicitly declare state property for TypeScript
+  public state: ErrorBoundaryState = {
+    hasError: false,
+    error: null,
+    isRendered: false,
+  };
+
   constructor(props: ErrorBoundaryProps) {
     super(props);
-    this.state = {
-      hasError: false,
-      error: null,
-      isRendered: false,
-    };
+    this.handleReturnToMainMenu = this.handleReturnToMainMenu.bind(this);
   }
 
-  public static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+  static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
     // Update state so the next render will show the fallback UI.
     return { hasError: true, error, isRendered: false };
   }
 
-  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error("Uncaught error:", error, errorInfo);
     // You could also log error messages to an error reporting service here
   }
   
-  public componentDidUpdate(_: ErrorBoundaryProps, prevState: ErrorBoundaryState) {
+  componentDidUpdate(_: ErrorBoundaryProps, prevState: ErrorBoundaryState) {
     if (this.state.hasError && !prevState.hasError) {
         setTimeout(() => this.setState({ isRendered: true }), 10);
     }
   }
 
-
-  private handleReturnToMainMenu = () => {
+  handleReturnToMainMenu() {
     // Reload the page to reset the application state and return to the main menu
     window.location.reload();
   };
 
-  public render() {
+  render() {
     if (this.state.hasError) {
       // Fallback UI
       return (

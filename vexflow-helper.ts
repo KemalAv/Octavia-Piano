@@ -1,4 +1,3 @@
-
 import { MidiNotePlaybackItem, TimeSignatureInfo, VexFlowMeasureData, VexFlowNoteInfo, VexFlowRenderData, OctaveLineInfo, NoteFragment, TempoEvent, TempoMarkingInfo } from './types';
 import { getNoteZoom, getLayoutZoom, SHARP_KEYS, FLAT_KEYS, NEUTRAL_KEYS, ENHARMONIC_MAP_TO_SHARP, ENHARMONIC_MAP_TO_FLAT, SignatureEvent } from './utils';
 import { StaveNote, Beam, Stave, Accidental, Dot, Barline, StaveConnector, Renderer, Voice, Formatter } from 'vexflow';
@@ -46,10 +45,10 @@ const KEY_SIGNATURE_SPEC: { [key: string]: { [note: string]: string } } = {
     'G': { 'F': '#' },
     'D': { 'F': '#', 'C': '#' },
     'A': { 'F': '#', 'C': '#', 'G': '#' },
-    'E': { 'F': '#', 'C': '#', 'G': '#' },
-    'B': { 'F': '#', 'C': '#', 'G': '#' },
-    'F#': { 'F': '#', 'C': '#', 'G': '#', 'D': '#', 'A': '#' },
-    'C#': { 'F': '#', 'C': '#', 'G': '#', 'D': '#', 'A': '#' },
+    'E': { 'F': '#', 'C': '#', 'G': '#', 'D': '#' },
+    'B': { 'F': '#', 'C': '#', 'G': '#', 'D': '#', 'A': '#' },
+    'F#': { 'F': '#', 'C': '#', 'G': '#', 'D': '#', 'A': '#', 'E': '#' },
+    'C#': { 'F': '#', 'C': '#', 'G': '#', 'D': '#', 'A': '#', 'E': '#', 'B': '#' },
     'F': { 'B': 'b' },
     'Bb': { 'B': 'b', 'E': 'b' },
     'Eb': { 'B': 'b', 'E': 'b', 'A': 'b' },
@@ -171,29 +170,24 @@ function processHandAndAccidentals(
         let primaryVexFlowDuration: { type: string, dots: number } | null = null; // Store the chosen VexFlow duration type
         
         if (!isRollView) {
-            const maxNoteDurationMs = Math.max(...notesAtTime.map(n => n.durationMs));
+            // NEW LOGIC: Rhythmic duration is based on the time distance to the next note event, not the note's own duration.
+            const nextNoteEventTime = sortedTimestamps[index + 1];
+            
+            // If there's a next note in the measure, duration is until that note. Otherwise, it's until the measure end.
+            const rhythmicDurationMs = (nextNoteEventTime !== undefined)
+                ? nextNoteEventTime - timestamp
+                : measureEndTime - timestamp;
+
             const timeToMeasureEndMs = measureEndTime - timestamp;
-            const bpm = getBpmAtTime(timestamp);
-            const msPerQuarter = 60000 / bpm;
 
-            const maxDurationInQuarters = maxNoteDurationMs / msPerQuarter;
+            // The duration for the timeline event is this rhythmic duration, clipped at the measure boundary.
+            // The user's request is to IGNORE the actual note duration from the MIDI file for rhythm.
+            durationForGroupMs = Math.min(rhythmicDurationMs, timeToMeasureEndMs);
+            if (durationForGroupMs < 0) durationForGroupMs = 0;
 
-            // For regular sheet music, `durationForGroupMs` is now determined like roll view:
-            // The note takes its full MIDI duration, only clipped by the measure end.
-            durationForGroupMs = Math.min(maxNoteDurationMs, timeToMeasureEndMs);
-            if (durationForGroupMs < 0) durationForGroupMs = 0; // Ensure non-negative duration
-
-            // Now, determine if this duration *should* ideally be represented as a single VexFlow note.
-            // This flag will guide the final decomposition step.
-            const snappedDurationInQuarters = getClosestCommonDuration(maxDurationInQuarters); // Call without tolerance
-
-            // Set primaryVexFlowDuration if the original MIDI duration is a good candidate for a common VexFlow primitive.
-            // Check tolerance here: if the original MIDI duration is very close to a snapped VexFlow duration.
-            if (snappedDurationInQuarters !== null && Math.abs(maxDurationInQuarters - snappedDurationInQuarters) < SNAP_TOLERANCE) { 
-                primaryVexFlowDuration = DURATION_TO_VEXFLOW[snappedDurationInQuarters];
-            } else {
-                primaryVexFlowDuration = null; // Let it proceed to the enhanced decomposition logic below
-            }
+            // The primaryVexFlowDuration logic is now redundant because the more robust decomposition
+            // later will handle finding the best VexFlow note type based on this new durationForGroupMs.
+            primaryVexFlowDuration = null;
 
         } else {
             // ROLL VIEW LOGIC (Unchanged: simplified duration, effectively only clipped by measure)
@@ -628,8 +622,8 @@ export const getVexFlowRenderData = (
         };
         addOctaveLine(idx => tempMeasures[idx].is15maActiveRH, '15ma', 'right', -40);
         addOctaveLine(idx => tempMeasures[idx].is8vaActiveRH, '8va', 'right', -40);
-        addOctaveLine(idx => tempMeasures[idx].is15mbActiveLH, '15mb', 'left', verticalSpacing + 125);
-        addOctaveLine(idx => tempMeasures[idx].is8vbActiveLH, '8vb', 'left', verticalSpacing + 125);
+        addOctaveLine(idx => tempMeasures[idx].is15mbActiveLH, '15mb', 'left', verticalSpacing + 80);
+        addOctaveLine(idx => tempMeasures[idx].is8vbActiveLH, '8vb', 'left', verticalSpacing + 80);
 
         const keySpec = KEY_SIGNATURE_SPEC[m.activeKeySignature] || {}, accRH = new Map<string, string>(), accLH = new Map<string, string>();
         

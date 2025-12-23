@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { ExtendedResult, WaitMode, GameSettings, PracticeHand } from '../types';
 import DifficultyAnalysis from './DifficultyAnalysis';
@@ -15,7 +16,17 @@ interface ModeSelectionProps {
   onHideBarNavigationButtonsChange: (value: boolean) => void;
 }
 
-type Mode = 'practice' | 'autoplay' | 'retical';
+type Mode = 'practice_lenient' | 'practice_strict' | 'autoplay' | 'retical';
+
+const tutorials = [
+  { title: 'Sheet Music', url: 'https://youtu.be/yltCkCy1DeM' },
+  { title: 'Music Theory', url: 'https://youtu.be/_VvKeiwddPI' },
+  { title: 'Scales', url: 'https://youtu.be/1OPWJ4WOuLU' },
+  { title: 'Chord', url: 'https://youtu.be/EMj0LrMQDKs' },
+  { title: 'Hand Placement', url: 'https://youtu.be/dQECPiWpULE?si=kFkWWS6exkVpbSOU' },
+  { title: 'Only for Nerds', url: 'https://youtu.be/Yv-W4ezHvH0' },
+  { title: 'Computer Keyboard', url: 'https://youtu.be/LM-aAcYtKg4?si=OPPsWYQvFbTYt3ww' },
+];
 
 const ModeSelection: React.FC<ModeSelectionProps> = ({
   onStartGame,
@@ -29,26 +40,37 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
   currentHideBarNavigationButtons,
   onHideBarNavigationButtonsChange,
 }) => {
-  const [selectedMode, setSelectedMode] = useState<Mode>('practice');
+  const [selectedMode, setSelectedMode] = useState<Mode>('practice_lenient');
   const [practiceHand, setPracticeHand] = useState<PracticeHand>('both');
-  const [practiceWaitMode, setPracticeWaitMode] = useState<Extract<WaitMode, 'strict' | 'lenient'>>('strict');
+  const [noteToleranceMs, setNoteToleranceMs] = useState(150);
   const [isRendered, setIsRendered] = useState(false);
+  const [isTutorialModalOpen, setIsTutorialModalOpen] = useState(false);
+  const [isTutorialModalRendered, setIsTutorialModalRendered] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => setIsRendered(true), 10);
     return () => clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    if (isTutorialModalOpen) {
+      const timer = setTimeout(() => setIsTutorialModalRendered(true), 10);
+      return () => clearTimeout(timer);
+    } else {
+      setIsTutorialModalRendered(false);
+    }
+  }, [isTutorialModalOpen]);
   
   const buttonBaseStyle = "w-full font-bold py-3 px-6 rounded-lg text-lg transition-all duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-opacity-50 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100 shadow-lg";
   const primaryButtonStyle = "bg-cyan-500 hover:bg-cyan-600 text-white focus:ring-cyan-400";
   const tertiaryButtonStyle = "bg-slate-600 hover:bg-slate-700 text-slate-200 focus:ring-slate-500";
+  
   const modeButtonBase = "p-4 rounded-lg border-2 transition-all cursor-pointer h-full flex flex-col";
-  const modeButtonSelected = "bg-violet-500/80 border-violet-400 shadow-lg scale-105 ring-2 ring-violet-400";
   const modeButtonUnselected = "bg-slate-700/50 border-slate-600 hover:bg-slate-700 hover:border-slate-500";
   
   // Define tempo range based on selected mode
-  const minTempoPercentage = selectedMode === 'retical' ? 75 : 25;
-  const maxTempoPercentage = selectedMode === 'retical' ? 150 : 200;
+  const minTempoPercentage = selectedMode === 'retical' ? 75 : 10;
+  const maxTempoPercentage = selectedMode === 'retical' ? 150 : 400;
 
   // Clamp initialPlaybackTempoMultiplier if mode changes to retical and it's out of bounds
   useEffect(() => {
@@ -66,78 +88,119 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
       }
   }, [selectedMode, initialPlaybackTempoMultiplier, onPlaybackTempoMultiplierChange, minTempoPercentage, maxTempoPercentage]);
 
+  const handleModeSelect = (mode: Mode) => {
+    setSelectedMode(mode);
+    if (mode === 'practice_lenient') setNoteToleranceMs(150);
+    if (mode === 'practice_strict') setNoteToleranceMs(30);
+  };
+
   const handleStart = () => {
     let waitMode: WaitMode;
+    let tolerance: number;
 
     switch (selectedMode) {
-      case 'practice':
-        waitMode = practiceWaitMode;
+      case 'practice_lenient':
+        waitMode = 'rhythm'; // Allows any key press to advance
+        tolerance = noteToleranceMs;
+        break;
+      case 'practice_strict':
+        waitMode = 'strict';
+        tolerance = noteToleranceMs;
         break;
       case 'autoplay':
         waitMode = 'off';
+        tolerance = 250; // Doesn't matter
         break;
       case 'retical':
         waitMode = 'retical';
+        tolerance = 150; // New default for retical
         break;
       default:
         waitMode = 'strict';
+        tolerance = 30; // Fallback to strict
     }
     
     onStartGame({
         waitMode,
         playbackTempoMultiplier: initialPlaybackTempoMultiplier,
-        practiceHand: selectedMode === 'practice' ? practiceHand : 'both',
+        practiceHand: (selectedMode === 'practice_lenient' || selectedMode === 'practice_strict') ? practiceHand : 'both',
         hideBarNavigationButtons: selectedMode === 'retical' ? true : currentHideBarNavigationButtons,
+        noteToleranceMs: tolerance,
     });
   };
 
   const displayedBpm = initialTempoBpm ? Math.round(initialTempoBpm * initialPlaybackTempoMultiplier) : 'N/A';
   const displayedPlaybackPercentage = Math.round(initialPlaybackTempoMultiplier * 100);
+  const isPractice = selectedMode === 'practice_lenient' || selectedMode === 'practice_strict';
 
   return (
+    <>
      <div className={`fixed inset-0 bg-slate-900 flex flex-col items-center justify-center z-40 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'opacity-100' : 'opacity-0'}`}>
-       <div className="absolute top-4 left-4">
+       <div className="absolute top-4 left-4" style={{ zIndex: 9999 }}>
             <button onClick={onBack} className={`${tertiaryButtonStyle} py-2 px-4 text-base shadow-md`}>&larr; Back to MIDIs</button>
        </div>
-      <div className={`bg-slate-800/50 backdrop-blur-sm p-8 md:p-12 rounded-xl shadow-2xl max-w-4xl w-full ring-1 ring-slate-700 max-h-[90vh] overflow-y-auto custom-scrollbar transform transition-transform duration-300 ease-in-out ${isRendered ? 'scale-100' : 'scale-95'}`}>
+      <div className={`bg-slate-800/50 backdrop-blur-sm p-8 md:p-12 rounded-xl shadow-2xl max-w-5xl w-full ring-1 ring-slate-700 max-h-[90vh] overflow-y-auto custom-scrollbar transform transition-transform duration-300 ease-in-out ${isRendered ? 'scale-100' : 'scale-95'}`}>
         <div className="text-center mb-6">
             <h2 className="text-4xl font-bold text-cyan-400 mb-2">Game Mode</h2>
             {fileName && <p className="text-lg text-slate-300 truncate">{fileName}</p>}
             {analysisResultForPreview && <div className="mt-2 flex justify-center"><DifficultyAnalysis analysisResult={analysisResultForPreview} /></div>}
         </div>
         
-        {/* Mode Selection */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            <div onClick={() => setSelectedMode('practice')} className={`${modeButtonBase} ${selectedMode === 'practice' ? modeButtonSelected : modeButtonUnselected}`}>
-                <h3 className="font-bold text-xl mb-1 text-violet-300">Practice Mode</h3>
-                <p className="text-sm text-slate-300 flex-grow">Learn at your own pace. The song waits for you to play the correct notes.</p>
+        {/* Mode Selection Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <div 
+                onClick={() => handleModeSelect('practice_lenient')} 
+                className={`${modeButtonBase} ${selectedMode === 'practice_lenient' ? 'bg-emerald-600/80 border-emerald-400 shadow-lg scale-105 ring-2 ring-emerald-400' : modeButtonUnselected}`}
+            >
+                <h3 className="font-bold text-xl mb-1 text-emerald-300">Lenient Practice</h3>
+                <p className="text-sm text-slate-300 flex-grow">The song plays continuously, but will pause if you don't play a key.</p>
             </div>
-            <div onClick={() => setSelectedMode('autoplay')} className={`${modeButtonBase} ${selectedMode === 'autoplay' ? modeButtonSelected : modeButtonUnselected}`}>
-                <h3 className="font-bold text-xl mb-1 text-violet-300">Autoplay Mode</h3>
+
+            <div 
+                onClick={() => handleModeSelect('practice_strict')} 
+                className={`${modeButtonBase} ${selectedMode === 'practice_strict' ? 'bg-rose-600/80 border-rose-400 shadow-lg scale-105 ring-2 ring-rose-400' : modeButtonUnselected}`}
+            >
+                <h3 className="font-bold text-xl mb-1 text-rose-300">Strict Practice</h3>
+                <p className="text-sm text-slate-300 flex-grow">The song pauses and waits for you to play the correct notes.</p>
+            </div>
+
+            <div 
+                onClick={() => handleModeSelect('autoplay')} 
+                className={`${modeButtonBase} ${selectedMode === 'autoplay' ? 'bg-sky-600/80 border-sky-400 shadow-lg scale-105 ring-2 ring-sky-400' : modeButtonUnselected}`}
+            >
+                <h3 className="font-bold text-xl mb-1 text-sky-300">Autoplay</h3>
                 <p className="text-sm text-slate-300 flex-grow">Sit back and listen. The song will play itself automatically.</p>
             </div>
-            <div onClick={() => setSelectedMode('retical')} className={`${modeButtonBase} ${selectedMode === 'retical' ? modeButtonSelected : modeButtonUnselected}`}>
-                <h3 className="font-bold text-xl mb-1 text-violet-300">Retical Mode</h3>
+
+            <div 
+                onClick={() => handleModeSelect('retical')} 
+                className={`${modeButtonBase} ${selectedMode === 'retical' ? 'bg-amber-600/80 border-amber-400 shadow-lg scale-105 ring-2 ring-amber-400' : modeButtonUnselected}`}
+            >
+                <h3 className="font-bold text-xl mb-1 text-amber-300">Retical Mode</h3>
                 <p className="text-sm text-slate-300 flex-grow">Scores are recorded on the leaderboard only when the MIDI is in Ranked status.</p>
             </div>
         </div>
 
         {/* Practice Mode Options */}
-        {selectedMode === 'practice' && (
+        {isPractice && (
             <div className="bg-slate-900/50 p-6 rounded-lg mb-6 space-y-6 ring-1 ring-slate-700">
                 <div>
-                    <h4 className="font-semibold text-lg text-center mb-3 text-slate-200">Practice Type</h4>
-                    <div className="flex justify-center gap-4">
-                        {(['strict', 'lenient'] as const).map(mode => (
-                            <button key={mode} onClick={() => setPracticeWaitMode(mode)} className={`px-4 py-2 text-sm rounded-md font-semibold transition w-32 ${practiceWaitMode === mode ? 'bg-violet-500 text-white shadow-md' : 'bg-slate-600 hover:bg-slate-500'}`}>
-                                {mode.charAt(0).toUpperCase() + mode.slice(1)}
-                            </button>
-                        ))}
+                    <h4 className="font-semibold text-lg text-center mb-3 text-slate-200">Note Tolerance</h4>
+                    <div className="flex items-center justify-center gap-4 px-4">
+                        <input
+                            id="note-tolerance-slider"
+                            type="range"
+                            min="10"
+                            max="500"
+                            step="10"
+                            value={noteToleranceMs}
+                            onChange={e => setNoteToleranceMs(parseInt(e.target.value, 10))}
+                            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer"
+                        />
+                        <span className="font-mono text-white w-16 text-center tabular-nums">{noteToleranceMs}ms</span>
                     </div>
                     <p className="text-xs text-slate-400 text-center mt-3 h-8 flex items-center justify-center">
-                        {practiceWaitMode === 'strict'
-                            ? 'The song pauses and waits for you to play the correct notes.'
-                            : "The song plays continuously, but will pause if you don't play a key."}
+                        The time window to play notes in a chord together. {selectedMode === 'practice_strict' ? 'Strict default: 30ms' : 'Lenient default: 150ms'}.
                     </p>
                 </div>
                 <div className="border-t border-slate-700/50"></div>
@@ -177,12 +240,64 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
              )}
         </div>
 
-        <button onClick={handleStart} className={`${buttonBaseStyle} ${primaryButtonStyle}`}>
-            Start
-        </button>
+        <div className="grid grid-cols-5 gap-4">
+            <button onClick={handleStart} className={`${buttonBaseStyle} ${primaryButtonStyle} col-span-4`}>
+                Start Game
+            </button>
+            <button onClick={() => setIsTutorialModalOpen(true)} className={`${buttonBaseStyle} bg-amber-500 hover:bg-amber-600 text-white focus:ring-amber-400 col-span-1`}>
+                Learn More
+            </button>
+        </div>
 
       </div>
     </div>
+      {isTutorialModalOpen && (
+        <div 
+          className={`fixed inset-0 bg-black flex items-center justify-center z-50 p-4 transition-opacity duration-300 ease-in-out ${isTutorialModalRendered ? 'bg-opacity-75' : 'bg-opacity-0'}`}
+          onClick={() => setIsTutorialModalOpen(false)} 
+          role="dialog" 
+          aria-modal="true" 
+          aria-labelledby="tutorial-title"
+        >
+          <div 
+            className={`bg-slate-800 rounded-lg shadow-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto custom-scrollbar transform transition-all duration-300 ease-in-out ${isTutorialModalRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-4 border-b border-slate-600 pb-3">
+              <h2 id="tutorial-title" className="text-2xl font-bold text-sky-300">Disclaimer</h2>
+              <button 
+                onClick={() => setIsTutorialModalOpen(false)} 
+                className="text-3xl font-light text-slate-400 hover:text-white leading-none"
+                aria-label="Close tutorial modal"
+              >&times;</button>
+            </div>
+            <p className="text-slate-300 mb-4 text-sm italic">
+                Remember, this is not a piano learning app, it’s a piano rhythm game. It doesn’t teach you how to play piano from the beginning. Instead, it provides a rhythm-game-style piano experience, where you learn by brute-forcing it like a rhythm game. If your piano foundation is still weak or you’re a beginner, it’s recommended that you watch tutorials or get a teacher to improve your skills.
+            </p>
+            <div className="space-y-3">
+              {tutorials.map((tutorial, index) => (
+                <a 
+                  key={index} 
+                  href={tutorial.url} 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="flex items-center justify-between p-3 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors group"
+                >
+                  <span className="text-white font-semibold group-hover:text-cyan-300">{tutorial.title}</span>
+                  <svg className="w-5 h-5 text-slate-400 group-hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                </a>
+              ))}
+            </div>
+            <div className="mt-6 text-center">
+              <button 
+                onClick={() => setIsTutorialModalOpen(false)} 
+                className="bg-sky-500 hover:bg-sky-600 text-white font-bold py-2 px-6 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-sky-300"
+              >Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 };
 

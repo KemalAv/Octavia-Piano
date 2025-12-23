@@ -19,6 +19,8 @@ interface PianoKeyboardProps {
   layoutConfig: LayoutDimensions; // New Prop for dynamic sizing
   qwertyLayout?: QwertyLayout; // NEW: Optional prop for layout type
   mirpTranspose?: number; // NEW: Optional prop for MIRP transpose
+  // FIX: Add isInteractive prop to fix TypeScript error and disable UI interaction
+  isInteractive?: boolean;
 }
 
 const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ 
@@ -36,6 +38,8 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
   layoutConfig,
   qwertyLayout = 'default',
   mirpTranspose = 0,
+  // FIX: Destructure isInteractive prop with a default value
+  isInteractive = true,
 }) => {
   const keyDefMap = React.useMemo(() => {
     const map = new Map<string, PianoKeyDefinition>();
@@ -237,11 +241,12 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
         height: `${totalHeight}px`,
         // Centering and offset are now handled by the parent div in App.tsx
       }}
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
-      onTouchCancel={handleTouchEnd}
-      onMouseDown={handleMouseDown}
+      // FIX: Conditionally apply event handlers based on isInteractive prop
+      onTouchStart={isInteractive ? handleTouchStart : undefined}
+      onTouchMove={isInteractive ? handleTouchMove : undefined}
+      onTouchEnd={isInteractive ? handleTouchEnd : undefined}
+      onTouchCancel={isInteractive ? handleTouchEnd : undefined}
+      onMouseDown={isInteractive ? handleMouseDown : undefined}
       role="application"
       aria-label="Interactive Piano Keyboard"
     >

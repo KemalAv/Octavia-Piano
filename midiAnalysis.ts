@@ -52,6 +52,8 @@ arpSpeedWeight: 0.29,
 arpRangeWeight: 0.41,
 arpJumpZigzagWeight: 0.2,
 arpConsistencyWeight: 0.05,
+// FIX: Added missing 'trillRatio' property to satisfy AnalysisConfig interface.
+trillRatio: 0,
 trillMaxInterval: 3.1,
 trillMaxGap: 279,
 trillNormMin: 0.08,

@@ -71,11 +71,94 @@
    $$ language plpgsql;
    ```
 4. **Updating Your Database:**
-   If you've set up the project before, you may need to add new columns to your tables. Run the following SQL to ensure your `scores` table is up-to-date. It is safe to run this command multiple times.
+   If you've set up the project before, you may need to add new columns or functions to your database. Run the following SQL to ensure your tables and functions are up-to-date. It is safe to run these commands multiple times.
    ```sql
+   -- Add columns to scores table for performance details
    ALTER TABLE public.scores
    ADD COLUMN IF NOT EXISTS total_wait_time_ms integer;
+
+   ALTER TABLE public.scores
+   ADD COLUMN IF NOT EXISTS gameplay_style TEXT;
+
+   -- Add columns to profiles table for lifetime stats
+   ALTER TABLE public.profiles
+   ADD COLUMN IF NOT EXISTS total_playtime_ms BIGINT DEFAULT 0,
+   ADD COLUMN IF NOT EXISTS total_notes_hit BIGINT DEFAULT 0;
+
+   -- Add RPC function to atomically increment user stats
+   create or replace function increment_user_stats(playtime_ms_to_add bigint, notes_hit_to_add bigint)
+   returns void as $$
+   begin
+     if auth.uid() is not null then
+       update public.profiles
+       set
+         total_playtime_ms = COALESCE(total_playtime_ms, 0) + playtime_ms_to_add,
+         total_notes_hit = COALESCE(total_notes_hit, 0) + notes_hit_to_add
+       where id = auth.uid();
+     end if;
+   end;
+   $$ language plpgsql;
+
+   -- Add arranger column to songs table for arrangement credits
+   ALTER TABLE public.songs
+   ADD COLUMN IF NOT EXISTS arranger TEXT;
    ```
 
-5. Run the app:
+5. **Database Performance Fixes (Recommended):**
+   The following SQL commands resolve performance warnings from the Supabase database linter. Run these in your Supabase SQL Editor. It is safe to run them multiple times.
+   ```sql
+   -- FIX 1: Duplicate Indexes
+   -- Drops redundant indexes on the `scores` table to save space and speed up writes.
+   DROP INDEX IF EXISTS public.idx_scores_song_id_final_score;
+   DROP INDEX IF EXISTS public.scores_user_song_unique;
+   DROP INDEX IF EXISTS public.user_song_unique;
+
+   -- FIX 2: RLS Policy Optimization
+   -- Replaces inefficient and redundant policies with optimized versions.
+   
+   -- Step 2.1: Clean up old policies on the `friends` table.
+   DROP POLICY IF EXISTS "Users can view their own friendships." ON public.friends;
+   DROP POLICY IF EXISTS "Users can add friends." ON public.friends;
+   DROP POLICY IF EXISTS "Users can remove friends." ON public.friends;
+   DROP POLICY IF EXISTS "Users can view their friendships" ON public.friends;
+   DROP POLICY IF EXISTS "Users can send friend requests" ON public.friends;
+   DROP POLICY IF EXISTS "Recipient can accept a pending friend request" ON public.friends;
+   DROP POLICY IF EXISTS "Users can delete their friendships" ON public.friends;
+
+   -- Step 2.2: Create new, optimized policies for the `friends` table.
+   -- This combines logic and uses `(SELECT auth.uid())` for performance.
+   
+   -- SELECT: Users can see friendships they are a part of.
+   CREATE POLICY "Allow authenticated users to view their friendships"
+   ON public.friends FOR SELECT
+   USING ( (SELECT auth.uid()) IN (user_id, friend_id) );
+   
+   -- INSERT: Users can send friend requests.
+   CREATE POLICY "Allow authenticated users to send friend requests"
+   ON public.friends FOR INSERT
+   WITH CHECK ( (SELECT auth.uid()) = user_id AND status = 'pending' );
+   
+   -- UPDATE: The recipient of a request can accept it.
+   CREATE POLICY "Allow recipients to accept friend requests"
+   ON public.friends FOR UPDATE
+   USING ( (SELECT auth.uid()) = friend_id AND status = 'pending' )
+   WITH CHECK ( status = 'accepted' );
+   
+   -- DELETE: Either user involved in a friendship can delete it.
+   CREATE POLICY "Allow users to remove their friendships"
+   ON public.friends FOR DELETE
+   USING ( (SELECT auth.uid()) IN (user_id, friend_id) );
+   
+   
+   -- Step 2.3: Clean up old policies on the `profiles` table.
+   DROP POLICY IF EXISTS "Enable read access for all users" ON public.profiles;
+   DROP POLICY IF EXISTS "Public profiles are viewable by everyone." ON public.profiles;
+
+   -- Step 2.4: Recreate a single, clear policy for viewing profiles.
+   CREATE POLICY "Public profiles are viewable by everyone." ON public.profiles
+     FOR SELECT
+     USING (true);
+   ```
+
+6. Run the app:
    `npm run dev`

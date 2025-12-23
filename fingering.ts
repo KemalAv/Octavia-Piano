@@ -29,7 +29,7 @@ const RH_WEIGHTS = {
   THREE_FOUR_FIVE: 1,
   THREE_TO_FOUR: 1,
   FOUR_ON_BLACK: 1,
-  THUMB_ON_BLACK: 1,
+  THUMB_ON_BLACK: 4, // Increased weight to strongly discourage
   THUMB_ON_BLACK_PREV_WHITE: 2,
   THUMB_ON_BLACK_NEXT_WHITE: 2,
   FIVE_ON_BLACK_PREV_WHITE: 2,
@@ -82,6 +82,15 @@ const calculateRHCost = (ctx: RHCostContext): number => {
 
   const f = prevFinger;
   const g = currFinger;
+
+  // --- MANDATORY OCTAVE FINGERING ---
+  if (interval === 12) { // Ascending octave
+    return (f === 1 && g === 5) ? 0 : 10000;
+  }
+  if (interval === -12) { // Descending octave
+    return (f === 5 && g === 1) ? 0 : 10000;
+  }
+  // --- END ---
   
   if (prevNote.midi === currNote.midi) return f === g ? 0 : 1;
   if (f === g) return 1000;
@@ -282,13 +291,13 @@ const computeRightHandFingering = (notes: MidiNotePlaybackItem[]) => {
   }
 
   if (minFinalCost !== Infinity) {
-    notes[n - 1].finger = lastFinger;
-    if (n > 1) notes[n - 2].finger = prevLastFinger;
+    if (notes[n - 1]) notes[n - 1].finger = lastFinger;
+    if (n > 1 && notes[n - 2]) notes[n - 2].finger = prevLastFinger;
     let currF = lastFinger;
     let prevF = prevLastFinger;
     for (let i = n - 1; i > 1; i--) {
       const ppf = dp[i][currF][prevF].prevFinger;
-      if (ppf) {
+      if (ppf && notes[i - 2]) {
         notes[i - 2].finger = ppf;
         currF = prevF;
         prevF = ppf;
@@ -401,23 +410,23 @@ const isForbiddenLHTransition = (lastFinger: Finger, finger: Finger, dir: number
 
 const chooseBestLHFinger = (candidates: Finger[], midi: number, pos: LHHandPosition, timeGap: number): Finger => {
   const isFast = pos.currentTempo < LH_FAST_TEMPO_THRESHOLD;
+  const filteredCandidates = candidates.filter(f => !(f === LH_FINGER.THUMB && isBlack(midi) && candidates.length > 1));
+  const finalCandidates = filteredCandidates.length > 0 ? filteredCandidates : candidates;
 
   if (isFast) {
     const alt = (pos.lastFinger % 2 === 1 ? pos.lastFinger + 1 : pos.lastFinger - 1) as Finger;
-    if (candidates.includes(alt) && isLHFingerComfortable(pos, midi, alt)) return alt;
+    if (finalCandidates.includes(alt) && isLHFingerComfortable(pos, midi, alt)) return alt;
   }
 
-  for (const f of candidates) {
+  for (const f of finalCandidates) {
     if (isLHFingerComfortable(pos, midi, f)) {
-      if (f === LH_FINGER.THUMB && isBlack(midi) && candidates.length > 1) continue;
       if (canReuseLHFinger(pos, f, timeGap, midi) && !isForbiddenLHTransition(pos.lastFinger, f, Math.sign(midi - pos.lastMidi), isFast)) return f;
     }
   }
 
-  let best = candidates[0];
+  let best = finalCandidates[0];
   let minDist = Infinity;
-  for (const f of candidates) {
-    if (f === LH_FINGER.THUMB && isBlack(midi) && candidates.length > 1) continue;
+  for (const f of finalCandidates) {
     let expected = midi;
     if (f === LH_FINGER.THUMB) expected = pos.thumbMidi;
     if (f === LH_FINGER.PINKY) expected = pos.pinkyMidi;
@@ -433,13 +442,23 @@ const chooseBestLHFinger = (candidates: Finger[], midi: number, pos: LHHandPosit
   }
 
   if (isForbiddenLHTransition(pos.lastFinger, best, Math.sign(midi - pos.lastMidi), isFast)) {
-    const alternatives = candidates.filter(f => f !== best && !isForbiddenLHTransition(pos.lastFinger, f, Math.sign(midi - pos.lastMidi), isFast));
+    const alternatives = finalCandidates.filter(f => f !== best && !isForbiddenLHTransition(pos.lastFinger, f, Math.sign(midi - pos.lastMidi), isFast));
     if (alternatives.length > 0) best = alternatives[0];
   }
   return best;
 };
 
 // LH Detectors
+const detectLHOctaveJump = (notes: MidiNotePlaybackItem[], i: number): MidiNotePlaybackItem[] | null => {
+    if (i + 1 >= notes.length) return null;
+    const n1 = notes[i];
+    const n2 = notes[i+1];
+    if (Math.abs(n2.midi - n1.midi) === 12 && (n2.timeMs - n1.timeMs < 400)) { // 400ms is a reasonable time for a jump
+        return [n1, n2];
+    }
+    return null;
+};
+
 const detectLHArpeggio = (notes: MidiNotePlaybackItem[], i: number): MidiNotePlaybackItem[] | null => {
   if (i + 2 >= notes.length) return null;
   const group: MidiNotePlaybackItem[] = [notes[i]];
@@ -462,7 +481,7 @@ const detectLHArpeggio = (notes: MidiNotePlaybackItem[], i: number): MidiNotePla
 };
 
 const applyLHArpeggioFingering = (group: MidiNotePlaybackItem[], pos: LHHandPosition) => {
-  const ascending = group[group.length - 1].midi > group[0].midi;
+  const ascending = group.length > 1 && group[group.length - 1].midi > group[0].midi;
   pos.inArpeggio = true;
   pos.arpeggioRoot = group[0].midi;
   const numNotes = group.length;
@@ -470,75 +489,30 @@ const applyLHArpeggioFingering = (group: MidiNotePlaybackItem[], pos: LHHandPosi
   let pattern: Finger[];
 
   if (ascending) {
-    // LH Ascending (e.g., C3-E3-G3) - fingering goes from 5 towards 1
     switch (numNotes) {
-      case 2: // An interval
-        pattern = [5, 1];
-        break;
-      case 3: // A triad
-        // Per user request, enforce 5-3-1 for all 3-note ascending arpeggios.
-        pattern = [5, 3, 1];
-        break;
-      case 4: // A seventh chord
-        pattern = [5, 4, 2, 1]; // Common fingering
-        break;
-      default: // Longer or other
-        pattern = [5, 4, 3, 2, 1]; // Fallback to a scale-like fingering
-        break;
+      case 2: pattern = [5, 1]; break;
+      case 3: pattern = [5, 3, 1]; break;
+      case 4: pattern = [5, 4, 2, 1]; break;
+      default: pattern = [5, 4, 3, 2, 1]; break;
     }
   } else {
-    // LH Descending (e.g., C4-G3-E3) - fingering goes from 1 towards 5
     switch (numNotes) {
-      case 2:
-        pattern = [1, 5];
-        break;
-      case 3:
-        // C-G-E -> 1-2-4 or 1-2-3.
-        const interval = group[0].midi - group[1].midi;
-        pattern = (interval <= 5) ? [1, 3, 5] : [1, 2, 5];
-        break;
-      case 4:
-        pattern = [1, 2, 3, 5]; // Common for C-A-F-C type patterns
-        break;
-      default:
-        pattern = [1, 2, 3, 4, 5]; // Fallback
-        break;
+      case 2: pattern = [1, 5]; break;
+      case 3: const interval = group[0].midi - group[1].midi; pattern = (interval <= 5) ? [1, 3, 5] : [1, 2, 5]; break;
+      case 4: pattern = [1, 2, 3, 5]; break;
+      default: pattern = [1, 2, 3, 4, 5]; break;
     }
   }
 
   group.forEach((note, idx) => {
-    // Use pattern index, but for long arpeggios, cycle through the middle fingers.
-    let finger: Finger;
-    if (idx < pattern.length) {
-      finger = pattern[idx];
-    } else {
-      // For longer runs, after the initial pattern, cycle through middle fingers
-      const patternContinuationAsc = [3, 2, 1];
-      const patternContinuationDesc = [2, 3, 4]; // after 1
-      if (ascending) {
-          finger = patternContinuationAsc[(idx - pattern.length) % patternContinuationAsc.length] as Finger;
-      } else {
-          finger = patternContinuationDesc[(idx - pattern.length) % patternContinuationDesc.length] as Finger;
-      }
-    }
-    
-    // Rule: Avoid thumb on black key if possible
+    let finger: Finger = pattern[idx % pattern.length] as Finger;
     if (finger === LH_FINGER.THUMB && isBlack(note.midi)) {
-      // If it's not the last note of an ascending run, use 2 instead.
-      if (ascending && idx < numNotes - 1) {
-        finger = LH_FINGER.INDEX;
-      }
-      // If it's not the first note of a descending run, use 2 instead.
-      else if (!ascending && idx > 0) {
+      if ((ascending && idx < numNotes - 1) || (!ascending && idx > 0)) {
         finger = LH_FINGER.INDEX;
       }
     }
-    
-    // Rule: For ascending arpeggios, the last note should ideally be 1 or 2 to allow for thumb-under.
-    // If our pattern assigned something else and it's a long run, adjust.
     if (ascending && idx === numNotes - 1 && numNotes > 4) {
-      if (isWhite(note.midi)) finger = 1;
-      else finger = 2;
+      finger = isWhite(note.midi) ? 1 : 2;
     }
 
     note.finger = finger;
@@ -547,8 +521,9 @@ const applyLHArpeggioFingering = (group: MidiNotePlaybackItem[], pos: LHHandPosi
   });
   
   if (group.length > 0) {
-    pos.lastFinger = group[group.length - 1].finger!;
-    pos.lastMidi = group[group.length - 1].midi;
+    const lastNote = group[group.length - 1];
+    pos.lastFinger = lastNote.finger!;
+    pos.lastMidi = lastNote.midi;
   }
 };
 
@@ -600,7 +575,7 @@ const detectLHChromaticGroup = (notes: MidiNotePlaybackItem[], i: number) => {
 };
 
 const applyLHChromaticFingering = (group: MidiNotePlaybackItem[], pos: LHHandPosition) => {
-  const ascending = group[group.length - 1].midi > group[0].midi;
+  const ascending = group.length > 1 && group[group.length - 1].midi > group[0].midi;
   let patternLHAsc: Finger[] = [4, 3, 2, 1, 3, 2, 1];
   let patternLHDesc: Finger[] = [1, 2, 3, 1, 2, 3, 4];
   if (pos.currentTempo < LH_FAST_TEMPO_THRESHOLD) {
@@ -614,9 +589,10 @@ const applyLHChromaticFingering = (group: MidiNotePlaybackItem[], pos: LHHandPos
     updateLHFingerPos(pos, note.midi, f);
     pos.usedFingers.add(f);
   });
-  pos.lastMidi = group[group.length - 1].midi;
-  pos.lastFinger = group[group.length - 1].finger!;
-  pos.lastTime = group[group.length - 1].timeMs;
+  const lastNote = group[group.length - 1];
+  pos.lastMidi = lastNote.midi;
+  pos.lastFinger = lastNote.finger!;
+  pos.lastTime = lastNote.timeMs;
 };
 
 const detectLHScaleGroup = (notes: MidiNotePlaybackItem[], i: number): MidiNotePlaybackItem[] | null => {
@@ -637,29 +613,30 @@ const detectLHScaleGroup = (notes: MidiNotePlaybackItem[], i: number): MidiNoteP
 };
 
 const applyLHScaleFingering = (group: MidiNotePlaybackItem[], pos: LHHandPosition) => {
-  const ascending = group[group.length - 1].midi > group[0].midi;
+  const ascending = group.length > 1 && group[group.length - 1].midi > group[0].midi;
   const patternLHAsc: Finger[] = [5, 4, 3, 2, 1, 3, 2, 1];
   const patternLHDesc: Finger[] = [1, 2, 3, 1, 2, 3, 4, 5];
-  let pattern = ascending ? patternLHAsc : patternLHDesc;
-  const startOffset = (group[0].midi % 12) % pattern.length;
-  pattern = [...pattern.slice(startOffset), ...pattern.slice(0, startOffset)];
-  if (pos.currentTempo < LH_FAST_TEMPO_THRESHOLD) {
-    pattern = ascending
-      ? [4, 3, 2, 1, 5, 4, 3, 2]
-      : [2, 3, 4, 5, 1, 2, 3, 4];
+  const pattern = ascending ? patternLHAsc : patternLHDesc;
+  let patternIndex = 0;
+  if (isBlack(group[0].midi) && ascending) {
+      patternIndex = 1; 
   }
+
   group.forEach((note, idx) => {
-    let f = pattern[idx % pattern.length] as Finger;
-    if (f === LH_FINGER.THUMB && isBlack(note.midi)) {
-      f = ((f + 1) as Finger);
+    let finger = pattern[(patternIndex + idx) % pattern.length] as Finger;
+    if (finger === LH_FINGER.THUMB && isBlack(note.midi)) {
+      const prevFinger = (idx > 0) ? group[idx - 1].finger : undefined;
+      finger = (prevFinger === 2) ? 4 : 2;
     }
-    note.finger = f;
-    updateLHFingerPos(pos, note.midi, f);
-    pos.usedFingers.add(f);
+    note.finger = finger;
+    updateLHFingerPos(pos, note.midi, finger);
+    pos.usedFingers.add(finger);
   });
-  pos.lastMidi = group[group.length - 1].midi;
-  pos.lastFinger = group[group.length - 1].finger!;
-  pos.lastTime = group[group.length - 1].timeMs;
+
+  const lastNote = group[group.length - 1];
+  pos.lastMidi = lastNote.midi;
+  pos.lastFinger = lastNote.finger!;
+  pos.lastTime = lastNote.timeMs;
 };
 
 const detectLHRepeatedNotesGroup = (notes: MidiNotePlaybackItem[], i: number): MidiNotePlaybackItem[] | null => {
@@ -674,8 +651,6 @@ const detectLHRepeatedNotesGroup = (notes: MidiNotePlaybackItem[], i: number): M
 };
 
 const applyLHRepeatedNotesFingering = (group: MidiNotePlaybackItem[], pos: LHHandPosition) => {
-  // Per user request, repeated notes should use the same finger for consistency.
-  // The middle finger (3) is a stable and common choice.
   const fingerToUse: Finger = 3;
 
   group.forEach((note) => {
@@ -725,9 +700,10 @@ const applyLHStableFastPassageFingering = (group: MidiNotePlaybackItem[], pos: L
     updateLHFingerPos(pos, note.midi, f);
     pos.usedFingers.add(f);
   });
-  pos.lastMidi = group[group.length - 1].midi;
-  pos.lastFinger = group[group.length - 1].finger!;
-  pos.lastTime = group[group.length - 1].timeMs;
+  const lastNote = group[group.length - 1];
+  pos.lastMidi = lastNote.midi;
+  pos.lastFinger = lastNote.finger!;
+  pos.lastTime = lastNote.timeMs;
 };
 
 // === LEFT HAND PROCESSOR ===
@@ -754,18 +730,32 @@ const computeLeftHandFingering = (
       pos.phraseNotes = 1;
     }
 
-    // CROSSING RISK CHECK WITH RH
     let crossingRisk = false;
     let crossingDistance = 0;
     if (rightHandLast && Math.abs(curr.timeMs - rightHandLast.time) <= LH_CROSSING_TIME_TOLERANCE) {
       const rightMidi = rightHandLast.midi;
-      if (curr.midi > rightMidi) { // Left hand crossed above right hand (rare but possible)
+      if (curr.midi > rightMidi) {
         crossingRisk = true;
         crossingDistance = Math.abs(curr.midi - rightMidi);
       }
     }
 
-    // 1. CHORD
+    const octaveJump = detectLHOctaveJump(notes, i);
+    if (octaveJump) {
+        const [n1, n2] = octaveJump;
+        if (n2.midi > n1.midi) { n1.finger = 5; n2.finger = 1; } 
+        else { n1.finger = 1; n2.finger = 5; }
+        updateLHFingerPos(pos, n1.midi, n1.finger);
+        updateLHFingerPos(pos, n2.midi, n2.finger);
+        pos.lastMidi = n2.midi;
+        pos.lastFinger = n2.finger;
+        pos.lastTime = n2.timeMs;
+        pos.usedFingers.clear();
+        pos.usedFingers.add(n2.finger);
+        i += 2;
+        continue;
+    }
+
     const chord: MidiNotePlaybackItem[] = [curr];
     let j = i + 1;
     while (j < notes.length && Math.abs(notes[j].timeMs - curr.timeMs) <= LH_CHORD_TIME_TOLERANCE) {
@@ -778,7 +768,6 @@ const computeLeftHandFingering = (
       continue;
     }
 
-    // 2. PATTERNS
     const arp = detectLHArpeggio(notes, i);
     if (arp) { pos.usedFingers.clear(); applyLHArpeggioFingering(arp, pos); pos.lastTime = arp[arp.length - 1].timeMs; i += arp.length; continue; }
 
@@ -794,7 +783,6 @@ const computeLeftHandFingering = (
     const stable = detectLHStableFastPassage(notes, i, pos.currentTempo);
     if (stable) { pos.usedFingers.clear(); applyLHStableFastPassageFingering(stable, pos); pos.lastTime = stable[stable.length - 1].timeMs; i += stable.length; continue; }
 
-    // 3. SINGLE NOTE
     const interval = curr.midi - pos.lastMidi;
     let candidates: Finger[] = [];
 
@@ -807,9 +795,7 @@ const computeLeftHandFingering = (
     } else {
       const dir = Math.sign(interval);
       const isFast = pos.currentTempo < LH_FAST_TEMPO_THRESHOLD;
-
       if (crossingRisk && crossingDistance < LH_MIN_CROSSING_DISTANCE) {
-        // Avoid collision
         candidates = [LH_FINGER.THUMB, LH_FINGER.INDEX];
         if (curr.midi < pos.lastMidi) candidates = [LH_FINGER.THUMB];
       } else {
@@ -824,31 +810,14 @@ const computeLeftHandFingering = (
         } else {
           candidates = [pos.lastFinger];
         }
-
         candidates = candidates.filter(f => f >= 1 && f <= 5);
-        const original = [...candidates];
-        candidates = candidates.filter(f => !(f === LH_FINGER.THUMB && isBlack(curr.midi)));
-        if (candidates.length === 0) candidates = original;
-
         if (Math.abs(interval) <= 2 && isFast) {
-          const next: Finger = (dir > 0
-            ? Math.max(pos.lastFinger - 1, 1)
-            : Math.min(pos.lastFinger + 1, 5)) as Finger;
+          const next: Finger = (dir > 0 ? Math.max(pos.lastFinger - 1, 1) : Math.min(pos.lastFinger + 1, 5)) as Finger;
           if (!candidates.includes(next)) candidates.unshift(next);
         }
-
-        if (isFast) {
-          candidates = candidates.filter(f => Math.abs(f - pos.lastFinger) <= 1);
-        }
-
-        if (candidates.length === 0) {
-          const fallback: Finger = (dir >= 0
-            ? Math.max(pos.lastFinger - 1, 1)
-            : Math.min(pos.lastFinger + 1, 5)) as Finger;
-          candidates = [fallback];
-        }
+        if (isFast) candidates = candidates.filter(f => Math.abs(f - pos.lastFinger) <= 1);
+        if (candidates.length === 0) candidates = [(dir >= 0 ? Math.max(pos.lastFinger - 1, 1) : Math.min(pos.lastFinger + 1, 5)) as Finger];
       }
-
       const best = chooseBestLHFinger(candidates, curr.midi, pos, timeGap) || candidates[0];
       curr.finger = best;
       updateLHFingerPos(pos, curr.midi, curr.finger);
@@ -869,6 +838,49 @@ const computeLeftHandFingering = (
 // MAIN ORCHESTRATOR
 // ==================================================================================
 
+const assignRHChordFingering = (chord: MidiNotePlaybackItem[]) => {
+  chord.sort((a, b) => a.midi - b.midi);
+  const numNotes = chord.length;
+  if (numNotes < 2 || numNotes > 5) return;
+
+  const span = chord[numNotes - 1].midi - chord[0].midi;
+  let pattern: Finger[] = [];
+  if (numNotes === 2) {
+    pattern = span > 8 ? [1, 5] : span > 5 ? [1, 4] : span > 3 ? [1, 3] : [1, 2];
+  } else if (numNotes === 3) {
+    pattern = span > 7 ? [1, 2, 5] : [1, 3, 5]; 
+  } else if (numNotes === 4) {
+    pattern = [1, 2, 3, 5];
+  } else if (numNotes === 5) {
+    pattern = [1, 2, 3, 4, 5];
+  }
+
+  chord.forEach((note, i) => { note.finger = pattern[i]; });
+
+  for (let i = 0; i < numNotes; i++) {
+    const note = chord[i];
+    if (note.finger === 1 && isBlack(note.midi)) {
+      const finger2Index = chord.findIndex(n => n.finger === 2);
+      if (finger2Index !== -1) {
+        if (isWhite(chord[finger2Index].midi)) {
+          note.finger = 2;
+          chord[finger2Index].finger = 1;
+        }
+      } else {
+        note.finger = 2;
+      }
+    }
+  }
+
+  const usedFingers = new Set<Finger>();
+  chord.forEach(note => {
+    while (note.finger && usedFingers.has(note.finger)) {
+        note.finger = (note.finger < 5 ? note.finger + 1 : 1) as Finger;
+    }
+    if(note.finger) usedFingers.add(note.finger);
+  });
+};
+
 export const assignFingering = (notes: MidiNotePlaybackItem[]): MidiNotePlaybackItem[] => {
   if (notes.length === 0) return notes;
 
@@ -876,35 +888,53 @@ export const assignFingering = (notes: MidiNotePlaybackItem[]): MidiNotePlayback
 
   const rightHandNotes = processedNotes
     .filter(n => n.hand === 'right')
-    .sort((a, b) => a.timeMs - b.timeMs);
+    .sort((a, b) => a.timeMs - b.timeMs || a.midi - b.midi);
     
   const leftHandNotes = processedNotes
     .filter(n => n.hand === 'left')
-    .sort((a, b) => a.timeMs - b.timeMs);
+    .sort((a, b) => a.timeMs - b.timeMs || a.midi - b.midi);
 
-  // 1. Process Right Hand (Parncutt Model - Viterbi)
-  // Process in phrases to keep Viterbi efficient
-  const PHRASE_GAP = 2000;
-  let chunkStart = 0;
-  for (let i = 1; i <= rightHandNotes.length; i++) {
-    const isEnd = i === rightHandNotes.length;
-    const isGap = !isEnd && (rightHandNotes[i].timeMs - rightHandNotes[i - 1].timeMs > PHRASE_GAP);
-    if (isEnd || isGap) {
-      const phrase = rightHandNotes.slice(chunkStart, i);
-      computeRightHandFingering(phrase);
-      chunkStart = i;
-    }
+  const RH_CHORD_TIME_TOLERANCE = 30;
+  const melodicSegments: MidiNotePlaybackItem[][] = [];
+  let currentMelodicSegment: MidiNotePlaybackItem[] = [];
+  
+  let i = 0;
+  while (i < rightHandNotes.length) {
+      const currentNote = rightHandNotes[i];
+      const chord: MidiNotePlaybackItem[] = [currentNote];
+      let j = i + 1;
+      while (j < rightHandNotes.length && Math.abs(rightHandNotes[j].timeMs - currentNote.timeMs) <= RH_CHORD_TIME_TOLERANCE) {
+          chord.push(rightHandNotes[j++]);
+      }
+      
+      if (chord.length > 1) {
+          if (currentMelodicSegment.length > 0) {
+              melodicSegments.push(currentMelodicSegment);
+              currentMelodicSegment = [];
+          }
+          assignRHChordFingering(chord);
+          i = j;
+      } else {
+          currentMelodicSegment.push(currentNote);
+          i++;
+      }
+  }
+  if (currentMelodicSegment.length > 0) {
+      melodicSegments.push(currentMelodicSegment);
   }
 
-  // 2. Extract context for Left Hand Crossing logic
+  melodicSegments.forEach(segment => {
+      if (segment.length > 0) {
+        computeRightHandFingering(segment);
+      }
+  });
+
   let rightLastInfo: { midi: number; time: number } | null = null;
   if (rightHandNotes.length > 0) {
     const last = rightHandNotes[rightHandNotes.length - 1];
     rightLastInfo = { midi: last.midi, time: last.timeMs };
   }
 
-  // 3. Process Left Hand (Heuristic Model)
-  // Processes entire LH stream at once as it uses a continuous state machine
   computeLeftHandFingering(leftHandNotes, rightLastInfo);
 
   return processedNotes;
