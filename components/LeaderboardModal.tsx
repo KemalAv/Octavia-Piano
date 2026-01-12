@@ -127,7 +127,7 @@ const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ song, onClose, onGo
                     tabIndex={0}
                     role="button"
                 >
-                    Leaderboard for MIDI: {song.title}
+                    Leaderboard: {song.title}
                 </h2>
                 <button onClick={onClose} className="text-3xl text-slate-400 hover:text-white" aria-label="Close leaderboard">&times;</button>
             </div>

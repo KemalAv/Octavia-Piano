@@ -19,7 +19,6 @@ import {
   StaveNote,
   Voice,
 } from 'vexflow';
-// Added VexFlowRenderData to imports to fix "Cannot find name 'VexFlowRenderData'" error on line 77
 import {
   MidiNotePlaybackItem,
   TimeSignatureInfo,
@@ -72,13 +71,17 @@ interface Props {
   onLayoutRendered: (layoutId: number) => void;
   tempoEvents: TempoEvent[];
   playbackTempoMultiplier: number;
+  backgroundColor?: string;
 }
 
-const StickySignaturePanel: React.FC<{
+interface StickySignaturePanelProps {
   vexFlowData: VexFlowRenderData;
   currentTimeMs: number;
   height: number;
-}> = React.memo(({ vexFlowData, currentTimeMs, height }) => {
+  backgroundColor: string;
+}
+
+const StickySignaturePanel: React.FC<StickySignaturePanelProps> = React.memo(({ vexFlowData, currentTimeMs, height, backgroundColor }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const currentMeasure = useMemo(() => {
     return vexFlowData.measures.find(m => currentTimeMs >= m.startTimeMs && currentTimeMs < m.endTimeMs) || vexFlowData.measures[0];
@@ -118,14 +121,13 @@ const StickySignaturePanel: React.FC<{
     <div 
       className="absolute top-0 left-0 h-full z-30 pointer-events-none"
       style={{ 
-        width: `${SIDEBAR_WIDTH}px`, 
-        backgroundColor: 'rgba(247, 245, 237, 0.95)',
+        backgroundColor: backgroundColor === 'transparent' ? 'rgba(28, 38, 54, 0.5)' : 'rgba(247, 245, 237, 0.95)',
         backdropFilter: 'blur(4px)',
         borderRight: '1px solid rgba(0,0,0,0.1)',
         boxShadow: '4px 0 12px rgba(0,0,0,0.08)'
       }}
     >
-      <div ref={containerRef} />
+      <div ref={containerRef} style={{ width: `${SIDEBAR_WIDTH}px` }}/>
     </div>
   );
 });
@@ -150,6 +152,7 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
   onLayoutRendered,
   tempoEvents,
   playbackTempoMultiplier,
+  backgroundColor = '#f7f5ed',
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const cursorRef = useRef<HTMLDivElement>(null);
@@ -196,9 +199,11 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
       renderer.resize(totalMusicWidth, height);
       const ctx = renderer.getContext();
       let currentX = HORIZONTAL_PADDING;
-      measuresToRender.forEach((measure) => {
+      measuresToRender.forEach((measure, i) => {
         const treble = new Stave(currentX, topStaveYOffset, measure.width), bass = new Stave(currentX, topStaveYOffset + verticalSpacing, measure.width);
         
+        treble.setMeasure(i + 1);
+
         if (measure.startsRepeat) { treble.setBegBarType(Barline.type.REPEAT_BEGIN); bass.setBegBarType(Barline.type.REPEAT_BEGIN); }
         if (measure.endsRepeat) treble.setEndBarType(Barline.type.REPEAT_END); else if (measure.endTimeMs >= totalDurationMs) { treble.setEndBarType(Barline.type.END); bass.setEndBarType(Barline.type.END); }
         
@@ -254,21 +259,53 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
     if (!vexFlowData || !scrollContainerRef.current || width <= 0) return;
 
     const measures = vexFlowData.measures;
-    if (!measures.length) return;
-
-    let currentMeasureIndex = measures.findIndex(m => currentTimeMs >= m.startTimeMs && currentTimeMs < m.endTimeMs);
-    if (currentMeasureIndex === -1) {
-        if (currentTimeMs < measures[0].startTimeMs) {
-            currentMeasureIndex = 0;
-        } else {
-            currentMeasureIndex = measures.length - 1;
-        }
-    }
+    const allNotesSorted = vexFlowData.fragments.sort((a, b) => a.timeMs - b.timeMs);
     
-    const currentMeasure = measures[currentMeasureIndex];
-    const measureStartX = HORIZONTAL_PADDING + measures.slice(0, currentMeasureIndex).reduce((sum, m) => sum + m.width, 0);
-    const progress = Math.min(1, Math.max(0, (currentTimeMs - currentMeasure.startTimeMs) / Math.max(1, currentMeasure.durationMs)));
-    const absoluteCursorX = measureStartX + progress * currentMeasure.width;
+    // Prioritize right-hand notes for scrolling, as they often carry the melody.
+    const rightHandNotesSorted = allNotesSorted.filter(note => note.hand === 'right');
+    // If no right-hand notes exist, fall back to using all notes.
+    const notesForScrolling = rightHandNotesSorted.length > 0 ? rightHandNotesSorted : allNotesSorted;
+
+    if (!measures.length || !notesForScrolling.length) return;
+    
+    // Find the note just before (or at) the cursor, and the one right after.
+    let nextNoteIndex = notesForScrolling.findIndex(note => note.timeMs > currentTimeMs);
+    if (nextNoteIndex === -1) {
+        nextNoteIndex = notesForScrolling.length - 1; // Past the last note.
+    }
+    const prevNoteIndex = Math.max(0, nextNoteIndex - 1);
+
+    const prevNote = notesForScrolling[prevNoteIndex];
+    const nextNote = notesForScrolling[nextNoteIndex];
+
+    const prevNotePos = notePositionsRef.current.get(prevNote.fragmentId);
+    const nextNotePos = notePositionsRef.current.get(nextNote.fragmentId);
+
+    let absoluteCursorX;
+
+    // If we have positions for both notes, interpolate between them.
+    if (prevNotePos && nextNotePos && prevNote !== nextNote) {
+        const timeBetweenNotes = nextNote.timeMs - prevNote.timeMs;
+        const timeIntoInterval = currentTimeMs - prevNote.timeMs;
+        const progress = (timeBetweenNotes > 0) ? Math.max(0, Math.min(1, timeIntoInterval / timeBetweenNotes)) : 0;
+        
+        const prevX = prevNotePos.getX();
+        const nextX = nextNotePos.getX();
+
+        absoluteCursorX = prevX + (nextX - prevX) * progress;
+    } else {
+        // Fallback to original time-based interpolation within the current measure.
+        // This handles cases before the first note, after the last note, or if a note position is missing.
+        let currentMeasureIndex = measures.findIndex(m => currentTimeMs >= m.startTimeMs && currentTimeMs < m.endTimeMs);
+        if (currentMeasureIndex === -1) {
+            currentMeasureIndex = currentTimeMs < measures[0].startTimeMs ? 0 : measures.length - 1;
+        }
+        
+        const currentMeasure = measures[currentMeasureIndex];
+        const measureStartX = HORIZONTAL_PADDING + measures.slice(0, currentMeasureIndex).reduce((sum, m) => sum + m.width, 0);
+        const progress = Math.min(1, Math.max(0, (currentTimeMs - currentMeasure.startTimeMs) / Math.max(1, currentMeasure.durationMs)));
+        absoluteCursorX = measureStartX + progress * currentMeasure.width;
+    }
     
     const newScrollOffset = (PLAY_LINE_X - SIDEBAR_WIDTH) - absoluteCursorX;
     scrollOffsetRef.current = newScrollOffset;
@@ -277,12 +314,13 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
   }, [currentTimeMs, vexFlowData, width, PLAY_LINE_X]);
 
   return (
-    <div className="sheet-container no-select" style={{ width: `${width}px`, height: `${height}px` }}>
+    <div className="sheet-container no-select" style={{ width: `${width}px`, height: `${height}px`, backgroundColor }}>
       {vexFlowData && (
         <StickySignaturePanel 
           vexFlowData={vexFlowData} 
           currentTimeMs={currentTimeMs} 
           height={height} 
+          backgroundColor={backgroundColor}
         />
       )}
       <div 

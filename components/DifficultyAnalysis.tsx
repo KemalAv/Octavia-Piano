@@ -136,7 +136,6 @@ const DifficultyAnalysis: React.FC<DifficultyAnalysisProps> = ({ analysisResult,
                 <div>
                     <h3 className="text-lg font-semibold text-slate-200 border-b border-slate-600 pb-1 mb-2">Core Components</h3>
                     <StatItem label="Density / Speed" value={parameters.density?.toFixed(2)} />
-                    <StatItem label="Pattern Complexity" value={parameters.patternComplexity?.toFixed(2)} />
                     <StatItem label="Interval Complexity" value={parameters.intervalComplexity?.toFixed(2)} />
                     <StatItem label="Physical Effort" value={parameters.physicalEffort?.toFixed(2)} />
                     <StatItem label="Stamina Factor" value={parameters.staminaFactor?.toFixed(2)} />
@@ -144,13 +143,10 @@ const DifficultyAnalysis: React.FC<DifficultyAnalysisProps> = ({ analysisResult,
                 </div>
                 <div>
                     <h3 className="text-lg font-semibold text-slate-200 border-b border-slate-600 pb-1 mb-2">Technical Components</h3>
-                    <StatItem label="Chord Power" value={parameters.chordPower?.toFixed(2)} />
-                    <StatItem label="Chord Power Index" value={parameters.chordPowerIndex?.toFixed(2)} />
                     <StatItem label="Chord Mobility" value={parameters.chordMobility?.toFixed(2)} />
                     <StatItem label="Chord Movement Rate" value={parameters.chordMovementRate?.toFixed(2)} />
                     <StatItem label="Arpeggio Virtuosity" value={parameters.arpeggioVirtuosity?.toFixed(2)} />
                     <StatItem label="Trill / Tremolo Ratio" value={parameters.trillRatio?.toFixed(2)} />
-                    <StatItem label="Repetition Penalty" value={parameters.patternRepPenalty?.toFixed(2)} />
                 </div>
                 {/* Full width row for meta stats */}
                 <div className="md:col-span-2">
@@ -164,9 +160,6 @@ const DifficultyAnalysis: React.FC<DifficultyAnalysisProps> = ({ analysisResult,
                     <StatItem label="Avg Polyphony" value={parameters.polyphony?.toFixed(2)} />
                     <StatItem label="Chord NPS" value={parameters.chordNps?.toFixed(2)} />
                     <StatItem label="Avg. Note Gap" value={meta.avgGapMs?.toFixed(0)} unit="ms" />
-                    <StatItem label="Rhythm Variance" value={meta.gapVariance?.toFixed(2)} />
-                    <StatItem label="Rhythm Irregularity" value={meta.irregularityIndex?.toFixed(2)} />
-                    <StatItem label="Burst Sections" value={meta.burstSections} />
                     <StatItem label="Arpeggio Rate" value={meta.arpeggioRate?.toFixed(2)} />
                 </div>
                 </div>

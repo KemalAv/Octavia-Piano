@@ -1,4 +1,4 @@
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import React, { ErrorInfo, ReactNode } from 'react';
 
 interface ErrorBoundaryProps {
   children?: ReactNode; // Made optional to fix 'missing in type {}' error in strict mode
@@ -10,16 +10,22 @@ interface ErrorBoundaryState {
   isRendered: boolean;
 }
 
+// FIX: The ErrorBoundary class must extend React.Component to have access to React component features like state and props.
+// FIX: Extended React.Component to make this a class component, giving it access to state and props.
 class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   // Explicitly declare state property for TypeScript
-  public state: ErrorBoundaryState = {
-    hasError: false,
-    error: null,
-    isRendered: false,
-  };
+  public state: ErrorBoundaryState;
 
   constructor(props: ErrorBoundaryProps) {
+    // FIX: The constructor of a React class component must call super(props).
+    // FIX: Added super(props) call, which is required in the constructor of a subclass before any other statement.
     super(props);
+    // FIX: Initialize the component's state inside the constructor.
+    this.state = {
+      hasError: false,
+      error: null,
+      isRendered: false,
+    };
     this.handleReturnToMainMenu = this.handleReturnToMainMenu.bind(this);
   }
 
@@ -35,6 +41,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
   
   componentDidUpdate(_: ErrorBoundaryProps, prevState: ErrorBoundaryState) {
     if (this.state.hasError && !prevState.hasError) {
+        // 'this.setState' is now available because the class extends React.Component.
         setTimeout(() => this.setState({ isRendered: true }), 10);
     }
   }
@@ -69,6 +76,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
       );
     }
 
+    // 'this.props' is now available because the class extends React.Component.
     return this.props.children;
   }
 }
