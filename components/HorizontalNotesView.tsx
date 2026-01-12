@@ -1,4 +1,3 @@
-
 import React, { useMemo, useEffect, useRef } from 'react';
 import { ActiveMidiNoteInfo, VexFlowRenderData, VexFlowNoteInfo, NoteFragment, NoteLabelType, QwertyLayout } from '../types';
 import { USER_PLAY_COLOR, PLAY_LINE_THICKNESS_PX, VISUAL_NOTE_CAP_MS, QWERTY_MINI_KEYBOARD_MAPPING, MIRP_KEYBOARD_MAPPING, KEY_CODES_TO_DISPLAY } from '../constants';
@@ -46,7 +45,8 @@ const StickyStaffHeader: React.FC<{
   qwertyLayout?: QwertyLayout;
   qwertyCurrentOctaveShift?: number;
   mirpTranspose?: number;
-}> = React.memo(({ vexFlowData, currentTimeMs, height, isQwertyView, activeKeySignature, activeBpmForDisplay, qwertyLayout, qwertyCurrentOctaveShift, mirpTranspose }) => {
+  backgroundColor: string;
+}> = React.memo(({ vexFlowData, currentTimeMs, height, isQwertyView, activeKeySignature, activeBpmForDisplay, qwertyLayout, qwertyCurrentOctaveShift, mirpTranspose, backgroundColor }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   
   const currentMeasure = useMemo(() => {
@@ -68,6 +68,7 @@ const StickyStaffHeader: React.FC<{
     if (!container || !vexFlowData || !currentMeasure) return;
     while (container.firstChild) container.removeChild(container.firstChild);
 
+    // FIX: Removed third argument from Renderer constructor to match VexFlow API expectations (expected 1-2 arguments).
     const renderer = new Renderer(container, Renderer.Backends.SVG);
     renderer.resize(SIDEBAR_WIDTH, height);
     const ctx = renderer.getContext();
@@ -144,7 +145,7 @@ const StickyStaffHeader: React.FC<{
       className="absolute top-0 left-0 h-full z-30 pointer-events-none"
       style={{ 
         width: `${SIDEBAR_WIDTH}px`, 
-        backgroundColor: 'rgba(247, 245, 237, 0.95)',
+        backgroundColor: backgroundColor === 'transparent' ? 'rgba(28, 38, 54, 0.5)' : 'rgba(247, 245, 237, 0.95)',
         boxShadow: '4px 0 10px rgba(0,0,0,0.1)',
         borderRight: '1px solid rgba(0,0,0,0.05)'
       }}
@@ -169,10 +170,12 @@ const SheetMusicBackground: React.FC<{ vexFlowData: VexFlowRenderData; totalWidt
     let currentX = HORIZONTAL_PADDING;
     const { topStaveYOffset, measures, tempoMarkings, verticalSpacing } = vexFlowData;
 
-    measures.forEach((measure) => {
+    measures.forEach((measure, i) => {
       const treble = new Stave(currentX, topStaveYOffset, measure.width);
       const bass = new Stave(currentX, topStaveYOffset + verticalSpacing, measure.width);
       
+      treble.setMeasure(i + 1);
+
       treble.setContext(ctx).draw();
       bass.setContext(ctx).draw();
       currentX += measure.width;
@@ -303,11 +306,18 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
   const renderedBarLines = useMemo(() => {
     if (!vexFlowData) return null;
     let acc = HORIZONTAL_PADDING;
-    return vexFlowData.measures.map(m => {
+    return vexFlowData.measures.map((m, index) => {
       const left = acc; acc += m.width;
 
       if (isQwertyView) {
-        return <div key={`bar-line-${m.startTimeMs}`} className="absolute top-0 bottom-0 border-r border-slate-600" style={{ left: `${left}px`, zIndex: 5 }} aria-hidden="true" />;
+        return (
+          <div key={`bar-line-${m.startTimeMs}`} className="absolute top-0 bottom-0" style={{ left: `${left}px`, zIndex: 5 }} aria-hidden="true">
+            <div className="w-px h-full bg-slate-600" />
+            <span className="absolute top-[25%] -translate-y-1/2 -translate-x-1/2 text-slate-800 text-sm font-mono">
+              {index + 1}
+            </span>
+          </div>
+        );
       }
       
       // For sheet-roll, align with the staves
@@ -333,6 +343,7 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
           qwertyLayout={qwertyLayout}
           qwertyCurrentOctaveShift={qwertyCurrentOctaveShift}
           mirpTranspose={mirpTranspose}
+          backgroundColor={backgroundColor}
         />
       )}
 

@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useRef } from 'react';
 import { MidiAccessStatus, MIDIInput, MIDIOutput, NoteLabelType, ViewMode, ThemeSettings, DevicePreset, LayoutDimensions, QwertyLayout } from '../types';
 import { DEVICE_LAYOUTS } from '../constants'; // Import DEVICE_LAYOUTS
 
@@ -34,6 +35,15 @@ interface SettingsProps {
   onThemeSettingsChange: (settings: ThemeSettings) => void;
   devicePreset: DevicePreset;
   onDevicePresetChange: (preset: DevicePreset) => void;
+  // NEW: Props for custom layout dimensions
+  customWhiteKeyHeight: number;
+  onCustomWhiteKeyHeightChange: (height: number) => void;
+  customBlackKeyHeight: number;
+  onCustomBlackKeyHeightChange: (height: number) => void;
+  customKeyLabelHeight: number;
+  onCustomKeyLabelHeightChange: (height: number) => void;
+  customMinWhiteKeyWidth: number;
+  onCustomMinWhiteKeyWidthChange: (width: number) => void;
   // NEW: Piano Range props
   pianoRangeMode: 'full' | '61-key' | '37-key' | '25-key' | 'custom';
   onPianoRangeModeChange: (mode: 'full' | '61-key' | '37-key' | '25-key' | 'custom') => void;
@@ -50,6 +60,9 @@ interface SettingsProps {
   // NEW: UI Zoom Prop
   uiZoom: number;
   onUiZoomChange: (zoom: number) => void;
+  // NEW: MP3 Volume Prop
+  mp3Volume: number;
+  onMp3VolumeChange: (volume: number) => void;
 }
 
 const Section: React.FC<{ title: string; children: React.ReactNode; showInfoButton?: boolean; onInfoClick?: () => void }> = ({ title, children, showInfoButton, onInfoClick }) => (
@@ -87,13 +100,15 @@ const ToggleRow: React.FC<{ label: string; id: string; checked: boolean; onChang
   );
 };
 
-const Settings: React.FC<SettingsProps> = (props) => {
+export const Settings: React.FC<SettingsProps> = (props) => {
   const [isRendered, setIsRendered] = useState(false);
   const [isInfoModalOpen, setIsInfoModalOpen] = useState(false); // NEW state for info modal
   const [isInfoModalRendered, setIsInfoModalRendered] = useState(false); // For info modal animations
   // NEW: State for Bar Navigation info modal
   const [isBarNavInfoModalOpen, setIsBarNavInfoModalOpen] = useState(false);
   const [isBarNavInfoModalRendered, setIsBarNavInfoModalRendered] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
 
   useEffect(() => {
     const timer = setTimeout(() => setIsRendered(true), 10);
@@ -133,10 +148,15 @@ const Settings: React.FC<SettingsProps> = (props) => {
     metronomeOffsetMs, onMetronomeOffsetChange, // NEW: Destructure metronome offset props
     themeSettings, onThemeSettingsChange,
     devicePreset, onDevicePresetChange,
+    customWhiteKeyHeight, onCustomWhiteKeyHeightChange,
+    customBlackKeyHeight, onCustomBlackKeyHeightChange,
+    customKeyLabelHeight, onCustomKeyLabelHeightChange,
+    customMinWhiteKeyWidth, onCustomMinWhiteKeyWidthChange,
     pianoRangeMode, onPianoRangeModeChange, customStartNote, onCustomStartNoteChange, customEndNote, onCustomEndNoteChange,
     qwertyLayout, onQwertyLayoutChange, 
     showPianoTilesBackground, onShowPianoTilesBackgroundChange, // Destructure new props
     uiZoom, onUiZoomChange, // Destructure UI Zoom
+    mp3Volume, onMp3VolumeChange, // NEW: Destructure MP3 Volume
   } = props;
 
   const commonButtonStyles = "px-3 py-1.5 rounded text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-300 focus:ring-opacity-75 flex items-center justify-center shadow-md";
@@ -146,6 +166,28 @@ const Settings: React.FC<SettingsProps> = (props) => {
   const rangeSliderStyle = "w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer";
   const numberInputStyle = `w-24 p-2 rounded-lg bg-slate-700 text-white border border-slate-600 focus:ring-violet-500 focus:border-violet-500 text-sm`;
 
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (!file.type.startsWith('image/')) {
+        alert('Please select an image file (e.g., JPEG, PNG, GIF).');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        onThemeSettingsChange({ ...themeSettings, backgroundUrl: reader.result as string });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleClearImage = () => {
+    onThemeSettingsChange({ ...themeSettings, backgroundUrl: '' });
+    if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+    }
+  };
 
   const renderMidiConnectButton = () => {
      switch (midiAccessStatus) {
@@ -242,14 +284,7 @@ const Settings: React.FC<SettingsProps> = (props) => {
                 </button>
               </div>
             </SettingRow>
-
-            <SettingRow label="Piano Size" htmlFor="device-preset">
-              <select id="device-preset" value={devicePreset} onChange={e => onDevicePresetChange(e.target.value as DevicePreset)} className={selectStyles}>
-                <option value="desktop">Default</option>
-                <option value="tablet">Touch Screen</option>
-              </select>
-            </SettingRow>
-
+            
           </Section>
 
           <Section title="Piano Display">
@@ -383,6 +418,18 @@ const Settings: React.FC<SettingsProps> = (props) => {
                 className={`${rangeSliderStyle} max-w-xs`} 
               />
             </SettingRow>
+            <SettingRow label={`Backing Track Volume (${Math.round(mp3Volume*100)}%)`} htmlFor="mp3-volume">
+              <input 
+                id="mp3-volume" 
+                type="range" 
+                min="0" 
+                max="1" 
+                step="0.05" 
+                value={mp3Volume} 
+                onChange={e => onMp3VolumeChange(parseFloat(e.target.value))} 
+                className={`${rangeSliderStyle} max-w-xs`} 
+              />
+            </SettingRow>
             <SettingRow label={`Metronome Offset (${metronomeOffsetMs}ms)`} htmlFor="metronome-offset">
               <input 
                 id="metronome-offset" 
@@ -406,6 +453,49 @@ const Settings: React.FC<SettingsProps> = (props) => {
             </SettingRow>
             <SettingRow label="Falling Notes Background" htmlFor="bg-color">
               <input type="color" id="bg-color" value={themeSettings.fallingNotesBackgroundColor} onChange={e => onThemeSettingsChange({...themeSettings, fallingNotesBackgroundColor: e.target.value})} className={colorInputStyle} />
+            </SettingRow>
+             <SettingRow label="Custom Background Image" htmlFor="bg-url">
+                <div className="flex items-center gap-2">
+                    <input
+                        type="text"
+                        id="bg-url"
+                        placeholder="Image URL..."
+                        value={themeSettings.backgroundUrl?.startsWith('data:image') ? 'Uploaded Image' : themeSettings.backgroundUrl || ''}
+                        readOnly={themeSettings.backgroundUrl?.startsWith('data:image')}
+                        onChange={e => onThemeSettingsChange({...themeSettings, backgroundUrl: e.target.value})}
+                        className={`${numberInputStyle} w-full max-w-xs flex-grow`}
+                    />
+                    <input
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handleImageUpload}
+                        accept="image/png, image/jpeg, image/gif"
+                        className="hidden"
+                        id="bg-upload-input"
+                    />
+                    <label htmlFor="bg-upload-input" className={`${commonButtonStyles} ${secondaryButtonStyles} cursor-pointer`}>
+                        Upload
+                    </label>
+                    <button
+                        onClick={handleClearImage}
+                        className={`${commonButtonStyles} bg-red-600 hover:bg-red-700 text-white`}
+                        title="Remove background image"
+                    >
+                        Clear
+                    </button>
+                </div>
+            </SettingRow>
+            <SettingRow label={`Background Opacity (${Math.round((themeSettings.backgroundOpacity ?? 0.2) * 100)}%)`} htmlFor="bg-opacity">
+              <input
+                id="bg-opacity"
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={themeSettings.backgroundOpacity ?? 0.2}
+                onChange={e => onThemeSettingsChange({...themeSettings, backgroundOpacity: parseFloat(e.target.value)})}
+                className={`${rangeSliderStyle} max-w-xs`}
+              />
             </SettingRow>
           </Section>
         </div>
@@ -472,28 +562,14 @@ const Settings: React.FC<SettingsProps> = (props) => {
                 aria-label="Close information modal"
               >&times;</button>
             </div>
-            <div className="text-slate-300 text-lg mb-6 space-y-4">
-              <p>These controls allow you to quickly move through the song, jumping to the previous or next beat/bar.</p>
-              <div>
-                <p className="font-semibold text-white">On PC (Keyboard):</p>
-                <p className="text-sm ml-4">Use the <kbd className="bg-slate-700 px-1.5 py-0.5 rounded-md font-mono text-cyan-300">Left Arrow</kbd> (<span className='font-mono'>&larr;</span>) and <kbd className="bg-slate-700 px-1.5 py-0.5 rounded-md font-mono text-cyan-300">Right Arrow</kbd> (<span className='font-mono'>&rarr;</span>) keys.</p>
-              </div>
-              <div>
-                <p className="font-semibold text-white">On Touch Devices (Tablet/Phone):</p>
-                <p className="text-sm ml-4">Tap the left or right edges of the music display area.</p>
-              </div>
-              <p>
-                <span className="font-semibold text-white">Prerequisite</span>: Bar navigation works only when the metronome is set to '<span className="font-semibold text-cyan-300">Beat</span>' or '<span className="font-semibold text-cyan-300">Bar</span>' mode.
-              </p>
-              <p className="text-red-300 font-semibold">
-                Note: Bar navigation is disabled in 'Retical Mode'.
-              </p>
-            </div>
+            <p className="text-slate-300 text-lg mb-6">
+              Bar navigation buttons, which appear on the left and right sides of the screen during gameplay, are now enabled by default. They allow you to jump between beats or measures. They are active in practice modes when the metronome is set to 'Beat' or 'Bar'. You can disable them if you prefer.
+            </p>
             <button
               onClick={() => setIsBarNavInfoModalOpen(false)}
               className="w-full bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-2 px-6 rounded-lg text-lg transition-colors"
             >
-              Got it!
+              Okay
             </button>
           </div>
         </div>
@@ -501,5 +577,3 @@ const Settings: React.FC<SettingsProps> = (props) => {
     </>
   );
 };
-
-export default Settings;

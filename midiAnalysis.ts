@@ -550,7 +550,6 @@ function _analyzeMidiChunk(
     performanceScore,
     parameters: {
       density: +density.toFixed(2),
-      patternComplexity: +abstractness.toFixed(2),
       physicalEffort: +effort.toFixed(2),
       rangeIntensity: +range.toFixed(2),
       chordMobility: +chordMobilityScore.toFixed(2),
@@ -559,8 +558,6 @@ function _analyzeMidiChunk(
       totalNps: +nps.toFixed(2),
       polyphony: +polyphony.toFixed(2),
       chordNps: +chordNps.toFixed(2),
-      chordPower: +((polyphony_score * speed_component) * 7.5).toFixed(2),
-      chordPowerIndex: +(1).toFixed(2),
       patternRepPenalty: +repetitiveness.toFixed(2),
       trillRatio: +((trillRatio as number) || 0).toFixed(2),
       starLevel,

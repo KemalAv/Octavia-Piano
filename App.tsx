@@ -1,4 +1,11 @@
 
+
+
+
+
+
+
+
 import React, { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import { KeyPosition, PianoKeyDefinition, MidiNotePlaybackItem, ActiveMidiNoteInfo, MIDIInput, MIDIMessageEvent, MIDIAccess, MIDIOutput, TimeSignatureInfo, FileType, ExtendedResult, MidiAccessStatus, MetronomeMode, WaitMode, ViewMode, Screen, GameSettings, NoteLabelType, PracticeHand, ThemeSettings, PerformanceSummary, TempoEvent, DevicePreset, LayoutDimensions, QwertyLayout, BeatInfo, FreePlayLiveNote } from './types';
 import {
@@ -16,7 +23,8 @@ import {
   DEFAULT_AUTO_HIDE_TOP_BAR,
   DEFAULT_SHOW_PIANO_TILES_BACKGROUND,
   VISUAL_NOTE_CAP_MS,
-  FREE_PLAY_ARPEGGIO_WINDOW_MS
+  FREE_PLAY_ARPEGGIO_WINDOW_MS,
+  DEFAULT_MP3_VOLUME
 } from './constants';
 import PianoKeyboard from './components/PianoKeyboard';
 import TopBar from './components/TopBar';
@@ -24,7 +32,8 @@ import ProgressBar from './components/ProgressBar';
 import MainMenu from './components/MainMenu';
 import SongSelection from './components/SongSelection';
 import ModeSelection from './components/ModeSelection';
-import Settings from './components/Settings';
+// FIX: Changed to a named import to resolve the "no default export" error.
+import { Settings } from './components/Settings';
 import AuthModal from './AuthModal'; 
 import AccountModal from './components/AccountModal'; 
 import JSZip, { JSZipObject } from 'jszip';
@@ -150,7 +159,7 @@ const CHORD_FORMULAS: { [key: string]: { name: string, intervals: number[] } } =
 
 const AppContent: React.FC = () => {
   const [currentScreen, setCurrentScreen] = useState<Screen>('mainMenu');
-  const [gameSettings, setGameSettings] = useState<GameSettings | null>(null);
+  const [gameSettings, setGameSettings] = useState<GameSettings | null>(null); 
   const [isLoadingContent, setIsLoadingContent] = useState(false); 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false); 
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false); 
@@ -210,6 +219,12 @@ const AppContent: React.FC = () => {
 
   // NEW: UI Zoom State
   const [uiZoom, setUiZoom] = useState<number>(100);
+
+  // NEW: Backing Track Refs
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [backingTrackError, setBackingTrackError] = useState<string | null>(null); // NEW: State for tracking backing track errors
+  const audioStartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [mp3Volume, setMp3Volume] = useState(DEFAULT_MP3_VOLUME); // NEW: State for MP3 volume
 
   const visiblePianoKeys = useMemo(() => {
       const getMidi = (n: string) => PIANO_KEYS_CONFIG.find(k => k.name.toLowerCase() === n.toLowerCase().trim())?.midiNote;
@@ -347,8 +362,8 @@ const AppContent: React.FC = () => {
   
     setAllBeatTimes(allBeats);
   
-    const startIndex = allBeats.findIndex(b => b.timeMs >= currentTimeRef.current);
-    nextBeatToScheduleIndexRef.current = startIndex !== -1 ? startIndex : allBeats.length;
+    const startIndex = allBeatTimes.findIndex(b => b.timeMs >= currentTimeRef.current);
+    nextBeatToScheduleIndexRef.current = startIndex !== -1 ? startIndex : allBeatTimes.length;
     prevConceptualTimeRef.current = currentTimeRef.current;
   
   }, [
@@ -419,6 +434,7 @@ const AppContent: React.FC = () => {
   const errorCountRef = useRef<number>(0);
   useEffect(() => { errorCountRef.current = errorCount; }, [errorCount]); 
   const [liveAccuracy, setLiveAccuracy] = useState<number>(100);
+  const [liveAccuracyRef, setLiveAccuracyRef] = useState<number>(100);
   const [liveSpeed, setLiveSpeed] = useState<number>(100);
   const [totalNoteCountForGame, setTotalNoteCountForGame] = useState<number>(0);
   const [analysisResult, setAnalysisResult] = useState<ExtendedResult | null>(null);
@@ -508,7 +524,7 @@ const AppContent: React.FC = () => {
   useEffect(() => {
     if (playbackNotes.length === 0 || originalTotalMusicalDurationMs === 0) { setAnalysisResult(null); return; }
     const scaledNotes = playbackNotes.map(note => ({ ...note, timeMs: note.timeMs / playbackTempoMultiplier, durationMs: note.durationMs / playbackTempoMultiplier }));
-    setAnalysisResult(analyzeMidi(scaledNotes, originalTotalMusicalDurationMs / playbackTempoMultiplier, undefined, originalTotalMusicalDurationMs));
+    setAnalysisResult(analyzeMidi(scaledNotes, originalTotalMusicalDurationMs, undefined, originalTotalMusicalDurationMs));
   }, [playbackNotes, originalTotalMusicalDurationMs, playbackTempoMultiplier]);
 
   const previewAnalysisResult = useMemo(() => {
@@ -524,9 +540,9 @@ const AppContent: React.FC = () => {
   const onPlaybackTempoMultiplierChange = useCallback((multiplier: number) => setPreviewPlaybackTempoMultiplier(multiplier), []);
 
   const startTopBarHideTimer = useCallback(() => {
-    if (topBarTimeoutRef.current) clearTimeout(topBarTimeoutRef.current);
+    if (autoHideTopBar && topBarTimeoutRef.current) clearTimeout(topBarTimeoutRef.current);
     topBarTimeoutRef.current = window.setTimeout(() => setIsTopBarVisible(false), 5000);
-  }, []);
+  }, [autoHideTopBar]);
 
   const clearTopBarHideTimer = useCallback(() => {
     if (topBarTimeoutRef.current) { clearTimeout(topBarTimeoutRef.current); topBarTimeoutRef.current = null; }
@@ -601,6 +617,19 @@ const AppContent: React.FC = () => {
 
   useEffect(() => { if (masterGainRef.current) masterGainRef.current.gain.value = masterVolume; }, [masterVolume]);
   useEffect(() => { if (metronomeGainRef.current) metronomeGainRef.current.gain.value = metronomeVolume; }, [metronomeVolume]);
+  
+  // NEW: Effect to update backing track volume
+  useEffect(() => {
+    if (audioRef.current) {
+        audioRef.current.volume = mp3Volume;
+    }
+  }, [mp3Volume]);
+
+  useEffect(() => {
+    if (audioRef.current) {
+        audioRef.current.playbackRate = playbackTempoMultiplier;
+    }
+  }, [playbackTempoMultiplier, gameSettings?.backingTrack?.url]);
 
   const getAudioBuffer = useCallback(async (midiNote: number): Promise<AudioBuffer | null> => {
     if (audioBufferCacheRef.current.has(midiNote)) return audioBufferCacheRef.current.get(midiNote)!;
@@ -638,9 +667,16 @@ const AppContent: React.FC = () => {
         const ab = await res.arrayBuffer();
         return audioContextRef.current.decodeAudioData(ab);
     };
-    const p1 = loadGeneric('/sounds/metronome/strong_beat.mp3'), p2 = loadGeneric('/sounds/metronome/weak_beat.mp3');
-    promises.push(p1, p2);
-    try { await Promise.all(promises); metronomeBuffersRef.current.strong = (await p1) as AudioBuffer; metronomeBuffersRef.current.weak = (await p2) as AudioBuffer; } catch (e) {} finally { setIsPreloading(false); }
+    const p1 = loadGeneric('/sounds/metronome/strong_beat.mp3');
+    const p2 = loadGeneric('/sounds/metronome/weak_beat.mp3');
+    promises.push(p1 as any, p2 as any);
+    try { 
+        await Promise.all(promises); 
+        metronomeBuffersRef.current.strong = (await p1) as AudioBuffer; 
+        metronomeBuffersRef.current.weak = (await p2) as AudioBuffer; 
+    } catch (e) {} finally { 
+        setIsPreloading(false); 
+    }
   }, [initializeAudioContext, getAudioBuffer]);
 
   const playSound = useCallback((midiNote: number, musicalDurationMs: number, velocity: number = 0.75) => {
@@ -785,6 +821,19 @@ const AppContent: React.FC = () => {
     accumulatedSeekTimeRef.current = 0;
     setFreePlayLiveNotes([]); setRecordedNotes([]); setIsRecording(false);
     setShowSaveButton(false);
+    setBackingTrackError(null); // Clear any previous errors
+
+    // Stop backing track audio
+    if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+    }
+    // Clear audio start timeout
+    if (audioStartTimeoutRef.current) {
+        clearTimeout(audioStartTimeoutRef.current);
+        audioStartTimeoutRef.current = null;
+    }
+
   }, [clearScheduledNotes, clearScheduledMetronomeSounds, updateNotesCurrentlyWaitingFor]);
 
   const handleCloseGameOverModal = useCallback(() => {
@@ -802,6 +851,7 @@ const AppContent: React.FC = () => {
 
   const visuallySatisfyNote = useCallback((noteDef: MidiNotePlaybackItem) => {
     const noteId = noteDef.noteId; activeNoteInstancesRef.current.set(noteId, noteDef);
+    // FIX: Replaced 'note.midi' with 'noteDef.midi'
     setActivePlaybackNotesInfo(prev => new Map(prev).set(noteId, { noteId, name: noteDef.name, timeMs: noteDef.timeMs, hand: noteDef.hand, midi: noteDef.midi, pitchClass: noteDef.pitchClass, status: 'user_played', finger: noteDef.finger }));
     if (scheduledNoteTimeoutsRef.current.has(noteId)) clearTimeout(scheduledNoteTimeoutsRef.current.get(noteId)!);
     scheduledNoteTimeoutsRef.current.set(noteId, window.setTimeout(() => { activeNoteInstancesRef.current.delete(noteId); scheduledNoteTimeoutsRef.current.delete(noteId); setActivePlaybackNotesInfo(prev => { const nm = new Map(prev); nm.delete(noteId); return nm; }); }, Math.min(noteDef.durationMs, VISUAL_NOTE_CAP_MS) / playbackTempoMultiplier));
@@ -960,6 +1010,59 @@ const AppContent: React.FC = () => {
     if (isPlayingRef.current) {
         performanceStartTimeRef.current = performance.now();
     }
+
+    // --- Backing Track Seek Logic ---
+    const backing = gameSettingsRef.current?.backingTrack;
+    if (backing && backing.type !== 'none') {
+        const offset = backing.offsetMs || 0;
+        const targetAudioTimeMs = cl + offset;
+
+        // Clear any pending delayed start
+        if (audioStartTimeoutRef.current) {
+            clearTimeout(audioStartTimeoutRef.current);
+            audioStartTimeoutRef.current = null;
+        }
+
+        if (isPlayingRef.current) {
+            // Seek and Play if time is valid, or schedule play if delayed (negative offset)
+            if (targetAudioTimeMs < 0) {
+                // Audio needs to wait (negative offset scenario)
+                if (audioRef.current) {
+                    audioRef.current.pause();
+                    audioRef.current.currentTime = 0;
+                }
+                
+                const waitMs = Math.abs(targetAudioTimeMs) / playbackTempoMultiplier;
+                audioStartTimeoutRef.current = setTimeout(() => {
+                    if (backing.type === 'mp3' && audioRef.current) {
+                        audioRef.current.currentTime = 0;
+                        audioRef.current.play().catch(e => {
+                            console.warn("Delayed audio play failed", e)
+                            setBackingTrackError("Failed to play backing track after seeking.");
+                        });
+                    }
+                }, waitMs);
+
+            } else {
+                // Audio should be playing
+                const targetAudioTimeSec = targetAudioTimeMs / 1000;
+                if (backing.type === 'mp3' && audioRef.current) {
+                    audioRef.current.currentTime = targetAudioTimeSec;
+                    audioRef.current.play().catch(e => {
+                        console.warn("Audio play failed", e)
+                        setBackingTrackError("Failed to play backing track after seeking.");
+                    });
+                }
+            }
+        } else {
+            // Just Seek to preview frame if positive time, or reset to 0 if negative
+            const targetAudioTimeSec = Math.max(0, targetAudioTimeMs / 1000);
+            if (backing.type === 'mp3' && audioRef.current) {
+                audioRef.current.currentTime = targetAudioTimeSec;
+            }
+        }
+    }
+
 }, [notesForGame, totalDurationWithEndDelayMs, clearScheduledNotes, updateNotesCurrentlyWaitingFor, clearScheduledMetronomeSounds, waitMode, playbackTempoMultiplier]);
 
   const handleBarNavigation = useCallback((dir: 'forward' | 'backward') => {
@@ -974,9 +1077,9 @@ const AppContent: React.FC = () => {
         if (dir === 'forward') {
             targetBarIndex = nextIdx !== -1 ? nextIdx : barLines.length - 1;
         } else {
-            const curIdx = nextIdx !== -1 ? nextIdx - 1 : barLines.length - 1;
-            if (curIdx < 0) return;
-            targetBarIndex = cur - barLines[curIdx] < 100 ? Math.max(0, curIdx - 1) : curIdx;
+            const hexIdx = nextIdx !== -1 ? nextIdx - 1 : barLines.length - 1;
+            if (hexIdx < 0) return;
+            targetBarIndex = cur - barLines[hexIdx] < 100 ? Math.max(0, hexIdx - 1) : hexIdx;
         }
         targetTime = barLines[targetBarIndex];
     } else { // 'beat' mode
@@ -1005,6 +1108,7 @@ const AppContent: React.FC = () => {
   }, [notesForGame.length, barLines, handleSeek, waitMode, metronomeMode, playbackTempoMultiplier]);
 
   const playbackLoop = useCallback(() => {
+    const isNonStop = gameSettingsRef.current?.isNonStop ?? false;
     if (!isPlayingRef.current || notesForGame.length === 0) { if (playbackRequestRef.current) cancelAnimationFrame(playbackRequestRef.current); playbackRequestRef.current = null; return; }
     
     const currentRealTime = performance.now();
@@ -1012,7 +1116,8 @@ const AppContent: React.FC = () => {
     const conceptualMusicalTime = pausedMusicalTimeRef.current + (realTimeElapsedSinceStartOrPause * playbackTempoMultiplier);
     
     let actualMusicalTimeForGameLogic: number;
-    const isInWaitState = (waitMode === 'strict' || waitMode === 'rhythm' || waitMode === 'retical') && notesCurrentlyWaitingForRef.current.size > 0 && waitingBlockTimeRef.current !== null;
+    const canWait = (waitMode === 'strict' || waitMode === 'rhythm' || waitMode === 'retical');
+    const isInWaitState = !isNonStop && canWait && notesCurrentlyWaitingForRef.current.size > 0 && waitingBlockTimeRef.current !== null;
     
     if (isInWaitState) { 
       actualMusicalTimeForGameLogic = waitingBlockTimeRef.current!; 
@@ -1024,6 +1129,25 @@ const AppContent: React.FC = () => {
       if (totalWaitTimeMs !== accumulatedWaitTimeRef.current) setTotalWaitTimeMs(accumulatedWaitTimeRef.current);
     }
     
+    // Sync audio with wait state
+    if (audioRef.current) {
+        if (isInWaitState && !audioRef.current.paused) {
+            audioRef.current.pause();
+        } else if (!isInWaitState && audioRef.current.paused && isPlayingRef.current && !isUserPausedRef.current) {
+            const backing = gameSettingsRef.current?.backingTrack;
+            if (backing && backing.type === 'mp3') {
+                const offset = backing.offsetMs || 0;
+                const targetAudioTimeMs = currentTimeRef.current + offset;
+                if (targetAudioTimeMs >= 0) {
+                    audioRef.current.play().catch(e => {
+                        console.warn('Audio resume from wait failed', e);
+                        setBackingTrackError("Failed to resume backing track.");
+                    });
+                }
+            }
+        }
+    }
+
     currentTimeRef.current = actualMusicalTimeForGameLogic; 
     prevMusicalTimeRef.current = actualMusicalTimeForGameLogic;
     
@@ -1120,11 +1244,15 @@ const AppContent: React.FC = () => {
             const hd = Math.min(note.durationMs, VISUAL_NOTE_CAP_MS) / playbackTempoMultiplier;
             scheduledNoteTimeoutsRef.current.set(noteId, window.setTimeout(() => { activeNoteInstancesRef.current.delete(noteId); scheduledNoteTimeoutsRef.current.delete(noteId); setActivePlaybackNotesInfo(prev => { const nm = new Map(prev); nm.delete(noteId); return nm; }); }, hd));
           }
-        } else { notesToSetWaitingThisFrame.push(note); }
+        } else { 
+            if (!isNonStop) {
+                notesToSetWaitingThisFrame.push(note); 
+            }
+        }
         currentProcessingIdx++;
       } else break;
     }
-    if ((waitMode === 'strict' || waitMode === 'rhythm' || waitMode === 'retical') && notesToSetWaitingThisFrame.length > 0) {
+    if (!isNonStop && canWait && notesToSetWaitingThisFrame.length > 0) {
         const firstDueNote = notesToSetWaitingThisFrame[0], blockStartTime = firstDueNote.timeMs;
         
         let chordWindowMs: number;
@@ -1199,34 +1327,31 @@ const AppContent: React.FC = () => {
             if (isAutoPlay) actDur = idealDuration;
             else actDur = idealDuration + accumulatedWaitTimeRef.current;
             
-            // FIX: Explicit return type to prevent 'unknown' or 'any' inference issues
             const calculateStats = (h: number, e: number, t: number, a: boolean, dur: number): { acc: number; spd: number } => {
                 if (a) return { acc: 100, spd: 100 };
                 const den = Math.max(h, t) + e;
                 const acc = den > 0 ? (h / den) * 100 : 100;
                 const ideal = absoluteEndTimeMs / playbackTempoMultiplier;
-                // Avoid potential division by zero or NaN if dur is 0
                 const spd = (ideal > 0 && dur > 0 ? Math.min(100, (ideal / dur) * 100) : 0);
-                return { acc: Number(acc), spd: Number(spd) };
+                return { acc, spd };
             };
             const stats = calculateStats(finalHitCount, finalErrorCount, totalNotes, isAutoPlay, actDur);
             setLiveAccuracy(stats.acc); setLiveSpeed(stats.spd);
-            const baseMidiScore = analysisResult?.performanceScore || 0;
+// FIX: The `baseMidiScore` can be undefined if `analysisResult` is null, causing an arithmetic error on the following line. Provide a fallback to 0.
+const baseMidiScore = analysisResult?.performanceScore || 0;
             
-            // FIX: stats.acc and stats.spd are now guaranteed numbers, fixing arithmetic type errors.
-            const accVal = Number(stats.acc);
-            const spdVal = Number(stats.spd);
-            const gameplayPS = (accVal * 0.5) + (spdVal * 0.5);
+            const gameplayPS = (stats.acc * 0.5) + (stats.spd * 0.5);
             
-            const finalScore = Number(baseMidiScore) * Math.pow(gameplayPS / 100, 4);
+            const finalScore = baseMidiScore * Math.pow(gameplayPS / 100, 6);
             let rank = 'D';
             const gameplayStyle = viewMode === 'sheet-qwerty' ? 'computer' : 'piano';
-            if (gameplayPS >= 100) rank = 'X';
-            else if (gameplayPS >= 98) rank = 'SS';
+            if (gameplayStyle === 'computer') rank = 'X';
+            else if (gameplayPS >= 100) rank = 'X';
+            else if (gameplayPS >= 97.5) rank = 'SS';
             else if (gameplayPS >= 95) rank = 'S';
-            else if (gameplayPS >= 90) rank = 'A';
-            else if (gameplayPS >= 80) rank = 'B';
-            else if (gameplayPS >= 70) rank = 'C';
+            else if (gameplayPS >= 91.25) rank = 'A';
+            else if (gameplayPS >= 87.5) rank = 'B';
+            else if (gameplayPS >= 75) rank = 'C';
             setPerformanceSummary({ accuracy: +stats.acc.toFixed(2), speed: +stats.spd.toFixed(2), gameplayPercentage: +gameplayPS.toFixed(2), baseMidiScore, finalScore: +finalScore.toFixed(2), rank, hitCount: finalHitCount, errorCount: finalErrorCount, totalNoteCount: totalNotes, playbackTempoMultiplier, totalWaitTimeMs: accumulatedWaitTimeRef.current, gameplayStyle });
             clearScheduledNotes(); clearScheduledMetronomeSounds(); updateNotesCurrentlyWaitingFor(new Set<number>()); setMusicalCurrentTimeMs(totalDurationWithEndDelayMs);
             return;
@@ -1294,6 +1419,12 @@ const AppContent: React.FC = () => {
     if (isFreePlayMode || notesForGame.length === 0 || isPlayingRef.current) return;
     if (!(await initializeAudioContext())) return;
 
+    // Clear any existing delayed audio start timeouts
+    if (audioStartTimeoutRef.current) {
+        clearTimeout(audioStartTimeoutRef.current);
+        audioStartTimeoutRef.current = null;
+    }
+
     if (playtimeStartRef.current === null && gameSettingsRef.current && (gameSettingsRef.current.waitMode === 'strict' || gameSettingsRef.current.waitMode === 'retical')) {
         playtimeStartRef.current = performance.now();
     }
@@ -1311,8 +1442,49 @@ const AppContent: React.FC = () => {
     setIsPlaying(true); isPlayingRef.current = true; isUserPausedRef.current = false; performanceStartTimeRef.current = performance.now();
     setMusicalCurrentTimeMs(pausedMusicalTimeRef.current); currentTimeRef.current = pausedMusicalTimeRef.current; prevMusicalTimeRef.current = pausedMusicalTimeRef.current;
     
+    // --- Backing Audio Logic ---
+    const backing = gameSettingsRef.current?.backingTrack;
+    if (backing && backing.type !== 'none') {
+        const offset = backing.offsetMs || 0;
+        const targetAudioTimeMs = pausedMusicalTimeRef.current + offset;
+
+        if (targetAudioTimeMs < 0) {
+            // Audio needs to wait (negative offset scenario)
+            // Ensure audio is stopped or at 0
+            if (backing.type === 'mp3' && audioRef.current) {
+                audioRef.current.currentTime = 0;
+                audioRef.current.volume = mp3Volume; // Set volume
+            }
+
+            const waitMs = Math.abs(targetAudioTimeMs) / playbackTempoMultiplier;
+            
+            // Schedule playback
+            audioStartTimeoutRef.current = setTimeout(() => {
+                if (backing.type === 'mp3' && audioRef.current) {
+                    audioRef.current.currentTime = 0;
+                    audioRef.current.play().catch(e => {
+                        console.warn("Delayed audio play failed", e);
+                        setBackingTrackError("Failed to play the backing track.");
+                    });
+                }
+            }, waitMs);
+
+        } else {
+            // Audio can play immediately from calculated position
+            const targetAudioTimeSec = targetAudioTimeMs / 1000;
+            if (backing.type === 'mp3' && audioRef.current) {
+                audioRef.current.currentTime = targetAudioTimeSec;
+                audioRef.current.volume = mp3Volume; // Set volume
+                audioRef.current.play().catch(e => {
+                    console.warn("Audio play failed", e);
+                    setBackingTrackError("Failed to play the backing track.");
+                });
+            }
+        }
+    }
+
     playbackRequestRef.current = requestAnimationFrame(playbackLoop);
-  }, [notesForGame.length, initializeAudioContext, playbackLoop, isFreePlayMode, playbackTempoMultiplier]);
+  }, [notesForGame.length, initializeAudioContext, playbackLoop, isFreePlayMode, playbackTempoMultiplier, mp3Volume]);
 
   const handlePause = useCallback(() => {
     if (isFreePlayMode || waitMode === 'retical' || !isPlayingRef.current) return;
@@ -1325,6 +1497,16 @@ const AppContent: React.FC = () => {
     setIsPlaying(false); isPlayingRef.current = false; isUserPausedRef.current = true; pausedMusicalTimeRef.current = currentTimeRef.current;
     pauseStartTimeRef.current = performance.now(); if (playbackRequestRef.current) cancelAnimationFrame(playbackRequestRef.current);
     clearScheduledNotes(); clearScheduledMetronomeSounds(); setMetronomeBeat(null);
+
+    // Pause Audio & Clear Timeouts
+    if (audioStartTimeoutRef.current) {
+        clearTimeout(audioStartTimeoutRef.current);
+        audioStartTimeoutRef.current = null;
+    }
+    if (audioRef.current) {
+        audioRef.current.pause();
+    }
+
   }, [clearScheduledNotes, clearScheduledMetronomeSounds, waitMode, isFreePlayMode]);
 
   useEffect(() => {
@@ -1478,9 +1660,10 @@ const AppContent: React.FC = () => {
         if (ext === 'mid' || ext === 'midi') setCurrentFileType(FileType.MIDI); 
         else if (ext === 'xml' || ext === 'musicxml' || ext === 'mxl') setCurrentFileType(FileType.MUSICXML);
         
+        // FIX: The right-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type.
         // Ensure barLines exists (might be missing in JSON)
-        // FIX: Cast barLinesMs to number[] to resolve 'unknown[]' error
-        setBarLines(((res as any).barLinesMs as number[]) || []);
+        // This cast ensures that the value passed to setBarLines is treated as a number array, satisfying TypeScript's type checker.
+        setBarLines((res.barLinesMs as number[]) || []);
         
         if (notesWithF.length > 0) await preloadSamplesForSong(notesWithF); else setIsPreloading(false);
     } catch (e) { console.error(e); alert("Error processing file."); } finally { setIsLoadingFile(false); setSelectedOnlineSongIdForNavigation(null); }
@@ -1649,13 +1832,13 @@ const AppContent: React.FC = () => {
     if (viewMode === 'sheet') {
         // Wait for VexFlow to signal it has rendered at least once.
         if (renderedLayoutId > 0) {
-            const timer = setTimeout(startPlayback, 200); // 200ms buffer after render
+            const timer = setTimeout(startPlayback, 1000); // Increased delay buffer after render
             return () => clearTimeout(timer);
         }
     } else {
         // For 'falling', 'sheet-roll', 'sheet-qwerty' modes, a fixed delay is sufficient
         // to let the browser render initial elements and prevent stutter.
-        const timer = setTimeout(startPlayback, 1500); // 1.5 seconds
+        const timer = setTimeout(startPlayback, 2500); // Increased from 2 seconds
         return () => clearTimeout(timer);
     }
 
@@ -1781,13 +1964,13 @@ const AppContent: React.FC = () => {
             }
         });
 
-        // Use toArray() directly.
         const midiArray = midi.toArray();
         if (midiArray.length === 0) {
             alert("No notes recorded to save.");
             return;
         }
         
+        // FIX: `midi.toArray()` returns a `Uint8Array`. The cast to `number[]` was incorrect. The `Blob` constructor can take a `Uint8Array` directly.
         const blob = new Blob([midiArray], { type: 'audio/midi' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -1806,27 +1989,11 @@ const AppContent: React.FC = () => {
     }
   }, [recordedNotes, userSustainedKeys, noteNameToKeyDefMap]);
 
-  const RENDER_WINDOW_BLOCK_SIZE_MS = 5 * 1000;
-  const RENDER_WINDOW_DURATION_MS = 10 * 1000;
-  const currentRenderWindowBlock = Math.floor(musicalCurrentTimeMs / RENDER_WINDOW_BLOCK_SIZE_MS);
-
-  // NEW: Windowed notes for falling notes view to improve performance
+  // Instead of windowing, we pass all notes. The component will handle culling.
   const notesForFallingView = useMemo(() => {
     if (viewMode !== 'falling') return [];
-    
-    // Use the same block size as Vexflow for update consistency
-    const windowStart = currentRenderWindowBlock * RENDER_WINDOW_BLOCK_SIZE_MS;
-    
-    // Window: 3 seconds behind the start of the current block, and 12 seconds ahead. Total 15 second window.
-    const windowStartTimeMs = windowStart - 3000;
-    const windowEndTimeMs = windowStart + 12000;
-
-    return notesForGame.filter(note => {
-        const noteStart = note.timeMs;
-        const noteEnd = note.timeMs + note.durationMs;
-        return noteEnd >= windowStartTimeMs && noteStart < windowEndTimeMs;
-    });
-  }, [notesForGame, viewMode, currentRenderWindowBlock]);
+    return notesForGame;
+  }, [notesForGame, viewMode]);
 
   const vexFlowData = useMemo(() => {
     if ((viewMode !== 'sheet' && viewMode !== 'sheet-roll' && viewMode !== 'sheet-qwerty') || !notesForGame.length || !initialTimeSignature || currentTempoBpm === null || currentTempoBpm <= 0) return null;
@@ -1835,33 +2002,13 @@ const AppContent: React.FC = () => {
     }
 
     try {
-        const windowStart = currentRenderWindowBlock * RENDER_WINDOW_BLOCK_SIZE_MS;
-        const windowEnd = windowStart + RENDER_WINDOW_DURATION_MS;
+        const notesForWindow = notesForGame;
 
-        const notesForWindow = notesForGame.filter(note => {
-            const noteStart = note.timeMs;
-            const noteEnd = note.timeMs + note.durationMs;
-            return noteEnd >= windowStart && noteStart < windowEnd;
-        });
-
-        if (notesForWindow.length === 0 && windowStart < absoluteEndTimeMs) {
+        if (notesForWindow.length === 0) {
             return null;
         }
 
-        const barLinesForWindow = barLines.filter(b => b >= windowStart && b < windowEnd);
-        const firstBar = [...barLines].reverse().find(b => b < windowStart);
-        if (firstBar !== undefined) {
-            barLinesForWindow.unshift(firstBar);
-        }
-
-        const lastBar = barLines.find(b => b >= windowEnd);
-        if (lastBar !== undefined) {
-            barLinesForWindow.push(lastBar);
-        } else {
-            barLinesForWindow.push(absoluteEndTimeMs + END_PLAYBACK_DELAY_MS);
-        }
-        
-        const uniqueBarLines = [...new Set(barLinesForWindow)].sort((a,b) => a-b);
+        const uniqueBarLines = barLines;
         const isRollView = viewMode === 'sheet-roll' || viewMode === 'sheet-qwerty';
 
         return getVexFlowRenderData(
@@ -1886,7 +2033,7 @@ const AppContent: React.FC = () => {
   }, [
     notesForGame, initialTimeSignature, currentTempoBpm, initialKeySignature, sheetMusicZoom,
     noteSpeedMultiplier, barLines, signatureEvents, baseCalculatedPianoWidth, contentAreaHeight,
-    showOnlyMajorNotes, tempoEvents, playbackTempoMultiplier, viewMode, currentRenderWindowBlock, absoluteEndTimeMs
+    showOnlyMajorNotes, tempoEvents, playbackTempoMultiplier, viewMode
   ]);
 
   const handleExitSettingsPreview = useCallback(() => {
@@ -1977,8 +2124,35 @@ const handleExitGame = useCallback(() => {
     }
   }, [handleStopPlayback]);
 
+
   const zoomScale = uiZoom / 100;
   const inverseZoomScale = 100 / zoomScale;
+
+  const backgroundStyle: React.CSSProperties = {
+    backgroundImage: themeSettings.backgroundUrl ? `url(${themeSettings.backgroundUrl})` : 'none',
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
+    opacity: themeSettings.backgroundUrl ? (themeSettings.backgroundOpacity ?? 0.2) : 1,
+    position: 'absolute',
+    inset: 0,
+    transition: 'opacity 300ms ease-in-out',
+  };
+
+  // Background logic
+  const bgOpacity = themeSettings.backgroundOpacity ?? 0;
+  const isImageActive = !!themeSettings.backgroundUrl && bgOpacity > 0;
+  const sheetMusicBackgroundColor = isImageActive ? 'transparent' : '#ffffff';
+  
+  // Requirement: When backgroundOpacity is 0%, default to Black (#000000).
+  // Otherwise use the user-defined color (or transparent if image is showing).
+  const fallingNotesBackgroundColor = (bgOpacity === 0) 
+    ? '#000000' 
+    : (isImageActive ? 'transparent' : themeSettings.fallingNotesBackgroundColor);
+
+  // NEW: Determine backing layer color based on view mode.
+  // Falling Notes / Free Play -> Black (darkens image)
+  // Sheet Music -> White (lightens image for readability)
+  const backingLayerClass = (viewMode === 'falling' || isFreePlayMode) ? 'bg-black' : 'bg-white';
 
   return (
       <div ref={appRootRef} onClick={async (e) => {
@@ -2002,87 +2176,99 @@ const handleExitGame = useCallback(() => {
       }}
       >
         
+        {/* Hidden Audio Elements for Backing Track */}
+        {gameSettings?.backingTrack?.type === 'mp3' && gameSettings.backingTrack.url && (
+            // FIX: Removed 'volume' prop; volume is set via ref in useEffect.
+            <audio ref={audioRef} src={gameSettings.backingTrack.url} preload="auto" onError={() => setBackingTrackError('Error: The backing track audio file could not be loaded.')}/>
+        )}
+
         {/* Background Layer for Settings */}
         {currentScreen === 'settings' && isSettingsPreviewActiveRef.current && playbackNotes.length > 0 && (
-          <div className="absolute inset-0 z-0 opacity-70">
-             {/* Inserted TopBar for Settings Preview */}
-             <div className={`absolute top-0 left-0 right-0 z-50 transition-transform duration-300 ease-in-out ${autoHideTopBar ? (isTopBarVisible ? 'translate-y-0' : '-translate-y-full') : 'translate-y-0'}`}>
-              <TopBar 
-                onPlay={handlePlay} 
-                onPause={handlePause} 
-                onStop={handleStopPlayback} 
-                onExit={() => {}} // No-op for preview
-                isPlaying={isPlaying} 
-                isFileLoaded={playbackNotes.length > 0} 
-                fileName={currentFileName} 
-                waitMode={waitMode} 
-                metronomeMode={metronomeMode} 
-                onCycleMetronomeMode={() => setMetronomeMode(p => p === 'off' ? 'beat' : (p === 'beat' ? 'bar' : 'off'))} 
-                isMetronomeAvailable={isMetronomeAvailable} 
-                hitCount={hitCount} 
-                errorCount={errorCount} 
-                liveAccuracy={liveAccuracy} 
-                liveSpeed={liveSpeed} 
-                totalNoteCount={totalNoteCountForGame} 
-                currentTimeMs={musicalCurrentTimeMs / playbackTempoMultiplier} 
-                totalDurationMs={absoluteEndTimeMs / playbackTempoMultiplier} 
-                viewMode={viewMode} 
-                noteSpeedMultiplier={noteSpeedMultiplier} 
-                onNoteSpeedMultiplierChange={setNoteSpeedMultiplier} 
-                sheetMusicZoom={sheetMusicZoom} 
-                onSheetMusicZoomChange={setSheetMusicZoom} 
-                analysisResult={analysisResult} 
-                metronomeBeat={metronomeBeat} 
-                totalWaitTimeMs={totalWaitTimeMs} 
-                isFreePlayMode={isFreePlayMode} 
-                isRecording={isRecording} 
-                onToggleRecording={handleToggleRecording} 
-                onSaveRecording={handleSaveRecording} 
-                showSaveButton={showSaveButton} 
-              />
-            </div>
-
-             <div ref={contentAreaRef} className="w-full h-full flex flex-col justify-end items-center relative overflow-hidden">
-                <div className="flex flex-col justify-end" style={{ width: `${baseCalculatedPianoWidth}px`, height: '100%' }}>
-                  <div className="relative flex-grow w-full">
-                    {viewMode === 'falling' ? (
-                      <FallingNotesArea notes={notesForFallingView} currentTimeMs={musicalCurrentTimeMs} keyPositions={keyPositionsMap} activeMidiNotesInfo={activePlaybackNotesInfo} width={baseCalculatedPianoWidth} actualHeight={contentAreaHeight} pixelsPerMillisecond={BASE_PIXELS_PER_MILLISECOND * noteSpeedMultiplier} barLines={barLines} noteLabelType={noteLabelType} rightHandColor={themeSettings.rightHandColor} leftHandColor={themeSettings.leftHandColor} backgroundColor={themeSettings.fallingNotesBackgroundColor} activeKeySignature={getActiveKeySignature(musicalCurrentTimeMs, signatureEvents, initialKeySignature)} activeTempoBpm={activeBpmForDisplay} showOnlyMajorNotes={showOnlyMajorNotes} showPianoTilesBackground={showPianoTilesBackground} qwertyLayout={qwertyLayout} qwertyCurrentOctaveShift={qwertyCurrentOctaveShift} mirpTranspose={mirpTranspose} />
-                    ) : (viewMode === 'sheet-roll' || viewMode === 'sheet-qwerty') && vexFlowData ? (
-                        <HorizontalNotesView currentTimeMs={musicalCurrentTimeMs} width={baseCalculatedPianoWidth} height={contentAreaHeight} pixelsPerMillisecond={BASE_PIXELS_PER_MILLISECOND * noteSpeedMultiplier * 1.5} activePlaybackNotesInfo={activePlaybackNotesInfo} rightHandColor={themeSettings.rightHandColor} leftHandColor={themeSettings.leftHandColor} backgroundColor={'#F7F5ED'} vexFlowData={vexFlowData} showOnlyMajorNotes={showOnlyMajorNotes} noteLabelType={viewMode === 'sheet-qwerty' ? 'qwerty' : noteLabelType} activeKeySignature={getActiveKeySignature(musicalCurrentTimeMs, signatureEvents, initialKeySignature)} activeBpmForDisplay={activeBpmForDisplay} qwertyLayout={qwertyLayout} qwertyCurrentOctaveShift={qwertyCurrentOctaveShift} mirpTranspose={mirpTranspose} isQwertyView={viewMode === 'sheet-qwerty'} />
-                    ) : viewMode === 'sheet' && vexFlowData ? (
-                      <VexFlowSheetMusicView notes={notesForGame} timeSignature={initialTimeSignature} keySignature={initialKeySignature} initialTempoBpm={currentTempoBpm || 120} width={baseCalculatedPianoWidth} height={contentAreaHeight} currentTimeMs={musicalCurrentTimeMs} totalDurationMs={originalTotalMusicalDurationMs} activePlaybackNotesInfo={activePlaybackNotesInfo} onSeek={handleSeek} isPlaying={isPlaying} sheetMusicZoom={sheetMusicZoom} barLines={barLines} rightHandColor={themeSettings.rightHandColor} leftHandColor={themeSettings.leftHandColor} signatureEvents={signatureEvents} onLayoutRendered={setRenderedLayoutId} tempoEvents={tempoEvents} playbackTempoMultiplier={playbackTempoMultiplier} />
-                    ) : <div className="w-full h-full flex items-center justify-center bg-slate-900"><p className="text-slate-400 animate-pulse">Loading preview...</p></div>}
-                  </div>
-                  <div className="relative flex-shrink-0" style={{ width: '100%', height: `${layoutConfig.whiteKeyHeight + layoutConfig.keyLabelHeight}px` }}>
-                    <PianoKeyboard 
-                      keyPositions={Array.from(keyPositionsMap.values())} 
-                      userSustainedKeys={userSustainedKeys} 
-                      userActiveKeys={userActiveKeys} 
-                      activeMidiNotesInfo={activeMidiNotesInfoForKeyboard} 
-                      onUiKeyPress={handleUiKeyPress} 
-                      onUiKeyRelease={handleUiKeyRelease} 
-                      rightHandColor={themeSettings.rightHandColor} 
-                      leftHandColor={themeSettings.leftHandColor} 
-                      showQwertyShortcuts={showQwertyShortcuts} 
-                      qwertyCurrentOctaveShift={qwertyLayout === 'mirp' ? 0 : qwertyCurrentOctaveShift} 
-                      width={baseCalculatedPianoWidth} 
-                      layoutConfig={layoutConfig} 
-                      qwertyLayout={qwertyLayout} 
-                      mirpTranspose={mirpTranspose}
-                      isInteractive={viewMode !== 'sheet-qwerty'} 
-                    />
-                     {isSustainPedalActive && (
-                        <div 
-                            className="absolute bottom-2 right-2 px-3 py-1 bg-yellow-400 text-black text-xs font-bold rounded shadow-lg animate-pulse"
-                            style={{ zIndex: 30 }}
-                            aria-live="polite"
-                        >
-                            SUSTAIN
-                        </div>
-                    )}
-                  </div>
+          <div className="absolute inset-0 z-0">
+             {/* Base solid layer behind semi-transparent image for Settings Preview */}
+             {themeSettings.backgroundUrl && <div className={`absolute inset-0 ${backingLayerClass}`} />}
+             <div style={backgroundStyle} />
+             <div className="absolute inset-0 z-0">
+                {/* Inserted TopBar for Settings Preview */}
+                <div className={`absolute top-0 left-0 right-0 z-50 transition-transform duration-300 ease-in-out ${autoHideTopBar ? (isTopBarVisible ? 'translate-y-0' : '-translate-y-full') : 'translate-y-0'}`}>
+                <TopBar 
+                    onPlay={handlePlay} 
+                    onPause={handlePause} 
+                    onStop={handleStopPlayback} 
+                    onExit={() => {}} // No-op for preview
+                    isPlaying={isPlaying} 
+                    isFileLoaded={playbackNotes.length > 0} 
+                    fileName={currentFileName} 
+                    waitMode={waitMode} 
+                    metronomeMode={metronomeMode} 
+// FIX: Corrected the logic for cycling metronome modes to correctly transition between 'off', 'beat', and 'bar' states.
+                    onCycleMetronomeMode={() => setMetronomeMode(p => p === 'off' ? 'beat' : p === 'beat' ? 'bar' : 'off')} 
+                    isMetronomeAvailable={isMetronomeAvailable} 
+                    hitCount={hitCount} 
+                    errorCount={errorCount} 
+                    liveAccuracy={liveAccuracy} 
+                    liveSpeed={liveSpeed} 
+                    totalNoteCount={totalNoteCountForGame} 
+                    currentTimeMs={musicalCurrentTimeMs / playbackTempoMultiplier} 
+                    totalDurationMs={absoluteEndTimeMs / playbackTempoMultiplier} 
+                    viewMode={viewMode} 
+                    noteSpeedMultiplier={noteSpeedMultiplier} 
+                    onNoteSpeedMultiplierChange={setNoteSpeedMultiplier} 
+                    sheetMusicZoom={sheetMusicZoom} 
+                    onSheetMusicZoomChange={setSheetMusicZoom} 
+                    analysisResult={analysisResult} 
+                    metronomeBeat={metronomeBeat} 
+                    totalWaitTimeMs={totalWaitTimeMs} 
+                    isFreePlayMode={isFreePlayMode} 
+                    isRecording={isRecording} 
+                    onToggleRecording={handleToggleRecording} 
+                    onSaveRecording={handleSaveRecording} 
+                    showSaveButton={showSaveButton} 
+                />
                 </div>
-             </div>
+
+                <div ref={contentAreaRef} className="w-full h-full flex flex-col justify-end items-center relative overflow-hidden">
+                    <div className="flex flex-col justify-end" style={{ width: `${baseCalculatedPianoWidth}px`, height: '100%' }}>
+                    <div className="relative flex-grow w-full">
+                        {viewMode === 'falling' ? (
+                        <FallingNotesArea notes={notesForFallingView} currentTimeMs={musicalCurrentTimeMs} keyPositions={keyPositionsMap} activeMidiNotesInfo={activePlaybackNotesInfo} width={baseCalculatedPianoWidth} actualHeight={contentAreaHeight} pixelsPerMillisecond={BASE_PIXELS_PER_MILLISECOND * noteSpeedMultiplier} barLines={barLines} noteLabelType={noteLabelType} rightHandColor={themeSettings.rightHandColor} leftHandColor={themeSettings.leftHandColor} backgroundColor={fallingNotesBackgroundColor} activeKeySignature={getActiveKeySignature(musicalCurrentTimeMs, signatureEvents, initialKeySignature)} activeTempoBpm={activeBpmForDisplay} showOnlyMajorNotes={showOnlyMajorNotes} showPianoTilesBackground={showPianoTilesBackground} qwertyLayout={qwertyLayout} qwertyCurrentOctaveShift={qwertyCurrentOctaveShift} mirpTranspose={mirpTranspose} />
+                        ) : (viewMode === 'sheet-roll' || viewMode === 'sheet-qwerty') && vexFlowData ? (
+                            <HorizontalNotesView currentTimeMs={musicalCurrentTimeMs} width={baseCalculatedPianoWidth} height={contentAreaHeight} pixelsPerMillisecond={BASE_PIXELS_PER_MILLISECOND * noteSpeedMultiplier * 1.5} activePlaybackNotesInfo={activePlaybackNotesInfo} rightHandColor={themeSettings.rightHandColor} leftHandColor={themeSettings.leftHandColor} backgroundColor={sheetMusicBackgroundColor} vexFlowData={vexFlowData} showOnlyMajorNotes={showOnlyMajorNotes} noteLabelType={viewMode === 'sheet-qwerty' ? 'qwerty' : noteLabelType} activeKeySignature={getActiveKeySignature(musicalCurrentTimeMs, signatureEvents, initialKeySignature)} activeBpmForDisplay={activeBpmForDisplay} qwertyLayout={qwertyLayout} qwertyCurrentOctaveShift={qwertyCurrentOctaveShift} mirpTranspose={mirpTranspose} isQwertyView={viewMode === 'sheet-qwerty'} />
+                        ) : viewMode === 'sheet' && vexFlowData ? (
+                        <VexFlowSheetMusicView notes={notesForGame} timeSignature={initialTimeSignature} keySignature={initialKeySignature} initialTempoBpm={currentTempoBpm || 120} width={baseCalculatedPianoWidth} height={contentAreaHeight} currentTimeMs={musicalCurrentTimeMs} totalDurationMs={originalTotalMusicalDurationMs} activePlaybackNotesInfo={activePlaybackNotesInfo} onSeek={handleSeek} isPlaying={isPlaying} sheetMusicZoom={sheetMusicZoom} barLines={barLines} rightHandColor={themeSettings.rightHandColor} leftHandColor={themeSettings.leftHandColor} signatureEvents={signatureEvents} onLayoutRendered={setRenderedLayoutId} tempoEvents={tempoEvents} playbackTempoMultiplier={playbackTempoMultiplier} backgroundColor={sheetMusicBackgroundColor} />
+                        ) : <div className="w-full h-full flex items-center justify-center bg-slate-900"><p className="text-slate-400 animate-pulse">Loading preview...</p></div>}
+                    </div>
+                    <div className="relative flex-shrink-0" style={{ width: '100%', height: `${layoutConfig.whiteKeyHeight + layoutConfig.keyLabelHeight}px` }}>
+                        <PianoKeyboard 
+                        keyPositions={Array.from(keyPositionsMap.values())} 
+                        userSustainedKeys={userSustainedKeys} 
+                        userActiveKeys={userActiveKeys} 
+                        activeMidiNotesInfo={activeMidiNotesInfoForKeyboard} 
+                        onUiKeyPress={handleUiKeyPress} 
+                        onUiKeyRelease={handleUiKeyRelease} 
+                        rightHandColor={themeSettings.rightHandColor} 
+                        leftHandColor={themeSettings.leftHandColor} 
+                        showQwertyShortcuts={showQwertyShortcuts} 
+                        qwertyCurrentOctaveShift={qwertyLayout === 'mirp' ? 0 : qwertyCurrentOctaveShift} 
+                        width={baseCalculatedPianoWidth} 
+                        layoutConfig={layoutConfig} 
+                        qwertyLayout={qwertyLayout} 
+                        mirpTranspose={mirpTranspose}
+                        isInteractive={viewMode !== 'sheet-qwerty'} 
+                        />
+                        {isSustainPedalActive && (
+                            <div 
+                                className="absolute bottom-2 right-2 px-3 py-1 bg-yellow-400 text-black text-xs font-bold rounded shadow-lg animate-pulse"
+                                style={{ zIndex: 30 }}
+                                aria-live="polite"
+                            >
+                                SUSTAIN
+                            </div>
+                        )}
+                    </div>
+                    </div>
+                </div>
+            </div>
           </div>
         )}
 
@@ -2146,15 +2332,34 @@ const handleExitGame = useCallback(() => {
                 onShowPianoTilesBackgroundChange={setShowPianoTilesBackground} 
                 uiZoom={uiZoom}
                 onUiZoomChange={setUiZoom}
+                mp3Volume={mp3Volume}
+                onMp3VolumeChange={setMp3Volume}
               />
            </div>
         )}
         
         {currentScreen === 'inGame' && (
           <div className="flex-grow relative overflow-hidden">
-            <div className={`absolute top-0 left-0 right-0 z-50 transition-transform duration-300 ease-in-out ${autoHideTopBar ? (isTopBarVisible ? 'translate-y-0' : '-translate-y-full') : 'translate-y-0'}`} onMouseEnter={autoHideTopBar ? clearTopBarHideTimer : undefined} onMouseLeave={autoHideTopBar ? startTopBarHideTimer : undefined}>
-              <TopBar onPlay={handlePlay} onPause={handlePause} onStop={handleStopPlayback} onExit={handleExitGame} isPlaying={isPlaying} isFileLoaded={playbackNotes.length > 0} fileName={currentFileName} waitMode={waitMode} metronomeMode={metronomeMode} onCycleMetronomeMode={() => setMetronomeMode(p => p === 'off' ? 'beat' : (p === 'beat' ? 'bar' : 'off'))} isMetronomeAvailable={isMetronomeAvailable} hitCount={hitCount} errorCount={errorCount} liveAccuracy={liveAccuracy} liveSpeed={liveSpeed} totalNoteCount={totalNoteCountForGame} currentTimeMs={musicalCurrentTimeMs / playbackTempoMultiplier} totalDurationMs={absoluteEndTimeMs / playbackTempoMultiplier} viewMode={viewMode} noteSpeedMultiplier={noteSpeedMultiplier} onNoteSpeedMultiplierChange={setNoteSpeedMultiplier} sheetMusicZoom={sheetMusicZoom} onSheetMusicZoomChange={setSheetMusicZoom} analysisResult={analysisResult} metronomeBeat={metronomeBeat} totalWaitTimeMs={totalWaitTimeMs} isFreePlayMode={isFreePlayMode} isRecording={isRecording} onToggleRecording={handleToggleRecording} onSaveRecording={handleSaveRecording} showSaveButton={showSaveButton} />
+            {/* Base solid layer behind semi-transparent image */}
+            <div className="absolute inset-0 z-0">
+               {themeSettings.backgroundUrl && <div className={`absolute inset-0 ${backingLayerClass}`} />}
+               <div style={backgroundStyle} />
             </div>
+            <div className={`absolute top-0 left-0 right-0 z-50 transition-transform duration-300 ease-in-out ${autoHideTopBar ? (isTopBarVisible ? 'translate-y-0' : '-translate-y-full') : 'translate-y-0'}`} onMouseEnter={autoHideTopBar ? clearTopBarHideTimer : undefined} onMouseLeave={autoHideTopBar ? startTopBarHideTimer : undefined}>
+              <TopBar onPlay={handlePlay} onPause={handlePause} onStop={handleStopPlayback} onExit={handleExitGame} isPlaying={isPlaying} isFileLoaded={playbackNotes.length > 0} fileName={currentFileName} waitMode={waitMode} metronomeMode={metronomeMode} 
+// FIX: Corrected the logic for cycling metronome modes to correctly transition between 'off', 'beat', and 'bar' states.
+onCycleMetronomeMode={() => setMetronomeMode(p => p === 'off' ? 'beat' : p === 'beat' ? 'bar' : 'off')} isMetronomeAvailable={isMetronomeAvailable} hitCount={hitCount} errorCount={errorCount} liveAccuracy={liveAccuracy} liveSpeed={liveSpeed} totalNoteCount={totalNoteCountForGame} currentTimeMs={musicalCurrentTimeMs / playbackTempoMultiplier} totalDurationMs={absoluteEndTimeMs / playbackTempoMultiplier} viewMode={viewMode} noteSpeedMultiplier={noteSpeedMultiplier} onNoteSpeedMultiplierChange={setNoteSpeedMultiplier} sheetMusicZoom={sheetMusicZoom} onSheetMusicZoomChange={setSheetMusicZoom} analysisResult={analysisResult} metronomeBeat={metronomeBeat} totalWaitTimeMs={totalWaitTimeMs} isFreePlayMode={isFreePlayMode} isRecording={isRecording} onToggleRecording={handleToggleRecording} onSaveRecording={handleSaveRecording} showSaveButton={showSaveButton} />
+            </div>
+            
+            {/* Backing Track Error Toast */}
+            {backingTrackError && (
+                <div className="absolute top-20 left-1/2 transform -translate-x-1/2 z-[60] bg-red-600/90 text-white px-4 py-3 rounded-lg shadow-lg border border-red-400 flex items-center gap-3 animate-bounce-in">
+                    <svg className="w-6 h-6 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                    <span>{backingTrackError}</span>
+                    <button onClick={() => setBackingTrackError(null)} className="ml-2 text-red-200 hover:text-white font-bold">&times;</button>
+                </div>
+            )}
+
             <div ref={contentAreaRef} className="w-full h-full flex flex-col justify-end items-center relative overflow-hidden">
                 {autoHideTopBar && <div className="absolute top-0 left-0 right-0 h-10 z-40" onMouseEnter={() => setIsTopBarVisible(true)} onClick={() => setIsTopBarVisible(true)} />}
                 
@@ -2164,14 +2369,14 @@ const handleExitGame = useCallback(() => {
                   <div className="flex flex-col justify-end" style={{ width: `${baseCalculatedPianoWidth}px`, height: '100%' }}>
                     <div className="relative flex-grow w-full">
                       {isFreePlayMode ? (
-                        <div className="relative w-full h-full" style={{ backgroundColor: themeSettings.fallingNotesBackgroundColor }}>
+                        <div className="relative w-full h-full" style={{ backgroundColor: fallingNotesBackgroundColor }}>
                           <div className="absolute inset-0 z-0">
                               <ChordDisplay chord={detectedChord} />
                           </div>
                           <FallingNotesArea isRising={true} notes={[]} liveNotes={freePlayLiveNotes} currentTimeMs={freePlayElapsedTime} keyPositions={keyPositionsMap} activeMidiNotesInfo={new Map()} width={baseCalculatedPianoWidth} actualHeight={contentAreaHeight} pixelsPerMillisecond={BASE_PIXELS_PER_MILLISECOND * noteSpeedMultiplier} barLines={[]} noteLabelType={noteLabelType} rightHandColor={themeSettings.rightHandColor} leftHandColor={themeSettings.leftHandColor} backgroundColor="transparent" activeKeySignature="C" activeTempoBpm={120} showOnlyMajorNotes={false} showPianoTilesBackground={showPianoTilesBackground} qwertyLayout={qwertyLayout} qwertyCurrentOctaveShift={qwertyCurrentOctaveShift} mirpTranspose={mirpTranspose} />
                         </div>
                       ) : viewMode === 'falling' ? (
-                        <FallingNotesArea notes={notesForFallingView} currentTimeMs={musicalCurrentTimeMs} keyPositions={keyPositionsMap} activeMidiNotesInfo={activePlaybackNotesInfo} width={baseCalculatedPianoWidth} actualHeight={contentAreaHeight} pixelsPerMillisecond={BASE_PIXELS_PER_MILLISECOND * noteSpeedMultiplier} barLines={barLines} noteLabelType={noteLabelType} rightHandColor={themeSettings.rightHandColor} leftHandColor={themeSettings.leftHandColor} backgroundColor={themeSettings.fallingNotesBackgroundColor} activeKeySignature={getActiveKeySignature(musicalCurrentTimeMs, signatureEvents, initialKeySignature)} activeTempoBpm={activeBpmForDisplay} showOnlyMajorNotes={showOnlyMajorNotes} showPianoTilesBackground={showPianoTilesBackground} qwertyLayout={qwertyLayout} qwertyCurrentOctaveShift={qwertyCurrentOctaveShift} mirpTranspose={mirpTranspose} />
+                        <FallingNotesArea notes={notesForFallingView} currentTimeMs={musicalCurrentTimeMs} keyPositions={keyPositionsMap} activeMidiNotesInfo={activePlaybackNotesInfo} width={baseCalculatedPianoWidth} actualHeight={contentAreaHeight} pixelsPerMillisecond={BASE_PIXELS_PER_MILLISECOND * noteSpeedMultiplier} barLines={barLines} noteLabelType={noteLabelType} rightHandColor={themeSettings.rightHandColor} leftHandColor={themeSettings.leftHandColor} backgroundColor={fallingNotesBackgroundColor} activeKeySignature={getActiveKeySignature(musicalCurrentTimeMs, signatureEvents, initialKeySignature)} activeTempoBpm={activeBpmForDisplay} showOnlyMajorNotes={showOnlyMajorNotes} showPianoTilesBackground={showPianoTilesBackground} qwertyLayout={qwertyLayout} qwertyCurrentOctaveShift={qwertyCurrentOctaveShift} mirpTranspose={mirpTranspose} />
                       ) : (viewMode === 'sheet-roll' || viewMode === 'sheet-qwerty') && vexFlowData ? (
                           <HorizontalNotesView
                               currentTimeMs={musicalCurrentTimeMs}
@@ -2181,7 +2386,7 @@ const handleExitGame = useCallback(() => {
                               activePlaybackNotesInfo={activePlaybackNotesInfo}
                               rightHandColor={themeSettings.rightHandColor}
                               leftHandColor={themeSettings.leftHandColor}
-                              backgroundColor={'#F7F5ED'}
+                              backgroundColor={sheetMusicBackgroundColor}
                               vexFlowData={vexFlowData}
                               showOnlyMajorNotes={showOnlyMajorNotes}
                               noteLabelType={viewMode === 'sheet-qwerty' ? 'qwerty' : noteLabelType}
@@ -2193,7 +2398,7 @@ const handleExitGame = useCallback(() => {
                               isQwertyView={viewMode === 'sheet-qwerty'}
                           />
                       ) : viewMode === 'sheet' && vexFlowData ? (
-                        <VexFlowSheetMusicView notes={notesForGame} timeSignature={initialTimeSignature} keySignature={initialKeySignature} initialTempoBpm={currentTempoBpm || 120} width={baseCalculatedPianoWidth} height={contentAreaHeight} currentTimeMs={musicalCurrentTimeMs} totalDurationMs={originalTotalMusicalDurationMs} activePlaybackNotesInfo={activePlaybackNotesInfo} onSeek={handleSeek} isPlaying={isPlaying} sheetMusicZoom={sheetMusicZoom} barLines={barLines} rightHandColor={themeSettings.rightHandColor} leftHandColor={themeSettings.leftHandColor} signatureEvents={signatureEvents} onLayoutRendered={setRenderedLayoutId} tempoEvents={tempoEvents} playbackTempoMultiplier={playbackTempoMultiplier} />
+                        <VexFlowSheetMusicView notes={notesForGame} timeSignature={initialTimeSignature} keySignature={initialKeySignature} initialTempoBpm={currentTempoBpm || 120} width={baseCalculatedPianoWidth} height={contentAreaHeight} currentTimeMs={musicalCurrentTimeMs} totalDurationMs={originalTotalMusicalDurationMs} activePlaybackNotesInfo={activePlaybackNotesInfo} onSeek={handleSeek} isPlaying={isPlaying} sheetMusicZoom={sheetMusicZoom} barLines={barLines} rightHandColor={themeSettings.rightHandColor} leftHandColor={themeSettings.leftHandColor} signatureEvents={signatureEvents} onLayoutRendered={setRenderedLayoutId} tempoEvents={tempoEvents} playbackTempoMultiplier={playbackTempoMultiplier} backgroundColor={sheetMusicBackgroundColor} />
                       ) : <div className="w-full h-full flex items-center justify-center bg-slate-900"><p className="text-slate-400 animate-pulse">Loading music...</p></div>}
                     </div>
                     {!isFreePlayMode && notesForGame.length > 0 && <div className="w-full"><ProgressBar currentTimeMs={musicalCurrentTimeMs} totalDurationMs={absoluteEndTimeMs} width={baseCalculatedPianoWidth} height={PROGRESS_BAR_HEIGHT_PX} onSeek={handleSeek} isPlaybackActive={isPlaying} isSeekingDisabled={waitMode === 'retical'} /></div>}

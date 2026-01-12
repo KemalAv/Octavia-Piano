@@ -1,7 +1,11 @@
 
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useRef } from 'react';
 import { ExtendedResult, WaitMode, GameSettings, PracticeHand } from '../types';
 import DifficultyAnalysis from './DifficultyAnalysis';
+
+type Mode = 'practice_lenient' | 'practice_strict' | 'autoplay' | 'retical';
+type BackingType = 'none' | 'mp3';
 
 interface ModeSelectionProps {
   onStartGame: (settings: GameSettings) => void;
@@ -15,8 +19,6 @@ interface ModeSelectionProps {
   currentHideBarNavigationButtons: boolean;
   onHideBarNavigationButtonsChange: (value: boolean) => void;
 }
-
-type Mode = 'practice_lenient' | 'practice_strict' | 'autoplay' | 'retical';
 
 const tutorials = [
   { title: 'Sheet Music', url: 'https://youtu.be/yltCkCy1DeM' },
@@ -46,6 +48,13 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
   const [isRendered, setIsRendered] = useState(false);
   const [isTutorialModalOpen, setIsTutorialModalOpen] = useState(false);
   const [isTutorialModalRendered, setIsTutorialModalRendered] = useState(false);
+  const [isNonStop, setIsNonStop] = useState(false);
+
+  // Backing Track State
+  const [backingType, setBackingType] = useState<BackingType>('none');
+  const [backingFile, setBackingFile] = useState<File | null>(null);
+  const [backingOffset, setBackingOffset] = useState(-2000); // Default to -2000ms
+  const mp3InputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => setIsRendered(true), 10);
@@ -94,6 +103,12 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
     if (mode === 'practice_strict') setNoteToleranceMs(30);
   };
 
+  const handleMp3Upload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setBackingFile(e.target.files[0]);
+    }
+  };
+
   const handleStart = () => {
     let waitMode: WaitMode;
     let tolerance: number;
@@ -119,6 +134,15 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
         waitMode = 'strict';
         tolerance = 30; // Fallback to strict
     }
+
+    let backingConfig = undefined;
+    if (backingType === 'mp3' && backingFile) {
+        backingConfig = {
+            type: 'mp3' as const,
+            url: URL.createObjectURL(backingFile),
+            offsetMs: backingOffset
+        };
+    }
     
     onStartGame({
         waitMode,
@@ -126,6 +150,8 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
         practiceHand: (selectedMode === 'practice_lenient' || selectedMode === 'practice_strict') ? practiceHand : 'both',
         hideBarNavigationButtons: selectedMode === 'retical' ? true : currentHideBarNavigationButtons,
         noteToleranceMs: tolerance,
+        isNonStop: (selectedMode === 'practice_lenient' || selectedMode === 'retical') ? isNonStop : false,
+        backingTrack: backingConfig
     });
   };
 
@@ -181,6 +207,62 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
             </div>
         </div>
 
+        {/* Backing Track Options */}
+        <div className="bg-slate-900/50 p-6 rounded-lg mb-6 ring-1 ring-slate-700">
+            <h4 className="font-semibold text-lg mb-4 text-slate-200">Backing Track (Audio)</h4>
+            <div className="flex flex-col gap-4">
+                <div className="flex gap-4">
+                    <label className="flex items-center cursor-pointer">
+                        <input type="radio" name="backing" checked={backingType === 'none'} onChange={() => setBackingType('none')} className="form-radio text-cyan-500" />
+                        <span className="ml-2 text-slate-300">None</span>
+                    </label>
+                    <label className="flex items-center cursor-pointer">
+                        <input type="radio" name="backing" checked={backingType === 'mp3'} onChange={() => setBackingType('mp3')} className="form-radio text-cyan-500" />
+                        <span className="ml-2 text-slate-300">Upload MP3</span>
+                    </label>
+                </div>
+
+                {backingType === 'mp3' && (
+                    <div className="flex flex-col gap-2">
+                        <input 
+                            type="file" 
+                            accept="audio/mp3,audio/wav,audio/*" 
+                            onChange={handleMp3Upload}
+                            ref={mp3InputRef}
+                            className="text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-cyan-600 file:text-white hover:file:bg-cyan-700"
+                        />
+                        {backingFile && <p className="text-xs text-green-400">Selected: {backingFile.name}</p>}
+                    </div>
+                )}
+
+                {backingType !== 'none' && (
+                    <div className="mt-2">
+                        <div className="flex items-center justify-between mb-1">
+                            <label className="text-sm text-slate-400">Sync Offset (Audio vs MIDI)</label>
+                            <span className="text-sm font-mono text-cyan-300">{backingOffset > 0 ? `+${backingOffset}` : backingOffset}ms</span>
+                        </div>
+                        <input
+                            type="range"
+                            min="-5000"
+                            max="5000"
+                            step="10"
+                            value={backingOffset}
+                            onChange={(e) => setBackingOffset(parseInt(e.target.value))}
+                            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer"
+                        />
+                        <div className="flex justify-between text-[10px] text-slate-500 mt-1">
+                            <span>-5s (Audio Delayed)</span>
+                            <span>0ms</span>
+                            <span>+5s (Audio Ahead)</span>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-2">
+                            Adjust to synchronize the audio with the notes. Positive values mean the audio starts earlier (intro).
+                        </p>
+                    </div>
+                )}
+            </div>
+        </div>
+
         {/* Practice Mode Options */}
         {isPractice && (
             <div className="bg-slate-900/50 p-6 rounded-lg mb-6 space-y-6 ring-1 ring-slate-700">
@@ -214,6 +296,27 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
                         ))}
                      </div>
                 </div>
+            </div>
+        )}
+        
+        { (selectedMode === 'practice_lenient' || selectedMode === 'retical') && (
+            <div className="bg-slate-900/50 p-6 rounded-lg mb-6 ring-1 ring-slate-700">
+                <label htmlFor="non-stop-toggle" className="flex items-center justify-between cursor-pointer">
+                    <div>
+                        <span className="text-lg font-medium text-slate-300">Non-Stop Mode</span>
+                        <p className="text-xs text-slate-400 font-normal mt-1">Music continues playing even if you miss notes, like Autoplay.</p>
+                    </div>
+                    <div className="relative inline-flex items-center">
+                        <input
+                            type="checkbox"
+                            id="non-stop-toggle"
+                            checked={isNonStop}
+                            onChange={e => setIsNonStop(e.target.checked)}
+                            className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-slate-600 rounded-full peer peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-cyan-800 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600"></div>
+                    </div>
+                </label>
             </div>
         )}
 
@@ -284,14 +387,14 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
                   className="flex items-center justify-between p-3 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors group"
                 >
                   <span className="text-white font-semibold group-hover:text-cyan-300">{tutorial.title}</span>
-                  <svg className="w-5 h-5 text-slate-400 group-hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                  <svg className="w-5 h-5 text-slate-400 group-hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002 2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
                 </a>
               ))}
             </div>
             <div className="mt-6 text-center">
               <button 
                 onClick={() => setIsTutorialModalOpen(false)} 
-                className="bg-sky-500 hover:bg-sky-600 text-white font-bold py-2 px-6 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-sky-300"
+                className="bg-sky-500 hover:bg-sky-600 text-white font-bold py-2 px-6 rounded-lg text-lg transition-colors focus:outline-none focus:ring-2 focus:ring-sky-300"
               >Close</button>
             </div>
           </div>

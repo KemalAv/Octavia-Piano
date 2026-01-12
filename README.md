@@ -102,6 +102,10 @@
    -- Add arranger column to songs table for arrangement credits
    ALTER TABLE public.songs
    ADD COLUMN IF NOT EXISTS arranger TEXT;
+
+   -- Add description column to songs table for user-provided descriptions
+   ALTER TABLE public.songs
+   ADD COLUMN IF NOT EXISTS description TEXT;
    ```
 
 5. **Database Performance Fixes (Recommended):**

@@ -1,6 +1,5 @@
 
 
-
 import { PianoKeyDefinition, PianoKeyType, QwertyKeyMapEntry, ViewMode, NoteLabelType, ThemeSettings, DevicePreset, LayoutDimensions, MirpKeyMapEntry } from './types';
 
 // Admin UUID - IMPORTANT: Replace with the actual UUID of your admin user in Supabase
@@ -114,11 +113,11 @@ export const HAND_SPLIT_MIDI_NOTE = 60; // C4
 
 // Glow effect colors (used in inline styles with box-shadow)
 // These are rgba strings or theme-compatible strings for Tailwind JIT
-export const USER_GLOW_SHADOW = '0 0 16px 5px rgba(250, 204, 21, 0.7)'; // Yellow glow
+export const USER_GLOW_SHADOW = '0 0 16px 5px rgb(245, 158, 11)'; // Yellow glow
 
 // NEW: System and User Play Colors for consistent theming
 export const SYSTEM_PLAY_COLOR = '#8B5CF6'; // A slightly brighter violet-500 for system playback (matches Tailwind violet-500)
-export const USER_PLAY_COLOR = '#F59E0B';   // A richer amber-500 for user playback (matches Tailwind amber-500)
+export const USER_PLAY_COLOR = 'rgb(245, 158, 11)';   // A richer amber-500 for user playback (matches Tailwind amber-500)
 
 
 export const CHORD_RECOGNITION_WINDOW_MS = 30; // Milliseconds to wait for subsequent notes in a chord
@@ -301,6 +300,7 @@ export const MAX_QWERTY_OCTAVE_SHIFT = 2;
 // --- Default Settings Constants ---
 export const DEFAULT_MASTER_VOLUME = 0.5;
 export const DEFAULT_METRONOME_VOLUME = 0.5;
+export const DEFAULT_MP3_VOLUME = 0.5; // NEW: Default MP3 volume
 export const DEFAULT_VIEW_MODE: ViewMode = 'falling';
 export const DEFAULT_NOTE_LABEL_TYPE: NoteLabelType = 'none'; // Updated to 'none'
 export const DEFAULT_SHOW_ONLY_MAJOR_NOTES = false;
@@ -312,6 +312,8 @@ export const DEFAULT_THEME_SETTINGS: ThemeSettings = {
   rightHandColor: '#a000ff',
   leftHandColor: '#007dff',  
   fallingNotesBackgroundColor: '#1c2636',
+  backgroundUrl: '',
+  backgroundOpacity: 0.25,
 };
 // --- End Default Settings Constants ---
 

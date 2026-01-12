@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { MidiNotePlaybackItem, KeyPosition, ActiveMidiNoteInfo, NoteLabelType, QwertyLayout, FreePlayLiveNote } from '../types';
 import Note from './Note';
@@ -57,6 +58,20 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
     ? actualHeight / pixelsPerMillisecond
     : 0;
 
+  const isLightBackground = React.useMemo(() => {
+    if (!backgroundColor || backgroundColor === 'transparent') return false;
+    const color = backgroundColor.toLowerCase();
+    if (color === '#ffffff' || color === 'white') return true;
+    try {
+        const hex = color.replace('#', '');
+        if (hex.length !== 6) return false;
+        const r = parseInt(hex.substring(0, 2), 16);
+        const g = parseInt(hex.substring(2, 4), 16);
+        const b = parseInt(hex.substring(4, 6), 16);
+        return (r * 0.299 + g * 0.587 + b * 0.114) > 186;
+    } catch { return false; }
+  }, [backgroundColor]);
+
   const visibleNotes = React.useMemo(() => {
     if (actualHeight <= 0 || pixelsPerMillisecond <= 0 || isRising) return [];
     return notes.filter(note => {
@@ -74,16 +89,17 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
     const blackTiles: React.JSX.Element[] = [];
 
     keyPositions.forEach((kp) => {
+        const whiteTileColor = isLightBackground ? 'rgba(0, 0, 0, 0.03)' : 'rgba(255, 255, 255, 0.05)';
+        const blackTileColor = isLightBackground ? 'rgba(0, 0, 0, 0.08)' : 'rgba(0, 0, 0, 0.2)';
+        
         const style: React.CSSProperties = {
             left: `${kp.x}px`,
             width: `${kp.width}px`,
             height: '100%',
-            backgroundColor: kp.type === 'white' 
-                ? 'rgba(255, 255, 255, 0.05)' // Subtle grid
-                : 'rgba(0, 0, 0, 0.2)',     // Darker tracks for black keys
+            backgroundColor: kp.type === 'white' ? whiteTileColor : blackTileColor,
             zIndex: kp.type === 'white' ? 0 : 1
         };
-        const tile = <div key={`bg-tile-${kp.name}`} className="absolute top-0 border-r border-white/5" style={style} />;
+        const tile = <div key={`bg-tile-${kp.name}`} className={`absolute top-0 border-r ${isLightBackground ? 'border-black/5' : 'border-white/5'}`} style={style} />;
         
         if (kp.type === 'white') {
             whiteTiles.push(tile);
@@ -98,7 +114,7 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
             {blackTiles}
         </div>
     );
-  }, [keyPositions, actualHeight, showPianoTilesBackground]);
+  }, [keyPositions, actualHeight, showPianoTilesBackground, isLightBackground]);
 
 
   const whiteKeyGridLines = React.useMemo(() => {
@@ -109,7 +125,7 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
         lines.push(
           <div
             key={`grid-line-start-${keyPos.name}`}
-            className="absolute top-0 bottom-0 w-px bg-white opacity-10"
+            className={`absolute top-0 bottom-0 w-px ${isLightBackground ? 'bg-black opacity-10' : 'bg-white opacity-10'}`}
             style={{ left: `${keyPos.x}px`, zIndex: 2 }} 
           />
         );
@@ -119,34 +135,49 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
        lines.push(
           <div
             key={`grid-line-end`}
-            className="absolute top-0 bottom-0 w-px bg-white opacity-10"
+            className={`absolute top-0 bottom-0 w-px ${isLightBackground ? 'bg-black opacity-10' : 'bg-white opacity-10'}`}
             style={{ left: `${width -1}px`, zIndex: 2 }}
           />
         );
     }
     return lines;
-  }, [keyPositions, width, actualHeight]);
+  }, [keyPositions, width, actualHeight, isLightBackground]);
 
   const renderedBarLines = React.useMemo(() => {
     if (!barLines || actualHeight <= 0 || pixelsPerMillisecond <= 0 || isRising) return null;
 
     return barLines
-      .map(barTimeMs => {
+      .map((barTimeMs, index) => {
         const yPositionPx = actualHeight + (currentTimeMs - barTimeMs) * pixelsPerMillisecond;
-        if (yPositionPx < -1 || yPositionPx > actualHeight + 1) {
+        // Give some extra padding for visibility of the number
+        if (yPositionPx < -20 || yPositionPx > actualHeight + 20) {
           return null;
         }
         return (
           <div
-            key={`bar-line-${barTimeMs}`}
-            className="absolute left-0 w-full border-t border-slate-500 opacity-50 shadow-[0_0_5px_rgba(255,255,255,0.3)]"
-            style={{ top: `${yPositionPx}px`, zIndex: 5 }} // Ensure bar lines are visible
+            key={`bar-line-container-${barTimeMs}`}
+            className="absolute left-0 w-full"
+            style={{ top: `${yPositionPx}px`, zIndex: 5 }}
             aria-hidden="true"
-          />
+          >
+            <div
+              className={`w-full border-t opacity-50 ${isLightBackground ? 'border-slate-400' : 'border-slate-500 shadow-[0_0_5px_rgba(255,255,255,0.3)]'}`}
+            />
+            {/* The measure number */}
+            <span
+              className="absolute -top-2.5 left-2 text-xs font-mono"
+              style={{
+                color: isLightBackground ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)',
+              }}
+            >
+              {index + 1}
+            </span>
+          </div>
         );
       })
       .filter(Boolean);
-  }, [barLines, currentTimeMs, actualHeight, pixelsPerMillisecond, isRising]);
+  }, [barLines, currentTimeMs, actualHeight, pixelsPerMillisecond, isRising, isLightBackground]);
+
 
   if (actualHeight <= 0 || pixelsPerMillisecond <= 0) {
     return (

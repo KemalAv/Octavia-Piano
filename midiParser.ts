@@ -412,7 +412,6 @@ export async function parseMusicXmlData(
     const barLinesMs = Array.from(barLineTimeSet).sort((a, b) => a - b);
     
     const finalNotes = notes.map(n => ({ ...n, timeMs: n.timeMs + INITIAL_PLAYBACK_DELAY_MS }));
-    // Corrected typo: INITIAL_PLAYBACK_DELAY_DELAY_MS -> INITIAL_PLAYBACK_DELAY_MS
     const finalTempoEvents = uniqueTempoEvents.map(t => ({...t, timeMs: t.timeMs + INITIAL_PLAYBACK_DELAY_MS }));
     const finalBarLinesMs = barLinesMs.map(b => b + INITIAL_PLAYBACK_DELAY_MS);
     const finalSignatureEvents = signatureEventsFromXml.map(e => ({...e, timeMs: e.timeMs + INITIAL_PLAYBACK_DELAY_MS}));

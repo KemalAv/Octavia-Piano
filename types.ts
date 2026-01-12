@@ -1,6 +1,5 @@
 
 
-
 import { Session, User } from '@supabase/supabase-js';
 
 // ========================================
@@ -187,18 +186,28 @@ export type Screen =
 export type PracticeHand = 'left' | 'right' | 'both';
 export type NoteLabelType = 'none' | 'fingering' | 'noteName' | 'qwerty';
 
+export interface BackingTrackConfig {
+  type: 'none' | 'mp3';
+  url?: string; // Blob URL for MP3
+  offsetMs: number;
+}
+
 export interface GameSettings {
   waitMode: WaitMode;
   playbackTempoMultiplier: number;
   practiceHand: PracticeHand;
   hideBarNavigationButtons?: boolean;
   noteToleranceMs?: number;
+  isNonStop?: boolean;
+  backingTrack?: BackingTrackConfig; // NEW: Backing track configuration
 }
 
 export interface ThemeSettings {
   rightHandColor: string;
   leftHandColor: string;
   fallingNotesBackgroundColor: string;
+  backgroundUrl?: string;
+  backgroundOpacity?: number;
 }
 
 export interface MetronomeAudioNode {
@@ -279,6 +288,7 @@ export interface OnlineSong {
   title: string;
   artist: string;
   arranger?: string;
+  description?: string;
   file_path: string;
   uploader_id: string;
   difficulty_level: number | null;
@@ -522,8 +532,6 @@ export interface AnalysisResult {
   parameters: {
     /** Note density / kepadatan not per detik */
     density: number;
-    /** Kompleksitas pola permainan (interval & ritmik) */
-    patternComplexity: number;
     /** Intensitas fisik dan stamina lokal */
     physicalEffort: number;
     /** Rentang nada aktif */
@@ -544,12 +552,6 @@ export interface AnalysisResult {
     starLevel: number;
     /** Note density × polyphony */
     chordNps: number;
-    /** Power gabungan chord × speed */
-    chordPower: number;
-    /** Indeks kekuatan chord (0–1) */
-    chordPowerIndex: number;
-    /** Bonus efek chord power dinamis */
-    chordPowerBonus?: number;
     /** Penalti repetitif */
     patternRepPenalty: number;
     /** Kompleksitas interval lokal */

@@ -34,10 +34,9 @@ const Note: React.FC<NoteProps> = ({
   mirpTranspose = 0,
 }) => {
   const isWhiteKey = keyPosition.type === 'white';
-  let bgStyle: React.CSSProperties = {};
+  let dynamicStyle: React.CSSProperties = {};
   let baseColor = noteItem.hand === 'left' ? leftHandColor : rightHandColor;
 
-  let glow = `0 0 10px ${baseColor}80, inset 0 0 10px rgba(0,0,0,0.2)`;
   let borderStyle: React.CSSProperties = {
     borderTop: '1px solid rgba(255,255,255,0.6)',
     borderLeft: '1px solid rgba(255,255,255,0.4)',
@@ -50,19 +49,18 @@ const Note: React.FC<NoteProps> = ({
     borderStyle = {
       border: '2px solid rgba(255, 255, 255, 0.9)',
     };
-    glow = `0 0 10px ${baseColor}80, inset 0 0 10px rgba(0,0,0,0.2), 0 0 8px white`;
   } else if (status === 'user_played') {
-    // Gold border and glow for user-played notes
+    // Gold border for user-played notes
     borderStyle = {
       border: `2px solid ${USER_PLAY_COLOR}`
     };
-    glow = `0 0 20px ${USER_PLAY_COLOR}`;
   } else if (status === 'waiting') {
-    // Waiting notes have a white border and glow, but retain original hand color.
-    borderStyle = {
-      border: '2px solid white',
+    // Waiting: Pulsing hand color
+    dynamicStyle = {
+        backgroundColor: isWhiteKey ? lightenHex(baseColor, 60) : baseColor, 
+        borderColor: baseColor,
+        zIndex: isWhiteKey ? 5 : 20,
     };
-    glow = '0 0 15px white';
   }
 
   // Always darken black keys unless they are waiting for input (for better visibility)
@@ -70,11 +68,15 @@ const Note: React.FC<NoteProps> = ({
     baseColor = darkenHex(baseColor, 25);
   }
   
-  bgStyle = {
-    backgroundColor: baseColor,
-    boxShadow: glow,
-    ...borderStyle,
-  };
+  let bgStyle: React.CSSProperties;
+  if (Object.keys(dynamicStyle).length > 0) {
+      bgStyle = dynamicStyle;
+  } else {
+      bgStyle = {
+        backgroundColor: baseColor,
+        ...borderStyle,
+      };
+  }
   
   const visualWidth = keyPosition.type === 'black' ? keyPosition.width * 0.8 : keyPosition.width - 2; // Slightly narrower for spacing
   const visualX = keyPosition.type === 'black' ? keyPosition.x + (keyPosition.width * 0.1) : keyPosition.x + 1;
