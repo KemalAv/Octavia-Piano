@@ -19,8 +19,8 @@ interface PianoKeyboardProps {
   layoutConfig: LayoutDimensions; // New Prop for dynamic sizing
   qwertyLayout?: QwertyLayout; // NEW: Optional prop for layout type
   mirpTranspose?: number; // NEW: Optional prop for MIRP transpose
-  // FIX: Add isInteractive prop to fix TypeScript error and disable UI interaction
   isInteractive?: boolean;
+  lowDetailMode?: boolean;
 }
 
 const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ 
@@ -38,8 +38,8 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
   layoutConfig,
   qwertyLayout = 'default',
   mirpTranspose = 0,
-  // FIX: Destructure isInteractive prop with a default value
   isInteractive = true,
+  lowDetailMode = false,
 }) => {
   const keyDefMap = React.useMemo(() => {
     const map = new Map<string, PianoKeyDefinition>();
@@ -49,7 +49,6 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
 
   const activeTouches = useRef<Map<number, string>>(new Map()); // <touch identifier, keyName>
   
-  // NEW: Mouse handling refs
   const isMouseDownRef = useRef(false);
   const activeMouseKeyRef = useRef<string | null>(null);
 
@@ -60,7 +59,6 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
     if (keyName) {
       return keyDefMap.get(keyName) || null;
     }
-    // Check parent if the click was on a label inside the key
     if (element.parentElement) {
         const parentKeyName = element.parentElement.getAttribute('data-key-name');
         if(parentKeyName) {
@@ -72,7 +70,6 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
 
   const handleTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
     e.preventDefault();
-    // Fix: Explicitly type 'touch' as 'Touch'
     for (const touch of Array.from(e.changedTouches) as Touch[]) { 
       const keyDef = getKeyFromClientCoords(touch.clientX, touch.clientY);
       if (keyDef && !activeTouches.current.has(touch.identifier)) {
@@ -84,7 +81,6 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
 
   const handleTouchMove = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
     e.preventDefault();
-    // Fix: Explicitly type 'touch' as 'Touch'
     for (const touch of Array.from(e.changedTouches) as Touch[]) { 
         const newKeyDef = getKeyFromClientCoords(touch.clientX, touch.clientY);
         const oldKeyName = activeTouches.current.get(touch.identifier);
@@ -109,7 +105,6 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
 
   const handleTouchEnd = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
     e.preventDefault();
-    // Fix: Explicitly type 'touch' as 'Touch'
     for (const touch of Array.from(e.changedTouches) as Touch[]) { 
       const keyName = activeTouches.current.get(touch.identifier);
       if (keyName) {
@@ -122,7 +117,6 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
     }
   }, [onUiKeyRelease, keyDefMap]);
   
-  // NEW: Mouse handlers for glissando
   const handleMouseUpGlobal = useCallback(() => {
     isMouseDownRef.current = false;
     const keyName = activeMouseKeyRef.current;
@@ -177,7 +171,6 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
   const pianoDisplayWidth = width;
   const totalHeight = layoutConfig.whiteKeyHeight + layoutConfig.keyLabelHeight;
 
-  // Memoize white and black key positions
   const whiteKeysPos = React.useMemo(() => keyPositions.filter(kp => kp.type === 'white'), [keyPositions]);
   const blackKeysPos = React.useMemo(() => keyPositions.filter(kp => kp.type === 'black'), [keyPositions]);
 
@@ -195,16 +188,12 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
 
     if (showQwertyShortcuts) {
         if (qwertyLayout === 'mirp') {
-            // MIRP Layout Logic
             const targetBaseMidi = keyDef.midiNote - mirpTranspose;
-            // Find the key mapping that produces this note
             const matchingEntries = MIRP_KEYBOARD_MAPPING.filter(m => m.midi === targetBaseMidi);
             if (matchingEntries.length > 0) {
-                // Use the label from the mapping (e.g., '1' or '!')
                 qwertyKeyForDisplay = matchingEntries[0].label;
             }
         } else {
-            // Default Layout Logic
             const matchingMappings = QWERTY_MINI_KEYBOARD_MAPPING.filter(m => {
               const mappedMidi = m.midiBase + (qwertyCurrentOctaveShift * 12);
               return mappedMidi === keyDef.midiNote;
@@ -229,6 +218,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
         leftHandColor={leftHandColor}
         showQwertyShortcut={showQwertyShortcuts}
         qwertyKey={qwertyKeyForDisplay}
+        lowDetailMode={lowDetailMode}
       />
     );
   };
@@ -239,9 +229,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
       style={{ 
         width: `${pianoDisplayWidth}px`, 
         height: `${totalHeight}px`,
-        // Centering and offset are now handled by the parent div in App.tsx
       }}
-      // FIX: Conditionally apply event handlers based on isInteractive prop
       onTouchStart={isInteractive ? handleTouchStart : undefined}
       onTouchMove={isInteractive ? handleTouchMove : undefined}
       onTouchEnd={isInteractive ? handleTouchEnd : undefined}

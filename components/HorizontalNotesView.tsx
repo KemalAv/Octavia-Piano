@@ -1,3 +1,4 @@
+
 import React, { useMemo, useEffect, useRef } from 'react';
 import { ActiveMidiNoteInfo, VexFlowRenderData, VexFlowNoteInfo, NoteFragment, NoteLabelType, QwertyLayout } from '../types';
 import { USER_PLAY_COLOR, PLAY_LINE_THICKNESS_PX, VISUAL_NOTE_CAP_MS, QWERTY_MINI_KEYBOARD_MAPPING, MIRP_KEYBOARD_MAPPING, KEY_CODES_TO_DISPLAY } from '../constants';
@@ -9,7 +10,7 @@ const HORIZONTAL_PADDING = 30;
 const SIDEBAR_WIDTH = 200; // Increased from 140
 const STAFF_LINE_SPACING = 10;
 const STEP_HEIGHT = STAFF_LINE_SPACING / 2;
-const NOTE_HEAD_WIDTH = 15;
+const NOTE_HEAD_WIDTH = 12.5;
 const STEM_WIDTH = 1.5;
 const STEM_HEIGHT = 31.25;
 const ACCIDENTAL_FONT_SIZE = 25;
@@ -33,6 +34,7 @@ interface HorizontalNotesViewProps {
   mirpTranspose?: number;
   isQwertyView?: boolean;
   activeBpmForDisplay?: number;
+  lowDetailMode?: boolean;
 }
 
 const StickyStaffHeader: React.FC<{ 
@@ -46,7 +48,8 @@ const StickyStaffHeader: React.FC<{
   qwertyCurrentOctaveShift?: number;
   mirpTranspose?: number;
   backgroundColor: string;
-}> = React.memo(({ vexFlowData, currentTimeMs, height, isQwertyView, activeKeySignature, activeBpmForDisplay, qwertyLayout, qwertyCurrentOctaveShift, mirpTranspose, backgroundColor }) => {
+  lowDetailMode?: boolean;
+}> = React.memo(({ vexFlowData, currentTimeMs, height, isQwertyView, activeKeySignature, activeBpmForDisplay, qwertyLayout, qwertyCurrentOctaveShift, mirpTranspose, backgroundColor, lowDetailMode = false }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   
   const currentMeasure = useMemo(() => {
@@ -68,7 +71,6 @@ const StickyStaffHeader: React.FC<{
     if (!container || !vexFlowData || !currentMeasure) return;
     while (container.firstChild) container.removeChild(container.firstChild);
 
-    // FIX: Removed third argument from Renderer constructor to match VexFlow API expectations (expected 1-2 arguments).
     const renderer = new Renderer(container, Renderer.Backends.SVG);
     renderer.resize(SIDEBAR_WIDTH, height);
     const ctx = renderer.getContext();
@@ -106,8 +108,8 @@ const StickyStaffHeader: React.FC<{
             className="absolute top-0 left-0 h-full z-30 pointer-events-none flex items-center justify-center"
             style={{
                 width: `${SIDEBAR_WIDTH}px`,
-                backgroundColor: 'rgba(15, 23, 42, 0.5)',
-                backdropFilter: 'blur(4px)',
+                backgroundColor: lowDetailMode ? 'rgba(15, 23, 42, 0.8)' : 'rgba(15, 23, 42, 0.5)',
+                backdropFilter: lowDetailMode ? 'none' : 'blur(4px)',
                 boxShadow: '4px 0 10px rgba(0,0,0,0.2)',
                 borderRight: '1px solid rgba(255,255,255,0.05)'
             }}
@@ -145,7 +147,8 @@ const StickyStaffHeader: React.FC<{
       className="absolute top-0 left-0 h-full z-30 pointer-events-none"
       style={{ 
         width: `${SIDEBAR_WIDTH}px`, 
-        backgroundColor: backgroundColor === 'transparent' ? 'rgba(28, 38, 54, 0.5)' : 'rgba(247, 245, 237, 0.95)',
+        backgroundColor: backgroundColor === 'transparent' ? 'rgba(247, 245, 237, 0.95)' : 'rgba(247, 245, 237, 1)',
+        backdropFilter: lowDetailMode ? 'none' : 'blur(4px)',
         boxShadow: '4px 0 10px rgba(0,0,0,0.1)',
         borderRight: '1px solid rgba(0,0,0,0.05)'
       }}
@@ -201,7 +204,8 @@ const ScrollingSheetNote: React.FC<{
     glow: boolean;
     label: string;
     isQwertyView?: boolean;
-}> = ({ note, vexNoteInfo, noteIndexInChord, yOnStave, x, y, width, color, glow, label, isQwertyView }) => {
+    lowDetailMode?: boolean;
+}> = ({ note, vexNoteInfo, noteIndexInChord, yOnStave, x, y, width, color, glow, label, isQwertyView, lowDetailMode = false }) => {
     
     if (isQwertyView) {
         const qwertyStyle: React.CSSProperties = {
@@ -217,7 +221,7 @@ const ScrollingSheetNote: React.FC<{
             fontSize: '16px',
             fontWeight: 'bold',
             fontFamily: 'monospace',
-            boxShadow: glow ? `0 0 10px ${color}` : 'none',
+            boxShadow: glow && !lowDetailMode ? `0 0 10px ${color}` : 'none',
             transition: 'color 100ms, background-color 100ms, box-shadow 100ms',
             whiteSpace: 'nowrap',
         };
@@ -255,15 +259,18 @@ const ScrollingSheetNote: React.FC<{
     }, [yOnStave, noteheadY, vexNoteInfo, noteIndexInChord]);
 
     const style: React.CSSProperties = { position: 'absolute', left: `${x}px`, top: `${y - noteheadY}px`, width: `${width}px`, height: `${NOTE_HEAD_WIDTH}px`, zIndex: 10, overflow: 'visible' };
+    
+    const noteFillColor = glow ? color : '#000000';
+    const noteStrokeColor = '#000000';
 
     return (
         <div style={style}>
             <svg width={width} height={NOTE_HEAD_WIDTH} style={{ overflow: 'visible' }}>
-                {glow && <ellipse cx={NOTE_HEAD_WIDTH / 2} cy={noteheadY} rx={NOTE_HEAD_WIDTH} ry={NOTE_HEAD_WIDTH * 0.8} fill={color} filter="url(#glow)" />}
+                {glow && !lowDetailMode && <ellipse cx={NOTE_HEAD_WIDTH / 2} cy={noteheadY} rx={NOTE_HEAD_WIDTH} ry={NOTE_HEAD_WIDTH * 0.8} fill={color} filter="url(#glow)" />}
                 {LedgerLines}
                 {noteAccidental && <text x={ACCIDENTAL_OFFSET_X} y={noteheadY + ACCIDENTAL_FONT_SIZE / 3} fontSize={ACCIDENTAL_FONT_SIZE} fill="#000" fontWeight="bold">{noteAccidental}</text>}
-                <ellipse cx={NOTE_HEAD_WIDTH / 2} cy={noteheadY} rx={NOTE_HEAD_WIDTH / 2} ry={NOTE_HEAD_WIDTH / 2.5} fill={color} stroke="#000" strokeWidth="1" transform={`rotate(-20 ${NOTE_HEAD_WIDTH/2} ${noteheadY})`} />
-                <rect x={stemDirection === 1 ? NOTE_HEAD_WIDTH - STEM_WIDTH : 0} y={stemDirection === 1 ? noteheadY : noteheadY - STEM_HEIGHT} width={STEM_WIDTH} height={STEM_HEIGHT} fill={color} />
+                <ellipse cx={NOTE_HEAD_WIDTH / 2} cy={noteheadY} rx={NOTE_HEAD_WIDTH / 2} ry={NOTE_HEAD_WIDTH / 2.5} fill={noteFillColor} stroke={noteStrokeColor} strokeWidth="1" transform={`rotate(-20 ${NOTE_HEAD_WIDTH/2} ${noteheadY})`} />
+                <rect x={stemDirection === 1 ? NOTE_HEAD_WIDTH - STEM_WIDTH : 0} y={stemDirection === 1 ? noteheadY : noteheadY - STEM_HEIGHT} width={STEM_WIDTH} height={STEM_HEIGHT} fill={noteFillColor} />
                 {label && <text x={NOTE_HEAD_WIDTH / 2} y={noteheadY + 4} fontSize="10" fill="white" fontWeight="bold" textAnchor="middle" style={{ pointerEvents: 'none' }}>{label}</text>}
             </svg>
         </div>
@@ -271,7 +278,7 @@ const ScrollingSheetNote: React.FC<{
 };
 
 const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
-  currentTimeMs, width, height, pixelsPerMillisecond, activePlaybackNotesInfo, rightHandColor, leftHandColor, backgroundColor, vexFlowData, showOnlyMajorNotes, noteLabelType, activeKeySignature, qwertyLayout, qwertyCurrentOctaveShift, mirpTranspose, isQwertyView, activeBpmForDisplay
+  currentTimeMs, width, height, pixelsPerMillisecond, activePlaybackNotesInfo, rightHandColor, leftHandColor, backgroundColor, vexFlowData, showOnlyMajorNotes, noteLabelType, activeKeySignature, qwertyLayout, qwertyCurrentOctaveShift, mirpTranspose, isQwertyView, activeBpmForDisplay, lowDetailMode = false
 }) => {
   const PLAY_LINE_X = SIDEBAR_WIDTH + (width > SIDEBAR_WIDTH ? (width - SIDEBAR_WIDTH) * 0.1 : 0);
   const originalNoteToVexMap = useMemo(() => {
@@ -320,7 +327,6 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
         );
       }
       
-      // For sheet-roll, align with the staves
       return <div key={`bar-line-${m.startTimeMs}`} className="absolute border-r border-slate-400" style={{ left: `${left}px`, top: `${vexFlowData.topStaveYOffset}px`, height: `${(STAFF_LINE_SPACING * 8) + vexFlowData.verticalSpacing}px`, zIndex: 5 }} aria-hidden="true" />;
     });
   }, [vexFlowData, isQwertyView]);
@@ -330,7 +336,9 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
 
   return (
     <div className="relative overflow-hidden no-select" style={{ width, height, backgroundColor }}>
-      <svg width="0" height="0" style={{ position: 'absolute' }}><defs><filter id="glow"><feGaussianBlur stdDeviation="3.5" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter></defs></svg>
+      <svg width="0" height="0" style={{ position: 'absolute' }}>
+        {!lowDetailMode && <defs><filter id="glow"><feGaussianBlur stdDeviation="3.5" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter></defs>}
+      </svg>
       
       {vexFlowData && (
         <StickyStaffHeader 
@@ -344,6 +352,7 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
           qwertyCurrentOctaveShift={qwertyCurrentOctaveShift}
           mirpTranspose={mirpTranspose}
           backgroundColor={backgroundColor}
+          lowDetailMode={lowDetailMode}
         />
       )}
 
@@ -394,7 +403,7 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
                         key={note.fragmentId} note={note} vexNoteInfo={vn} noteIndexInChord={0} 
                         yOnStave={0} x={xPos} y={yPos} width={noteWidth}
                         color={status === 'user_played' ? USER_PLAY_COLOR : baseC} glow={!!status}
-                        label={label} isQwertyView={true}
+                        label={label} isQwertyView={true} lowDetailMode={lowDetailMode}
                     />;
                 });
             })
@@ -423,12 +432,12 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
                 return <ScrollingSheetNote 
                     key={note.fragmentId} note={note} vexNoteInfo={vn} noteIndexInChord={idx} yOnStave={vn.vexNoteYPositions ? vn.vexNoteYPositions[idx] : 0} 
                     x={xPos} y={yPos} width={noteWidth} color={status === 'user_played' ? USER_PLAY_COLOR : baseC} 
-                    glow={!!status} label={label} isQwertyView={isQwertyView}
+                    glow={!!status} label={label} isQwertyView={isQwertyView} lowDetailMode={lowDetailMode}
                 />;
             })
         )}
       </div>
-      <div className="absolute top-0 bottom-0" style={{ left: `${PLAY_LINE_X}px`, width: `${PLAY_LINE_THICKNESS_PX}px`, backgroundColor: 'rgba(239, 68, 68, 0.8)', boxShadow: '0 0 15px 3px rgba(239, 68, 68, 0.5)', zIndex: 20 }} />
+      <div className="cursor-line" style={{ left: `${PLAY_LINE_X}px`, zIndex: 20 }} />
     </div>
   );
 });

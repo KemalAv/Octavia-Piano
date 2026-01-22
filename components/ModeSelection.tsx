@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useRef } from 'react';
 import { ExtendedResult, WaitMode, GameSettings, PracticeHand } from '../types';
 import DifficultyAnalysis from './DifficultyAnalysis';
@@ -18,6 +16,13 @@ interface ModeSelectionProps {
   onPlaybackTempoMultiplierChange: (multiplier: number) => void;
   currentHideBarNavigationButtons: boolean;
   onHideBarNavigationButtonsChange: (value: boolean) => void;
+  backingTrackFile: File | null;
+  onBackingTrackFileChange: (file: File | null) => void;
+  backingTrackOffset: number;
+  onBackingTrackOffsetChange: (offset: number) => void;
+  isAudioInputEnabled: boolean;
+  midiLink: string | null;
+  midiOffset: number | null;
 }
 
 const tutorials = [
@@ -30,6 +35,8 @@ const tutorials = [
   { title: 'Computer Keyboard', url: 'https://youtu.be/LM-aAcYtKg4?si=OPPsWYQvFbTYt3ww' },
 ];
 
+const OFFSET_SHIFT = 2000;
+
 const ModeSelection: React.FC<ModeSelectionProps> = ({
   onStartGame,
   onBack,
@@ -41,6 +48,13 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
   onPlaybackTempoMultiplierChange,
   currentHideBarNavigationButtons,
   onHideBarNavigationButtonsChange,
+  backingTrackFile,
+  onBackingTrackFileChange,
+  backingTrackOffset,
+  onBackingTrackOffsetChange,
+  isAudioInputEnabled,
+  midiLink,
+  midiOffset,
 }) => {
   const [selectedMode, setSelectedMode] = useState<Mode>('practice_lenient');
   const [practiceHand, setPracticeHand] = useState<PracticeHand>('both');
@@ -49,12 +63,16 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
   const [isTutorialModalOpen, setIsTutorialModalOpen] = useState(false);
   const [isTutorialModalRendered, setIsTutorialModalRendered] = useState(false);
   const [isNonStop, setIsNonStop] = useState(false);
+  const [isEditingOffset, setIsEditingOffset] = useState(false);
 
-  // Backing Track State
   const [backingType, setBackingType] = useState<BackingType>('none');
-  const [backingFile, setBackingFile] = useState<File | null>(null);
-  const [backingOffset, setBackingOffset] = useState(-2000); // Default to -2000ms
   const mp3InputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (backingTrackFile) {
+        setBackingType('mp3');
+    }
+  }, [backingTrackFile]);
 
   useEffect(() => {
     const timer = setTimeout(() => setIsRendered(true), 10);
@@ -77,11 +95,9 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
   const modeButtonBase = "p-4 rounded-lg border-2 transition-all cursor-pointer h-full flex flex-col";
   const modeButtonUnselected = "bg-slate-700/50 border-slate-600 hover:bg-slate-700 hover:border-slate-500";
   
-  // Define tempo range based on selected mode
   const minTempoPercentage = selectedMode === 'retical' ? 75 : 10;
   const maxTempoPercentage = selectedMode === 'retical' ? 150 : 400;
 
-  // Clamp initialPlaybackTempoMultiplier if mode changes to retical and it's out of bounds
   useEffect(() => {
       if (selectedMode === 'retical') {
           const currentMultiplier = initialPlaybackTempoMultiplier;
@@ -98,6 +114,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
   }, [selectedMode, initialPlaybackTempoMultiplier, onPlaybackTempoMultiplierChange, minTempoPercentage, maxTempoPercentage]);
 
   const handleModeSelect = (mode: Mode) => {
+    if (mode === 'retical' && isAudioInputEnabled) return;
     setSelectedMode(mode);
     if (mode === 'practice_lenient') setNoteToleranceMs(150);
     if (mode === 'practice_strict') setNoteToleranceMs(30);
@@ -105,7 +122,9 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
 
   const handleMp3Upload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setBackingFile(e.target.files[0]);
+      onBackingTrackFileChange(e.target.files[0]);
+    } else {
+      onBackingTrackFileChange(null);
     }
   };
 
@@ -115,7 +134,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
 
     switch (selectedMode) {
       case 'practice_lenient':
-        waitMode = 'rhythm'; // Allows any key press to advance
+        waitMode = 'rhythm';
         tolerance = noteToleranceMs;
         break;
       case 'practice_strict':
@@ -124,23 +143,23 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
         break;
       case 'autoplay':
         waitMode = 'off';
-        tolerance = 250; // Doesn't matter
+        tolerance = 250;
         break;
       case 'retical':
         waitMode = 'retical';
-        tolerance = 150; // New default for retical
+        tolerance = 150;
         break;
       default:
         waitMode = 'strict';
-        tolerance = 30; // Fallback to strict
+        tolerance = 30;
     }
 
     let backingConfig = undefined;
-    if (backingType === 'mp3' && backingFile) {
+    if (backingType === 'mp3' && backingTrackFile) {
         backingConfig = {
             type: 'mp3' as const,
-            url: URL.createObjectURL(backingFile),
-            offsetMs: backingOffset
+            url: URL.createObjectURL(backingTrackFile),
+            offsetMs: backingTrackOffset
         };
     }
     
@@ -159,6 +178,20 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
   const displayedPlaybackPercentage = Math.round(initialPlaybackTempoMultiplier * 100);
   const isPractice = selectedMode === 'practice_lenient' || selectedMode === 'practice_strict';
 
+  const handleOffsetInputBlur = (value: string) => {
+    const val = parseInt(value, 10);
+    if (!isNaN(val)) {
+        onBackingTrackOffsetChange(val - OFFSET_SHIFT);
+    }
+    setIsEditingOffset(false);
+  };
+
+  const getYoutubeId = (url: string) => {
+      if (url.includes('youtu.be/')) return url.split('youtu.be/')[1].split('?')[0];
+      if (url.includes('v=')) return url.split('v=')[1].split('&')[0];
+      return '';
+  };
+
   return (
     <>
      <div className={`fixed inset-0 bg-slate-900 flex flex-col items-center justify-center z-40 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'opacity-100' : 'opacity-0'}`}>
@@ -172,7 +205,6 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
             {analysisResultForPreview && <div className="mt-2 flex justify-center"><DifficultyAnalysis analysisResult={analysisResultForPreview} /></div>}
         </div>
         
-        {/* Mode Selection Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <div 
                 onClick={() => handleModeSelect('practice_lenient')} 
@@ -200,20 +232,30 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
 
             <div 
                 onClick={() => handleModeSelect('retical')} 
-                className={`${modeButtonBase} ${selectedMode === 'retical' ? 'bg-amber-600/80 border-amber-400 shadow-lg scale-105 ring-2 ring-amber-400' : modeButtonUnselected}`}
+                className={`${modeButtonBase} ${
+                    isAudioInputEnabled 
+                        ? 'opacity-50 cursor-not-allowed bg-slate-800 border-slate-700' 
+                        : selectedMode === 'retical' 
+                            ? 'bg-amber-600/80 border-amber-400 shadow-lg scale-105 ring-2 ring-amber-400' 
+                            : modeButtonUnselected
+                }`}
             >
-                <h3 className="font-bold text-xl mb-1 text-amber-300">Retical Mode</h3>
+                <h3 className={`font-bold text-xl mb-1 ${isAudioInputEnabled ? 'text-slate-500' : 'text-amber-300'}`}>Retical Mode</h3>
                 <p className="text-sm text-slate-300 flex-grow">Scores are recorded on the leaderboard only when the MIDI is in Ranked status.</p>
+                {isAudioInputEnabled && (
+                    <p className="text-xs text-red-400 mt-2 font-bold">
+                        Disabled when Microphone Input is active.
+                    </p>
+                )}
             </div>
         </div>
 
-        {/* Backing Track Options */}
         <div className="bg-slate-900/50 p-6 rounded-lg mb-6 ring-1 ring-slate-700">
             <h4 className="font-semibold text-lg mb-4 text-slate-200">Backing Track (Audio)</h4>
             <div className="flex flex-col gap-4">
                 <div className="flex gap-4">
                     <label className="flex items-center cursor-pointer">
-                        <input type="radio" name="backing" checked={backingType === 'none'} onChange={() => setBackingType('none')} className="form-radio text-cyan-500" />
+                        <input type="radio" name="backing" checked={backingType === 'none'} onChange={() => { setBackingType('none'); onBackingTrackFileChange(null); }} className="form-radio text-cyan-500" />
                         <span className="ml-2 text-slate-300">None</span>
                     </label>
                     <label className="flex items-center cursor-pointer">
@@ -231,7 +273,8 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
                             ref={mp3InputRef}
                             className="text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-cyan-600 file:text-white hover:file:bg-cyan-700"
                         />
-                        {backingFile && <p className="text-xs text-green-400">Selected: {backingFile.name}</p>}
+                        {backingTrackFile && <p className="text-xs text-green-400">Selected: {backingTrackFile.name}</p>}
+                        <p className="text-xs text-slate-500 mt-1 italic">For now, we only support local import due storage issue.</p>
                     </div>
                 )}
 
@@ -239,31 +282,69 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
                     <div className="mt-2">
                         <div className="flex items-center justify-between mb-1">
                             <label className="text-sm text-slate-400">Sync Offset (Audio vs MIDI)</label>
-                            <span className="text-sm font-mono text-cyan-300">{backingOffset > 0 ? `+${backingOffset}` : backingOffset}ms</span>
+                            <div className="flex items-center gap-2">
+                                {isEditingOffset ? (
+                                    <input
+                                        autoFocus
+                                        type="number"
+                                        className="bg-slate-700 text-cyan-300 border border-cyan-500 rounded px-1 text-sm font-mono w-20 text-center"
+                                        defaultValue={backingTrackOffset + OFFSET_SHIFT}
+                                        onKeyDown={(e) => { if (e.key === 'Enter') handleOffsetInputBlur(e.currentTarget.value); }}
+                                        onBlur={(e) => handleOffsetInputBlur(e.currentTarget.value)}
+                                    />
+                                ) : (
+                                    <span 
+                                        onClick={() => setIsEditingOffset(true)}
+                                        className="text-sm font-mono text-cyan-300 cursor-pointer hover:text-white"
+                                    >
+                                        {(backingTrackOffset + OFFSET_SHIFT) > 0 ? `+${backingTrackOffset + OFFSET_SHIFT}` : (backingTrackOffset + OFFSET_SHIFT)}ms
+                                    </span>
+                                )}
+                            </div>
                         </div>
                         <input
                             type="range"
                             min="-5000"
                             max="5000"
                             step="10"
-                            value={backingOffset}
-                            onChange={(e) => setBackingOffset(parseInt(e.target.value))}
+                            value={backingTrackOffset + OFFSET_SHIFT}
+                            onChange={(e) => onBackingTrackOffsetChange(parseInt(e.target.value) - OFFSET_SHIFT)}
                             className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer"
                         />
                         <div className="flex justify-between text-[10px] text-slate-500 mt-1">
-                            <span>-5s (Audio Delayed)</span>
-                            <span>0ms</span>
-                            <span>+5s (Audio Ahead)</span>
+                            <span>Audio Delayed</span>
+                            <span>0ms (Recommended)</span>
+                            <span>Audio Ahead</span>
                         </div>
-                        <p className="text-xs text-slate-500 mt-2">
-                            Adjust to synchronize the audio with the notes. Positive values mean the audio starts earlier (intro).
-                        </p>
+                    </div>
+                )}
+
+                {(midiLink || midiOffset != null) && (
+                    <div className="mt-3 p-3 rounded bg-black/30 border border-white/5 text-xs text-slate-400 space-y-1">
+                        {midiLink && (
+                            <div className="flex items-start gap-2">
+                                <span className="font-bold text-slate-300 whitespace-nowrap">Suggested Source:</span>
+                                <a href={midiLink} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline break-all">{midiLink}</a>
+                            </div>
+                        )}
+                        {midiOffset != null && (
+                            <div className="flex items-center gap-2">
+                                <span className="font-bold text-slate-300">Suggested Offset:</span>
+                                <span className="text-cyan-300 font-mono">{midiOffset > 0 ? `+${midiOffset}` : midiOffset}ms</span>
+                            </div>
+                        )}
+                        <div className="flex items-start gap-2 pt-1 mt-1 border-t border-white/10">
+                            <span className="font-bold text-slate-300 whitespace-nowrap">Download MP3 via:</span>
+                            <div className="flex flex-col items-start">
+                                <a href="https://ezmp3.nl/" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline">ezmp3.nl</a>
+                                <a href="https://ytmp3.gg/" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline">ytmp3.gg</a>
+                            </div>
+                        </div>
                     </div>
                 )}
             </div>
         </div>
 
-        {/* Practice Mode Options */}
         {isPractice && (
             <div className="bg-slate-900/50 p-6 rounded-lg mb-6 space-y-6 ring-1 ring-slate-700">
                 <div>
@@ -320,7 +401,6 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
             </div>
         )}
 
-        {/* BPM Setting */}
         <div className="bg-slate-900/50 p-4 rounded-lg mb-8 ring-1 ring-slate-700">
              <label htmlFor="bpm-slider" className="block text-center text-lg font-medium text-slate-300 mb-3">
                 Tempo: <span className="font-bold text-white tabular-nums">{displayedPlaybackPercentage}%</span>
@@ -363,38 +443,61 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
           aria-labelledby="tutorial-title"
         >
           <div 
-            className={`bg-slate-800 rounded-lg shadow-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto custom-scrollbar transform transition-all duration-300 ease-in-out ${isTutorialModalRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
+            className={`bg-slate-800 rounded-lg shadow-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto custom-scrollbar transform transition-all duration-300 ease-in-out ${isTutorialModalRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
             onClick={e => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-4 border-b border-slate-600 pb-3">
-              <h2 id="tutorial-title" className="text-2xl font-bold text-sky-300">Disclaimer</h2>
+              <h2 id="tutorial-title" className="text-2xl font-bold text-sky-300">Tutorials & Learn More</h2>
               <button 
                 onClick={() => setIsTutorialModalOpen(false)} 
                 className="text-3xl font-light text-slate-400 hover:text-white leading-none"
                 aria-label="Close tutorial modal"
               >&times;</button>
             </div>
-            <p className="text-slate-300 mb-4 text-sm italic">
-                Remember, this is not a piano learning app, it’s a piano rhythm game. It doesn’t teach you how to play piano from the beginning. Instead, it provides a rhythm-game-style piano experience, where you learn by brute-forcing it like a rhythm game. If your piano foundation is still weak or you’re a beginner, it’s recommended that you watch tutorials or get a teacher to improve your skills.
+            <p className="text-slate-300 mb-6 text-sm italic">
+                Remember, this is not a piano learning app, it’s a piano rhythm game. If your foundation is weak, it’s recommended that you watch tutorials or get a teacher to improve your skills.
             </p>
-            <div className="space-y-3">
-              {tutorials.map((tutorial, index) => (
-                <a 
-                  key={index} 
-                  href={tutorial.url} 
-                  target="_blank" 
-                  rel="noopener noreferrer" 
-                  className="flex items-center justify-between p-3 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors group"
-                >
-                  <span className="text-white font-semibold group-hover:text-cyan-300">{tutorial.title}</span>
-                  <svg className="w-5 h-5 text-slate-400 group-hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002 2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
-                </a>
-              ))}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {tutorials.map((tutorial, index) => {
+                const vid = getYoutubeId(tutorial.url);
+                return (
+                    <a 
+                      key={index} 
+                      href={tutorial.url} 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="group flex flex-col bg-slate-700 hover:bg-slate-600 rounded-xl overflow-hidden transition-all hover:scale-[1.02] shadow-lg"
+                    >
+                        <div className="aspect-video relative overflow-hidden bg-black">
+                            {vid ? (
+                                <img 
+                                    src={`https://img.youtube.com/vi/${vid}/mqdefault.jpg`} 
+                                    alt={tutorial.title} 
+                                    className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
+                                />
+                            ) : (
+                                <div className="w-full h-full flex items-center justify-center text-slate-500">
+                                    <svg className="w-12 h-12" fill="currentColor" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z"></path></svg>
+                                </div>
+                            )}
+                            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40">
+                                <div className="w-12 h-12 bg-red-600 rounded-full flex items-center justify-center shadow-xl">
+                                    <svg className="w-6 h-6 text-white ml-0.5" fill="currentColor" viewBox="0 0 20 20"><path d="M4.516 3.917c.54-.341 1.253-.306 1.76.101l8.5 6.75a1 1 0 010 1.564l-8.5 6.75a1 1 0 01-1.604-.812V4.73c0-.317.153-.615.416-.813z"></path></svg>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="p-3 flex items-center justify-between">
+                            <span className="text-white font-bold text-sm truncate pr-2">{tutorial.title}</span>
+                            <svg className="w-4 h-4 text-slate-400 group-hover:text-cyan-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                        </div>
+                    </a>
+                );
+              })}
             </div>
-            <div className="mt-6 text-center">
+            <div className="mt-8 text-center">
               <button 
                 onClick={() => setIsTutorialModalOpen(false)} 
-                className="bg-sky-500 hover:bg-sky-600 text-white font-bold py-2 px-6 rounded-lg text-lg transition-colors focus:outline-none focus:ring-2 focus:ring-sky-300"
+                className="bg-sky-500 hover:bg-sky-600 text-white font-bold py-2 px-8 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-sky-300 shadow-lg"
               >Close</button>
             </div>
           </div>

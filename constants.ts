@@ -1,5 +1,4 @@
 
-
 import { PianoKeyDefinition, PianoKeyType, QwertyKeyMapEntry, ViewMode, NoteLabelType, ThemeSettings, DevicePreset, LayoutDimensions, MirpKeyMapEntry } from './types';
 
 // Admin UUID - IMPORTANT: Replace with the actual UUID of your admin user in Supabase

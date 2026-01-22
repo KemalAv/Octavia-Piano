@@ -10,17 +10,13 @@ interface ErrorBoundaryState {
   isRendered: boolean;
 }
 
-// FIX: The ErrorBoundary class must extend React.Component to have access to React component features like state and props.
-// FIX: Extended React.Component to make this a class component, giving it access to state and props.
+/**
+ * ErrorBoundary catches JavaScript errors anywhere in its child component tree,
+ * logs those errors, and displays a fallback UI instead of the component tree that crashed.
+ */
 class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  // Explicitly declare state property for TypeScript
-  public state: ErrorBoundaryState;
-
   constructor(props: ErrorBoundaryProps) {
-    // FIX: The constructor of a React class component must call super(props).
-    // FIX: Added super(props) call, which is required in the constructor of a subclass before any other statement.
     super(props);
-    // FIX: Initialize the component's state inside the constructor.
     this.state = {
       hasError: false,
       error: null,
@@ -29,8 +25,8 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
     this.handleReturnToMainMenu = this.handleReturnToMainMenu.bind(this);
   }
 
-  static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
-    // Update state so the next render will show the fallback UI.
+  // Update state so the next render will show the fallback UI.
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
     return { hasError: true, error, isRendered: false };
   }
 
@@ -41,7 +37,6 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
   
   componentDidUpdate(_: ErrorBoundaryProps, prevState: ErrorBoundaryState) {
     if (this.state.hasError && !prevState.hasError) {
-        // 'this.setState' is now available because the class extends React.Component.
         setTimeout(() => this.setState({ isRendered: true }), 10);
     }
   }
@@ -76,7 +71,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
       );
     }
 
-    // 'this.props' is now available because the class extends React.Component.
+    // Explicitly returning this.props.children which is inherited from Component
     return this.props.children;
   }
 }
