@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { OnlineSong, ExtendedResult, Score, PerformanceSummary } from '../types';
@@ -13,11 +11,18 @@ import PerformanceSummaryModal from './PerformanceSummaryModal'; // NEW: Import 
 import { convertScoreToPerformanceSummary } from '../utils'; // NEW: Import utility for score conversion
 import AdBanner from './AdBanner'; // Import AdBanner
 
+// This is necessary to prevent TypeScript errors with the adsbygoogle property on window
+declare global {
+  interface Window {
+    adsbygoogle: any[];
+  }
+}
+
 // Temporary cache for user usernames to avoid redundant Supabase calls
 const userUsernameCache = new Map<string, string>();
 
 interface OnlineSongBrowserProps {
-  onSongLoaded: (file: File, onlineSongId: string, isRanked: boolean) => Promise<void>;
+  onSongLoaded: (file: File, onlineSongId: string, isRanked: boolean, midiLink: string | null, midiOffset: number | null) => Promise<void>;
   isLoading: boolean;
   setLoadingState: (loading: boolean) => void;
   onGoToOnlineSong: (songId: string) => void;
@@ -67,6 +72,8 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
   const [editArtist, setEditArtist] = useState('');
   const [editArranger, setEditArranger] = useState('');
   const [editDescription, setEditDescription] = useState('');
+  const [editMidiLink, setEditMidiLink] = useState('');
+  const [editMidiOffset, setEditMidiOffset] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [editMessage, setEditMessage] = useState<{ type: 'error' | 'success', text: string } | null>(null);
 
@@ -99,6 +106,8 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
   const [uploadArranger, setUploadArranger] = useState('');
   const [uploadDescription, setUploadDescription] = useState('');
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadMidiLink, setUploadMidiLink] = useState('');
+  const [uploadMidiOffset, setUploadMidiOffset] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<{ type: 'error' | 'success', text: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -150,7 +159,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
 
           let query = supabase
               .from('songs')
-              .select('*, difficulty_level, performance_score, total_notes, duration_sec, total_nps, is_ranked, like_count, dislike_count, arranger, description');
+              .select('*, difficulty_level, performance_score, total_notes, duration_sec, total_nps, is_ranked, like_count, dislike_count, arranger, description, midi_link, midi_offset');
           
           // Apply filters
           if (user && rankedFilter === 'liked') {
@@ -325,7 +334,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
 
       // Convert Blob to File
       const file = new File([data], song.title + '.mid', { type: data.type });
-      await onSongLoaded(file, song.id, song.is_ranked); // Pass is_ranked status
+      await onSongLoaded(file, song.id, song.is_ranked, song.midi_link || null, song.midi_offset || null); // Pass is_ranked status and extra metadata
     } catch (err: unknown) {
       console.error("Error downloading or processing MIDI:", err);
       alert(`Failed to load MIDI: ${(err instanceof Error ? err.message : String(err))}`);
@@ -394,6 +403,10 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
       setUploadMessage({ type: 'error', text: 'Description cannot exceed 100 characters.' });
       return;
     }
+    if (uploadMidiLink.length > 300) {
+      setUploadMessage({ type: 'error', text: 'MIDI Link cannot exceed 300 characters.' });
+      return;
+    }
 
     setIsUploading(true);
     setUploadMessage(null);
@@ -438,6 +451,8 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
           artist: uploadArtist,
           arranger: uploadArranger.trim() || null,
           description: uploadDescription.trim() || null,
+          midi_link: uploadMidiLink.trim() || null,
+          midi_offset: uploadMidiOffset ? parseInt(uploadMidiOffset, 10) : null,
           file_path: filePath,
           uploader_id: session.user.id,
           difficulty_level: difficultyLevel,
@@ -456,6 +471,8 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
       setUploadArtist('');
       setUploadArranger('');
       setUploadDescription('');
+      setUploadMidiLink('');
+      setUploadMidiOffset('');
       setUploadFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
       
@@ -480,6 +497,8 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
     setEditArtist(song.artist);
     setEditArranger(song.arranger || '');
     setEditDescription(song.description || '');
+    setEditMidiLink(song.midi_link || '');
+    setEditMidiOffset(song.midi_offset?.toString() ?? '');
     setEditMessage(null);
     setDeleteError(null);
     setIsEditModalOpen(true);
@@ -505,6 +524,10 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
       setEditMessage({ type: 'error', text: 'Description cannot exceed 100 characters.' });
       return;
     }
+    if (editMidiLink.length > 300) {
+      setEditMessage({ type: 'error', text: 'MIDI Link cannot exceed 300 characters.' });
+      return;
+    }
 
     setIsEditing(true);
     setEditMessage(null);
@@ -518,6 +541,8 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
           artist: editArtist,
           arranger: editArranger.trim() || null,
           description: editDescription.trim() || null,
+          midi_link: editMidiLink.trim() || null,
+          midi_offset: editMidiOffset ? parseInt(editMidiOffset, 10) : null,
         })
         .eq('id', songToEdit.id);
 
@@ -883,8 +908,8 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                                       physicalEffort: 0,
                                       rangeIntensity: 0,
                                       chordMobility: 0,
-                                      arpeggioRepetition: 0,
                                       arpeggioVirtuosity: 0,
+                                      arpeggioRepetition: 0,
                                       totalNps: song.total_nps || 0,
                                       polyphony: 0,
                                       chordNps: 0,
@@ -1006,108 +1031,140 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
 
       {isUploadModalOpen && (
         <div className={`fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'bg-opacity-80' : 'bg-opacity-0'}`} onClick={() => setIsUploadModalOpen(false)}>
-          <div className={`bg-slate-800 p-8 rounded-xl shadow-2xl max-w-md w-full ring-1 ring-slate-600 transform transition-all duration-300 ease-in-out ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`} onClick={e => e.stopPropagation()}>
-            <h2 className="text-2xl font-bold text-white mb-2">Upload MIDI</h2>
-            {user && user.id !== ADMIN_UUID && (
-                <p className="text-sm text-slate-400 mb-4">
-                    Your uploads: {userUploadCount} / {UPLOAD_LIMIT}
-                </p>
-            )}
-            
-            {uploadMessage && (
-              <div className={`p-3 mb-4 rounded text-sm ${uploadMessage.type === 'error' ? 'bg-red-900/50 text-red-200' : 'bg-green-900/50 text-green-200'}`}>
-                {uploadMessage.text}
-              </div>
-            )}
+          <div className={`bg-slate-800 p-8 rounded-xl shadow-2xl max-w-md w-full ring-1 ring-slate-600 flex flex-col max-h-[90vh] transform transition-all duration-300 ease-in-out ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`} onClick={e => e.stopPropagation()}>
+            <div className="flex-shrink-0">
+                <h2 className="text-2xl font-bold text-white mb-2">Upload MIDI</h2>
+                {user && user.id !== ADMIN_UUID && (
+                    <p className="text-sm text-slate-400 mb-4">
+                        Your uploads: {userUploadCount} / {UPLOAD_LIMIT}
+                    </p>
+                )}
+                
+                {uploadMessage && (
+                  <div className={`p-3 mb-4 rounded text-sm ${uploadMessage.type === 'error' ? 'bg-red-900/50 text-red-200' : 'bg-green-900/50 text-green-200'}`}>
+                    {uploadMessage.text}
+                  </div>
+                )}
+            </div>
 
-            <form onSubmit={handleUploadSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">MIDI Title</label>
-                <input
-                  type="text"
-                  required
-                  value={uploadTitle}
-                  onChange={e => setUploadTitle(e.target.value)}
-                  className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500"
-                  maxLength={50}
-                />
-                <div className={`text-xs text-right mt-1 ${uploadTitle.length > 50 ? 'text-red-400' : 'text-slate-400'}`}>
-                    {uploadTitle.length} / 50
+            <form onSubmit={handleUploadSubmit} className="flex-grow flex flex-col min-h-0 mt-4">
+                <div className="flex-grow overflow-y-auto custom-scrollbar -mr-4 pr-4 space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium text-slate-300 mb-1">MIDI Title</label>
+                        <input
+                        type="text"
+                        required
+                        value={uploadTitle}
+                        onChange={e => setUploadTitle(e.target.value)}
+                        className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500"
+                        maxLength={50}
+                        />
+                        <div className={`text-xs text-right mt-1 ${uploadTitle.length > 50 ? 'text-red-400' : 'text-slate-400'}`}>
+                            {uploadTitle.length} / 50
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-300 mb-1">Artist</label>
+                        <input
+                        type="text"
+                        required
+                        value={uploadArtist}
+                        onChange={e => setUploadArtist(e.target.value)}
+                        className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500"
+                        maxLength={25}
+                        />
+                        <div className={`text-xs text-right mt-1 ${uploadArtist.length > 25 ? 'text-red-400' : 'text-slate-400'}`}>
+                            {uploadArtist.length} / 25
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-300 mb-1">Arrangement by (Optional)</label>
+                        <input
+                        type="text"
+                        value={uploadArranger}
+                        onChange={e => setUploadArranger(e.target.value)}
+                        placeholder="Your name or alias"
+                        className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500"
+                        maxLength={25}
+                        />
+                        <div className={`text-xs text-right mt-1 ${uploadArranger.length > 25 ? 'text-red-400' : 'text-slate-400'}`}>
+                            {uploadArranger.length} / 25
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-300 mb-1">Description (Optional)</label>
+                        <textarea
+                        value={uploadDescription}
+                        onChange={e => setUploadDescription(e.target.value)}
+                        placeholder="A short description of the MIDI or arrangement."
+                        className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500 h-20 resize-none"
+                        maxLength={100}
+                        />
+                        <div className={`text-xs text-right mt-1 ${uploadDescription.length > 100 ? 'text-red-400' : 'text-slate-400'}`}>
+                        {uploadDescription.length} / 100
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-300 mb-1">MIDI Link (Optional)</label>
+                        <input
+                        type="text"
+                        value={uploadMidiLink}
+                        onChange={e => setUploadMidiLink(e.target.value)}
+                        placeholder="Youtube/Source Link"
+                        className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500"
+                        maxLength={300}
+                        />
+                        <div className={`text-xs text-right mt-1 ${uploadMidiLink.length > 300 ? 'text-red-400' : 'text-slate-400'}`}>
+                            {uploadMidiLink.length} / 300
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-300 mb-1">MIDI Offset (Optional)</label>
+                        <input
+                        type="number"
+                        value={uploadMidiOffset}
+                        onChange={e => { if (e.target.value.length <= 5) setUploadMidiOffset(e.target.value) }}
+                        placeholder="Offset in ms (e.g. 2000)"
+                        className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500"
+                        maxLength={5}
+                        />
+                        <div className={`text-xs text-right mt-1 ${uploadMidiOffset.length > 5 ? 'text-red-400' : 'text-slate-400'}`}>
+                            {uploadMidiOffset.length} / 5
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-300 mb-1">MIDI File</label>
+                        <input
+                        type="file"
+                        required
+                        ref={fileInputRef}
+                        accept=".mid,.midi"
+                        onChange={e => setUploadFile(e.target.files?.[0] || null)}
+                        className="w-full text-slate-300 text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-600 file:text-white hover:file:bg-violet-700"
+                        />
+                        <p className="text-xs text-yellow-400 mt-2 text-left font-bold">
+                            You need to edit midi in Local Import before submitting new midi, like snyc the midi with mp3, etc so the midi will be playable and fun.
+                        </p>
+                    </div>
                 </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">Artist</label>
-                <input
-                  type="text"
-                  required
-                  value={uploadArtist}
-                  onChange={e => setUploadArtist(e.target.value)}
-                  className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500"
-                  maxLength={25}
-                />
-                 <div className={`text-xs text-right mt-1 ${uploadArtist.length > 25 ? 'text-red-400' : 'text-slate-400'}`}>
-                    {uploadArtist.length} / 25
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">Arrangement by (Optional)</label>
-                <input
-                  type="text"
-                  value={uploadArranger}
-                  onChange={e => setUploadArranger(e.target.value)}
-                  placeholder="Your name or alias"
-                  className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500"
-                  maxLength={25}
-                />
-                <div className={`text-xs text-right mt-1 ${uploadArranger.length > 25 ? 'text-red-400' : 'text-slate-400'}`}>
-                    {uploadArranger.length} / 25
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">Description (Optional)</label>
-                <textarea
-                  value={uploadDescription}
-                  onChange={e => setUploadDescription(e.target.value)}
-                  placeholder="A short description of the MIDI or arrangement."
-                  className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500 h-20 resize-none"
-                  maxLength={100}
-                />
-                <div className={`text-xs text-right mt-1 ${uploadDescription.length > 100 ? 'text-red-400' : 'text-slate-400'}`}>
-                  {uploadDescription.length} / 100
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">MIDI File</label>
-                <input
-                  type="file"
-                  required
-                  ref={fileInputRef}
-                  accept=".mid,.midi"
-                  onChange={e => setUploadFile(e.target.files?.[0] || null)}
-                  className="w-full text-slate-300 text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-600 file:text-white hover:file:bg-violet-700"
-                />
-                <p className="text-xs text-slate-500 mt-2 text-left">
-                  Only MIDI files (.mid) are supported. For best results, use MIDI files (.mid) that have been converted from MusicXML files.
-                </p>
-              </div>
 
-              <div className="flex justify-end gap-3 mt-6">
-                <button
-                  type="button"
-                  onClick={() => setIsUploadModalOpen(false)}
-                  className="px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white rounded-lg"
-                  disabled={isUploading}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isUploading || !uploadTitle.trim() || uploadTitle.length > 50 || !uploadArtist.trim() || uploadArtist.length > 25 || uploadArranger.length > 25 || uploadDescription.length > 100 || !uploadFile}
-                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isUploading ? 'Uploading...' : 'Upload'}
-                </button>
-              </div>
+                <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-700 flex-shrink-0">
+                    <button
+                    type="button"
+                    onClick={() => setIsUploadModalOpen(false)}
+                    className="px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white rounded-lg"
+                    disabled={isUploading}
+                    >
+                    Cancel
+                    </button>
+                    <button
+                    type="submit"
+                    disabled={isUploading || !uploadTitle.trim() || uploadTitle.length > 50 || !uploadArtist.trim() || uploadArtist.length > 25 || uploadArranger.length > 25 || uploadDescription.length > 100 || uploadMidiLink.length > 300 || uploadMidiOffset.length > 5 || !uploadFile}
+                    className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                    {isUploading ? 'Uploading...' : 'Upload'}
+                    </button>
+                </div>
             </form>
           </div>
         </div>
@@ -1115,77 +1172,109 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
 
       {isEditModalOpen && songToEdit && (
         <div className={`fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'bg-opacity-80' : 'bg-opacity-0'}`} onClick={() => setIsEditModalOpen(false)}>
-          <div className={`bg-slate-800 p-8 rounded-xl shadow-2xl max-w-md w-full ring-1 ring-slate-600 transform transition-all duration-300 ease-in-out ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`} onClick={e => e.stopPropagation()}>
-            <h2 className="text-2xl font-bold text-white mb-6">Edit MIDI</h2>
+          <div className={`bg-slate-800 p-8 rounded-xl shadow-2xl max-w-md w-full ring-1 ring-slate-600 flex flex-col max-h-[90vh] transform transition-all duration-300 ease-in-out ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`} onClick={e => e.stopPropagation()}>
+            <div className="flex-shrink-0">
+                <h2 className="text-2xl font-bold text-white mb-2">Edit MIDI</h2>
+                {editMessage && (
+                  <div className={`p-3 my-4 rounded text-sm ${editMessage.type === 'error' ? 'bg-red-900/50 text-red-200' : 'bg-green-900/50 text-green-200'}`}>
+                    {editMessage.text}
+                  </div>
+                )}
+            </div>
             
-            {editMessage && (
-              <div className={`p-3 mb-4 rounded text-sm ${editMessage.type === 'error' ? 'bg-red-900/50 text-red-200' : 'bg-green-900/50 text-green-200'}`}>
-                {editMessage.text}
-              </div>
-            )}
-
-            <form onSubmit={handleUpdateSong} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">MIDI Title</label>
-                <input
-                  type="text"
-                  required
-                  value={editTitle}
-                  onChange={e => setEditTitle(e.target.value)}
-                  className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500"
-                  disabled={isEditing}
-                  maxLength={50}
-                />
-                 <div className={`text-xs text-right mt-1 ${editTitle.length > 50 ? 'text-red-400' : 'text-slate-400'}`}>
-                    {editTitle.length} / 50
+            <form onSubmit={handleUpdateSong} className="flex-grow flex flex-col min-h-0 mt-4">
+                <div className="flex-grow overflow-y-auto custom-scrollbar -mr-4 pr-4 space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">MIDI Title</label>
+                    <input
+                      type="text"
+                      required
+                      value={editTitle}
+                      onChange={e => setEditTitle(e.target.value)}
+                      className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500"
+                      disabled={isEditing}
+                      maxLength={50}
+                    />
+                    <div className={`text-xs text-right mt-1 ${editTitle.length > 50 ? 'text-red-400' : 'text-slate-400'}`}>
+                        {editTitle.length} / 50
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">Artist</label>
+                    <input
+                      type="text"
+                      required
+                      value={editArtist}
+                      onChange={e => setEditArtist(e.target.value)}
+                      className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500"
+                      disabled={isEditing}
+                      maxLength={25}
+                    />
+                    <div className={`text-xs text-right mt-1 ${editArtist.length > 25 ? 'text-red-400' : 'text-slate-400'}`}>
+                        {editArtist.length} / 25
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">Arrangement by (Optional)</label>
+                    <input
+                      type="text"
+                      value={editArranger}
+                      onChange={e => setEditArranger(e.target.value)}
+                      className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500"
+                      disabled={isEditing}
+                      placeholder="Arranger's name or alias"
+                      maxLength={25}
+                    />
+                    <div className={`text-xs text-right mt-1 ${editArranger.length > 25 ? 'text-red-400' : 'text-slate-400'}`}>
+                        {editArranger.length} / 25
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">Description (Optional)</label>
+                    <textarea
+                      value={editDescription}
+                      onChange={e => setEditDescription(e.target.value)}
+                      className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500 h-20 resize-none"
+                      disabled={isEditing}
+                      placeholder="A short description of the MIDI or arrangement."
+                      maxLength={100}
+                    />
+                    <div className={`text-xs text-right mt-1 ${editDescription.length > 100 ? 'text-red-400' : 'text-slate-400'}`}>
+                      {editDescription.length} / 100
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">MIDI Link (Optional)</label>
+                    <input
+                      type="text"
+                      value={editMidiLink}
+                      onChange={e => setEditMidiLink(e.target.value)}
+                      className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500"
+                      disabled={isEditing}
+                      placeholder="Youtube/Source Link"
+                      maxLength={300}
+                    />
+                    <div className={`text-xs text-right mt-1 ${editMidiLink.length > 300 ? 'text-red-400' : 'text-slate-400'}`}>
+                        {editMidiLink.length} / 300
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">MIDI Offset (Optional)</label>
+                    <input
+                      type="number"
+                      value={editMidiOffset}
+                      onChange={e => { if (e.target.value.length <= 5) setEditMidiOffset(e.target.value) }}
+                      className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500"
+                      disabled={isEditing}
+                      placeholder="Offset in ms"
+                      maxLength={5}
+                    />
+                    <div className={`text-xs text-right mt-1 ${editMidiOffset.length > 5 ? 'text-red-400' : 'text-slate-400'}`}>
+                        {editMidiOffset.length} / 5
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">Artist</label>
-                <input
-                  type="text"
-                  required
-                  value={editArtist}
-                  onChange={e => setEditArtist(e.target.value)}
-                  className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500"
-                  disabled={isEditing}
-                  maxLength={25}
-                />
-                 <div className={`text-xs text-right mt-1 ${editArtist.length > 25 ? 'text-red-400' : 'text-slate-400'}`}>
-                    {editArtist.length} / 25
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">Arrangement by (Optional)</label>
-                <input
-                  type="text"
-                  value={editArranger}
-                  onChange={e => setEditArranger(e.target.value)}
-                  className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500"
-                  disabled={isEditing}
-                  placeholder="Arranger's name or alias"
-                  maxLength={25}
-                />
-                <div className={`text-xs text-right mt-1 ${editArranger.length > 25 ? 'text-red-400' : 'text-slate-400'}`}>
-                    {editArranger.length} / 25
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">Description (Optional)</label>
-                <textarea
-                  value={editDescription}
-                  onChange={e => setEditDescription(e.target.value)}
-                  className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500 h-20 resize-none"
-                  disabled={isEditing}
-                  placeholder="A short description of the MIDI or arrangement."
-                  maxLength={100}
-                />
-                <div className={`text-xs text-right mt-1 ${editDescription.length > 100 ? 'text-red-400' : 'text-slate-400'}`}>
-                  {editDescription.length} / 100
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-3 mt-6">
+              <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-700 flex-shrink-0">
                 <button
                   type="button"
                   onClick={() => setIsEditModalOpen(false)}
@@ -1196,7 +1285,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                 </button>
                 <button
                   type="submit"
-                  disabled={isEditing || !editTitle.trim() || editTitle.length > 50 || !editArtist.trim() || editArtist.length > 25 || editArranger.length > 25 || editDescription.length > 100}
+                  disabled={isEditing || !editTitle.trim() || editTitle.length > 50 || !editArtist.trim() || editArtist.length > 25 || editArranger.length > 25 || editDescription.length > 100 || editMidiLink.length > 300 || editMidiOffset.length > 5}
                   className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isEditing ? 'Saving...' : 'Save Changes'}

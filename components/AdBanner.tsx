@@ -174,7 +174,7 @@ const AdBanner: React.FC = () => {
                 style={insStyle}
                 data-ad-client="ca-pub-8164710909537323"
                 // TODO: Replace with REAL Ad Slot ID from AdSense Dashboard -> Ads -> By ad unit -> Create Display Ad (Vertical)
-                data-ad-slot="1234567890" 
+                data-ad-slot="5020560527" 
                 data-full-width-responsive="true"
                 ></ins>
             )}
@@ -204,7 +204,7 @@ const AdBanner: React.FC = () => {
                 style={insStyle}
                 data-ad-client="ca-pub-8164710909537323"
                 // TODO: Replace with REAL Ad Slot ID from AdSense Dashboard -> Ads -> By ad unit -> Create Display Ad (Vertical)
-                data-ad-slot="0987654321"
+                data-ad-slot="5020560527"
                 data-full-width-responsive="true"
                 ></ins>
             )}

@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../AuthContext';
@@ -13,13 +12,14 @@ interface AccountModalProps {
   isOpen: boolean;
   onClose: () => void;
   onGoToOnlineSong: (songId: string) => void; // NEW: Callback to navigate to online song browser
+  onOpenAdminModal?: () => void; // NEW: Optional callback to open admin modal
 }
 
 // Set a very long expiration time for avatar signed URLs (approx. 1000 years)
 // This makes the avatar URLs effectively permanent without making the bucket public.
 const AVATAR_SIGNED_URL_EXPIRY_SECONDS = 1000 * 365.25 * 24 * 60 * 60; // ~3.15e10 seconds
 
-const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnlineSong }) => {
+const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnlineSong, onOpenAdminModal }) => {
   const { user, session } = useAuth(); // Also get session for created_at, last_sign_in_at
   const [isRendered, setIsRendered] = useState(false);
   
@@ -112,14 +112,8 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
       // Convert map values back to an array and sort by final_score descending
       const uniqueHighestScores = Array.from(highestScoresMap.values()).sort((a, b) => b.final_score - a.final_score);
       setTopScores(uniqueHighestScores);
-
-      // NEW: Calculate Total Score with the new formula
-      const newTotalScore = uniqueHighestScores.reduce((acc, score, index) => {
-        return acc + score.final_score * Math.pow(0.98, index);
-      }, 0);
-      setTotalScore(newTotalScore);
     }
-     // Fetch leaderboard data for rank only
+    // Fetch leaderboard data for rank and total score
     try {
         const { data: leaderboardData, error: leaderboardError } = await supabase.rpc('get_leaderboard');
         if (leaderboardError) throw leaderboardError;
@@ -128,12 +122,14 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
         if (userEntry) {
             const userRank = (leaderboardData as LeaderboardEntry[]).indexOf(userEntry) + 1;
             setGlobalRank(userRank);
+            setTotalScore(userEntry.total_score); // Set total score from the RPC function
         } else {
             setGlobalRank(null);
+            setTotalScore(0); // If not on leaderboard, total score is 0
         }
     } catch (err) {
-        console.error("Error fetching global rank:", err);
-        // Don't set a message, it's not a critical failure
+        console.error("Error fetching global rank/score:", err);
+        setTotalScore(0);
     }
     setLoadingScores(false);
 
@@ -561,8 +557,13 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
                 )}
 
 
-                <div className="mt-6 flex-shrink-0">
-                    <button onClick={handleSignOut} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg text-base transition-colors">Sign Out</button>
+                <div className="mt-6 flex items-center gap-4 flex-shrink-0">
+                    <button onClick={handleSignOut} className="flex-grow bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg text-base transition-colors">Sign Out</button>
+                    {user?.id === ADMIN_UUID && onOpenAdminModal && (
+                        <button onClick={onOpenAdminModal} className="flex-shrink-0 bg-violet-600 hover:bg-violet-700 text-white font-bold py-2 px-6 rounded-lg text-base transition-colors">
+                            Admin Panel
+                        </button>
+                    )}
                 </div>
             </div>
         )}

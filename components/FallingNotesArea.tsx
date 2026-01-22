@@ -1,9 +1,8 @@
 
 import React from 'react';
 import { MidiNotePlaybackItem, KeyPosition, ActiveMidiNoteInfo, NoteLabelType, QwertyLayout, FreePlayLiveNote } from '../types';
-import Note from './Note';
-import { PLAY_LINE_THICKNESS_PX, USER_PLAY_COLOR, VISUAL_NOTE_CAP_MS } from '../constants';
-import { darkenHex, formatKeySignatureForDisplay, hexToRgba } from '../utils';
+import { PLAY_LINE_THICKNESS_PX, USER_PLAY_COLOR, VISUAL_NOTE_CAP_MS, QWERTY_MINI_KEYBOARD_MAPPING, MIRP_KEYBOARD_MAPPING, KEY_CODES_TO_DISPLAY } from '../constants';
+import { darkenHex, formatKeySignatureForDisplay, SHARP_KEYS, FLAT_KEYS, NEUTRAL_KEYS, ENHARMONIC_MAP_TO_SHARP, ENHARMONIC_MAP_TO_FLAT } from '../utils';
 
 interface FallingNotesAreaProps {
   notes: MidiNotePlaybackItem[];
@@ -28,6 +27,7 @@ interface FallingNotesAreaProps {
   qwertyLayout?: QwertyLayout;
   qwertyCurrentOctaveShift?: number;
   mirpTranspose?: number;
+  lowDetailMode?: boolean;
 }
 
 export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
@@ -52,6 +52,7 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
   qwertyLayout = 'default',
   qwertyCurrentOctaveShift = 0,
   mirpTranspose = 0,
+  lowDetailMode = false,
 }) => {
 
   const VIEWABLE_DURATION_MS = actualHeight > 0 && pixelsPerMillisecond > 0
@@ -82,7 +83,6 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
     });
   }, [notes, actualHeight, pixelsPerMillisecond, currentTimeMs, VIEWABLE_DURATION_MS, showOnlyMajorNotes, isRising]);
 
-  // NEW: Piano Tiles Background Rendering
   const pianoTilesBackground = React.useMemo(() => {
     if (!showPianoTilesBackground || actualHeight <= 0) return null;
     const whiteTiles: React.JSX.Element[] = [];
@@ -144,12 +144,17 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
   }, [keyPositions, width, actualHeight, isLightBackground]);
 
   const renderedBarLines = React.useMemo(() => {
-    if (!barLines || actualHeight <= 0 || pixelsPerMillisecond <= 0 || isRising) return null;
+    if (!barLines || actualHeight <= 0 || pixelsPerMillisecond <= 0) return null;
 
     return barLines
       .map((barTimeMs, index) => {
-        const yPositionPx = actualHeight + (currentTimeMs - barTimeMs) * pixelsPerMillisecond;
-        // Give some extra padding for visibility of the number
+        let yPositionPx: number;
+        if (isRising) {
+            yPositionPx = actualHeight - (currentTimeMs - barTimeMs) * pixelsPerMillisecond;
+        } else {
+            yPositionPx = actualHeight + (currentTimeMs - barTimeMs) * pixelsPerMillisecond;
+        }
+        
         if (yPositionPx < -20 || yPositionPx > actualHeight + 20) {
           return null;
         }
@@ -163,20 +168,19 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
             <div
               className={`w-full border-t opacity-50 ${isLightBackground ? 'border-slate-400' : 'border-slate-500 shadow-[0_0_5px_rgba(255,255,255,0.3)]'}`}
             />
-            {/* The measure number */}
             <span
-              className="absolute -top-2.5 left-2 text-xs font-mono"
+              className={`absolute left-2 text-[10px] font-mono ${isRising ? '-top-3' : '-top-2.5'}`}
               style={{
                 color: isLightBackground ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)',
               }}
             >
-              {index + 1}
+              {Math.floor(barTimeMs / ((60000 / activeTempoBpm) * 4)) + 1}
             </span>
           </div>
         );
       })
       .filter(Boolean);
-  }, [barLines, currentTimeMs, actualHeight, pixelsPerMillisecond, isRising, isLightBackground]);
+  }, [barLines, currentTimeMs, actualHeight, pixelsPerMillisecond, isRising, isLightBackground, activeTempoBpm]);
 
 
   if (actualHeight <= 0 || pixelsPerMillisecond <= 0) {
@@ -218,16 +222,13 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
                 let heightPx: number, bottomPx: number;
 
                 if (note.endTime === null) {
-                    // Note is being held: Grow upwards from the play-line (bottom 0).
                     bottomPx = 0;
                     heightPx = (currentTimeMs - note.startTime) * pixelsPerMillisecond;
                 } else {
-                    // Note is released: Scroll the entire note upwards.
                     heightPx = (note.endTime - note.startTime) * pixelsPerMillisecond;
                     bottomPx = (currentTimeMs - note.endTime) * pixelsPerMillisecond;
                 }
                 
-                // Ensure note has at least some visibility
                 heightPx = Math.max(4, heightPx);
                 
                 let baseColor = note.hand === 'left' ? leftHandColor : rightHandColor;
@@ -235,29 +236,43 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
                   baseColor = darkenHex(baseColor, 25);
                 }
 
-                // Don't render if it's way off-screen (top)
                 if (bottomPx > actualHeight + 50) {
                     return null;
                 }
 
                 const isHeld = note.endTime === null;
 
-                let borderStyle: React.CSSProperties;
-                let boxShadow: string;
+                let borderStyle: React.CSSProperties = {}; // Always simple
+                const boxShadow = 'none'; // Always use low detail mode style for free play
 
                 if (isHeld) {
-                    // Gold border and glow for held notes
                     borderStyle = { border: `2px solid ${USER_PLAY_COLOR}` };
-                    boxShadow = `0 0 15px ${USER_PLAY_COLOR}, inset 0 0 10px ${hexToRgba(USER_PLAY_COLOR, 0.3)}`;
-                } else {
-                    // Default style for released notes
-                    borderStyle = {
-                        borderTop: '1px solid rgba(255,255,255,0.6)',
-                        borderLeft: '1px solid rgba(255,255,255,0.4)',
-                        borderRight: '1px solid rgba(0,0,0,0.3)',
-                        borderBottom: '1px solid rgba(0,0,0,0.5)',
-                    };
-                    boxShadow = `0 0 10px ${baseColor}80, inset 0 0 10px rgba(0,0,0,0.2)`;
+                }
+                
+                let displayedLabel = '';
+                if (noteLabelType === 'noteName') {
+                    let displayedPitchClass = note.pitchClass;
+                    const isSharpContext = SHARP_KEYS.includes(activeKeySignature) || NEUTRAL_KEYS.includes(activeKeySignature);
+                    const isFlatContext = FLAT_KEYS.includes(activeKeySignature);
+
+                    if (isSharpContext) {
+                        const sharpEquivalent = ENHARMONIC_MAP_TO_SHARP[note.pitchClass];
+                        if (sharpEquivalent) displayedPitchClass = sharpEquivalent;
+                    } else if (isFlatContext) {
+                        const flatEquivalent = ENHARMONIC_MAP_TO_FLAT[note.pitchClass];
+                        if (flatEquivalent) displayedPitchClass = flatEquivalent;
+                    }
+                    displayedLabel = displayedPitchClass;
+                } else if (noteLabelType === 'qwerty') {
+                    if (qwertyLayout === 'mirp') {
+                        const targetBaseMidi = note.midi - (mirpTranspose || 0);
+                        const match = MIRP_KEYBOARD_MAPPING.find(m => m.midi === targetBaseMidi);
+                        if (match) displayedLabel = match.label;
+                    } else {
+                        const targetBaseMidi = note.midi - ((qwertyCurrentOctaveShift || 0) * 12);
+                        const match = QWERTY_MINI_KEYBOARD_MAPPING.find(m => m.midiBase === targetBaseMidi);
+                        if (match) displayedLabel = KEY_CODES_TO_DISPLAY[match.qwertyKey] || match.qwertyKey.replace('key', '').toUpperCase();
+                    }
                 }
 
                 return (
@@ -276,6 +291,9 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
                             willChange: 'height, bottom'
                         }}
                     >
+                        {displayedLabel && (
+                            <span className="select-none pointer-events-none drop-shadow-md z-20 relative">{displayedLabel}</span>
+                        )}
                     </div>
                 );
             })}
@@ -305,46 +323,93 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
                     yPositionPxCalc = - (PLAY_LINE_THICKNESS_PX / 2) - noteHeightPx - note.timeMs * pixelsPerMillisecond;
                 }
                 
+                let baseColor = note.hand === 'left' ? leftHandColor : rightHandColor;
+                if (keyPos.type === 'black') {
+                  baseColor = darkenHex(baseColor, 25);
+                }
+
+                let borderStyle: React.CSSProperties = {};
+                const boxShadow = 'none';
+
+                if (currentStatus === 'user_played') {
+                    borderStyle = { border: `2px solid ${USER_PLAY_COLOR}` };
+                } else if (currentStatus === 'playing') {
+                    borderStyle = { border: `2px solid rgba(255, 255, 255, 0.9)` };
+                } else if (currentStatus === 'waiting') {
+                    borderStyle = { border: `2px solid #FFFFFF` };
+                }
+                
+                let displayedLabel = '';
+                if (noteLabelType === 'noteName') {
+                    let displayedPitchClass = note.pitchClass;
+                    const isSharpContext = SHARP_KEYS.includes(activeKeySignature) || NEUTRAL_KEYS.includes(activeKeySignature);
+                    const isFlatContext = FLAT_KEYS.includes(activeKeySignature);
+
+                    if (isSharpContext) {
+                        const sharpEquivalent = ENHARMONIC_MAP_TO_SHARP[note.pitchClass];
+                        if (sharpEquivalent) displayedPitchClass = sharpEquivalent;
+                    } else if (isFlatContext) {
+                        const flatEquivalent = ENHARMONIC_MAP_TO_FLAT[note.pitchClass];
+                        if (flatEquivalent) displayedPitchClass = flatEquivalent;
+                    }
+                    displayedLabel = displayedPitchClass;
+                } else if (noteLabelType === 'fingering') {
+                    if (note.finger) {
+                        displayedLabel = String(note.finger);
+                    }
+                } else if (noteLabelType === 'qwerty') {
+                    if (qwertyLayout === 'mirp') {
+                        const targetBaseMidi = note.midi - (mirpTranspose || 0);
+                        const match = MIRP_KEYBOARD_MAPPING.find(m => m.midi === targetBaseMidi);
+                        if (match) displayedLabel = match.label;
+                    } else {
+                        const targetBaseMidi = note.midi - ((qwertyCurrentOctaveShift || 0) * 12);
+                        const match = QWERTY_MINI_KEYBOARD_MAPPING.find(m => m.midiBase === targetBaseMidi);
+                        if (match) displayedLabel = KEY_CODES_TO_DISPLAY[match.qwertyKey] || match.qwertyKey.replace('key', '').toUpperCase();
+                    }
+                }
+
                 return (
-                    <Note
+                  <div
                     key={note.noteId}
-                    noteItem={note}
-                    keyPosition={keyPos}
-                    yPositionPx={yPositionPxCalc}
-                    heightPx={noteHeightPx}
-                    status={currentStatus}
-                    noteLabelType={noteLabelType}
-                    rightHandColor={rightHandColor}
-                    leftHandColor={leftHandColor}
-                    activeKeySignature={activeKeySignature}
-                    qwertyLayout={qwertyLayout}
-                    qwertyCurrentOctaveShift={qwertyCurrentOctaveShift}
-                    mirpTranspose={mirpTranspose}
-                    />
+                    className="absolute rounded-sm flex items-end justify-center pb-1 text-white font-bold text-xs overflow-hidden"
+                    style={{
+                        left: `${keyPos.type === 'black' ? keyPos.x + (keyPos.width * 0.1) : keyPos.x + 1}px`,
+                        top: `${yPositionPxCalc}px`,
+                        width: `${keyPos.type === 'black' ? keyPos.width * 0.8 : keyPos.width - 2}px`,
+                        height: `${Math.max(1, noteHeightPx - 2)}px`,
+                        backgroundColor: baseColor,
+                        ...borderStyle,
+                        boxShadow,
+                        zIndex: currentStatus ? 20 : 15,
+                        willChange: 'top'
+                    }}
+                  >
+                    {displayedLabel && (
+                        <span className="select-none pointer-events-none drop-shadow-md z-20 relative">{displayedLabel}</span>
+                    )}
+                  </div>
                 );
             })}
         </div>
       )}
 
-      {!isRising && (
-          <div
-            className="absolute bottom-2 left-2 text-white px-3 py-2 rounded-lg text-sm font-mono tabular-nums shadow-lg space-y-1 border border-white/10"
-            style={{ background: 'rgba(15, 23, 42, 0.8)', backdropFilter: 'blur(4px)', zIndex: 20 }}
-            aria-hidden="true"
-          >
-            <div className="flex justify-between"><span>Key:</span> <span className="text-cyan-400 font-bold">{formatKeySignatureForDisplay(activeKeySignature)}</span></div>
-            <div className="flex justify-between"><span>BPM:</span> <span className="text-yellow-400 font-bold">{Math.round(activeTempoBpm)}</span></div>
-          </div>
-      )}
+      <div
+        className="absolute bottom-2 left-2 text-white px-3 py-2 rounded-lg text-sm font-mono tabular-nums shadow-lg space-y-1 border border-white/10"
+        style={{ background: 'rgba(15, 23, 42, 0.8)', backdropFilter: lowDetailMode ? 'none' : 'blur(4px)', zIndex: 20 }}
+        aria-hidden="true"
+      >
+        <div className="flex justify-between gap-4"><span>Key:</span> <span className="text-cyan-400 font-bold">{formatKeySignatureForDisplay(activeKeySignature)}</span></div>
+        <div className="flex justify-between gap-4"><span>BPM:</span> <span className="text-yellow-400 font-bold">{Math.round(activeTempoBpm)}</span></div>
+      </div>
 
-      {/* Hit Line / Judgment Line */}
       <div
         className="absolute bottom-0 left-0 w-full"
         style={{ 
             height: `${PLAY_LINE_THICKNESS_PX}px`, 
             zIndex: 20,
-            backgroundColor: isRising ? 'rgba(255, 255, 255, 0.1)' : 'rgba(34,211,238,0.8)', // Subtler line in Free Play
-            boxShadow: isRising ? 'none' : '0 0 10px rgba(34, 211, 238, 0.5)'
+            backgroundColor: isRising ? 'rgba(255, 255, 255, 0.1)' : 'rgba(34,211,238,0.8)',
+            boxShadow: isRising || lowDetailMode ? 'none' : '0 0 10px rgba(34, 211, 238, 0.5)'
         }}
       ></div>
     </div>

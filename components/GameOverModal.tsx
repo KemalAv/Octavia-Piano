@@ -1,12 +1,14 @@
+
 import React, { useState, useEffect } from 'react';
 
 interface GameOverModalProps {
   isVisible: boolean;
   reason: string;
   onClose: () => void;
+  lowDetailMode?: boolean;
 }
 
-const GameOverModal: React.FC<GameOverModalProps> = ({ isVisible, reason, onClose }) => {
+const GameOverModal: React.FC<GameOverModalProps> = ({ isVisible, reason, onClose, lowDetailMode = false }) => {
   const [isRendered, setIsRendered] = useState(false);
 
   useEffect(() => {
@@ -31,7 +33,7 @@ const GameOverModal: React.FC<GameOverModalProps> = ({ isVisible, reason, onClos
       aria-labelledby="game-over-title"
     >
       <div
-        className={`bg-slate-800/80 backdrop-blur-sm p-8 md:p-10 rounded-xl shadow-2xl text-center max-w-md w-full ring-2 ring-red-500 transform transition-all duration-300 ease-in-out ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
+        className={`p-8 md:p-10 rounded-xl shadow-2xl text-center max-w-md w-full ring-2 ring-red-500 transform transition-all duration-300 ease-in-out ${lowDetailMode ? 'bg-slate-800' : 'bg-slate-800/80 backdrop-blur-sm'} ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
         onClick={e => e.stopPropagation()}
         role="document"
       >

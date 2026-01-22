@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import { MidiAccessStatus, MIDIInput, MIDIOutput, NoteLabelType, ViewMode, ThemeSettings, DevicePreset, LayoutDimensions, QwertyLayout } from '../types';
+import { MidiAccessStatus, MIDIInput, MIDIOutput, NoteLabelType, ViewMode, ThemeSettings, DevicePreset, LayoutDimensions, QwertyLayout, MicThresholds } from '../types';
 import { DEVICE_LAYOUTS } from '../constants'; // Import DEVICE_LAYOUTS
 
 interface SettingsProps {
@@ -13,6 +12,14 @@ interface SettingsProps {
   selectedMidiOutputId: string | null;
   onSelectMidiOutput: (id: string | null) => void;
   connectMidi: () => void;
+  isAudioInputEnabled: boolean;
+  onIsAudioInputEnabledChange: (enabled: boolean) => void;
+  audioInputs: MediaDeviceInfo[];
+  selectedAudioInputId: string | null;
+  onSelectedAudioInputIdChange: (id: string | null) => void;
+  audioInputError: string | null;
+  micThresholds: MicThresholds;
+  onMicThresholdsChange: (thresholds: MicThresholds) => void;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
   noteLabelType: NoteLabelType;
@@ -29,8 +36,8 @@ interface SettingsProps {
   onMasterVolumeChange: (volume: number) => void;
   metronomeVolume: number;
   onMetronomeVolumeChange: (volume: number) => void;
-  metronomeOffsetMs: number; // NEW: Metronome offset prop
-  onMetronomeOffsetChange: (offset: number) => void; // NEW: Metronome offset handler
+  metronomeOffsetMs: number; // NOTE: This prop name is kept from App.tsx mapping but effectively controls noteOffsetMs now
+  onMetronomeOffsetChange: (offset: number) => void; // NOTE: Controls setNoteOffsetMs
   themeSettings: ThemeSettings;
   onThemeSettingsChange: (settings: ThemeSettings) => void;
   devicePreset: DevicePreset;
@@ -139,13 +146,15 @@ export const Settings: React.FC<SettingsProps> = (props) => {
   const {
     onBack, midiAccessStatus, midiInputs, selectedMidiInputId, onSelectMidiInput,
     midiOutputs, selectedMidiOutputId, onSelectMidiOutput, connectMidi,
+    isAudioInputEnabled, onIsAudioInputEnabledChange, audioInputs, selectedAudioInputId, onSelectedAudioInputIdChange, audioInputError,
+    micThresholds, onMicThresholdsChange,
     viewMode, onViewModeChange, noteLabelType, onNoteLabelTypeChange,
     showOnlyMajorNotes, onShowOnlyMajorNotesChange,
     showQwertyShortcuts,
     onShowQwertyShortcutsChange, hideBarNavigationButtons, onHideBarNavigationButtonsChange,
     autoHideTopBar, onAutoHideTopBarChange,
     masterVolume, onMasterVolumeChange, metronomeVolume, onMetronomeVolumeChange,
-    metronomeOffsetMs, onMetronomeOffsetChange, // NEW: Destructure metronome offset props
+    metronomeOffsetMs, onMetronomeOffsetChange, // These props now control Note Offset
     themeSettings, onThemeSettingsChange,
     devicePreset, onDevicePresetChange,
     customWhiteKeyHeight, onCustomWhiteKeyHeightChange,
@@ -167,11 +176,11 @@ export const Settings: React.FC<SettingsProps> = (props) => {
   const numberInputStyle = `w-24 p-2 rounded-lg bg-slate-700 text-white border border-slate-600 focus:ring-violet-500 focus:border-violet-500 text-sm`;
 
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleBackgroundUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (!file.type.startsWith('image/')) {
-        alert('Please select an image file (e.g., JPEG, PNG, GIF).');
+      if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
+        alert('Please select an image (JPEG, PNG, GIF) or video (MP4, WebM) file.');
         return;
       }
       const reader = new FileReader();
@@ -182,7 +191,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
     }
   };
 
-  const handleClearImage = () => {
+  const handleClearBackground = () => {
     onThemeSettingsChange({ ...themeSettings, backgroundUrl: '' });
     if (fileInputRef.current) {
         fileInputRef.current.value = '';
@@ -197,8 +206,6 @@ export const Settings: React.FC<SettingsProps> = (props) => {
             return <span className="text-sm text-slate-400 animate-pulse">Requesting Access...</span>;
         case 'denied':
             return <button onClick={connectMidi} className={`${commonButtonStyles} bg-red-500 hover:bg-red-600 text-white`}>Access Denied. Retry?</button>;
-        case 'unsupported':
-            return <span className="text-sm text-slate-500">Web MIDI Not Supported</span>;
         case 'granted':
              return <button onClick={connectMidi} className={`${commonButtonStyles} bg-green-600 hover:bg-green-700`}>Rescan Devices</button>;
         default:
@@ -227,9 +234,13 @@ export const Settings: React.FC<SettingsProps> = (props) => {
   const gameplayPresetSelected = "bg-violet-500/80 border-violet-400 shadow-lg scale-105 ring-2 ring-violet-400";
   const gameplayPresetUnselected = "bg-slate-700/50 border-slate-600 hover:bg-slate-700 hover:border-slate-500";
 
+  const handleThresholdChange = (key: keyof MicThresholds, value: number) => {
+    onMicThresholdsChange({ ...micThresholds, [key]: value });
+  };
+
   return (
     <>
-      <div className={`bg-slate-800/80 backdrop-blur-sm p-6 md:p-8 rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto custom-scrollbar ring-1 ring-slate-700 transform transition-all duration-300 ease-in-out ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`} onClick={e => e.stopPropagation()}>
+      <div className={`p-6 md:p-8 rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto custom-scrollbar ring-1 ring-slate-700 transform transition-all duration-300 ease-in-out bg-slate-800/80 backdrop-blur-sm ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`} onClick={e => e.stopPropagation()}>
         <div className="flex justify-between items-center mb-6">
             <h2 className="text-3xl font-bold text-cyan-400">Settings</h2>
             <button onClick={onBack} className="text-slate-400 hover:text-white text-3xl leading-none" style={{ zIndex: 9999 }} aria-label="Close settings">&times;</button>
@@ -347,13 +358,61 @@ export const Settings: React.FC<SettingsProps> = (props) => {
               <div>
                 <label htmlFor="midi-output" className="block mb-2 text-sm font-medium text-slate-300">Output Device</label>
                 <select id="midi-output" value={selectedMidiOutputId || ""} onChange={e => onSelectMidiOutput(e.target.value || null)} className={selectStyles} disabled={midiAccessStatus !== 'granted'}>
-                    <option value="">{midiOutputs.size === 0 ? 'No Outputs Found' : 'Use Internal Synth'}</option>
+                    <option value="">{midiInputs.size === 0 ? 'No Outputs Found' : 'Use Internal Synth'}</option>
                     {Array.from(midiOutputs.values()).map((output: MIDIOutput) => <option key={output.id} value={output.id}>{output.name}</option>)}
                 </select>
               </div>
             </div>
           </Section>
           
+          <Section title="Acoustic Piano Input (Beta)">
+            <ToggleRow id="audio-input-enabled" label="Enable Microphone Input" checked={isAudioInputEnabled} onChange={onIsAudioInputEnabledChange} />
+            <SettingRow label="Input Device" htmlFor="audio-input-device">
+                <select 
+                    id="audio-input-device" 
+                    value={selectedAudioInputId || ""} 
+                    onChange={e => onSelectedAudioInputIdChange(e.target.value || null)} 
+                    className={selectStyles} 
+                    disabled={!isAudioInputEnabled}
+                >
+                    {audioInputs.length === 0 ? (
+                        <option value="">No microphones found</option>
+                    ) : (
+                        audioInputs.map(device => (
+                            <option key={device.deviceId} value={device.deviceId}>{device.label || `Microphone ${audioInputs.indexOf(device) + 1}`}</option>
+                        ))
+                    )}
+                </select>
+            </SettingRow>
+            {audioInputError && <p className="text-xs text-red-400 text-center">{audioInputError}</p>}
+            
+            {isAudioInputEnabled && (
+                <div className="bg-slate-900/50 p-4 rounded-lg mt-4 space-y-4 ring-1 ring-slate-700">
+                    <h4 className="text-md font-semibold text-slate-200 border-b border-slate-700 pb-2">Detection Sensitivity</h4>
+                    <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-2">Adjust dB thresholds per range (Lower = More Sensitive)</p>
+                    
+                    {(Object.keys(micThresholds) as Array<keyof MicThresholds>).map(key => (
+                        <SettingRow key={key} label={`${key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())} (${micThresholds[key]} dB)`} htmlFor={`mic-thresh-${key}`}>
+                            <input 
+                                id={`mic-thresh-${key}`}
+                                type="range" 
+                                min="-100" 
+                                max="-20" 
+                                step="1" 
+                                value={micThresholds[key]} 
+                                onChange={e => handleThresholdChange(key, parseInt(e.target.value, 10))} 
+                                className={`${rangeSliderStyle} max-w-[150px] md:max-w-[200px]`} 
+                            />
+                        </SettingRow>
+                    ))}
+                </div>
+            )}
+
+             <p className="text-xs text-slate-500 text-center mt-2">
+                This feature uses your microphone to detect notes. Adjust the dB thresholds above to filter out background noise or catch quiet notes.
+            </p>
+          </Section>
+
           <Section title="Visuals & Gameplay">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <SettingRow label="Game View" htmlFor="view-mode">
@@ -400,19 +459,21 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                 type="range" 
                 min="0" 
                 max="1" 
-                step="0.05" 
+                step="0.25" // Snap every 25%
                 value={masterVolume} 
                 onChange={e => onMasterVolumeChange(parseFloat(e.target.value))} 
                 className={`${rangeSliderStyle} max-w-xs`} 
+                disabled={isAudioInputEnabled || selectedMidiInputId !== null}
               />
             </SettingRow>
+            {(isAudioInputEnabled || selectedMidiInputId) && <p className="text-xs text-red-400 mt-1">Piano volume disabled when Microphone or MIDI Input is active.</p>}
             <SettingRow label={`Metronome Volume (${Math.round(metronomeVolume*100)}%)`} htmlFor="metronome-volume">
               <input 
                 id="metronome-volume" 
                 type="range" 
                 min="0" 
                 max="1" 
-                step="0.05" 
+                step="0.25" // Snap every 25%
                 value={metronomeVolume} 
                 onChange={e => onMetronomeVolumeChange(parseFloat(e.target.value))} 
                 className={`${rangeSliderStyle} max-w-xs`} 
@@ -430,18 +491,22 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                 className={`${rangeSliderStyle} max-w-xs`} 
               />
             </SettingRow>
-            <SettingRow label={`Metronome Offset (${metronomeOffsetMs}ms)`} htmlFor="metronome-offset">
+            {/* Replaced Metronome Offset with Note Offset */}
+            <SettingRow label={`Note Offset (${metronomeOffsetMs > 0 ? '+' : ''}${metronomeOffsetMs}ms)`} htmlFor="note-offset">
               <input 
-                id="metronome-offset" 
+                id="note-offset" 
                 type="range" 
-                min="-100" 
-                max="100" 
+                min="-250" 
+                max="250" 
                 step="5" 
                 value={metronomeOffsetMs} 
                 onChange={e => onMetronomeOffsetChange(parseInt(e.target.value, 10))} 
                 className={`${rangeSliderStyle} max-w-xs`} 
               />
             </SettingRow>
+            <p className="text-xs text-slate-500 mt-1">
+                Adjust hit detection timing. (+) shifts hitbox later (compensates input lag), (-) shifts hitbox earlier.
+            </p>
           </Section>
 
           <Section title="Appearance">
@@ -454,22 +519,23 @@ export const Settings: React.FC<SettingsProps> = (props) => {
             <SettingRow label="Falling Notes Background" htmlFor="bg-color">
               <input type="color" id="bg-color" value={themeSettings.fallingNotesBackgroundColor} onChange={e => onThemeSettingsChange({...themeSettings, fallingNotesBackgroundColor: e.target.value})} className={colorInputStyle} />
             </SettingRow>
-             <SettingRow label="Custom Background Image" htmlFor="bg-url">
+             {/* FIX: Use 'SettingRow' instead of 'Section' and fix invalid prop 'htmlFor' */}
+             <SettingRow label="Custom Background" htmlFor="bg-url">
                 <div className="flex items-center gap-2">
                     <input
                         type="text"
                         id="bg-url"
-                        placeholder="Image URL..."
-                        value={themeSettings.backgroundUrl?.startsWith('data:image') ? 'Uploaded Image' : themeSettings.backgroundUrl || ''}
-                        readOnly={themeSettings.backgroundUrl?.startsWith('data:image')}
+                        placeholder="Image or Video URL..."
+                        value={themeSettings.backgroundUrl?.startsWith('data:') ? 'Uploaded File' : themeSettings.backgroundUrl || ''}
+                        readOnly={themeSettings.backgroundUrl?.startsWith('data:')}
                         onChange={e => onThemeSettingsChange({...themeSettings, backgroundUrl: e.target.value})}
                         className={`${numberInputStyle} w-full max-w-xs flex-grow`}
                     />
                     <input
                         type="file"
                         ref={fileInputRef}
-                        onChange={handleImageUpload}
-                        accept="image/png, image/jpeg, image/gif"
+                        onChange={handleBackgroundUpload}
+                        accept="image/png, image/jpeg, image/gif, video/mp4, video/webm"
                         className="hidden"
                         id="bg-upload-input"
                     />
@@ -477,9 +543,9 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                         Upload
                     </label>
                     <button
-                        onClick={handleClearImage}
+                        onClick={handleClearBackground}
                         className={`${commonButtonStyles} bg-red-600 hover:bg-red-700 text-white`}
-                        title="Remove background image"
+                        title="Remove background"
                     >
                         Clear
                     </button>
@@ -577,3 +643,5 @@ export const Settings: React.FC<SettingsProps> = (props) => {
     </>
   );
 };
+
+export default Settings;

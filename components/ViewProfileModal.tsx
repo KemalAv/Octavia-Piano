@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { Profile, Score, OnlineSong, PerformanceSummary, LeaderboardEntry } from '../types'; // Import PerformanceSummary type
@@ -85,15 +86,9 @@ const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onC
       
       const uniqueHighestScores = Array.from(highestScoresMap.values()).sort((a, b) => b.final_score - a.final_score);
       setUserTopScores(uniqueHighestScores);
-
-      // NEW: Calculate Total Score with the new formula
-      const newTotalScore = uniqueHighestScores.reduce((acc, score, index) => {
-          return acc + score.final_score * Math.pow(0.98, index);
-      }, 0);
-      setProfileTotalScore(newTotalScore);
-
-      // Fetch rank if not passed in props
-      if (globalRank === undefined) {
+      
+      // Fetch rank and total score from the authoritative RPC function
+      try {
         const { data: leaderboardData, error: leaderboardError } = await supabase.rpc('get_leaderboard');
         if (leaderboardError) throw leaderboardError;
         
@@ -101,11 +96,15 @@ const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onC
         if (userEntry) {
             const userRank = (leaderboardData as LeaderboardEntry[]).indexOf(userEntry) + 1;
             setProfileRank(userRank);
+            setProfileTotalScore(userEntry.total_score);
         } else {
             setProfileRank(null);
+            setProfileTotalScore(0);
         }
-      } else {
-        setProfileRank(globalRank);
+      } catch (err) {
+          console.error("Error fetching profile rank/score:", err);
+          setProfileRank(null);
+          setProfileTotalScore(0);
       }
 
     } catch (err: unknown) {

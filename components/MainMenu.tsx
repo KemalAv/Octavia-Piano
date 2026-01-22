@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../AuthContext'; // Import useAuth hook
+import { Screen } from '../types';
 
 interface MainMenuProps {
   onPlay: () => void;
@@ -9,9 +10,10 @@ interface MainMenuProps {
   onSocial: () => void;
   onOpenLoginModal: () => void;
   onOpenAccountModal: () => void;
+  onNavigate: (screen: Screen) => void; // New prop for generic navigation
 }
 
-const MainMenu: React.FC<MainMenuProps> = ({ onPlay, onSettings, onSocial, onOpenLoginModal, onOpenAccountModal }) => {
+const MainMenu: React.FC<MainMenuProps> = ({ onPlay, onSettings, onSocial, onOpenLoginModal, onOpenAccountModal, onNavigate }) => {
   const { session, loading } = useAuth(); // Use the auth hook
   const [isRendered, setIsRendered] = useState(false);
 
@@ -54,10 +56,10 @@ const MainMenu: React.FC<MainMenuProps> = ({ onPlay, onSettings, onSocial, onOpe
   }
 
   return (
-    <div className={`fixed inset-0 bg-slate-950 flex items-center justify-center z-50 p-4 transition-opacity duration-500 ease-in-out ${isRendered ? 'opacity-100' : 'opacity-0'}`}>
+    <div className={`fixed inset-0 bg-slate-950 flex flex-col items-center justify-center z-50 p-4 transition-opacity duration-500 ease-in-out ${isRendered ? 'opacity-100' : 'opacity-0'}`}>
       
       <div 
-        className={`relative z-10 bg-slate-900/40 backdrop-blur-md p-8 md:p-12 rounded-2xl shadow-2xl text-center max-w-md w-full border border-white/10 max-h-[90vh] overflow-y-auto custom-scrollbar transform transition-all duration-500 ease-in-out ${isRendered ? 'scale-100 translate-y-0' : 'scale-95 translate-y-4'}`}
+        className={`relative z-10 p-8 md:p-12 rounded-2xl shadow-2xl text-center max-w-md w-full border border-white/10 max-h-[85vh] overflow-y-auto custom-scrollbar transform transition-all duration-500 ease-in-out bg-slate-900/80 ${isRendered ? 'scale-100 translate-y-0' : 'scale-95 translate-y-4'}`}
         style={{
           boxShadow: '0 0 50px rgba(0,0,0,0.8), inset 0 0 0 1px rgba(255,255,255,0.05)'
         }}
@@ -100,8 +102,14 @@ const MainMenu: React.FC<MainMenuProps> = ({ onPlay, onSettings, onSocial, onOpe
           </div>
         </div>
         
-        <div className="mt-8 text-xs text-slate-500">
-            v1.0.4 &bull; Created by Kemal Av
+        <div className="mt-8 pt-4 border-t border-white/5">
+            <p className="text-xs text-slate-500 mb-2">v1.0.5 &bull; Created by Kemal Av</p>
+            <div className="flex justify-center gap-4 text-xs text-slate-400">
+                <button onClick={() => onNavigate('about')} className="hover:text-cyan-400 transition-colors">About</button>
+                <button onClick={() => onNavigate('contact')} className="hover:text-cyan-400 transition-colors">Contact</button>
+                <button onClick={() => onNavigate('privacy')} className="hover:text-cyan-400 transition-colors">Privacy</button>
+                <button onClick={() => onNavigate('disclaimer')} className="hover:text-cyan-400 transition-colors">Disclaimer</button>
+            </div>
         </div>
       </div>
     </div>

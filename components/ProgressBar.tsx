@@ -1,4 +1,5 @@
 
+
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 
 interface ProgressBarProps {
@@ -9,6 +10,8 @@ interface ProgressBarProps {
   onSeek: (newTimeMs: number) => void;
   isPlaybackActive: boolean;
   isSeekingDisabled?: boolean;
+  loopStartMs: number | null;
+  loopEndMs: number | null;
 }
 
 const ProgressBar: React.FC<ProgressBarProps> = ({
@@ -19,6 +22,8 @@ const ProgressBar: React.FC<ProgressBarProps> = ({
   onSeek,
   isPlaybackActive,
   isSeekingDisabled,
+  loopStartMs,
+  loopEndMs,
 }) => {
   const progressBarRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -43,6 +48,9 @@ const ProgressBar: React.FC<ProgressBarProps> = ({
 
   const progressPercent = totalDurationMs > 0 ? (currentTimeMs / totalDurationMs) * 100 : 0;
   const clampedProgress = Math.min(100, Math.max(0, progressPercent));
+  const loopStartPercent = totalDurationMs > 0 && loopStartMs != null ? (loopStartMs / totalDurationMs) * 100 : 0;
+  const loopEndPercent = totalDurationMs > 0 && loopEndMs != null ? (loopEndMs / totalDurationMs) * 100 : 0;
+  const loopWidthPercent = (loopStartMs != null && loopEndMs != null && loopEndPercent > loopStartPercent) ? loopEndPercent - loopStartPercent : 0;
 
   const calculateTimeFromClientX = useCallback((clientX: number): number => {
     if (!progressBarRef.current || totalDurationMsRef.current <= 0) return currentTimeMsRef.current;
@@ -153,8 +161,8 @@ const ProgressBar: React.FC<ProgressBarProps> = ({
       ref={progressBarRef}
       className="bg-slate-700 relative touch-none" // Added touch-none to prevent scrolling on touch devices during drag
       style={barStyle}
-      onMouseDown={handleMouseDown} // No longer conditional here, conditional logic is inside handler
-      onTouchStart={handleTouchStart} // No longer conditional here, conditional logic is inside handler
+      onMouseDown={handleMouseDown}
+      onTouchStart={handleTouchStart}
       role="slider"
       aria-valuenow={currentTimeMs}
       aria-valuemin={0}
@@ -164,6 +172,16 @@ const ProgressBar: React.FC<ProgressBarProps> = ({
       tabIndex={!isSeekingDisabled && totalDurationMs > 0 ? 0 : -1}
       onKeyDown={handleKeyDown}
     >
+      {loopWidthPercent > 0 && (
+        <div
+            className="absolute top-0 h-full bg-cyan-500/30"
+            style={{
+                left: `${loopStartPercent}%`,
+                width: `${loopWidthPercent}%`,
+            }}
+            aria-hidden="true"
+        />
+      )}
       <div
         className="bg-lime-500 absolute top-0 left-0 h-full"
         style={fillStyle}

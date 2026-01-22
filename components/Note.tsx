@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { KeyPosition, MidiNotePlaybackItem, ActiveMidiNoteInfo, NoteLabelType, QwertyLayout } from '../types';
 import { SHARP_KEYS, FLAT_KEYS, NEUTRAL_KEYS, ENHARMONIC_MAP_TO_SHARP, ENHARMONIC_MAP_TO_FLAT, darkenHex, hexToRgba, lightenHex } from '../utils'; // Import enharmonic constants and color utils
@@ -17,6 +18,7 @@ interface NoteProps {
   qwertyLayout?: QwertyLayout;
   qwertyCurrentOctaveShift?: number;
   mirpTranspose?: number;
+  lowDetailMode?: boolean;
 }
 
 const Note: React.FC<NoteProps> = ({ 
@@ -32,12 +34,13 @@ const Note: React.FC<NoteProps> = ({
   qwertyLayout = 'default',
   qwertyCurrentOctaveShift = 0,
   mirpTranspose = 0,
+  lowDetailMode = false,
 }) => {
   const isWhiteKey = keyPosition.type === 'white';
   let dynamicStyle: React.CSSProperties = {};
   let baseColor = noteItem.hand === 'left' ? leftHandColor : rightHandColor;
 
-  let borderStyle: React.CSSProperties = {
+  let borderStyle: React.CSSProperties = lowDetailMode ? {} : {
     borderTop: '1px solid rgba(255,255,255,0.6)',
     borderLeft: '1px solid rgba(255,255,255,0.4)',
     borderRight: '1px solid rgba(0,0,0,0.3)',
@@ -45,17 +48,14 @@ const Note: React.FC<NoteProps> = ({
   };
 
   if (status === 'playing') {
-    // White border for system-played notes
     borderStyle = {
       border: '2px solid rgba(255, 255, 255, 0.9)',
     };
   } else if (status === 'user_played') {
-    // Gold border for user-played notes
     borderStyle = {
       border: `2px solid ${USER_PLAY_COLOR}`
     };
   } else if (status === 'waiting') {
-    // Waiting: Pulsing hand color
     dynamicStyle = {
         backgroundColor: isWhiteKey ? lightenHex(baseColor, 60) : baseColor, 
         borderColor: baseColor,
@@ -63,7 +63,6 @@ const Note: React.FC<NoteProps> = ({
     };
   }
 
-  // Always darken black keys unless they are waiting for input (for better visibility)
   if (keyPosition.type === 'black' && status !== 'waiting') {
     baseColor = darkenHex(baseColor, 25);
   }
@@ -78,14 +77,13 @@ const Note: React.FC<NoteProps> = ({
       };
   }
   
-  const visualWidth = keyPosition.type === 'black' ? keyPosition.width * 0.8 : keyPosition.width - 2; // Slightly narrower for spacing
+  const visualWidth = keyPosition.type === 'black' ? keyPosition.width * 0.8 : keyPosition.width - 2;
   const visualX = keyPosition.type === 'black' ? keyPosition.x + (keyPosition.width * 0.1) : keyPosition.x + 1;
 
   let displayedLabel = '';
 
   if (noteLabelType === 'noteName') {
     let displayedPitchClass = noteItem.pitchClass;
-    // Apply enharmonic correction if note labels are 'noteName'
     const isSharpContext = SHARP_KEYS.includes(activeKeySignature) || NEUTRAL_KEYS.includes(activeKeySignature);
     const isFlatContext = FLAT_KEYS.includes(activeKeySignature);
 
@@ -106,22 +104,16 @@ const Note: React.FC<NoteProps> = ({
       displayedLabel = String(noteItem.finger);
     }
   } else if (noteLabelType === 'qwerty') {
-    // Calculate which key triggers this note
     if (qwertyLayout === 'mirp') {
-      // For MIRP: Played Note = Base Key Midi + Transpose
-      // So Base Key Midi = Played Note - Transpose
       const targetBaseMidi = noteItem.midi - mirpTranspose;
       const match = MIRP_KEYBOARD_MAPPING.find(m => m.midi === targetBaseMidi);
       if (match) {
         displayedLabel = match.label;
       }
     } else {
-      // For Default: Played Note = Base Key Midi + (Shift * 12)
-      // So Base Key Midi = Played Note - (Shift * 12)
       const targetBaseMidi = noteItem.midi - (qwertyCurrentOctaveShift * 12);
       const match = QWERTY_MINI_KEYBOARD_MAPPING.find(m => m.midiBase === targetBaseMidi);
       if (match) {
-        // Use the display mapping if available, otherwise capitalize key code
         displayedLabel = KEY_CODES_TO_DISPLAY[match.qwertyKey] || match.qwertyKey.replace('key', '').toUpperCase();
       }
     }

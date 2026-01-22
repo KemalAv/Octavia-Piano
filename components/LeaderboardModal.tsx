@@ -8,7 +8,7 @@ import { convertScoreToPerformanceSummary } from '../utils'; // NEW: Import util
 interface LeaderboardModalProps {
   song: OnlineSong | null;
   onClose: () => void;
-  onGoToOnlineSong: (songId: string) => void; // FIX: Changed prop type from `(file: File, onlineSongId: string) => Promise<void>` to `(songId: string) => void`
+  onGoToOnlineSong: (songId: string) => void; 
 }
 
 const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ song, onClose, onGoToOnlineSong }) => {

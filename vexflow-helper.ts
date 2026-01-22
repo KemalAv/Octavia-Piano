@@ -1,4 +1,5 @@
-import { MidiNotePlaybackItem, TimeSignatureInfo, VexFlowMeasureData, VexFlowNoteInfo, VexFlowRenderData, OctaveLineInfo, NoteFragment, TempoEvent, TempoMarkingInfo } from './types';
+
+import { MidiNotePlaybackItem, TimeSignatureInfo, VexFlowMeasureData, VexFlowNoteInfo, VexFlowRenderData, OctaveLineInfo, NoteFragment, TempoEvent, TempoMarkingInfo, VexFlowTupletGroup } from './types';
 import { getNoteZoom, getLayoutZoom, SHARP_KEYS, FLAT_KEYS, NEUTRAL_KEYS, ENHARMONIC_MAP_TO_SHARP, ENHARMONIC_MAP_TO_FLAT, SignatureEvent } from './utils';
 import { StaveNote, Beam, Stave, Accidental, Dot, Barline, StaveConnector, Renderer, Voice, Formatter } from 'vexflow';
 import { BASE_PIXELS_PER_MILLISECOND } from './constants';
@@ -29,13 +30,21 @@ const ROLL_VIEW_BASE_PPM = BASE_PIXELS_PER_MILLISECOND * 1.5;
 const ROLL_VIEW_PIXELS_PER_SECOND = (ROLL_VIEW_BASE_PPM * 1000) / UNIVERSAL_SCALE;
 
 // --- Mappings ---
-const DURATION_TO_VEXFLOW: { [key: number]: { type: string, dots: number } } = {
+const DURATION_TO_VEXFLOW: { [key: number]: { type: string, dots: number, isTriplet?: boolean } } = {
     4: { type: 'w', dots: 0 }, 3: { type: 'h', dots: 1 }, 2: { type: 'h', dots: 0 },
     1.5: { type: 'q', dots: 1 }, 1: { type: 'q', dots: 0 }, 0.75: { type: '8', dots: 1 },
     0.5: { type: '8', dots: 0 }, 0.375: { type: '16', dots: 1 }, 0.25: { type: '16', dots: 0 },
     0.1875: { type: '32', dots: 1 }, 0.125: { type: '32', dots: 0 }, 
     0.09375: { type: '64', dots: 1 }, 0.0625: { type: '64', dots: 0 },
-    0.046875: { type: '128', dots: 1 }, 0.03125: { type: '128', dots: 0 }
+    0.046875: { type: '128', dots: 1 }, 0.03125: { type: '128', dots: 0 },
+    // Legit triplets (3 in time of 2)
+    [8/3]: { type: '1', dots: 0, isTriplet: true },   // Whole note triplet (1/1)
+    [4/3]: { type: '2', dots: 0, isTriplet: true },   // Half note triplet (1/2)
+    [2/3]: { type: '4', dots: 0, isTriplet: true },   // Quarter note triplet (1/4)
+    [1/3]: { type: '8', dots: 0, isTriplet: true },   // 8th note triplet
+    [1/6]: { type: '16', dots: 0, isTriplet: true },  // 16th note triplet
+    [1/12]: { type: '32', dots: 0, isTriplet: true }, // 32nd note triplet
+    [1/24]: { type: '64', dots: 0, isTriplet: true }, // 64th note triplet
 };
 
 const COMMON_VEXFLOW_DURATIONS_SET = new Set(Object.keys(DURATION_TO_VEXFLOW).map(Number));
@@ -44,8 +53,8 @@ const KEY_SIGNATURE_SPEC: { [key: string]: { [note: string]: string } } = {
     'C': {},
     'G': { 'F': '#' },
     'D': { 'F': '#', 'C': '#' },
-    'A': { 'F': '#', 'C': '#', 'G': '#' },
-    'E': { 'F': '#', 'C': '#', 'G': '#', 'D': '#' },
+    'A': { 'F': '#', 'C': '#' },
+    'E': { 'F': '#', 'C': '#' },
     'B': { 'F': '#', 'C': '#', 'G': '#', 'D': '#', 'A': '#' },
     'F#': { 'F': '#', 'C': '#', 'G': '#', 'D': '#', 'A': '#', 'E': '#' },
     'C#': { 'F': '#', 'C': '#', 'G': '#', 'D': '#', 'A': '#', 'E': '#', 'B': '#' },
@@ -67,7 +76,7 @@ interface TimelineNoteEvent {
     originalNoteId: string;
     fragmentMapping: { fragmentId: string; keyIndex: number }[];
     midiValue: number;
-    primaryVexFlowDuration?: { type: string, dots: number }; // NEW: to force specific VexFlow duration
+    primaryVexFlowDuration?: { type: string, dots: number, isTriplet?: boolean };
 }
 
 interface TimelineRestEvent {
@@ -78,7 +87,7 @@ interface TimelineRestEvent {
 
 type TimelineEvent = TimelineNoteEvent | TimelineRestEvent;
 
-function getClosestCommonDuration(q: number): number | null { // Removed tolerance parameter
+function getClosestCommonDuration(q: number): number | null {
     let closestCommonQ: number | null = null;
     let minDiff = Infinity;
     for (const commonQ of Array.from(COMMON_VEXFLOW_DURATIONS_SET)) {
@@ -88,13 +97,12 @@ function getClosestCommonDuration(q: number): number | null { // Removed toleran
             closestCommonQ = commonQ;
         }
     }
-    return closestCommonQ; // Always return the closest, let caller decide on tolerance
+    return closestCommonQ;
 }
 
-function getVexFlowDuration(durationInQuarterNotes: number): { type: string, dots: number } {
+function getVexFlowDuration(durationInQuarterNotes: number): { type: string, dots: number, isTriplet?: boolean } {
     if (durationInQuarterNotes <= 0) return { type: '16', dots: 0 };
-    // Use SNAP_TOLERANCE here for initial recognition of a common VexFlow duration
-    const snappedDuration = getClosestCommonDuration(durationInQuarterNotes); // No tolerance parameter
+    const snappedDuration = getClosestCommonDuration(durationInQuarterNotes);
     if (snappedDuration !== null && Math.abs(snappedDuration - durationInQuarterNotes) < SNAP_TOLERANCE && DURATION_TO_VEXFLOW[snappedDuration]) {
       return DURATION_TO_VEXFLOW[snappedDuration];
     }
@@ -102,21 +110,37 @@ function getVexFlowDuration(durationInQuarterNotes: number): { type: string, dot
     return DURATION_TO_VEXFLOW[closest];
 }
 
-function decomposeDuration(durationInQuarters: number): { type: string, dots: number }[] {
-    const results: { type: string, dots: number }[] = [];
+function decomposeDuration(durationInQuarters: number): { type: string, dots: number, isTriplet?: boolean }[] {
+    // Check if it's a single triplet first to avoid breaking it into standard notes
+    const closest = getClosestCommonDuration(durationInQuarters);
+    if (closest !== null && Math.abs(closest - durationInQuarters) < 0.05) {
+        const entry = DURATION_TO_VEXFLOW[closest];
+        if (entry.isTriplet) return [entry];
+    }
+
+    const results: { type: string, dots: number, isTriplet?: boolean }[] = [];
     let remaining = durationInQuarters;
-    const sortedDurations = Object.keys(DURATION_TO_VEXFLOW).map(Number).sort((a, b) => b - a);
-    while (remaining > DURATION_MATCH_TOLERANCE) { // Use DURATION_MATCH_TOLERANCE for loop termination
+    // For standard decomposition, only use non-triplets
+    const sortedDurations = Object.keys(DURATION_TO_VEXFLOW)
+        .map(Number)
+        .filter(k => !DURATION_TO_VEXFLOW[k].isTriplet)
+        .sort((a, b) => b - a);
+
+    let loopCount = 0;
+    const MAX_LOOPS = 50; // Safety brake
+
+    while (remaining > DURATION_MATCH_TOLERANCE && loopCount < MAX_LOOPS) {
         let found = false;
         for (const dur of sortedDurations) {
-            if (remaining >= dur - DURATION_MATCH_TOLERANCE) { // Allow slight deficit to snap
+            if (remaining >= dur - DURATION_MATCH_TOLERANCE) {
                 results.push(DURATION_TO_VEXFLOW[dur]);
                 remaining -= dur;
                 found = true;
                 break;
             }
         }
-        if (!found) break; // If no duration can be found, prevent infinite loop
+        if (!found) break;
+        loopCount++;
     }
     return results;
 }
@@ -137,7 +161,7 @@ function processHandAndAccidentals(
     currentMeasureKeySignature: string,
     getBpmAtTime: (timeMs: number) => number,
     isRollView: boolean
-): VexFlowNoteInfo[] {
+): { notes: VexFlowNoteInfo[], tuplets: VexFlowTupletGroup[] } {
     const handFragments = allFragmentsInMeasure.filter(n => n.hand === hand);
     const groupedByTime = new Map<number, NoteFragment[]>();
     handFragments.forEach(note => {
@@ -155,46 +179,28 @@ function processHandAndAccidentals(
         const bpmForRest = getBpmAtTime(timelineCursorMs);
         const msPerQuarterForRest = 60000 / bpmForRest;
 
-        // Insert rest if there is a significant gap before the note
         if (restGapMs > DURATION_MATCH_TOLERANCE * msPerQuarterForRest) {
             rawTimelineEvents.push({ type: 'rest', timeMs: timelineCursorMs, durationMs: restGapMs });
             timelineCursorMs += restGapMs;
         } else {
-            // Snap cursor to note start to consume micro-gaps
             timelineCursorMs = timestamp;
         }
 
         const notesAtTime = groupedByTime.get(timestamp)!.sort((a, b) => a.midi - b.midi);
         
-        let durationForGroupMs; // Duration in milliseconds for this group of notes
-        let primaryVexFlowDuration: { type: string, dots: number } | null = null; // Store the chosen VexFlow duration type
-        
+        let durationForGroupMs;
         if (!isRollView) {
-            // NEW LOGIC: Rhythmic duration is based on the time distance to the next note event, not the note's own duration.
             const nextNoteEventTime = sortedTimestamps[index + 1];
-            
-            // If there's a next note in the measure, duration is until that note. Otherwise, it's until the measure end.
             const rhythmicDurationMs = (nextNoteEventTime !== undefined)
                 ? nextNoteEventTime - timestamp
                 : measureEndTime - timestamp;
-
             const timeToMeasureEndMs = measureEndTime - timestamp;
-
-            // The duration for the timeline event is this rhythmic duration, clipped at the measure boundary.
-            // The user's request is to IGNORE the actual note duration from the MIDI file for rhythm.
             durationForGroupMs = Math.min(rhythmicDurationMs, timeToMeasureEndMs);
             if (durationForGroupMs < 0) durationForGroupMs = 0;
-
-            // The primaryVexFlowDuration logic is now redundant because the more robust decomposition
-            // later will handle finding the best VexFlow note type based on this new durationForGroupMs.
-            primaryVexFlowDuration = null;
-
         } else {
-            // ROLL VIEW LOGIC (Unchanged: simplified duration, effectively only clipped by measure)
             const maxNoteDurationMs = Math.max(...notesAtTime.map(n => n.durationMs));
             const timeToMeasureEndMs = measureEndTime - timestamp;
             durationForGroupMs = Math.min(maxNoteDurationMs, timeToMeasureEndMs);
-            primaryVexFlowDuration = null; // Roll view does not force specific VexFlow types initially
         }
 
         rawTimelineEvents.push({
@@ -203,12 +209,10 @@ function processHandAndAccidentals(
             originalNoteId: notesAtTime[0].originalNoteId,
             fragmentMapping: notesAtTime.map((note, idx) => ({ fragmentId: note.fragmentId, keyIndex: idx })),
             midiValue: Math.min(...notesAtTime.map(n => n.midi)),
-            primaryVexFlowDuration: primaryVexFlowDuration, // Pass the forced VexFlow duration type
         });
         timelineCursorMs += durationForGroupMs;
     });
 
-    // Fill remaining space in measure with rest
     const finalRestGapMs = measureEndTime - timelineCursorMs;
     const bpmForFinalRest = getBpmAtTime(timelineCursorMs);
     const msPerQuarterForFinalRest = 60000 / bpmForFinalRest;
@@ -223,8 +227,6 @@ function processHandAndAccidentals(
             const localMsPerQuarterNote = 60000 / bpm;
             if (localMsPerQuarterNote <= 0) return;
             const durationQuarters = event.durationMs / localMsPerQuarterNote;
-            
-            // If the calculated duration for a note is too small, convert it to a rest
             if (durationQuarters < MIN_NOTE_DURATION_TO_RENDER) {
                 processedTimelineEvents.push({ type: 'rest', timeMs: event.timeMs, durationMs: event.durationMs });
             } else {
@@ -235,7 +237,6 @@ function processHandAndAccidentals(
         }
     });
 
-    // Apply showOnlyMajorRests logic (after potential note-to-rest conversion)
     const finalFilteredTimelineEvents: TimelineEvent[] = [];
     if (showOnlyMajorRests) {
         for (let i = 0; i < processedTimelineEvents.length; i++) {
@@ -245,7 +246,6 @@ function processHandAndAccidentals(
                 const isMajorRest = currentEvent.durationMs >= (60000 / bpm * 0.95);
                 if (!isMajorRest && finalFilteredTimelineEvents.length > 0) {
                     const lastProcessed = finalFilteredTimelineEvents[finalFilteredTimelineEvents.length - 1];
-                    // Only merge if the last event was a note, extending its duration
                     if (lastProcessed.type === 'note') {
                         lastProcessed.durationMs += currentEvent.durationMs;
                         continue;
@@ -258,7 +258,6 @@ function processHandAndAccidentals(
         finalFilteredTimelineEvents.push(...processedTimelineEvents);
     }
 
-
     const finalVexNotes: VexFlowNoteInfo[] = [];
     finalFilteredTimelineEvents.forEach(event => {
         const bpm = getBpmAtTime(event.timeMs);
@@ -266,45 +265,27 @@ function processHandAndAccidentals(
         if (localMsPerQuarterNote <= 0) return;
 
         const durationQuarters = event.durationMs / localMsPerQuarterNote;
-        if (durationQuarters < DURATION_MATCH_TOLERANCE) return; // Use DURATION_MATCH_TOLERANCE here
+        if (durationQuarters < DURATION_MATCH_TOLERANCE) return;
 
-        let decomposedDurations: { type: string, dots: number }[];
+        let decomposedDurations: { type: string, dots: number, isTriplet?: boolean }[];
         
-        // For non-roll view, we *always* want a single VexFlow note representation for notes.
-        // This ensures no tied notes are generated for duration mismatches.
         if (!isRollView && event.type === 'note') {
             const targetDurationQuarters = durationQuarters;
-
-            const sortedVexFlowDurationsDescending = Object.keys(DURATION_TO_VEXFLOW)
-                .map(Number)
-                .sort((a, b) => b - a); // Sort from whole note down to 128th note
-
+            const sortedVexFlowDurationsDescending = Object.keys(DURATION_TO_VEXFLOW).map(Number).sort((a, b) => b - a);
             let singleBestVexFlowDurationValue: number | null = null;
             let minAbsoluteDiff = Infinity; 
 
             for (const durValue of sortedVexFlowDurationsDescending) {
                 const diff = targetDurationQuarters - durValue;
                 const absDiff = Math.abs(diff);
-
-                // Find the closest duration, prioritizing those that are slightly smaller or equal.
                 if (absDiff < minAbsoluteDiff) {
                     minAbsoluteDiff = absDiff;
                     singleBestVexFlowDurationValue = durValue;
                 }
             }
-            
-            // Fallback if no reasonable duration found (e.g., targetDurationQuarters is extremely small)
-            if (singleBestVexFlowDurationValue === null) {
-                // Default to smallest renderable duration available in our map
-                singleBestVexFlowDurationValue = 0.03125; // 128th note
-            }
-
+            if (singleBestVexFlowDurationValue === null) singleBestVexFlowDurationValue = 0.03125;
             decomposedDurations = [DURATION_TO_VEXFLOW[singleBestVexFlowDurationValue]];
-
         } else {
-            // For rests, or if in roll view, use the regular decomposition logic if it exists (though roll view generally bypasses this part for notes)
-            // For notes in roll view, primaryVexFlowDuration will be null, and we want a simpler representation.
-            // For rests, we want proper decomposition if needed, unless showOnlyMajorRests is active.
             decomposedDurations = decomposeDuration(durationQuarters);
         }
         
@@ -313,8 +294,8 @@ function processHandAndAccidentals(
 
         decomposedDurations.forEach((vexDuration, index) => {
             const durationValueStr = Object.keys(DURATION_TO_VEXFLOW).find(k => {
-                const keyNum = Number(k);
-                return DURATION_TO_VEXFLOW[keyNum].type === vexDuration.type && DURATION_TO_VEXFLOW[keyNum].dots === vexDuration.dots;
+                const entry = DURATION_TO_VEXFLOW[Number(k)];
+                return entry.type === vexDuration.type && entry.dots === vexDuration.dots && entry.isTriplet === vexDuration.isTriplet;
             });
             const durationValue = durationValueStr ? Number(durationValueStr) : 0;
             const durationMsForThisPart = durationValue * localMsPerQuarterNote;
@@ -325,6 +306,7 @@ function processHandAndAccidentals(
                     hand: hand, midiValue: -1,
                     vexNote: { keys: [hand === 'right' ? "b/4" : "d/3"], duration: `${vexDuration.type}r`, dots: vexDuration.dots, clef: effectiveClef },
                     fragmentMapping: [], timeMs: cumulativeTimeMs, durationMs: durationMsForThisPart,
+                    isTriplet: vexDuration.isTriplet,
                 });
             } else {
                 const notesAtTime = event.notesAtTime!;
@@ -390,19 +372,42 @@ function processHandAndAccidentals(
                     timeMs: cumulativeTimeMs,
                     durationMs: durationMsForThisPart,
                     originalNotes: notesAtTime,
-                    // isTieStart: Array(keysForStaveNote.length).fill(index < decomposedDurations.length - 1), // OLD TIE LOGIC
-                    // isTieEnd: Array(keysForStaveNote.length).fill(index > 0), // OLD TIE LOGIC
-                    isTieStart: Array(keysForStaveNote.length).fill(false), // Force no ties for single notes
-                    isTieEnd: Array(keysForStaveNote.length).fill(false),   // Force no ties for single notes
+                    isTieStart: Array(keysForStaveNote.length).fill(false),
+                    isTieEnd: Array(keysForStaveNote.length).fill(false),
                     vexNoteYPositions: noteYs,
                     vexNoteKeyProps: keyProps.map(kp => ({ line: kp.line })),
+                    isTriplet: vexDuration.isTriplet,
                 });
             }
             cumulativeQuarters += durationValue;
             cumulativeTimeMs = event.timeMs + (cumulativeQuarters * localMsPerQuarterNote);
         });
     });
-    return finalVexNotes;
+
+    // Detect Tuplets mathematically
+    const tuplets: VexFlowTupletGroup[] = [];
+    let pendingIndices: number[] = [];
+    let pendingType = '';
+
+    finalVexNotes.forEach((vn, idx) => {
+        if (vn.isTriplet) {
+            if (pendingType && vn.vexNote.duration !== pendingType) {
+                pendingIndices = [];
+            }
+            pendingType = vn.vexNote.duration;
+            pendingIndices.push(idx);
+            if (pendingIndices.length === 3) {
+                tuplets.push({ hand, indices: [...pendingIndices] });
+                pendingIndices = [];
+                pendingType = '';
+            }
+        } else {
+            pendingIndices = [];
+            pendingType = '';
+        }
+    });
+
+    return { notes: finalVexNotes, tuplets };
 }
 
 function computeMinWidthFromNotes(
@@ -422,14 +427,11 @@ function computeMinWidthFromNotes(
     for (let i = 0; i < timestamps.length; i++) {
         const t = timestamps[i];
         const group = fragmentsInMeasure.filter(f => f.timeMs === t);
-        
-        // Calculate distance to next note event or measure end in milliseconds
         const nextTime = (i + 1 < timestamps.length) ? timestamps[i+1] : measureEndTime;
         const distanceMs = nextTime - t;
-
         const bpm = getBpmAtTime(t);
         const localMsPerQuarterNote = 60000 / bpm;
-        const distanceQN = distanceMs > 0 ? distanceMs / localMsPerQuarterNote : 0; // Distance in quarter notes
+        const distanceQN = distanceMs > 0 ? distanceMs / localMsPerQuarterNote : 0;
 
         let baseWidth = 60;
         if (distanceQN >= 1) baseWidth = 70;          
@@ -441,7 +443,6 @@ function computeMinWidthFromNotes(
         if (group.some(n => n.pitchClass.includes("#") || n.pitchClass.includes("b"))) baseWidth += 16;
         total += baseWidth * UNIVERSAL_SCALE * noteZoom;
     }
-    
     return Math.max(150 * layoutZoom * UNIVERSAL_SCALE, total);
 }
 
@@ -454,15 +455,11 @@ export const getVexFlowRenderData = (
       return { measures: [], octaveLines: [], tempoMarkings: [], topStaveYOffset: 60, fragments: [], noteIdToFragmentsMap: new Map(), keySignature: keySignatureStr, timeSignature: timeSignature, verticalSpacing: BASE_GRAND_STAFF_VERTICAL_SPACING };
     }
     
-    // NEW: Calculate vertical spacing based on mode. 125 for standard, 156.25 for roll.
     const verticalSpacing = isRollView ? BASE_GRAND_STAFF_VERTICAL_SPACING * ROLL_VIEW_SCALE_MULTIPLIER : BASE_GRAND_STAFF_VERTICAL_SPACING;
-    
     const defaultReturn = { measures: [], octaveLines: [], tempoMarkings: [], topStaveYOffset: 60, fragments: [], noteIdToFragmentsMap: new Map(), keySignature: keySignatureStr, timeSignature: timeSignature, verticalSpacing };
     if (notes.length === 0 || !timeSignature || initialTempoBpm <= 0) return defaultReturn;
 
-    // NEW: Apply 1.25x scaling factor for roll view horizontally as well
     const effectiveZoom = isRollView ? zoom * ROLL_VIEW_SCALE_MULTIPLIER : zoom;
-
     const sortedTempoEvents = [...tempoEvents].sort((a, b) => a.timeMs - b.timeMs);
     const getBpmAtTime = (timeMs: number): number => {
       let activeBpm = initialTempoBpm;
@@ -492,15 +489,12 @@ export const getVexFlowRenderData = (
     const keySigChanges = new Map<number, string>();
     const tempoChanges = new Map<number, number>();
 
-    // Refined logic: Snap signature and tempo changes to the START of the next full measure.
     signatureEvents.forEach(e => {
-        // Find the first bar line that is greater than or equal to the event's time
         const nextBarLine = effectiveBarLines.find(b => b >= e.timeMs);
         if (nextBarLine !== undefined) {
-            // Apply change at the next full measure start
             if (e.time) timeSigChanges.set(nextBarLine, e.time);
             if (e.key) keySigChanges.set(nextBarLine, e.key);
-        } else if (e.timeMs === 0) { // Special case for events exactly at time 0
+        } else if (e.timeMs === 0) {
             if (e.time) timeSigChanges.set(0, e.time);
             if (e.key) keySigChanges.set(0, e.key);
         }
@@ -509,9 +503,8 @@ export const getVexFlowRenderData = (
     tempoEvents.forEach(e => {
         const nextBarLine = effectiveBarLines.find(b => b >= e.timeMs);
         if (nextBarLine !== undefined && !tempoChanges.has(nextBarLine)) {
-            // Apply change at the next full measure start
             tempoChanges.set(nextBarLine, e.bpm);
-        } else if (e.timeMs === 0 && !tempoChanges.has(0)) { // Special case for events exactly at time 0
+        } else if (e.timeMs === 0 && !tempoChanges.has(0)) {
             tempoChanges.set(0, e.bpm);
         }
     });
@@ -523,12 +516,11 @@ export const getVexFlowRenderData = (
     let currentTempoBpmForMeasure = initialTempoBpm;
 
     const tempMeasures: VexFlowMeasureData[] = [];
-    const boundaryEpsilon = 1.0; // 1ms epsilon for strict boundary checks
+    const boundaryEpsilon = 1.0; 
 
     for (let i = 0; i < effectiveBarLines.length - 1; i++) {
         const measureStartTime = effectiveBarLines[i], measureEndTime = effectiveBarLines[i + 1];
         
-        // Check for new signatures/tempo exactly at the start of this measure
         const newKey = keySigChanges.get(measureStartTime);
         const newTime = timeSigChanges.get(measureStartTime);
         const newTempo = tempoChanges.get(measureStartTime);
@@ -537,7 +529,6 @@ export const getVexFlowRenderData = (
         if (newTime) currentTsig = newTime;
         if (newTempo) currentTempoBpmForMeasure = newTempo;
 
-        // FIXED: Strict start-only logic for standard view using epsilon
         const fragmentsInMeasure = allFragments.filter(f => {
             if (isRollView) {
                 return (f.timeMs < measureEndTime - boundaryEpsilon) && (f.timeMs + f.durationMs > measureStartTime + boundaryEpsilon);
@@ -584,25 +575,25 @@ export const getVexFlowRenderData = (
 
         tempMeasures.push({
             rightHand: [], leftHand: [], startTimeMs: measureStartTime, endTimeMs: measureEndTime, width: measureWidth, durationMs: measureEndTime - measureStartTime,
-            newKeySignature: (i === 0 || newKey) ? currentKeySig : undefined, // Only set if first measure or explicit change at this measure start
-            newTimeSignature: (i === 0 || newTime) ? currentTsig : undefined, // Only set if first measure or explicit change at this measure start
-            newTempoBpm: (i === 0 || newTempo) ? currentTempoBpmForMeasure : undefined, // Only set if first measure or explicit change at this measure start
-            activeKeySignature: currentKeySig, // Always reflect the current active signature
+            newKeySignature: (i === 0 || newKey) ? currentKeySig : undefined,
+            newTimeSignature: (i === 0 || newTime) ? currentTsig : undefined,
+            newTempoBpm: (i === 0 || newTempo) ? currentTempoBpmForMeasure : undefined,
+            activeKeySignature: currentKeySig,
             effectiveClefRH: detectedClefRH, 
             effectiveClefLH: detectedClefLH, 
             newClefRH: (i === 0 || detectedClefRH !== lastDrawnClefRH) ? detectedClefRH : undefined,
             newClefLH: (i === 0 || detectedClefLH !== lastDrawnClefLH) ? detectedClefLH : undefined, 
             is8vaActiveRH, is15maActiveRH, is8vbActiveLH, is15mbActiveLH,
             starts8vaRH: false, ends8vaRH: false, starts15maRH: false, ends15maRH: false, starts8vbLH: false, ends8vbLH: false, starts15mbLH: false, ends15mbLH: false,
-            effectiveTimeSignature: currentTsig, // Always reflect the current active time signature
+            effectiveTimeSignature: currentTsig,
             hasDottedBeamableNotes: fragmentsInMeasure.some(f => {
                 const dur = f.durationMs / (60000 / getBpmAtTime(f.timeMs));
                 const vfd = getVexFlowDuration(dur);
                 return vfd.dots > 0 && ['8', '16', '32', '64'].includes(vfd.type);
             }),
-            startsRepeat: fragmentsInMeasure.some(n => n.isRepeatStart), endsRepeat: fragmentsInMeasure.some(n => n.isRepeatEnd)
+            startsRepeat: fragmentsInMeasure.some(n => n.isRepeatStart), endsRepeat: fragmentsInMeasure.some(n => n.isRepeatEnd),
+            rightHandTuplets: [], leftHandTuplets: []
         });
-        // Update lastDrawnClef for the next measure's comparison
         if (tempMeasures[i].newClefRH) lastDrawnClefRH = tempMeasures[i].newClefRH!;
         if (tempMeasures[i].newClefLH) lastDrawnClefLH = tempMeasures[i].newClefLH!;
     }
@@ -646,8 +637,13 @@ export const getVexFlowRenderData = (
             }).filter(f => f.hand === h);
         };
 
-        m.rightHand = processHandAndAccidentals(getFragmentsForHand('right'), 'right', m.effectiveClefRH, m.startTimeMs, m.endTimeMs, keySpec, accRH, m.is8vaActiveRH, m.is15maActiveRH, m.is8vbActiveLH, m.is15mbActiveLH, showOnlyMajorRests, m.activeKeySignature, getBpmAtTime, isRollView);
-        m.leftHand = processHandAndAccidentals(getFragmentsForHand('left'), 'left', m.effectiveClefLH, m.startTimeMs, m.endTimeMs, keySpec, accLH, m.is8vaActiveRH, m.is15maActiveRH, m.is8vbActiveLH, m.is15mbActiveLH, showOnlyMajorRests, m.activeKeySignature, getBpmAtTime, isRollView);
+        const processedRH = processHandAndAccidentals(getFragmentsForHand('right'), 'right', m.effectiveClefRH, m.startTimeMs, m.endTimeMs, keySpec, accRH, m.is8vaActiveRH, m.is15maActiveRH, m.is8vbActiveLH, m.is15mbActiveLH, showOnlyMajorRests, m.activeKeySignature, getBpmAtTime, isRollView);
+        const processedLH = processHandAndAccidentals(getFragmentsForHand('left'), 'left', m.effectiveClefLH, m.startTimeMs, m.endTimeMs, keySpec, accLH, m.is8vaActiveRH, m.is15maActiveRH, m.is8vbActiveLH, m.is15mbActiveLH, showOnlyMajorRests, m.activeKeySignature, getBpmAtTime, isRollView);
+        
+        m.rightHand = processedRH.notes;
+        m.rightHandTuplets = processedRH.tuplets;
+        m.leftHand = processedLH.notes;
+        m.leftHandTuplets = processedLH.tuplets;
         
         measures.push(m); cumulativeWidth += m.width;
     }

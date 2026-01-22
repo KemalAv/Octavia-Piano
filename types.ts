@@ -1,5 +1,4 @@
 
-
 import { Session, User } from '@supabase/supabase-js';
 
 // ========================================
@@ -182,9 +181,23 @@ export type Screen =
   | 'settings'
   | 'inGame'
   | 'finetune'
-  | 'leaderboard';
+  | 'leaderboard'
+  | 'about'
+  | 'contact'
+  | 'privacy'
+  | 'disclaimer'
+  | 'midiEditor'; // NEW: Added midiEditor
+  
 export type PracticeHand = 'left' | 'right' | 'both';
 export type NoteLabelType = 'none' | 'fingering' | 'noteName' | 'qwerty';
+
+export interface MicThresholds {
+    subBass: number;
+    bass: number;
+    mid: number;
+    treble: number;
+    highTreble: number;
+}
 
 export interface BackingTrackConfig {
   type: 'none' | 'mp3';
@@ -300,6 +313,8 @@ export interface OnlineSong {
   // @FIX: Add optional like_count and dislike_count to resolve property access errors in OnlineSongBrowser.
   like_count?: number;
   dislike_count?: number;
+  midi_link?: string;
+  midi_offset?: number;
 }
 
 export interface FriendWithProfile {
@@ -377,6 +392,13 @@ export interface VexFlowNoteInfo {
   originalNotes?: NoteFragment[]; // For rendering chords in sheet-roll
   vexNoteYPositions?: number[];
   vexNoteKeyProps?: { line: number }[];
+  isTriplet?: boolean; // NEW: Flag for triplet notes
+}
+
+// NEW: Interface for tuplet grouping
+export interface VexFlowTupletGroup {
+  hand: 'left' | 'right';
+  indices: number[]; // Indices into the measure's hand array (rightHand/leftHand)
 }
 
 export interface VexFlowMeasureData {
@@ -411,6 +433,8 @@ export interface VexFlowMeasureData {
   newTempoBpm?: number;
   effectiveTimeSignature: TimeSignatureInfo;
   hasDottedBeamableNotes: boolean;
+  rightHandTuplets: VexFlowTupletGroup[]; // NEW
+  leftHandTuplets: VexFlowTupletGroup[];  // NEW
 }
 
 export interface OctaveLineInfo {

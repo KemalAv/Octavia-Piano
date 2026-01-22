@@ -4,10 +4,10 @@ import { ExtendedResult, OnlineSong } from '../types';
 import DifficultyAnalysis from './DifficultyAnalysis';
 import OnlineSongBrowser from './OnlineSongBrowser';
 import { supabase } from '../supabaseClient'; 
-import { generateExercise, EXERCISE_CATEGORIES, ALL_KEYS, ExerciseType } from '../musicTheoryGenerator'; // Import generator
+import { generateExercise, EXERCISE_CATEGORIES, ALL_KEYS, ExerciseType } from '../musicTheoryGenerator'; 
 
 interface SongSelectionProps {
-  onFileLoaded: (file: File | null, onlineSongId: string | null, isRanked: boolean | null) => Promise<void>;
+  onFileLoaded: (file: File | null, onlineSongId: string | null, isRanked: boolean | null, midiLink: string | null, midiOffset: number | null) => Promise<void>;
   onSongSelected: () => void;
   onBack: () => void;
   loadedSongName: string | null;
@@ -16,6 +16,8 @@ interface SongSelectionProps {
   selectedOnlineSongIdForNavigation: string | null;
   onGoToOnlineSong: (songId: string) => void;
   onStartFreePlay: () => void;
+  // NEW Prop for editor navigation
+  onNavigateToEditor: (file: File | null) => void;
 }
 
 const SongSelection: React.FC<SongSelectionProps> = ({
@@ -28,12 +30,13 @@ const SongSelection: React.FC<SongSelectionProps> = ({
   selectedOnlineSongIdForNavigation,
   onGoToOnlineSong,
   onStartFreePlay,
+  onNavigateToEditor,
 }) => {
-  // Added 'practice' to activeTab state
   const [activeTab, setActiveTab] = useState<'local' | 'online' | 'practice'>('online'); 
   const [isOnlineLoading, setIsOnlineLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isRendered, setIsRendered] = useState(false);
+  const [selectedLocalFile, setSelectedLocalFile] = useState<File | null>(null);
 
   // Practice Mode State
   const [selectedKey, setSelectedKey] = useState<string>('C');
@@ -50,16 +53,15 @@ const SongSelection: React.FC<SongSelectionProps> = ({
         setActiveTab(requestedTab as 'local' | 'online' | 'practice');
         sessionStorage.removeItem('songSelectionInitialTab');
     }
-  }, []); // Empty dependency array ensures this runs once on mount
+  }, []);
 
-  // Effect to handle direct navigation to an online song
   useEffect(() => {
     const loadAndSelectOnlineSong = async (songId: string) => {
       setIsOnlineLoading(true); 
       try {
         const { data: songMetadata, error: metadataError } = await supabase
           .from('songs')
-          .select('id, title, file_path, is_ranked') 
+          .select('id, title, file_path, is_ranked, midi_link, midi_offset') 
           .eq('id', songId)
           .single();
 
@@ -74,12 +76,12 @@ const SongSelection: React.FC<SongSelectionProps> = ({
         if (!fileData) throw new Error("No file data received for online song.");
 
         const file = new File([fileData], songMetadata.title + '.mid', { type: fileData.type });
-        await onFileLoaded(file, songMetadata.id, songMetadata.is_ranked); 
+        await onFileLoaded(file, songMetadata.id, songMetadata.is_ranked, songMetadata.midi_link, songMetadata.midi_offset); 
         setActiveTab('online'); 
       } catch (err: unknown) {
         console.error("Error loading pre-selected online MIDI:", err);
         alert(`Failed to load online MIDI: ${(err instanceof Error ? err.message : String(err))}`);
-        onFileLoaded(null, null, null); 
+        onFileLoaded(null, null, null, null, null); 
       } finally {
         setIsOnlineLoading(false);
       }
@@ -98,7 +100,8 @@ const SongSelection: React.FC<SongSelectionProps> = ({
       const isMidi = fileName.endsWith('.mid') || fileName.endsWith('.midi');
 
       if (isMidi) {
-        onFileLoaded(file, null, null);
+        setSelectedLocalFile(file); // Store specifically for edit capability
+        onFileLoaded(file, null, null, null, null);
       } else {
         alert('File not supported. Please upload a MIDI file (.mid or .midi).');
       }
@@ -108,51 +111,14 @@ const SongSelection: React.FC<SongSelectionProps> = ({
     }
   };
 
-  // Practice Generator Handler
   const handlePracticeSelection = async (typeId: string, typeName: string) => {
-    // Generate the MIDI data directly
     const exercise = generateExercise(selectedKey, typeId as ExerciseType);
-    
-    // We can't pass a File object easily since we generated data.
-    // However, onFileLoaded expects a File. 
-    // Ideally, we refactor App.tsx to accept raw data, but for minimal changes, 
-    // we inject the generated data directly into the App's state via a special "blob" or 
-    // we attach the generated data to the window/context, OR we modify App.tsx to handle a "generated" object.
-    
-    // Workaround: Create a Blob from JSON and attach the raw data property? 
-    // Actually, App.tsx's `loadFile` calls `parseMidiData`. 
-    // We can construct a Standard MIDI File (SMF) binary from our note data, but that's complex.
-    
-    // BETTER APPROACH: 
-    // Modify `onFileLoaded` is messy.
-    // Instead, let's create a custom "File" object that we can intercept or just mock the parsing in App.tsx?
-    // No, App.tsx `loadFile` calls `parseMidiData` or `parseMusicXmlData`.
-    // The cleanest way without rewriting `App.tsx` logic deeply is to create a valid MIDI file binary string from the notes.
-    // But we don't have a MIDI encoder library here (only decoder).
-    
-    // Alternative: We modify `App.tsx` to accept a "Direct Data" object.
-    // BUT the prompt says "Sisanya sama jangan diubah" (keep the rest the same).
-    // So modifying App.tsx heavily is risky.
-    
-    // However, `onFileLoaded` in `App.tsx` is passed from `App.tsx`.
-    // We can't easily change `App.tsx` without violating the prompt spirit if I rewrite the whole `loadFile`.
-    
-    // Wait, `App.tsx` was provided in the prompt. I CAN change it if necessary to support this feature.
-    // The prompt says "tambah practice scale... sisanya sama". Adding a handler for generated data is fine.
-    
-    // Actually, I can create a new prop `onPracticeExerciseLoaded` in `SongSelection`? 
-    // No, `App.tsx` needs to handle it.
-    
-    // Let's look at `App.tsx` `loadFile`. It calls `parseMidiData`.
-    // I will modify `App.tsx` to handle `.json` files which contain the exact structure of `notes`, `tempo`, etc.
-    
-    // Let's do that. Update `App.tsx` to handle `.json` files which contain the exact structure of `notes`, `tempo`, etc.
     
     const jsonContent = JSON.stringify(exercise);
     const blob = new Blob([jsonContent], { type: 'application/json' });
     const file = new File([blob], `${selectedKey} ${typeName}.json`, { type: 'application/json' });
     
-    onFileLoaded(file, null, null);
+    onFileLoaded(file, null, null, null, null);
   };
 
   const buttonBaseStyle = "w-full font-bold py-3 px-6 rounded-lg text-lg transition-all duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-opacity-50 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100 shadow-lg";
@@ -168,14 +134,13 @@ const SongSelection: React.FC<SongSelectionProps> = ({
     <div className={`fixed inset-0 bg-slate-950 flex flex-col items-center justify-center z-40 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'opacity-100' : 'opacity-0'}`}>
        
        <div className="absolute top-4 left-4" style={{ zIndex: 9999 }}>
-            <button onClick={onBack} className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors bg-slate-800/50 px-4 py-2 rounded-full border border-white/10 hover:border-white/30 backdrop-blur-sm">
+            <button onClick={onBack} className={`flex items-center gap-2 text-slate-400 hover:text-white transition-colors px-4 py-2 rounded-full border border-white/10 hover:border-white/30 bg-slate-800/80`}>
                 <span>&larr;</span> <span>Back</span>
             </button>
        </div>
 
-      <div className={`bg-slate-900/60 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl text-center max-w-5xl w-full max-h-[90vh] flex flex-col overflow-hidden transform transition-transform duration-300 ease-in-out ${isRendered ? 'scale-100' : 'scale-95'}`}>
+      <div className={`border border-white/10 rounded-2xl shadow-2xl text-center max-w-5xl w-full max-h-[90vh] flex flex-col overflow-hidden transform transition-transform duration-300 ease-in-out bg-slate-900/80 ${isRendered ? 'scale-100' : 'scale-95'}`}>
         
-        {/* Header / Tabs */}
         <div className="flex border-b border-white/5 bg-black/20">
             <div 
                 className={`${tabStyle} ${activeTab === 'online' ? activeTabStyle : inactiveTabStyle}`}
@@ -202,7 +167,6 @@ const SongSelection: React.FC<SongSelectionProps> = ({
                 {activeTab === 'online' ? 'Select a Track' : activeTab === 'practice' ? 'Technical Drills' : 'Upload Your File'}
             </h2>
 
-            {/* Shared Loaded State Area (Top) */}
             <div className="bg-slate-800/40 p-6 rounded-xl mb-8 min-h-[120px] flex flex-col items-center justify-center border border-white/5 shadow-inner flex-shrink-0 relative overflow-hidden group">
                 <div className="absolute top-0 left-0 w-full h-1 bg-cyan-500 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
                 
@@ -227,13 +191,22 @@ const SongSelection: React.FC<SongSelectionProps> = ({
                             {analysisResult && <DifficultyAnalysis analysisResult={analysisResult} />}
                         </div>
                         
-                        <div className="mt-6">
+                        <div className="mt-6 flex gap-4 justify-center">
                             <button 
                                 onClick={onSongSelected}
-                                className={`${buttonBaseStyle} ${primaryButtonStyle} max-w-sm mx-auto animate-bounce-slight shadow-[0_0_20px_rgba(6,182,212,0.4)] hover:shadow-[0_0_30px_rgba(6,182,212,0.6)]`}
+                                className={`${buttonBaseStyle} ${primaryButtonStyle} max-w-sm animate-bounce-slight shadow-[0_0_20px_rgba(6,182,212,0.4)] hover:shadow-[0_0_30px_rgba(6,182,212,0.6)]`}
                             >
                                 START GAME
                             </button>
+                            {/* Edit MIDI Button if viewing Local tab and file is loaded */}
+                            {activeTab === 'local' && selectedLocalFile && (
+                                <button
+                                    onClick={() => onNavigateToEditor(selectedLocalFile)}
+                                    className={`${buttonBaseStyle} bg-orange-600 hover:bg-orange-500 text-white max-w-[150px] shadow-orange-500/20`}
+                                >
+                                    EDIT MIDI
+                                </button>
+                            )}
                         </div>
                     </div>
                 ) : (
@@ -249,12 +222,11 @@ const SongSelection: React.FC<SongSelectionProps> = ({
                 )}
             </div>
             
-            {/* Tab Content */}
             <div className="flex-grow flex flex-col min-h-[400px]">
                 {activeTab === 'online' ? (
                     <div className="flex-grow">
                         <OnlineSongBrowser 
-                            onSongLoaded={(file, id, ranked) => onFileLoaded(file, id, ranked)} 
+                            onSongLoaded={(file, id, ranked, mLink, mOffset) => onFileLoaded(file, id, ranked, mLink, mOffset)} 
                             isLoading={isOnlineLoading}
                             setLoadingState={setIsOnlineLoading}
                             onGoToOnlineSong={onGoToOnlineSong}
@@ -262,7 +234,6 @@ const SongSelection: React.FC<SongSelectionProps> = ({
                     </div>
                 ) : activeTab === 'practice' ? (
                     <div className="flex flex-col gap-6 h-full">
-                        {/* Key Selector */}
                         <div className="bg-slate-900/40 p-4 rounded-xl border border-white/5">
                             <h3 className="text-slate-400 text-sm font-bold uppercase tracking-wider mb-3 text-left">Select Key</h3>
                             <div className="grid grid-cols-6 sm:grid-cols-12 gap-2">
@@ -282,7 +253,6 @@ const SongSelection: React.FC<SongSelectionProps> = ({
                             </div>
                         </div>
 
-                        {/* Exercise Selector */}
                         <div className="flex-grow grid grid-cols-1 md:grid-cols-3 gap-4">
                             {EXERCISE_CATEGORIES.map(category => (
                                 <div key={category.id} className="bg-slate-800/50 rounded-xl border border-white/5 overflow-hidden flex flex-col">
@@ -328,7 +298,17 @@ const SongSelection: React.FC<SongSelectionProps> = ({
                             Select Local File
                         </label>
                         
-                        <div className="text-center space-y-2">
+                        <div className="flex gap-4">
+                            <button 
+                                onClick={() => onNavigateToEditor(null)} 
+                                className="bg-violet-600 hover:bg-violet-500 text-white font-bold py-2 px-6 rounded-lg transition-all shadow-lg hover:shadow-violet-500/30 hover:-translate-y-1 flex items-center gap-2"
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
+                                Create New MIDI
+                            </button>
+                        </div>
+
+                        <div className="text-center space-y-2 mt-2">
                             <p className="text-slate-400">or</p>
                             <button onClick={onStartFreePlay} className="text-violet-400 hover:text-violet-300 font-semibold underline decoration-2 underline-offset-4 hover:decoration-violet-300 transition-colors">
                                 Enter Free Play Mode
