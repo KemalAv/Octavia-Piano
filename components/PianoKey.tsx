@@ -16,6 +16,7 @@ interface PianoKeyProps {
   height: number; // New prop for dynamic height
   rightHandColor: string;
   leftHandColor: string;
+  hitNoteColor: string;
   showQwertyShortcut: boolean;
   qwertyKey: string | undefined;
   lowDetailMode?: boolean;
@@ -30,6 +31,7 @@ const PianoKey: React.FC<PianoKeyProps> = ({
   height,
   rightHandColor,
   leftHandColor,
+  hitNoteColor,
   showQwertyShortcut,
   qwertyKey,
   lowDetailMode = false,
@@ -45,7 +47,7 @@ const PianoKey: React.FC<PianoKeyProps> = ({
   const inactiveBlackStyle = `bg-black hover:bg-slate-900 ${!lowDetailMode && 'active:scale-y-95'} origin-top`;
 
   if (isUserPlaying) { 
-    const baseUserPlayColor = USER_PLAY_COLOR;
+    const baseUserPlayColor = hitNoteColor;
     dynamicStyle = {
       backgroundColor: baseUserPlayColor,
       boxShadow: lowDetailMode ? 'none' : `0 0 20px ${baseUserPlayColor}, 0 0 40px ${baseUserPlayColor}`,

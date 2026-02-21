@@ -24,6 +24,7 @@ interface HorizontalNotesViewProps {
   activePlaybackNotesInfo: Map<string, ActiveMidiNoteInfo>;
   rightHandColor: string;
   leftHandColor: string;
+  hitNoteColor: string;
   backgroundColor: string;
   vexFlowData: VexFlowRenderData | null;
   showOnlyMajorNotes: boolean;
@@ -35,6 +36,7 @@ interface HorizontalNotesViewProps {
   isQwertyView?: boolean;
   activeBpmForDisplay?: number;
   lowDetailMode?: boolean;
+  instrumentMode?: 'piano' | 'drum';
 }
 
 const StickyStaffHeader: React.FC<{ 
@@ -49,7 +51,8 @@ const StickyStaffHeader: React.FC<{
   mirpTranspose?: number;
   backgroundColor: string;
   lowDetailMode?: boolean;
-}> = React.memo(({ vexFlowData, currentTimeMs, height, isQwertyView, activeKeySignature, activeBpmForDisplay, qwertyLayout, qwertyCurrentOctaveShift, mirpTranspose, backgroundColor, lowDetailMode = false }) => {
+  instrumentMode?: 'piano' | 'drum';
+}> = React.memo(({ vexFlowData, currentTimeMs, height, isQwertyView, activeKeySignature, activeBpmForDisplay, qwertyLayout, qwertyCurrentOctaveShift, mirpTranspose, backgroundColor, lowDetailMode = false, instrumentMode = 'piano' }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   
   const currentMeasure = useMemo(() => {
@@ -76,26 +79,35 @@ const StickyStaffHeader: React.FC<{
     const ctx = renderer.getContext();
 
     const { topStaveYOffset, keySignature, timeSignature, verticalSpacing } = vexFlowData;
-    
-    const treble = new Stave(0, topStaveYOffset, SIDEBAR_WIDTH - 5);
-    const bass = new Stave(0, topStaveYOffset + verticalSpacing, SIDEBAR_WIDTH - 5);
+    const isDrum = instrumentMode === 'drum';
 
-    const activeKey = currentMeasure.activeKeySignature || keySignature;
-    const activeTime = currentMeasure.effectiveTimeSignature || timeSignature;
+    if (isDrum) {
+        const drumStave = new Stave(0, topStaveYOffset, SIDEBAR_WIDTH - 5);
+        const activeTime = currentMeasure.effectiveTimeSignature || timeSignature;
+        drumStave.addClef('percussion');
+        drumStave.addTimeSignature(`${activeTime.numerator}/${activeTime.denominator}`);
+        drumStave.setContext(ctx).draw();
+    } else {
+        const treble = new Stave(0, topStaveYOffset, SIDEBAR_WIDTH - 5);
+        const bass = new Stave(0, topStaveYOffset + verticalSpacing, SIDEBAR_WIDTH - 5);
 
-    treble.addClef(currentMeasure.effectiveClefRH || 'treble');
-    treble.addKeySignature(activeKey);
-    treble.addTimeSignature(`${activeTime.numerator}/${activeTime.denominator}`);
-          
-    bass.addClef(currentMeasure.effectiveClefLH || 'bass');
-    bass.addKeySignature(activeKey);
-    bass.addTimeSignature(`${activeTime.numerator}/${activeTime.denominator}`);
+        const activeKey = currentMeasure.activeKeySignature || keySignature;
+        const activeTime = currentMeasure.effectiveTimeSignature || timeSignature;
 
-    treble.setContext(ctx).draw();
-    bass.setContext(ctx).draw();
-    
-    new StaveConnector(treble, bass).setType(StaveConnector.type.BRACE).setContext(ctx).draw();
-    new StaveConnector(treble, bass).setType(StaveConnector.type.SINGLE_LEFT).setContext(ctx).draw();
+        treble.addClef(currentMeasure.effectiveClefRH || 'treble');
+        treble.addKeySignature(activeKey);
+        treble.addTimeSignature(`${activeTime.numerator}/${activeTime.denominator}`);
+              
+        bass.addClef(currentMeasure.effectiveClefLH || 'bass');
+        bass.addKeySignature(activeKey);
+        bass.addTimeSignature(`${activeTime.numerator}/${activeTime.denominator}`);
+
+        treble.setContext(ctx).draw();
+        bass.setContext(ctx).draw();
+        
+        new StaveConnector(treble, bass).setType(StaveConnector.type.BRACE).setContext(ctx).draw();
+        new StaveConnector(treble, bass).setType(StaveConnector.type.SINGLE_LEFT).setContext(ctx).draw();
+    }
 
   }, [vexFlowData, currentMeasure, height, isQwertyView]);
 
@@ -158,7 +170,7 @@ const StickyStaffHeader: React.FC<{
   );
 });
 
-const SheetMusicBackground: React.FC<{ vexFlowData: VexFlowRenderData; totalWidth: number; height: number; }> = React.memo(({ vexFlowData, totalWidth, height }) => {
+const SheetMusicBackground: React.FC<{ vexFlowData: VexFlowRenderData; totalWidth: number; height: number; instrumentMode?: 'piano' | 'drum'; }> = React.memo(({ vexFlowData, totalWidth, height, instrumentMode = 'piano' }) => {
   const svgContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -172,15 +184,16 @@ const SheetMusicBackground: React.FC<{ vexFlowData: VexFlowRenderData; totalWidt
 
     let currentX = HORIZONTAL_PADDING;
     const { topStaveYOffset, measures, tempoMarkings, verticalSpacing } = vexFlowData;
+    const isDrum = instrumentMode === 'drum';
 
     measures.forEach((measure, i) => {
       const treble = new Stave(currentX, topStaveYOffset, measure.width);
-      const bass = new Stave(currentX, topStaveYOffset + verticalSpacing, measure.width);
+      const bass = isDrum ? null : new Stave(currentX, topStaveYOffset + verticalSpacing, measure.width);
       
       treble.setMeasure(i + 1);
 
       treble.setContext(ctx).draw();
-      bass.setContext(ctx).draw();
+      if (bass) bass.setContext(ctx).draw();
       currentX += measure.width;
     });
 
@@ -205,7 +218,8 @@ const ScrollingSheetNote: React.FC<{
     label: string;
     isQwertyView?: boolean;
     lowDetailMode?: boolean;
-}> = ({ note, vexNoteInfo, noteIndexInChord, yOnStave, x, y, width, color, glow, label, isQwertyView, lowDetailMode = false }) => {
+    instrumentMode?: 'piano' | 'drum';
+}> = ({ note, vexNoteInfo, noteIndexInChord, yOnStave, x, y, width, color, glow, label, isQwertyView, lowDetailMode = false, instrumentMode = 'piano' }) => {
     
     if (isQwertyView) {
         const qwertyStyle: React.CSSProperties = {
@@ -236,19 +250,33 @@ const ScrollingSheetNote: React.FC<{
     }
 
     const noteAccidental = useMemo(() => {
+        if (instrumentMode === 'drum') return null;
         if (!vexNoteInfo.accidentals || !vexNoteInfo.originalNotes) return null;
         const currentNoteIndexInChord = vexNoteInfo.originalNotes.findIndex(n => n.fragmentId === note.fragmentId);
         if (currentNoteIndexInChord === -1) return null;
         const accidentalData = vexNoteInfo.accidentals.find(acc => acc.index === currentNoteIndexInChord);
         if (!accidentalData) return null;
         return accidentalData.type === '#' ? '♯' : accidentalData.type === 'b' ? '♭' : accidentalData.type === 'n' ? '♮' : null;
-    }, [vexNoteInfo, note.fragmentId]);
+    }, [vexNoteInfo, note.fragmentId, instrumentMode]);
+
+    const isDrum = instrumentMode === 'drum';
+    const DRUM_MIDI_MAPPING: { [key: number]: { key: string, noteHead?: string } } = {
+        35: { key: 'f/4' }, 36: { key: 'f/4' }, 38: { key: 'c/5' }, 40: { key: 'c/5' },
+        41: { key: 'a/4' }, 43: { key: 'a/4' }, 45: { key: 'b/4' }, 47: { key: 'b/4' },
+        48: { key: 'd/5' }, 50: { key: 'd/5' }, 42: { key: 'g/5', noteHead: 'x' },
+        46: { key: 'g/5', noteHead: 'x' }, 44: { key: 'd/4', noteHead: 'x' },
+        49: { key: 'a/5', noteHead: 'x' }, 57: { key: 'a/5', noteHead: 'x' },
+        51: { key: 'f/5', noteHead: 'x' }, 59: { key: 'f/5', noteHead: 'x' },
+        53: { key: 'f/5', noteHead: 'x' }, 55: { key: 'a/5', noteHead: 'x' },
+        52: { key: 'a/5', noteHead: 'x' },
+    };
 
     const referenceMidi = note.hand === 'right' ? 71 : 50; 
-    const stemDirection = vexNoteInfo.midiValue >= referenceMidi ? -1 : 1; 
+    const stemDirection = isDrum ? 1 : (vexNoteInfo.midiValue >= referenceMidi ? -1 : 1); 
     const noteheadY = NOTE_HEAD_WIDTH / 2;
 
     const LedgerLines = useMemo(() => {
+        if (isDrum) return null;
         if (!vexNoteInfo.vexNoteKeyProps || !vexNoteInfo.vexNoteKeyProps[noteIndexInChord]) return null;
         const { line } = vexNoteInfo.vexNoteKeyProps[noteIndexInChord];
         const lines: React.JSX.Element[] = [], LW = NOTE_HEAD_WIDTH + 8, LX = (NOTE_HEAD_WIDTH - LW) / 2;
@@ -256,12 +284,15 @@ const ScrollingSheetNote: React.FC<{
         if (line > 5) { for (let l = 6; l <= Math.ceil(line); l++) if (l <= line + 0.4) lines.push(<rect key={`ll-a-${l}`} x={LX} y={noteheadY + (5 - l) * STAFF_LINE_SPACING - yOnStave + V_OFF} width={LW} height="1.5" fill="#000" />); }
         else if (line < 1) { for (let l = 0; l >= Math.floor(line); l--) if (l >= line - 0.4) lines.push(<rect key={`ll-b-${l}`} x={LX} y={noteheadY + (1 - l) * STAFF_LINE_SPACING + (STAFF_LINE_SPACING * 4) - yOnStave + V_OFF} width={LW} height="1.5" fill="#000" />); }
         return lines;
-    }, [yOnStave, noteheadY, vexNoteInfo, noteIndexInChord]);
+    }, [yOnStave, noteheadY, vexNoteInfo, noteIndexInChord, isDrum]);
 
     const style: React.CSSProperties = { position: 'absolute', left: `${x}px`, top: `${y - noteheadY}px`, width: `${width}px`, height: `${NOTE_HEAD_WIDTH}px`, zIndex: 10, overflow: 'visible' };
     
     const noteFillColor = glow ? color : '#000000';
     const noteStrokeColor = '#000000';
+
+    const drumMap = isDrum ? DRUM_MIDI_MAPPING[note.midi] : null;
+    const isXNoteHead = drumMap?.noteHead === 'x';
 
     return (
         <div style={style}>
@@ -269,7 +300,14 @@ const ScrollingSheetNote: React.FC<{
                 {glow && !lowDetailMode && <ellipse cx={NOTE_HEAD_WIDTH / 2} cy={noteheadY} rx={NOTE_HEAD_WIDTH} ry={NOTE_HEAD_WIDTH * 0.8} fill={color} filter="url(#glow)" />}
                 {LedgerLines}
                 {noteAccidental && <text x={ACCIDENTAL_OFFSET_X} y={noteheadY + ACCIDENTAL_FONT_SIZE / 3} fontSize={ACCIDENTAL_FONT_SIZE} fill="#000" fontWeight="bold">{noteAccidental}</text>}
-                <ellipse cx={NOTE_HEAD_WIDTH / 2} cy={noteheadY} rx={NOTE_HEAD_WIDTH / 2} ry={NOTE_HEAD_WIDTH / 2.5} fill={noteFillColor} stroke={noteStrokeColor} strokeWidth="1" transform={`rotate(-20 ${NOTE_HEAD_WIDTH/2} ${noteheadY})`} />
+                {isXNoteHead ? (
+                    <g transform={`translate(${NOTE_HEAD_WIDTH/2 - 4}, ${noteheadY - 4})`}>
+                        <line x1="0" y1="0" x2="8" y2="8" stroke={noteFillColor} strokeWidth="2" />
+                        <line x1="8" y1="0" x2="0" y2="8" stroke={noteFillColor} strokeWidth="2" />
+                    </g>
+                ) : (
+                    <ellipse cx={NOTE_HEAD_WIDTH / 2} cy={noteheadY} rx={NOTE_HEAD_WIDTH / 2} ry={NOTE_HEAD_WIDTH / 2.5} fill={noteFillColor} stroke={noteStrokeColor} strokeWidth="1" transform={`rotate(-20 ${NOTE_HEAD_WIDTH/2} ${noteheadY})`} />
+                )}
                 <rect x={stemDirection === 1 ? NOTE_HEAD_WIDTH - STEM_WIDTH : 0} y={stemDirection === 1 ? noteheadY : noteheadY - STEM_HEIGHT} width={STEM_WIDTH} height={STEM_HEIGHT} fill={noteFillColor} />
                 {label && <text x={NOTE_HEAD_WIDTH / 2} y={noteheadY + 4} fontSize="10" fill="white" fontWeight="bold" textAnchor="middle" style={{ pointerEvents: 'none' }}>{label}</text>}
             </svg>
@@ -278,7 +316,7 @@ const ScrollingSheetNote: React.FC<{
 };
 
 const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
-  currentTimeMs, width, height, pixelsPerMillisecond, activePlaybackNotesInfo, rightHandColor, leftHandColor, backgroundColor, vexFlowData, showOnlyMajorNotes, noteLabelType, activeKeySignature, qwertyLayout, qwertyCurrentOctaveShift, mirpTranspose, isQwertyView, activeBpmForDisplay, lowDetailMode = false
+  currentTimeMs, width, height, pixelsPerMillisecond, activePlaybackNotesInfo, rightHandColor, leftHandColor, hitNoteColor, backgroundColor, vexFlowData, showOnlyMajorNotes, noteLabelType, activeKeySignature, qwertyLayout, qwertyCurrentOctaveShift, mirpTranspose, isQwertyView, activeBpmForDisplay, lowDetailMode = false, instrumentMode = 'piano'
 }) => {
   const PLAY_LINE_X = SIDEBAR_WIDTH + (width > SIDEBAR_WIDTH ? (width - SIDEBAR_WIDTH) * 0.1 : 0);
   const originalNoteToVexMap = useMemo(() => {
@@ -289,6 +327,7 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
 
   const totalMusicWidth = useMemo(() => vexFlowData ? vexFlowData.measures.reduce((sum, m) => sum + m.width, 0) + (HORIZONTAL_PADDING * 2) : width, [vexFlowData, width]);
   const firstMeasureStartTime = vexFlowData?.measures[0]?.startTimeMs ?? 0;
+  const isDrum = instrumentMode === 'drum';
   const visibleNotes = useMemo(() => {
     if (!vexFlowData || pixelsPerMillisecond <= 0) return [];
     const relT = currentTimeMs - firstMeasureStartTime, curPx = relT * pixelsPerMillisecond, startPx = curPx - PLAY_LINE_X - 50, endPx = startPx + width + 50;
@@ -353,11 +392,12 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
           mirpTranspose={mirpTranspose}
           backgroundColor={backgroundColor}
           lowDetailMode={lowDetailMode}
+          instrumentMode={instrumentMode}
         />
       )}
 
       <div style={{ transform: containerTransform, willChange: 'transform', width: totalMusicWidth, height }}>
-        {vexFlowData && !isQwertyView && <SheetMusicBackground vexFlowData={vexFlowData} totalWidth={totalMusicWidth} height={height} />}
+        {vexFlowData && !isQwertyView && <SheetMusicBackground vexFlowData={vexFlowData} totalWidth={totalMusicWidth} height={height} instrumentMode={instrumentMode} />}
         {renderedBarLines}
         {!isQwertyView && (
           <svg style={{ position: 'absolute', top: 0, left: 0, width: totalMusicWidth, height, pointerEvents: 'none', zIndex: 15 }}>
@@ -402,7 +442,7 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
                     return <ScrollingSheetNote 
                         key={note.fragmentId} note={note} vexNoteInfo={vn} noteIndexInChord={0} 
                         yOnStave={0} x={xPos} y={yPos} width={noteWidth}
-                        color={status === 'user_played' ? USER_PLAY_COLOR : baseC} glow={!!status}
+                        color={status === 'user_played' ? hitNoteColor : baseC} glow={!!status}
                         label={label} isQwertyView={true} lowDetailMode={lowDetailMode}
                     />;
                 });
@@ -425,14 +465,14 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
                     else if (FLAT_KEYS.includes(activeKeySignature)) label = ENHARMONIC_MAP_TO_FLAT[label] || label;
                 } else if (noteLabelType === 'fingering' && note.finger) label = String(note.finger);
 
-                const yPos = (note.hand === 'right' ? vexFlowData!.topStaveYOffset : vexFlowData!.topStaveYOffset + vexFlowData!.verticalSpacing) + vn.vexNoteYPositions![idx];
+                const yPos = (isDrum ? vexFlowData!.topStaveYOffset : (note.hand === 'right' ? vexFlowData!.topStaveYOffset : vexFlowData!.topStaveYOffset + vexFlowData!.verticalSpacing)) + vn.vexNoteYPositions![idx];
                 const xPos = ((note.timeMs - firstMeasureStartTime) * pixelsPerMillisecond) + HORIZONTAL_PADDING;
                 const noteWidth = Math.max(NOTE_HEAD_WIDTH, (showOnlyMajorNotes ? Math.min(note.durationMs, VISUAL_NOTE_CAP_MS) : note.durationMs) * pixelsPerMillisecond);
 
                 return <ScrollingSheetNote 
                     key={note.fragmentId} note={note} vexNoteInfo={vn} noteIndexInChord={idx} yOnStave={vn.vexNoteYPositions ? vn.vexNoteYPositions[idx] : 0} 
-                    x={xPos} y={yPos} width={noteWidth} color={status === 'user_played' ? USER_PLAY_COLOR : baseC} 
-                    glow={!!status} label={label} isQwertyView={isQwertyView} lowDetailMode={lowDetailMode}
+                    x={xPos} y={yPos} width={noteWidth} color={status === 'user_played' ? hitNoteColor : baseC} 
+                    glow={!!status} label={label} isQwertyView={isQwertyView} lowDetailMode={lowDetailMode} instrumentMode={instrumentMode}
                 />;
             })
         )}

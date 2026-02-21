@@ -70,12 +70,14 @@ interface Props {
   barLines: number[];
   rightHandColor: string;
   leftHandColor: string;
+  hitNoteColor: string;
   signatureEvents: SignatureEvent[];
   onLayoutRendered: (layoutId: number) => void;
   tempoEvents: TempoEvent[];
   playbackTempoMultiplier: number;
   backgroundColor?: string;
   lowDetailMode?: boolean;
+  instrumentMode?: 'piano' | 'drum';
 }
 
 interface StickySignaturePanelProps {
@@ -101,25 +103,35 @@ const StickySignaturePanel: React.FC<StickySignaturePanelProps> = React.memo(({ 
     renderer.resize(SIDEBAR_WIDTH, height);
     const ctx = renderer.getContext();
 
-    const { topStaveYOffset, keySignature, timeSignature, verticalSpacing } = vexFlowData;
-    const treble = new Stave(0, topStaveYOffset, SIDEBAR_WIDTH - 5);
-    const bass = new Stave(0, topStaveYOffset + verticalSpacing, SIDEBAR_WIDTH - 5);
+    const { topStaveYOffset, keySignature, timeSignature, verticalSpacing, instrumentMode } = vexFlowData;
+    const isDrum = instrumentMode === 'drum';
 
-    const activeKey = currentMeasure.activeKeySignature || keySignature;
-    const activeTime = currentMeasure.effectiveTimeSignature || timeSignature;
+    if (isDrum) {
+        const drumStave = new Stave(0, topStaveYOffset, SIDEBAR_WIDTH - 5);
+        const activeTime = currentMeasure.effectiveTimeSignature || timeSignature;
+        drumStave.addClef('percussion');
+        drumStave.addTimeSignature(`${activeTime.numerator}/${activeTime.denominator}`);
+        drumStave.setContext(ctx).draw();
+    } else {
+        const treble = new Stave(0, topStaveYOffset, SIDEBAR_WIDTH - 5);
+        const bass = new Stave(0, topStaveYOffset + verticalSpacing, SIDEBAR_WIDTH - 5);
 
-    treble.addClef(currentMeasure.effectiveClefRH || 'treble');
-    treble.addKeySignature(activeKey);
-    treble.addTimeSignature(`${activeTime.numerator}/${activeTime.denominator}`);
-    
-    bass.addClef(currentMeasure.effectiveClefLH || 'bass');
-    bass.addKeySignature(activeKey);
-    bass.addTimeSignature(`${activeTime.numerator}/${activeTime.denominator}`);
+        const activeKey = currentMeasure.activeKeySignature || keySignature;
+        const activeTime = currentMeasure.effectiveTimeSignature || timeSignature;
 
-    treble.setContext(ctx).draw();
-    bass.setContext(ctx).draw();
-    new StaveConnector(treble, bass).setType(StaveConnector.type.BRACE).setContext(ctx).draw();
-    new StaveConnector(treble, bass).setType(StaveConnector.type.SINGLE_LEFT).setContext(ctx).draw();
+        treble.addClef(currentMeasure.effectiveClefRH || 'treble');
+        treble.addKeySignature(activeKey);
+        treble.addTimeSignature(`${activeTime.numerator}/${activeTime.denominator}`);
+        
+        bass.addClef(currentMeasure.effectiveClefLH || 'bass');
+        bass.addKeySignature(activeKey);
+        bass.addTimeSignature(`${activeTime.numerator}/${activeTime.denominator}`);
+
+        treble.setContext(ctx).draw();
+        bass.setContext(ctx).draw();
+        new StaveConnector(treble, bass).setType(StaveConnector.type.BRACE).setContext(ctx).draw();
+        new StaveConnector(treble, bass).setType(StaveConnector.type.SINGLE_LEFT).setContext(ctx).draw();
+    }
   }, [vexFlowData, currentMeasure, height]);
 
   return (
@@ -155,12 +167,14 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
   barLines,
   rightHandColor,
   leftHandColor,
+  hitNoteColor,
   signatureEvents,
   onLayoutRendered,
   tempoEvents,
   playbackTempoMultiplier,
   backgroundColor = '#f7f5ed',
   lowDetailMode = false,
+  instrumentMode = 'piano',
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const cursorRef = useRef<HTMLDivElement>(null);
@@ -172,6 +186,12 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
   const notePositionsRef = useRef<Map<string, BoundingBox>>(new Map());
   const [renderedLayoutId, setRenderedLayoutId] = useState(0);
 
+  useEffect(() => {
+    if (renderedLayoutId > 0) {
+      onLayoutRendered(renderedLayoutId);
+    }
+  }, [renderedLayoutId, onLayoutRendered]);
+
   const vexFlowData = useMemo(() => {
     if (!notes.length || !timeSignature || initialTempoBpm <= 0) return null;
     if (width == null || width <= 0 || !Number.isFinite(width) || height == null || height <= 0 || !Number.isFinite(height)) return null;
@@ -179,10 +199,10 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
       return getVexFlowRenderData(
         notes, timeSignature, initialTempoBpm, keySignature, sheetMusicZoom,
         barLines, signatureEvents, width, height, true, 
-        tempoEvents, playbackTempoMultiplier, false 
+        tempoEvents, playbackTempoMultiplier, false, instrumentMode
       );
     } catch (e) { return null; }
-  }, [notes, timeSignature, initialTempoBpm, keySignature, sheetMusicZoom, barLines, signatureEvents, width, height, tempoEvents, playbackTempoMultiplier]);
+  }, [notes, timeSignature, initialTempoBpm, keySignature, sheetMusicZoom, barLines, signatureEvents, width, height, tempoEvents, playbackTempoMultiplier, instrumentMode]);
 
   const PLAY_LINE_X = SIDEBAR_WIDTH + (width > SIDEBAR_WIDTH ? (width - SIDEBAR_WIDTH) * 0.1 : 0);
 
@@ -204,25 +224,68 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
     const newNotePositions = new Map<string, BoundingBox>();
     
     try {
-      const { topStaveYOffset, verticalSpacing } = vexFlowData;
+      const { topStaveYOffset, verticalSpacing, instrumentMode } = vexFlowData;
+      const isDrum = instrumentMode === 'drum';
       const measuresToRender = vexFlowData.measures;
       const renderer = new Renderer(renderContainer, Renderer.Backends.SVG);
       renderer.resize(totalMusicWidth, height);
       const ctx = renderer.getContext();
       let currentX = HORIZONTAL_PADDING;
+
+      const DRUM_MIDI_MAPPING: { [key: number]: { key: string, noteHead?: string } } = {
+        35: { key: 'f/4' }, // Bass Drum 2
+        36: { key: 'f/4' }, // Bass Drum 1
+        38: { key: 'c/5' }, // Snare Drum 1
+        40: { key: 'c/5' }, // Snare Drum 2
+        41: { key: 'a/4' }, // Low Floor Tom
+        43: { key: 'a/4' }, // High Floor Tom
+        45: { key: 'b/4' }, // Low Tom
+        47: { key: 'b/4' }, // Low-Mid Tom
+        48: { key: 'd/5' }, // Hi-Mid Tom
+        50: { key: 'd/5' }, // High Tom
+        42: { key: 'g/5', noteHead: 'x' }, // Closed Hi-Hat
+        46: { key: 'g/5', noteHead: 'x' }, // Open Hi-Hat
+        44: { key: 'd/4', noteHead: 'x' }, // Pedal Hi-Hat
+        49: { key: 'a/5', noteHead: 'x' }, // Crash Cymbal 1
+        57: { key: 'a/5', noteHead: 'x' }, // Crash Cymbal 2
+        51: { key: 'f/5', noteHead: 'x' }, // Ride Cymbal 1
+        59: { key: 'f/5', noteHead: 'x' }, // Ride Cymbal 2
+        53: { key: 'f/5', noteHead: 'x' }, // Ride Bell
+        55: { key: 'a/5', noteHead: 'x' }, // Splash Cymbal
+        52: { key: 'a/5', noteHead: 'x' }, // Chinese Cymbal
+      };
+
       measuresToRender.forEach((measure, i) => {
-        const treble = new Stave(currentX, topStaveYOffset, measure.width), bass = new Stave(currentX, topStaveYOffset + verticalSpacing, measure.width);
+        const treble = new Stave(currentX, topStaveYOffset, measure.width);
+        const bass = isDrum ? null : new Stave(currentX, topStaveYOffset + verticalSpacing, measure.width);
         
         treble.setMeasure(i + 1);
 
-        if (measure.startsRepeat) { treble.setBegBarType(Barline.type.REPEAT_BEGIN); bass.setBegBarType(Barline.type.REPEAT_BEGIN); }
-        if (measure.endsRepeat) treble.setEndBarType(Barline.type.REPEAT_END); else if (measure.endTimeMs >= totalDurationMs) { treble.setEndBarType(Barline.type.END); bass.setEndBarType(Barline.type.END); }
+        if (measure.startsRepeat) { 
+            treble.setBegBarType(Barline.type.REPEAT_BEGIN); 
+            if (bass) bass.setBegBarType(Barline.type.REPEAT_BEGIN); 
+        }
+        if (measure.endsRepeat) {
+            treble.setEndBarType(Barline.type.REPEAT_END);
+            if (bass) bass.setEndBarType(Barline.type.REPEAT_END);
+        } else if (measure.endTimeMs >= totalDurationMs) { 
+            treble.setEndBarType(Barline.type.END); 
+            if (bass) bass.setEndBarType(Barline.type.END); 
+        }
         
-        treble.setContext(ctx).draw(); bass.setContext(ctx).draw();
+        treble.setContext(ctx).draw(); 
+        if (bass) bass.setContext(ctx).draw();
         
-        new StaveConnector(treble, bass).setType(StaveConnector.type.SINGLE_RIGHT).setContext(ctx).draw();
+        if (bass) new StaveConnector(treble, bass).setType(StaveConnector.type.SINGLE_RIGHT).setContext(ctx).draw();
         
-        const createNote = (info: VexFlowNoteInfo) => { const n = new StaveNote({ ...info.vexNote }); if (info.vexNote.dots) { for (let i = 0; i < info.vexNote.dots; i++) n.addModifier(new Dot()); } if (info.accidentals) info.accidentals.forEach(acc => n.addModifier(new Accidental(acc.type), acc.index)); n.setAttribute('id', info.vexNoteId); return n; };
+        const createNote = (info: VexFlowNoteInfo) => { 
+            const n = new StaveNote({ ...info.vexNote }); 
+            if (info.vexNote.dots) { for (let i = 0; i < info.vexNote.dots; i++) n.addModifier(new Dot()); } 
+            if (info.accidentals) info.accidentals.forEach(acc => n.addModifier(new Accidental(acc.type), acc.index)); 
+            
+            n.setAttribute('id', info.vexNoteId); 
+            return n; 
+        };
         const rightInfoMap = new Map<string, VexFlowNoteInfo>(), rightStaveNotes: StaveNote[] = measure.rightHand.map(info => { const n = createNote(info); rightInfoMap.set(info.vexNoteId, info); return n; });
         const leftInfoMap = new Map<string, VexFlowNoteInfo>(), leftStaveNotes: StaveNote[] = measure.leftHand.map(info => { const n = createNote(info); leftInfoMap.set(info.vexNoteId, info); return n; });
         
@@ -304,13 +367,13 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
         const lhTupletObjs = measure.leftHandTuplets.map(g => new Tuplet(g.indices.map(idx => leftStaveNotes[idx])));
 
         const voices: Voice[] = [];
-        if (rightStaveNotes.length) voices.push(new Voice({ numBeats: measure.effectiveTimeSignature.numerator, beatValue: measure.effectiveTimeSignature.denominator }).setStrict(false).addTickables(rightStaveNotes));
-        if (leftStaveNotes.length) voices.push(new Voice({ numBeats: measure.effectiveTimeSignature.numerator, beatValue: measure.effectiveTimeSignature.denominator }).setStrict(false).addTickables(leftStaveNotes));
+        if (rightStaveNotes.length) voices.push(new Voice({ num_beats: measure.effectiveTimeSignature.numerator, beat_value: measure.effectiveTimeSignature.denominator }).setStrict(false).addTickables(rightStaveNotes));
+        if (leftStaveNotes.length) voices.push(new Voice({ num_beats: measure.effectiveTimeSignature.numerator, beat_value: measure.effectiveTimeSignature.denominator }).setStrict(false).addTickables(leftStaveNotes));
         
         if (voices.length) { 
             new Formatter().joinVoices(voices).format(voices, measure.width - 15); 
             if (rightStaveNotes.length) voices[0].draw(ctx, treble); 
-            if (leftStaveNotes.length) (rightStaveNotes.length > 0 ? voices[1] : voices[0]).draw(ctx, bass); 
+            if (leftStaveNotes.length) (rightStaveNotes.length > 0 ? voices[1] : voices[0]).draw(ctx, isDrum ? treble : bass); 
             rightBeams.forEach(b => b.setContext(ctx).draw()); 
             leftBeams.forEach(b => b.setContext(ctx).draw()); 
             rhTupletObjs.forEach(t => t.setContext(ctx).draw());
@@ -326,13 +389,13 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
       });
 
       notePositionsRef.current = newNotePositions; 
-      setRenderedLayoutId(prev => { onLayoutRendered(prev + 1); return prev + 1; });
+      setRenderedLayoutId(prev => prev + 1);
     } catch (e) { 
         console.error("VexFlow Rendering Error:", e);
         if(renderContainer) while (renderContainer.lastChild) renderContainer.removeChild(renderContainer.lastChild); 
         notePositionsRef.current.clear();
         // IMPORTANT: Signal that rendering "finished" (even if failed) so loading spinner stops
-        setRenderedLayoutId(prev => { onLayoutRendered(prev + 1); return prev + 1; });
+        setRenderedLayoutId(prev => prev + 1);
     }
     return () => { if (renderContainer) while (renderContainer.lastChild) renderContainer.removeChild(renderContainer.lastChild); notePositionsRef.current.clear(); };
   }, [vexFlowData, width, height, keySignature, timeSignature, totalDurationMs, onLayoutRendered]);
@@ -341,7 +404,7 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
     if (!vexFlowData) { setHighlights([]); return; }
     const newHighlights: HighlightInfo[] = [];
     activePlaybackNotesInfo.forEach(activeInfo => {
-      let color: string | null = activeInfo.status === 'user_played' ? USER_PLAY_COLOR : (['playing', 'waiting'].includes(activeInfo.status) ? (activeInfo.hand === 'left' ? leftHandColor : (activeInfo.hand === 'right' ? rightHandColor : SYSTEM_PLAY_COLOR)) : null);
+      let color: string | null = activeInfo.status === 'user_played' ? hitNoteColor : (['playing', 'waiting'].includes(activeInfo.status) ? (activeInfo.hand === 'left' ? leftHandColor : (activeInfo.hand === 'right' ? rightHandColor : SYSTEM_PLAY_COLOR)) : null);
       if (color) {
         vexFlowData.noteIdToFragmentsMap.get(activeInfo.noteId)?.forEach(fragment => {
           const position = notePositionsRef.current.get(fragment.fragmentId);

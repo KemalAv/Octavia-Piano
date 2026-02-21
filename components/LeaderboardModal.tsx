@@ -35,19 +35,49 @@ const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ song, onClose, onGo
     setLoading(true);
     setError(null);
     try {
-      const { data, error } = await supabase
+      // 1. Fetch scores and songs
+      const { data: scoresData, error: scoresError } = await supabase
         .from('scores')
-        .select('*, profiles(username, avatar_url, created_at), songs(title, artist)') // Fetch profile details and song title, and artist
+        .select('*, songs(title, artist)')
         .eq('song_id', song.id)
         .order('final_score', { ascending: false })
         .limit(50);
         
-      if (error) throw error;
-      setScores(data as Score[]);
+      if (scoresError) {
+        console.error("Supabase error (scores):", scoresError);
+        throw scoresError;
+      }
+
+      const scores = scoresData as Score[];
+      
+      // 2. Fetch profiles separately
+      const userIds = [...new Set(scores.map(s => s.user_id))];
+      let profiles: any[] = [];
+      if (userIds.length > 0) {
+        const { data: profilesData, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id, username, avatar_url, created_at')
+          .in('id', userIds);
+          
+        if (profilesError) {
+          console.error("Supabase error (profiles):", profilesError);
+          // Don't throw, just log and continue without profiles
+        } else {
+          profiles = profilesData || [];
+        }
+      }
+
+      // 3. Merge profiles into scores
+      const scoresWithProfiles = scores.map(s => ({
+        ...s,
+        profiles: profiles.find(p => p.id === s.user_id) || null
+      }));
+
+      setScores(scoresWithProfiles);
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error("Detailed error:", err);
       setError(`Failed to load leaderboard: ${errorMessage}`);
-      console.error(err);
     } finally {
       setLoading(false);
     }

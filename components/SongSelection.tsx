@@ -7,7 +7,7 @@ import { supabase } from '../supabaseClient';
 import { generateExercise, EXERCISE_CATEGORIES, ALL_KEYS, ExerciseType } from '../musicTheoryGenerator'; 
 
 interface SongSelectionProps {
-  onFileLoaded: (file: File | null, onlineSongId: string | null, isRanked: boolean | null, midiLink: string | null, midiOffset: number | null) => Promise<void>;
+  onFileLoaded: (file: File | null, onlineSongId: string | null, isRanked: boolean | null, midiLink: string | null, midiOffset: number | null, backgroundUrl?: string | null, accuracyLevel?: number | null) => Promise<void>;
   onSongSelected: () => void;
   onBack: () => void;
   loadedSongName: string | null;
@@ -18,6 +18,7 @@ interface SongSelectionProps {
   onStartFreePlay: () => void;
   // NEW Prop for editor navigation
   onNavigateToEditor: (file: File | null) => void;
+  instrumentMode: 'piano' | 'drum';
 }
 
 const SongSelection: React.FC<SongSelectionProps> = ({
@@ -31,6 +32,7 @@ const SongSelection: React.FC<SongSelectionProps> = ({
   onGoToOnlineSong,
   onStartFreePlay,
   onNavigateToEditor,
+  instrumentMode,
 }) => {
   const [activeTab, setActiveTab] = useState<'local' | 'online' | 'practice'>('online'); 
   const [isOnlineLoading, setIsOnlineLoading] = useState(false);
@@ -41,6 +43,18 @@ const SongSelection: React.FC<SongSelectionProps> = ({
   // Practice Mode State
   const [selectedKey, setSelectedKey] = useState<string>('C');
   const [selectedCategory, setSelectedCategory] = useState<string>('scales');
+
+  // Local Import Modal State
+  const [isLocalImportModalOpen, setIsLocalImportModalOpen] = useState(false);
+  const [localImportFile, setLocalImportFile] = useState<File | null>(null);
+  const [localImportTitle, setLocalImportTitle] = useState('');
+  const [localImportArtist, setLocalImportArtist] = useState('');
+  const [localImportArranger, setLocalImportArranger] = useState('');
+  const [localImportDescription, setLocalImportDescription] = useState('');
+  const [localImportMidiLink, setLocalImportMidiLink] = useState('');
+  const [localImportMidiOffset, setLocalImportMidiOffset] = useState('');
+  const [localImportBackgroundUrl, setLocalImportBackgroundUrl] = useState('');
+  const [localImportAccuracyLevel, setLocalImportAccuracyLevel] = useState<number>(5);
 
   useEffect(() => {
     const timer = setTimeout(() => setIsRendered(true), 10);
@@ -61,7 +75,7 @@ const SongSelection: React.FC<SongSelectionProps> = ({
       try {
         const { data: songMetadata, error: metadataError } = await supabase
           .from('songs')
-          .select('id, title, file_path, is_ranked, midi_link, midi_offset') 
+          .select('id, title, file_path, is_ranked, midi_link, midi_offset, background_url') 
           .eq('id', songId)
           .single();
 
@@ -76,12 +90,12 @@ const SongSelection: React.FC<SongSelectionProps> = ({
         if (!fileData) throw new Error("No file data received for online song.");
 
         const file = new File([fileData], songMetadata.title + '.mid', { type: fileData.type });
-        await onFileLoaded(file, songMetadata.id, songMetadata.is_ranked, songMetadata.midi_link, songMetadata.midi_offset); 
+        await onFileLoaded(file, songMetadata.id, songMetadata.is_ranked, songMetadata.midi_link, songMetadata.midi_offset, songMetadata.background_url); 
         setActiveTab('online'); 
       } catch (err: unknown) {
         console.error("Error loading pre-selected online MIDI:", err);
         alert(`Failed to load online MIDI: ${(err instanceof Error ? err.message : String(err))}`);
-        onFileLoaded(null, null, null, null, null); 
+        onFileLoaded(null, null, null, null, null, null); 
       } finally {
         setIsOnlineLoading(false);
       }
@@ -100,8 +114,20 @@ const SongSelection: React.FC<SongSelectionProps> = ({
       const isMidi = fileName.endsWith('.mid') || fileName.endsWith('.midi');
 
       if (isMidi) {
-        setSelectedLocalFile(file); // Store specifically for edit capability
-        onFileLoaded(file, null, null, null, null);
+        setLocalImportFile(file);
+        
+        // Pre-fill title from filename
+        const nameWithoutExt = file.name.replace(/\.[^/.]+$/, "");
+        setLocalImportTitle(nameWithoutExt.substring(0, 50));
+        setLocalImportArtist('');
+        setLocalImportArranger('');
+        setLocalImportDescription('');
+        setLocalImportMidiLink('');
+        setLocalImportMidiOffset('');
+        setLocalImportBackgroundUrl('');
+        setLocalImportAccuracyLevel(5);
+        
+        setIsLocalImportModalOpen(true);
       } else {
         alert('File not supported. Please upload a MIDI file (.mid or .midi).');
       }
@@ -109,6 +135,29 @@ const SongSelection: React.FC<SongSelectionProps> = ({
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
+  };
+
+  const handleLocalImportSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!localImportFile) return;
+
+    let finalFile = localImportFile;
+    if (localImportTitle || localImportArtist) {
+      const newName = `${localImportTitle || 'Unknown'}${localImportArtist ? ` - ${localImportArtist}` : ''}.mid`;
+      finalFile = new File([localImportFile], newName, { type: localImportFile.type });
+    }
+
+    setSelectedLocalFile(finalFile);
+    onFileLoaded(
+      finalFile, 
+      null, 
+      null, 
+      localImportMidiLink.trim() || null, 
+      localImportMidiOffset ? parseInt(localImportMidiOffset, 10) : null, 
+      localImportBackgroundUrl.trim() || null,
+      localImportAccuracyLevel
+    );
+    setIsLocalImportModalOpen(false);
   };
 
   const handlePracticeSelection = async (typeId: string, typeName: string) => {
@@ -131,7 +180,7 @@ const SongSelection: React.FC<SongSelectionProps> = ({
   const showLoading = isLoading || isOnlineLoading;
 
   return (
-    <div className={`fixed inset-0 bg-slate-950 flex flex-col items-center justify-center z-40 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'opacity-100' : 'opacity-0'}`}>
+    <div className={`fixed inset-0 bg-slate-950/60 flex flex-col items-center justify-center z-40 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'opacity-100' : 'opacity-0'}`}>
        
        <div className="absolute top-4 left-4" style={{ zIndex: 9999 }}>
             <button onClick={onBack} className={`flex items-center gap-2 text-slate-400 hover:text-white transition-colors px-4 py-2 rounded-full border border-white/10 hover:border-white/30 bg-slate-800/80`}>
@@ -149,10 +198,10 @@ const SongSelection: React.FC<SongSelectionProps> = ({
                 Community Library
             </div>
             <div 
-                className={`${tabStyle} ${activeTab === 'practice' ? activeTabStyle : inactiveTabStyle}`}
-                onClick={() => setActiveTab('practice')}
+                className={`${tabStyle} ${activeTab === 'practice' ? activeTabStyle : inactiveTabStyle} ${instrumentMode === 'drum' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                onClick={() => instrumentMode !== 'drum' && setActiveTab('practice')}
             >
-                Practice Exercises
+                {instrumentMode === 'drum' ? 'Coming Soon' : 'Practice Exercises'}
             </div>
             <div 
                 className={`${tabStyle} ${activeTab === 'local' ? activeTabStyle : inactiveTabStyle}`}
@@ -226,10 +275,11 @@ const SongSelection: React.FC<SongSelectionProps> = ({
                 {activeTab === 'online' ? (
                     <div className="flex-grow">
                         <OnlineSongBrowser 
-                            onSongLoaded={(file, id, ranked, mLink, mOffset) => onFileLoaded(file, id, ranked, mLink, mOffset)} 
+                            onSongLoaded={(file, id, ranked, mLink, mOffset, bgUrl) => onFileLoaded(file, id, ranked, mLink, mOffset, bgUrl)} 
                             isLoading={isOnlineLoading}
                             setLoadingState={setIsOnlineLoading}
                             onGoToOnlineSong={onGoToOnlineSong}
+                            instrumentMode={instrumentMode}
                         />
                     </div>
                 ) : activeTab === 'practice' ? (
@@ -264,10 +314,17 @@ const SongSelection: React.FC<SongSelectionProps> = ({
                                             <button
                                                 key={type.id}
                                                 onClick={() => handlePracticeSelection(type.id, type.name)}
-                                                className="w-full text-left px-4 py-3 rounded-lg text-slate-300 hover:bg-slate-700 hover:text-white transition-colors flex items-center justify-between group"
+                                                className="w-full text-left px-4 py-3 rounded-lg text-slate-300 hover:bg-slate-700 hover:text-white transition-colors flex flex-col gap-1 group"
                                             >
-                                                <span>{type.name}</span>
-                                                <svg className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg>
+                                                <div className="flex items-center justify-between w-full">
+                                                    <span className="font-bold">{type.name}</span>
+                                                    <svg className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg>
+                                                </div>
+                                                {(type as any).description && (
+                                                    <span className="text-[11px] text-slate-500 group-hover:text-slate-400 leading-snug">
+                                                        {(type as any).description}
+                                                    </span>
+                                                )}
                                             </button>
                                         ))}
                                     </div>
@@ -323,6 +380,157 @@ const SongSelection: React.FC<SongSelectionProps> = ({
             </div>
         </div>
       </div>
+
+      {/* Local Import Modal */}
+      {isLocalImportModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-700">
+            <div className="p-6 border-b border-slate-700 flex justify-between items-center bg-slate-800/50">
+              <h2 className="text-2xl font-bold text-white">Local MIDI Import</h2>
+              <button onClick={() => setIsLocalImportModalOpen(false)} className="text-slate-400 hover:text-white transition-colors">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+              </button>
+            </div>
+            
+            <form onSubmit={handleLocalImportSubmit} className="p-6 overflow-y-auto custom-scrollbar flex-grow space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Title (Optional)</label>
+                  <input
+                    type="text"
+                    value={localImportTitle}
+                    onChange={e => setLocalImportTitle(e.target.value)}
+                    className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500"
+                    maxLength={50}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Artist (Optional)</label>
+                  <input
+                    type="text"
+                    value={localImportArtist}
+                    onChange={e => setLocalImportArtist(e.target.value)}
+                    className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500"
+                    maxLength={25}
+                  />
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Arranger (Optional)</label>
+                  <input
+                    type="text"
+                    value={localImportArranger}
+                    onChange={e => setLocalImportArranger(e.target.value)}
+                    className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500"
+                    maxLength={25}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">YouTube Link (Optional)</label>
+                  <input
+                    type="url"
+                    value={localImportMidiLink}
+                    onChange={e => setLocalImportMidiLink(e.target.value)}
+                    placeholder="https://youtube.com/watch?v=..."
+                    className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500"
+                    maxLength={300}
+                  />
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Audio Offset (ms) (Optional)</label>
+                  <input
+                    type="number"
+                    value={localImportMidiOffset}
+                    onChange={e => setLocalImportMidiOffset(e.target.value)}
+                    placeholder="e.g. 1500"
+                    className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500"
+                    maxLength={7}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Background URL (Optional)</label>
+                  <input
+                    type="url"
+                    value={localImportBackgroundUrl}
+                    onChange={e => setLocalImportBackgroundUrl(e.target.value)}
+                    placeholder="https://..."
+                    className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500"
+                    maxLength={300}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Description (Optional)</label>
+                <textarea
+                  value={localImportDescription}
+                  onChange={e => setLocalImportDescription(e.target.value)}
+                  className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500 h-20 resize-none"
+                  maxLength={100}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">
+                  Accuracy Level (3-7)
+                  <span className="block text-xs text-slate-400 font-normal mt-0.5">
+                    3 = Very Lenient, 5 = Normal, 7 = Very Strict
+                  </span>
+                </label>
+                <input
+                  type="range"
+                  min="3"
+                  max="7"
+                  step="1"
+                  value={localImportAccuracyLevel}
+                  onChange={e => setLocalImportAccuracyLevel(parseInt(e.target.value, 10))}
+                  className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                />
+                <div className="text-center mt-2 space-y-1">
+                  <div className="text-cyan-400 font-bold">
+                    Level {localImportAccuracyLevel}
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="flex flex-col items-center p-1 bg-slate-700/50 rounded border border-emerald-500/30">
+                      <span className="text-[10px] text-emerald-400 font-bold uppercase">Perfect</span>
+                      <span className="text-xs text-white font-mono">±{100 + (5 - localImportAccuracyLevel) * 20}ms</span>
+                    </div>
+                    <div className="flex flex-col items-center p-1 bg-slate-700/50 rounded border border-sky-500/30">
+                      <span className="text-[10px] text-sky-400 font-bold uppercase">Great</span>
+                      <span className="text-xs text-white font-mono">±{Math.round((100 + (5 - localImportAccuracyLevel) * 20) * 1.5)}ms</span>
+                    </div>
+                    <div className="flex flex-col items-center p-1 bg-slate-700/50 rounded border border-amber-500/30">
+                      <span className="text-[10px] text-amber-400 font-bold uppercase">Good</span>
+                      <span className="text-xs text-white font-mono">±{(100 + (5 - localImportAccuracyLevel) * 20) * 2}ms</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-slate-700 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsLocalImportModalOpen(false)}
+                  className="px-4 py-2 text-slate-300 hover:text-white transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg font-bold shadow-lg shadow-cyan-500/20 transition-all"
+                >
+                  Load MIDI
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

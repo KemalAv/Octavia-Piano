@@ -3,7 +3,7 @@ import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { analyzeMidi } from '../midiAnalysis';
 import { parseFileForAnalysis } from '../midiParser';
-import { PIANO_KEYS_CONFIG } from '../constants';
+import { PIANO_KEYS_CONFIG, DRUM_MIDI_TO_NAME_MAP } from '../constants';
 import { OnlineSong } from '../types';
 
 interface AdminModalProps {
@@ -23,6 +23,7 @@ const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, lowDetailMode 
   const midiNoteToNameMap = useMemo(() => {
     const map = new Map<number, string>();
     PIANO_KEYS_CONFIG.forEach(key => map.set(key.midiNote, key.name));
+    Object.entries(DRUM_MIDI_TO_NAME_MAP).forEach(([midi, name]) => map.set(parseInt(midi), name));
     return map;
   }, []);
 
@@ -94,102 +95,110 @@ const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, lowDetailMode 
     }
   }, [midiNoteToNameMap]);
 
-  const handleRecalculatePlayerScores = useCallback(async () => {
-    if (!window.confirm("Step 2: Recalculate all player final scores using new Base PS. Proceed?")) return;
+const handleRecalculatePlayerScores = useCallback(async () => {
+  if (!window.confirm("Step 2: Recalculate all player final scores using new Base PS. Proceed?")) return;
 
-    setIsLoading(true);
-    setLogs([]);
-    setProgress(0);
-    setErrorCount(0);
+  setIsLoading(true);
+  setLogs([]);
+  setProgress(0);
+  setErrorCount(0);
 
-    try {
-        addLog("Fetching player scores...");
-        const { data: rawScores, error: fetchError } = await supabase
-            .from('scores')
-            .select('*, songs(performance_score)');
+  try {
+      addLog("Fetching player scores...");
+      const { data: rawScores, error: fetchError } = await supabase
+          .from('scores')
+          .select('*, songs(performance_score)');
 
-        if (fetchError) throw fetchError;
-        if (!rawScores || rawScores.length === 0) {
-            addLog("No scores found to recalculate.");
-            return;
-        }
+      if (fetchError) throw fetchError;
+      if (!rawScores || rawScores.length === 0) {
+          addLog("No scores found to recalculate.");
+          return;
+      }
 
-        setTotal(rawScores.length);
-        addLog(`Found ${rawScores.length} entries.`);
+      setTotal(rawScores.length);
+      addLog(`Found ${rawScores.length} entries.`);
 
-        // Debugging Baris Pertama
-        addLog("DEBUG: Inspecting first entry structure...");
-        addLog(`DEBUG DATA: ${JSON.stringify(rawScores[0]).substring(0, 150)}...`);
+      let completed = 0;
+      for (const entry of rawScores as any[]) {
+          try {
+              // Ambil base Performance Score
+              let basePS = 0;
+              if (entry.songs) {
+                  basePS = Array.isArray(entry.songs) ? (entry.songs[0]?.performance_score || 0) : (entry.songs.performance_score || 0);
+              }
 
-        let completed = 0;
-        for (const entry of rawScores as any[]) {
-            try {
-                // Mencari Performance Score dengan berbagai kemungkinan struktur join Supabase
-                let basePS = 0;
-                if (entry.songs) {
-                    basePS = Array.isArray(entry.songs) ? (entry.songs[0]?.performance_score || 0) : (entry.songs.performance_score || 0);
-                }
+              // Fallback jika join gagal
+              if (!basePS) {
+                  const { data: songData } = await supabase.from('songs').select('performance_score').eq('id', entry.song_id).single();
+                  basePS = songData?.performance_score || 0;
+              }
 
-                // Jika join gagal, coba fetch manual sebagai fallback (lambat tapi pasti)
-                if (!basePS) {
-                    const { data: songData } = await supabase.from('songs').select('performance_score').eq('id', entry.song_id).single();
-                    basePS = songData?.performance_score || 0;
-                }
+              if (!basePS) {
+                  addLog(` -> Score ${entry.id.substring(0,8)}: SKIPPED (Base PS is 0 or Song not found)`);
+                  completed++;
+                  setProgress(completed);
+                  continue;
+              }
 
-                if (!basePS) {
-                    addLog(` -> Score ${entry.id.substring(0,8)}: SKIPPED (Base PS is 0 or Song not found)`);
-                    completed++;
-                    setProgress(completed);
-                    continue;
-                }
+              // Hitung total_notes jika tidak valid
+              const totalNotes = (entry.perfect_count || 0) + (entry.great_count || 0) + (entry.good_count || 0) + (entry.miss_count || 0);
+              const effectiveTotal = (entry.total_notes || 0) > 0 ? entry.total_notes : totalNotes;
 
-                // Rumus Pure Curve
-                const gameplayPS = (entry.accuracy + entry.speed) / 2;
-                const p = Math.max(0, Math.min(1, gameplayPS / 100));
-                const factor = (gameplayPS >= 100) ? 1 : Math.pow(p, 3.5) * (0.5 + 0.5 * Math.pow(p, 8));
-                const newFinalScore = parseFloat((basePS * factor).toFixed(2));
+              // Hitung akurasi % (Non-Stop mode style)
+              const score = ((entry.perfect_count || 0) * 1.0) + ((entry.great_count || 0) * 0.3333333333) + ((entry.good_count || 0) * 0.1666666667);
+              const accuracy = effectiveTotal > 0 ? (score / effectiveTotal) * 100 : 100;
 
-                // Hitung Rank
-                let rank = 'D';
-                if (gameplayPS >= 100) rank = 'X';
-                else if (gameplayPS >= 97.5) rank = 'SS';
-                else if (gameplayPS >= 95) rank = 'S';
-                else if (gameplayPS >= 91.25) rank = 'A';
-                else if (gameplayPS >= 87.5) rank = 'B';
-                else if (gameplayPS >= 75) rank = 'C';
+              const speedEff = 100;
+              const gameplayPS = (accuracy + speedEff) / 2;
 
-                // UPDATE
-                const { error: upError } = await supabase
-                    .from('scores')
-                    .update({ final_score: newFinalScore, rank: rank })
-                    .eq('id', entry.id);
+              // Formula: Base Score × max(0, (g - 75) / 25)^1.5
+              const calculatedFinalScore = basePS * Math.pow(Math.max(0, (gameplayPS - 75) / 25), 1.5);
 
-                if (upError) throw upError;
+              const newFinalScore = parseFloat(calculatedFinalScore.toFixed(2));
 
-                // VERIFIKASI (Opsional untuk testing, ambil data lagi untuk memastikan update 'ngefek')
-                const { data: verifyData } = await supabase.from('scores').select('final_score').eq('id', entry.id).single();
-                const isVerified = verifyData?.final_score === newFinalScore;
+              if (isNaN(newFinalScore)) {
+                  addLog(` -> Score ${entry.id.substring(0,8)}: SKIPPED (Calculated score is NaN)`);
+                  completed++;
+                  setProgress(completed);
+                  continue;
+              }
 
-                addLog(` -> Score ${entry.id.substring(0,8)}: ${entry.final_score} -> ${newFinalScore} (${isVerified ? 'VERIFIED' : 'FAILED TO WRITE'})`);
-                
-                if (!isVerified) throw new Error("Database did not accept the new value. Check RLS Policies.");
+              // Tentukan Rank berdasarkan gameplayPS (sesuai normal calculation di App.tsx)
+              let rank = "D";
+              if (gameplayPS >= 100) rank = "X";
+              else if (gameplayPS >= 97.5) rank = "SS";
+              else if (gameplayPS >= 95) rank = "S";
+              else if (gameplayPS >= 91.25) rank = "A";
+              else if (gameplayPS >= 87.5) rank = "B";
+              else if (gameplayPS >= 75) rank = "C";
 
-            } catch (e: any) {
-                addLog(` -> ERROR on ${entry.id.substring(0,8)}: ${e.message}`);
-                setErrorCount(prev => prev + 1);
-            } finally {
-                completed++;
-                setProgress(completed);
-                if (completed % 15 === 0) await new Promise(r => setTimeout(r, 100));
-            }
-        }
-        addLog("Step 2 Finished.");
-    } catch (err: any) {
-        addLog(`FATAL: ${err.message}`);
-    } finally {
-        setIsLoading(false);
-    }
-  }, []);
+              // UPDATE
+              const { error: upError } = await supabase
+                  .from('scores')
+                  .update({ final_score: newFinalScore, rank, accuracy: parseFloat(accuracy.toFixed(2)) })
+                  .eq('id', entry.id);
+
+              if (upError) throw upError;
+
+              addLog(` -> Score ${entry.id.substring(0,8)}: Updated to ${newFinalScore} (Rank ${rank})`);
+
+          } catch (e: any) {
+              addLog(` -> ERROR on ${entry.id.substring(0,8)}: ${e.message}`);
+              setErrorCount(prev => prev + 1);
+          } finally {
+              completed++;
+              setProgress(completed);
+              if (completed % 15 === 0) await new Promise(r => setTimeout(r, 100));
+          }
+      }
+
+      addLog("Step 2 Finished.");
+  } catch (err: any) {
+      addLog(`FATAL: ${err.message}`);
+  } finally {
+      setIsLoading(false);
+  }
+}, []);
 
   if (!isOpen) return null;
 

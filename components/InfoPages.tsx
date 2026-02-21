@@ -21,19 +21,19 @@ const InfoLayout: React.FC<{ title: string; children: React.ReactNode; onBack: (
       >
         <div className="flex justify-between items-center mb-6 flex-shrink-0">
           <h2 className="text-3xl font-bold text-cyan-400">{title}</h2>
-          <button 
-            onClick={onBack} 
+          <button
+            onClick={onBack}
             className="text-slate-400 hover:text-white text-3xl leading-none"
             aria-label="Close"
           >&times;</button>
         </div>
-        
+
         <div className="flex-grow overflow-y-auto custom-scrollbar text-slate-300 space-y-6 pr-4">
           {children}
         </div>
 
         <div className="mt-8 pt-4 border-t border-slate-800 flex-shrink-0 flex justify-end">
-          <button 
+          <button
             onClick={onBack}
             className="px-6 py-2 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-lg transition-colors"
           >
@@ -48,51 +48,83 @@ const InfoLayout: React.FC<{ title: string; children: React.ReactNode; onBack: (
 export const AboutUs: React.FC<InfoPageProps> = ({ onBack }) => (
   <InfoLayout title="About Octavia" onBack={onBack}>
     <section>
-      <h3 className="text-xl font-bold text-white mb-2">Our Mission</h3>
-      <p>
-        Octavia was born from a simple idea: learning piano shouldn't be boring, and rhythm games shouldn't be limited to computer keyboards. We wanted to bridge the gap between serious instrument practice and the addictive fun of rhythm gaming.
+      <h3 className="text-xl font-bold text-white mb-2">Our Mission: Redefining Music Practice</h3>
+      <p className="mb-4">
+        Octavia was born from a simple yet powerful idea: learning piano shouldn't be a chore, and modern rhythm games shouldn't be limited to plastic controllers or computer keyboards. We believe that the discipline of learning a musical instrument can and should be infused with the same level of engagement and excitement found in world-class gaming.
       </p>
-    </section>
-    
-    <section>
-      <h3 className="text-xl font-bold text-white mb-2">How It Works</h3>
       <p>
-        Unlike traditional synthesia-style apps, Octavia focuses on gamification. It connects to your MIDI keyboard (or lets you use your computer keyboard) and scores your performance based on accuracy and timing. With features like our custom "Retical Mode" and real-time difficulty analysis, we aim to provide a platform where you can track your progress and compete with others.
+        Our mission is to provide an accessible, high-performance platform that bridges the gap between serious instrument practice and interactive entertainment. By using real instruments as the primary input device, we help musicians develop tangible skills while enjoying a reward-driven progress system.
       </p>
     </section>
 
     <section>
-        <h3 className="text-xl font-bold text-white mb-2">Open Source</h3>
-        <p>
-            Octavia is an evolving project. We believe in community-driven development. 
-        </p>
+      <h3 className="text-xl font-bold text-white mb-2">The Technology Behind the Music</h3>
+      <p className="mb-4">
+        Unlike traditional training applications, Octavia is built on a foundation of zero-latency rhythmic analysis. Utilizing the <strong>Web MIDI API</strong>, we communicate directly with your digital piano or MIDI controller, ensuring that every note you play is captured with millisecond precision.
+      </p>
+      <p className="mb-4">
+        Our rendering engine is powered by modern web technologies like <strong>React</strong> and <strong>Vite</strong>, allowing for a smooth 60fps experience even during complex musical passages. For sheet music, we integrate <strong>VexFlow</strong> and <strong>OpenSheetMusicDisplay</strong> to provide beautiful, responsive notation that adapts to your screen size.
+      </p>
+      <p>
+        Data persistence and community leaderboards are handled via <strong>Supabase</strong>, providing a secure and scalable environment for users to track their progress and compete with others globally.
+      </p>
+    </section>
+
+    <section>
+      <h3 className="text-xl font-bold text-white mb-2">The Rhythmic Philosophy</h3>
+      <p className="mb-4">
+        At its core, Octavia focuses on "Internalized Rhythm." Many piano students struggle with consistent timing when practicing alone. By using our "Strict Wait Mode," the app forces the student to recognize and execute correct note choices and timing before the music proceeds. This creates a feedback loop that trains the ear and hands to work in perfect synchronization.
+      </p>
+      <p>
+        Whether you are a classical pianist working on the intricacies of Chopin or a hobbyist playing your favorite game soundtracks, Octavia's flexible engine provides the right balance of challenge and support.
+      </p>
+    </section>
+
+    <section>
+      <h3 className="text-xl font-bold text-white mb-2">Open Source & Community Driven</h3>
+      <p>
+        Octavia is an evolving, community-centric project. We believe that the best tools for musicians are built by musicians who understand the technical and creative hurdles of the craft. We are constantly expanding our features, from advanced MIDI editor tools to better pedagogical analysis of MIDI files, all while keeping the platform free and open for everyone to explore.
+      </p>
     </section>
   </InfoLayout>
 );
 
 export const ContactPage: React.FC<InfoPageProps> = ({ onBack }) => (
   <InfoLayout title="Contact Us" onBack={onBack}>
-    <section className="text-center py-8">
-      <p className="text-lg mb-6">
-        Have feedback, found a bug, or just want to say hi? We'd love to hear from you.
+    <section className="space-y-6">
+      <p className="text-lg">
+        Octavia is a community-driven project and we value your feedback. Whether you are experiencing technical difficulties, have suggestions for new features, or are interested in collaboration, our team is ready to assist you.
       </p>
-      
-      <div className="inline-block bg-slate-800 p-6 rounded-lg border border-slate-700">
-        <h3 className="text-white font-bold mb-2">General Inquiries</h3>
-        <a href="mailto:trixieabu@gmail.com" className="text-cyan-400 hover:text-cyan-300 text-xl font-mono">
-          trixieabu@gmail.com
-        </a>
+
+      <div className="grid md:grid-cols-2 gap-6">
+        <div className="bg-slate-800 p-6 rounded-lg border border-slate-700">
+          <h3 className="text-white font-bold mb-2">Technical Support</h3>
+          <p className="text-sm mb-4">Questions regarding MIDI connectivity, browser compatibility, or account synchronization.</p>
+          <a href="mailto:trixieabu@gmail.com" className="text-cyan-400 hover:text-cyan-300 font-mono">
+            trixieabu@gmail.com
+          </a>
+        </div>
+
+        <div className="bg-slate-800 p-6 rounded-lg border border-slate-700">
+          <h3 className="text-white font-bold mb-2">Media & Business</h3>
+          <p className="text-sm mb-4">For press inquiries, licensing questions, or collaboration proposals.</p>
+          <a href="mailto:trixieabu@gmail.com" className="text-cyan-400 hover:text-cyan-300 font-mono">
+            trixieabu@gmail.com
+          </a>
+        </div>
       </div>
 
-      <div className="mt-8">
-        <p className="mb-4">You can also join our community on Discord for real-time support and updates:</p>
-        <a 
-            href="https://discord.gg/Ms8d6guHf2" 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-6 py-3 bg-[#5865F2] hover:bg-[#4752C4] text-white font-bold rounded-lg transition-colors"
+      <div className="bg-slate-800/50 p-6 rounded-lg border border-cyan-500/20 text-center">
+        <h3 className="text-white font-bold mb-4">Join Our Community</h3>
+        <p className="mb-6">The fastest way to get help and interact with other musicians is through our official Discord server. Get real-time updates and share your high scores!</p>
+        <a
+          href="https://discord.gg/Ms8d6guHf2"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 px-8 py-3 bg-[#5865F2] hover:bg-[#4752C4] text-white font-bold rounded-lg transition-all transform hover:scale-105"
         >
-            Join Discord Server
+          <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037 19.736 19.736 0 0 0-4.885 1.515.069.069 0 0 0-.032.027C.533 9.048-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01 10.898 10.898 0 0 0 .372.292.077.077 0 0 1-.006.128 12.51 12.51 0 0 1-1.873.892.076.076 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z" /></svg>
+          Join Discord Server
         </a>
       </div>
     </section>
@@ -101,33 +133,49 @@ export const ContactPage: React.FC<InfoPageProps> = ({ onBack }) => (
 
 export const PrivacyPolicy: React.FC<InfoPageProps> = ({ onBack }) => (
   <InfoLayout title="Privacy Policy" onBack={onBack}>
-    <p className="text-sm italic text-slate-500 mb-4">Last Updated: October 2023</p>
+    <p className="text-sm italic text-slate-500 mb-4">Last Updated: February 2026</p>
 
     <section>
-      <h3 className="text-xl font-bold text-white mb-2">1. Data Collection</h3>
+      <h3 className="text-xl font-bold text-white mb-2">1. Introduction to Digital Privacy</h3>
       <p>
-        Octavia uses Supabase for authentication and database services. When you sign in with Google, we collect your email address and profile picture solely for the purpose of creating your user profile and displaying it on leaderboards. We do not sell your personal data to third parties.
+        At Octavia, we prioritize the privacy and security of our users' data. This policy outlines how we collect, use, and protect your information when you interact with our platform. By using Octavia, you agree to the practices described in this document.
       </p>
     </section>
 
     <section>
-      <h3 className="text-xl font-bold text-white mb-2">2. User Uploads</h3>
+      <h3 className="text-xl font-bold text-white mb-2">2. Authentication and Identity</h3>
+      <p className="mb-4">
+        Octavia utilizes <strong>Supabase</strong> for secure authentication and database services. When you choose to sign in using Google OAuth, we receive and store your email address and profile picture.
+      </p>
       <p>
-        MIDI files uploaded to the platform are stored publicly. Do not upload files containing personal information or copyrighted material you do not have permission to share. By uploading a file, you grant Octavia the right to display and allow others to play the file within the application.
+        This information is used strictly for creating and maintaining your user account, facilitating leaderboard participation, and personalizing your dashboard experience. We do not have access to your Google account password and we will never sell your personal contact information to third-party advertisers.
       </p>
     </section>
 
     <section>
-      <h3 className="text-xl font-bold text-white mb-2">3. Cookies & Local Storage</h3>
+      <h3 className="text-xl font-bold text-white mb-2">3. User-Generated Content and MIDI Uploads</h3>
+      <p className="mb-4">
+        Any MIDI files or musical scores you upload to the platform are stored on our public database to allow for global community play. By uploading content, you acknowledge that this data is public and accessible by other users.
+      </p>
       <p>
-        We use local storage to save your settings (such as volume, theme preferences, and input device selections) to improve your experience. We do not use invasive tracking cookies.
+        Please ensure that you do not upload files containing sensitive personal information or copyrighted material for which you do not have the legal right to distribute. Octavia reserves the right to remove any content that violates intellectual property rights.
       </p>
     </section>
 
     <section>
-      <h3 className="text-xl font-bold text-white mb-2">4. Analytics</h3>
+      <h3 className="text-xl font-bold text-white mb-2">4. Technical Data & Local Storage</h3>
+      <p className="mb-4">
+        To provide a seamless experience, we use <strong>Browser Local Storage</strong> to save your application preferences. This includes volume levels, theme selections, input device IDs, and UI layout settings. This data remains on your local machine and is not tracked across other websites.
+      </p>
       <p>
-        We may collect anonymous usage data to help us understand how the app is being used and to improve performance. This data is not linked to your personal identity.
+        We do not use invasive tracking cookies or pixel tags. Any anonymous usage data collected (such as page load times or error logs) is used solely for the technical improvement of the application and cannot be linked back to your personal identity.
+      </p>
+    </section>
+
+    <section>
+      <h3 className="text-xl font-bold text-white mb-2">5. Data Security Measures</h3>
+      <p>
+        We implement industry-standard security protocols to protect your data from unauthorized access or disclosure. However, as no method of digital transmission is 100% secure, we encourage users to use strong, unique authentication methods.
       </p>
     </section>
   </InfoLayout>
@@ -136,23 +184,96 @@ export const PrivacyPolicy: React.FC<InfoPageProps> = ({ onBack }) => (
 export const Disclaimer: React.FC<InfoPageProps> = ({ onBack }) => (
   <InfoLayout title="Disclaimer" onBack={onBack}>
     <section>
-      <h3 className="text-xl font-bold text-white mb-2">Educational Use</h3>
+      <h3 className="text-xl font-bold text-white mb-2">Educational Guidance</h3>
+      <p className="mb-4">
+        Octavia is designed as a high-performance rhythm game and a supplementary tool for musical practice. It is <strong>NOT</strong> intended to be a replacement for professional, one-on-one piano instruction.
+      </p>
       <p>
-        Octavia is designed as a rhythm game and a supplementary practice tool. <strong>It is not a substitute for a professional piano teacher.</strong> While it can help with note recognition and rhythm, it cannot correct your posture, hand technique, or musical expression. Relying solely on this app for learning piano may lead to the development of bad habits.
+        While Octavia is excellent for developing rhythmic precision and note recognition, it cannot provide feedback on physical posture, proper hand technique, or the nuances of musical expression. We strongly advise users to consult with a qualified teacher to ensure the development of healthy playing habits and to prevent repetitive strain injuries.
       </p>
     </section>
 
     <section>
-      <h3 className="text-xl font-bold text-white mb-2">Copyright</h3>
+      <h3 className="text-xl font-bold text-white mb-2">Intellectual Property & Copyright</h3>
+      <p className="mb-4">
+        Octavia operates as a platform for user-generated content and educational analysis. We do not claim ownership of the MIDI files or musical scores uploaded by our community. All copyrights for the original compositions remain with their respective owners.
+      </p>
       <p>
-        Octavia is a platform for user-generated content. We do not claim ownership of the MIDI files uploaded by our users. If you believe your copyrighted work has been uploaded without permission, please contact us immediately, and we will remove it.
+        If you are a copyright holder and believe your work has been uploaded to Octavia without proper authorization, please contact us immediately at our official support email. We are committed to complying with all Digital Millennium Copyright Act (DMCA) requirements and will act promptly to remove infringing material.
       </p>
     </section>
 
     <section>
-      <h3 className="text-xl font-bold text-white mb-2">Software Status</h3>
+      <h3 className="text-xl font-bold text-white mb-2">Software & Hardware Liability</h3>
+      <p className="mb-4">
+        This platform is provided "as is" and "as available," without any warranties of any kind, express or implied. The developers of Octavia are not responsible for any damage to MIDI hardware, computers, or peripherals that may occur during the use of this software.
+      </p>
       <p>
-        This software is provided "as is", without warranty of any kind. We are not responsible for any issues that may arise from using this application, including but not limited to hardware incompatibility or data loss.
+        Furthermore, we are not liable for any data loss, performance issues, or service interruptions. Users are responsible for ensuring that their hardware meets the technical requirements for MIDI connectivity.
+      </p>
+    </section>
+
+    <section>
+      <h3 className="text-xl font-bold text-white mb-2">Health Warning</h3>
+      <p>
+        Prolonged periods of musical practice can lead to physical fatigue. If you experience discomfort or pain while playing, we recommend taking immediate breaks and seeking medical advice if symptoms persist.
+      </p>
+    </section>
+  </InfoLayout>
+);
+
+export const HowToConnect: React.FC<InfoPageProps> = ({ onBack }) => (
+  <InfoLayout title="How to Connect" onBack={onBack}>
+    <section>
+      <h3 className="text-xl font-bold text-white mb-2">1. MIDI Cable</h3>
+      <p className="mb-4 text-slate-300">
+        The most reliable way to connect your digital piano or keyboard is using a standard MIDI cable.
+        Connect the MIDI OUT port on your keyboard to the MIDI IN port on your computer's audio interface or MIDI-to-USB adapter.
+        Once connected, your browser should automatically detect the MIDI device. You can select it from the Settings menu.
+      </p>
+      <div className="flex justify-center mb-6">
+        <img 
+          src="/MIDI.png" 
+          alt="MIDI Cable Connection" 
+          className="max-w-full md:max-w-md rounded-lg border border-slate-700 shadow-lg"
+          referrerPolicy="no-referrer"
+        />
+      </div>
+    </section>
+
+    <section>
+      <h3 className="text-xl font-bold text-white mb-2">2. USB B Cable</h3>
+      <p className="mb-4 text-slate-300">
+        Many modern digital pianos have a USB Type-B port (often labeled "USB to Host").
+        You can use a standard USB A-to-B cable (like a printer cable) to connect the piano directly to your computer.
+        This provides a direct MIDI connection without needing a separate MIDI interface.
+        Select your piano from the MIDI Input list in the Settings menu once connected.
+      </p>
+      <div className="flex justify-center mb-6">
+        <img 
+          src="/USB.png" 
+          alt="USB B Cable Connection" 
+          className="max-w-full md:max-w-md rounded-lg border border-slate-700 shadow-lg"
+          referrerPolicy="no-referrer"
+        />
+      </div>
+    </section>
+
+    <section>
+      <h3 className="text-xl font-bold text-white mb-2">3. Microphone (Beta)</h3>
+      <p className="mb-4 text-slate-300">
+        If you have an acoustic piano or a keyboard without MIDI/USB outputs, you can use your computer's microphone to detect the notes you play.
+        Go to the Settings menu and enable "Audio Input (Microphone)".
+        Note that this feature is currently in Beta and works best in a quiet room with a clear, single-note melody. Chords may not be detected accurately.
+      </p>
+    </section>
+
+    <section>
+      <h3 className="text-xl font-bold text-white mb-2">4. Computer Keyboard</h3>
+      <p className="mb-4 text-slate-300">
+        Don't have a piano? You can still play using your computer's QWERTY keyboard!
+        The middle row of your keyboard (A, S, D, F, etc.) corresponds to the white keys, and the top row (W, E, T, Y, etc.) corresponds to the black keys.
+        You can change the layout and octave shift in the Settings menu.
       </p>
     </section>
   </InfoLayout>

@@ -47,14 +47,38 @@ const DURATION_TO_VEXFLOW: { [key: number]: { type: string, dots: number, isTrip
     [1/24]: { type: '64', dots: 0, isTriplet: true }, // 64th note triplet
 };
 
+const DRUM_MIDI_MAPPING: { [key: number]: { key: string, noteHead?: string } } = {
+    35: { key: 'f/4' }, // Bass Drum 2
+    36: { key: 'f/4' }, // Bass Drum 1
+    38: { key: 'c/5' }, // Snare Drum 1
+    40: { key: 'c/5' }, // Snare Drum 2
+    41: { key: 'a/4' }, // Low Floor Tom
+    43: { key: 'a/4' }, // High Floor Tom
+    45: { key: 'b/4' }, // Low Tom
+    47: { key: 'b/4' }, // Low-Mid Tom
+    48: { key: 'd/5' }, // Hi-Mid Tom
+    50: { key: 'd/5' }, // High Tom
+    42: { key: 'g/5', noteHead: 'x' }, // Closed Hi-Hat
+    46: { key: 'g/5', noteHead: 'X3' }, // Open Hi-Hat
+    44: { key: 'd/4', noteHead: 'x' }, // Pedal Hi-Hat
+    49: { key: 'a/5', noteHead: 'x' }, // Crash Cymbal 1
+    57: { key: 'a/5', noteHead: 'x' }, // Crash Cymbal 2
+    51: { key: 'f/5', noteHead: 'x' }, // Ride Cymbal 1
+    59: { key: 'f/5', noteHead: 'x' }, // Ride Cymbal 2
+    53: { key: 'f/5', noteHead: 'x' }, // Ride Bell
+    55: { key: 'a/5', noteHead: 'x' }, // Splash Cymbal
+    52: { key: 'a/5', noteHead: 'x' }, // Chinese Cymbal
+};
+
 const COMMON_VEXFLOW_DURATIONS_SET = new Set(Object.keys(DURATION_TO_VEXFLOW).map(Number));
 
 const KEY_SIGNATURE_SPEC: { [key: string]: { [note: string]: string } } = {
+    // Major keys
     'C': {},
     'G': { 'F': '#' },
     'D': { 'F': '#', 'C': '#' },
-    'A': { 'F': '#', 'C': '#' },
-    'E': { 'F': '#', 'C': '#' },
+    'A': { 'F': '#', 'C': '#', 'G': '#' },
+    'E': { 'F': '#', 'C': '#', 'G': '#', 'D': '#' },
     'B': { 'F': '#', 'C': '#', 'G': '#', 'D': '#', 'A': '#' },
     'F#': { 'F': '#', 'C': '#', 'G': '#', 'D': '#', 'A': '#', 'E': '#' },
     'C#': { 'F': '#', 'C': '#', 'G': '#', 'D': '#', 'A': '#', 'E': '#', 'B': '#' },
@@ -64,7 +88,23 @@ const KEY_SIGNATURE_SPEC: { [key: string]: { [note: string]: string } } = {
     'Ab': { 'B': 'b', 'E': 'b', 'A': 'b', 'D': 'b' },
     'Db': { 'B': 'b', 'E': 'b', 'A': 'b', 'D': 'b', 'G': 'b' },
     'Gb': { 'B': 'b', 'E': 'b', 'A': 'b', 'D': 'b', 'G': 'b', 'C': 'b' },
-    'Cb': { 'B': 'b', 'E': 'b', 'A': 'b', 'D': 'b', 'G': 'b', 'C': 'b', 'F': 'b' }
+    'Cb': { 'B': 'b', 'E': 'b', 'A': 'b', 'D': 'b', 'G': 'b', 'C': 'b', 'F': 'b' },
+    // Minor keys (same accidentals as their relative major)
+    'Am': {},                                                                          // = C major
+    'Em': { 'F': '#' },                                                                // = G major
+    'Bm': { 'F': '#', 'C': '#' },                                                     // = D major
+    'F#m': { 'F': '#', 'C': '#', 'G': '#' },                                          // = A major
+    'C#m': { 'F': '#', 'C': '#', 'G': '#', 'D': '#' },                                // = E major
+    'G#m': { 'F': '#', 'C': '#', 'G': '#', 'D': '#', 'A': '#' },                      // = B major
+    'D#m': { 'F': '#', 'C': '#', 'G': '#', 'D': '#', 'A': '#', 'E': '#' },            // = F# major
+    'A#m': { 'F': '#', 'C': '#', 'G': '#', 'D': '#', 'A': '#', 'E': '#', 'B': '#' },  // = C# major
+    'Dm': { 'B': 'b' },                                                               // = F major
+    'Gm': { 'B': 'b', 'E': 'b' },                                                     // = Bb major
+    'Cm': { 'B': 'b', 'E': 'b', 'A': 'b' },                                           // = Eb major
+    'Fm': { 'B': 'b', 'E': 'b', 'A': 'b', 'D': 'b' },                                // = Ab major
+    'Bbm': { 'B': 'b', 'E': 'b', 'A': 'b', 'D': 'b', 'G': 'b' },                     // = Db major
+    'Ebm': { 'B': 'b', 'E': 'b', 'A': 'b', 'D': 'b', 'G': 'b', 'C': 'b' },           // = Gb major
+    'Abm': { 'B': 'b', 'E': 'b', 'A': 'b', 'D': 'b', 'G': 'b', 'C': 'b', 'F': 'b' } // = Cb major
 };
 
 interface TimelineNoteEvent {
@@ -148,7 +188,7 @@ function decomposeDuration(durationInQuarters: number): { type: string, dots: nu
 function processHandAndAccidentals(
     allFragmentsInMeasure: NoteFragment[],
     hand: 'left' | 'right',
-    effectiveClef: 'treble' | 'bass',
+    effectiveClef: 'treble' | 'bass' | 'percussion',
     measureStartTime: number,
     measureEndTime: number,
     keySpec: { [note: string]: string },
@@ -160,9 +200,10 @@ function processHandAndAccidentals(
     showOnlyMajorRests: boolean,
     currentMeasureKeySignature: string,
     getBpmAtTime: (timeMs: number) => number,
-    isRollView: boolean
+    isRollView: boolean,
+    instrumentMode: 'piano' | 'drum' = 'piano'
 ): { notes: VexFlowNoteInfo[], tuplets: VexFlowTupletGroup[] } {
-    const handFragments = allFragmentsInMeasure.filter(n => n.hand === hand);
+    const handFragments = instrumentMode === 'drum' ? allFragmentsInMeasure : allFragmentsInMeasure.filter(n => n.hand === hand);
     const groupedByTime = new Map<number, NoteFragment[]>();
     handFragments.forEach(note => {
         if (!groupedByTime.has(note.timeMs)) groupedByTime.set(note.timeMs, []);
@@ -312,8 +353,16 @@ function processHandAndAccidentals(
                 const notesAtTime = event.notesAtTime!;
                 const keysForStaveNote: string[] = [];
                 const accidentalsForStaveNote: { index: number; type: string }[] = [];
+                const noteHeadsForStaveNote: string[] = [];
 
                 notesAtTime.forEach((note, chordNoteIndex) => {
+                    if (instrumentMode === 'drum') {
+                        const drumMap = DRUM_MIDI_MAPPING[note.midi] || { key: 'c/5' };
+                        const keyWithHead = drumMap.noteHead ? `${drumMap.key}/${drumMap.noteHead}` : drumMap.key;
+                        keysForStaveNote.push(keyWithHead);
+                        noteHeadsForStaveNote.push(drumMap.noteHead || '');
+                        return;
+                    }
                     let octave = Math.floor(note.midi / 12) - 1;
                     let currentNotePitchClass = note.pitchClass;
                     const isSharpContext = SHARP_KEYS.includes(currentMeasureKeySignature) || NEUTRAL_KEYS.includes(currentMeasureKeySignature);
@@ -352,11 +401,13 @@ function processHandAndAccidentals(
                     }
                     
                     keysForStaveNote.push(`${basePitch.toLowerCase()}/${octave}`);
+                    noteHeadsForStaveNote.push('');
                 });
 
                 const tempStave = new Stave(0, 0, 100);
                 tempStave.setClef(effectiveClef);
                 const tempNote = new StaveNote({ keys: keysForStaveNote, duration: vexDuration.type, clef: effectiveClef });
+                
                 if (accidentalsForStaveNote.length > 0) accidentalsForStaveNote.forEach(acc => tempNote.addModifier(new Accidental(acc.type), acc.index));
                 tempNote.setStave(tempStave);
                 const noteYs = tempNote.getYs();
@@ -368,6 +419,7 @@ function processHandAndAccidentals(
                     vexNote: { keys: keysForStaveNote, duration: vexDuration.type, dots: vexDuration.dots, clef: effectiveClef },
                     midiValue: event.midiValue!,
                     accidentals: accidentalsForStaveNote,
+                    noteHeads: noteHeadsForStaveNote.some(h => h !== '') ? noteHeadsForStaveNote : undefined,
                     fragmentMapping: event.fragmentMapping!,
                     timeMs: cumulativeTimeMs,
                     durationMs: durationMsForThisPart,
@@ -449,14 +501,14 @@ function computeMinWidthFromNotes(
 export const getVexFlowRenderData = (
     notes: MidiNotePlaybackItem[], timeSignature: TimeSignatureInfo, initialTempoBpm: number, keySignatureStr: string, zoom: number = 1,
     barLinesMs: number[], signatureEvents: SignatureEvent[], viewWidth: number, viewHeight: number, showOnlyMajorRests: boolean,
-    tempoEvents: TempoEvent[], playbackTempoMultiplier: number, isRollView: boolean = false
+    tempoEvents: TempoEvent[], playbackTempoMultiplier: number, isRollView: boolean = false, instrumentMode: 'piano' | 'drum' = 'piano'
 ): VexFlowRenderData => {
     if (viewWidth == null || viewWidth <= 0 || !Number.isFinite(viewWidth) || viewHeight == null || viewHeight <= 0 || !Number.isFinite(viewHeight)) {
-      return { measures: [], octaveLines: [], tempoMarkings: [], topStaveYOffset: 60, fragments: [], noteIdToFragmentsMap: new Map(), keySignature: keySignatureStr, timeSignature: timeSignature, verticalSpacing: BASE_GRAND_STAFF_VERTICAL_SPACING };
+      return { measures: [], octaveLines: [], tempoMarkings: [], topStaveYOffset: 60, fragments: [], noteIdToFragmentsMap: new Map(), keySignature: keySignatureStr, timeSignature: timeSignature, verticalSpacing: BASE_GRAND_STAFF_VERTICAL_SPACING, instrumentMode };
     }
     
     const verticalSpacing = isRollView ? BASE_GRAND_STAFF_VERTICAL_SPACING * ROLL_VIEW_SCALE_MULTIPLIER : BASE_GRAND_STAFF_VERTICAL_SPACING;
-    const defaultReturn = { measures: [], octaveLines: [], tempoMarkings: [], topStaveYOffset: 60, fragments: [], noteIdToFragmentsMap: new Map(), keySignature: keySignatureStr, timeSignature: timeSignature, verticalSpacing };
+    const defaultReturn = { measures: [], octaveLines: [], tempoMarkings: [], topStaveYOffset: 60, fragments: [], noteIdToFragmentsMap: new Map(), keySignature: keySignatureStr, timeSignature: timeSignature, verticalSpacing, instrumentMode };
     if (notes.length === 0 || !timeSignature || initialTempoBpm <= 0) return defaultReturn;
 
     const effectiveZoom = isRollView ? zoom * ROLL_VIEW_SCALE_MULTIPLIER : zoom;
@@ -509,8 +561,8 @@ export const getVexFlowRenderData = (
         }
     });
 
-    let lastDrawnClefRH: 'treble' | 'bass' = 'treble';
-    let lastDrawnClefLH: 'treble' | 'bass' = 'bass';
+    let lastDrawnClefRH: 'treble' | 'bass' | 'percussion' = instrumentMode === 'drum' ? 'percussion' : 'treble';
+    let lastDrawnClefLH: 'treble' | 'bass' | 'percussion' = instrumentMode === 'drum' ? 'percussion' : 'bass';
     let currentKeySig = keySignatureStr;
     let currentTsig = timeSignature;
     let currentTempoBpmForMeasure = initialTempoBpm;
@@ -549,16 +601,21 @@ export const getVexFlowRenderData = (
         const rhNotes = fragmentsInMeasure.filter(n => n.hand === 'right'), lhNotes = fragmentsInMeasure.filter(n => n.hand === 'left');
         let detectedClefRH = lastDrawnClefRH, detectedClefLH = lastDrawnClefLH;
         
-        if (rhNotes.length >= CLEF_CHANGE_MIN_NOTES) {
-            detectedClefRH = (rhNotes.filter(n => n.midi < MIDDLE_C_MIDI).length / rhNotes.length >= CLEF_CHANGE_THRESHOLD_RATIO) ? 'bass' : 'treble';
-        } else if (i === 0 && rhNotes.length > 0) {
-            detectedClefRH = rhNotes[0].midi < MIDDLE_C_MIDI ? 'bass' : 'treble';
-        }
+        if (instrumentMode === 'piano') {
+            if (rhNotes.length >= CLEF_CHANGE_MIN_NOTES) {
+                detectedClefRH = (rhNotes.filter(n => n.midi < MIDDLE_C_MIDI).length / rhNotes.length >= CLEF_CHANGE_THRESHOLD_RATIO) ? 'bass' : 'treble';
+            } else if (i === 0 && rhNotes.length > 0) {
+                detectedClefRH = rhNotes[0].midi < MIDDLE_C_MIDI ? 'bass' : 'treble';
+            }
 
-        if (lhNotes.length >= CLEF_CHANGE_MIN_NOTES) {
-            detectedClefLH = (lhNotes.filter(n => n.midi > MIDDLE_C_MIDI).length / lhNotes.length >= CLEF_CHANGE_THRESHOLD_RATIO) ? 'treble' : 'bass';
-        } else if (i === 0 && lhNotes.length > 0) {
-            detectedClefLH = lhNotes[0].midi > MIDDLE_C_MIDI ? 'treble' : 'bass';
+            if (lhNotes.length >= CLEF_CHANGE_MIN_NOTES) {
+                detectedClefLH = (lhNotes.filter(n => n.midi > MIDDLE_C_MIDI).length / lhNotes.length >= CLEF_CHANGE_THRESHOLD_RATIO) ? 'treble' : 'bass';
+            } else if (i === 0 && lhNotes.length > 0) {
+                detectedClefLH = lhNotes[0].midi > MIDDLE_C_MIDI ? 'treble' : 'bass';
+            }
+        } else {
+            detectedClefRH = 'percussion';
+            detectedClefLH = 'percussion';
         }
 
         const checkOctave = (notes: NoteFragment[], threshold: number, isHigher: boolean) => 
@@ -592,7 +649,8 @@ export const getVexFlowRenderData = (
                 return vfd.dots > 0 && ['8', '16', '32', '64'].includes(vfd.type);
             }),
             startsRepeat: fragmentsInMeasure.some(n => n.isRepeatStart), endsRepeat: fragmentsInMeasure.some(n => n.isRepeatEnd),
-            rightHandTuplets: [], leftHandTuplets: []
+            rightHandTuplets: [], leftHandTuplets: [],
+            instrumentMode
         });
         if (tempMeasures[i].newClefRH) lastDrawnClefRH = tempMeasures[i].newClefRH!;
         if (tempMeasures[i].newClefLH) lastDrawnClefLH = tempMeasures[i].newClefLH!;
@@ -634,11 +692,11 @@ export const getVexFlowRenderData = (
                     };
                 }
                 return f;
-            }).filter(f => f.hand === h);
+            }).filter(f => instrumentMode === 'drum' ? h === 'right' : f.hand === h);
         };
 
-        const processedRH = processHandAndAccidentals(getFragmentsForHand('right'), 'right', m.effectiveClefRH, m.startTimeMs, m.endTimeMs, keySpec, accRH, m.is8vaActiveRH, m.is15maActiveRH, m.is8vbActiveLH, m.is15mbActiveLH, showOnlyMajorRests, m.activeKeySignature, getBpmAtTime, isRollView);
-        const processedLH = processHandAndAccidentals(getFragmentsForHand('left'), 'left', m.effectiveClefLH, m.startTimeMs, m.endTimeMs, keySpec, accLH, m.is8vaActiveRH, m.is15maActiveRH, m.is8vbActiveLH, m.is15mbActiveLH, showOnlyMajorRests, m.activeKeySignature, getBpmAtTime, isRollView);
+        const processedRH = processHandAndAccidentals(getFragmentsForHand('right'), 'right', m.effectiveClefRH, m.startTimeMs, m.endTimeMs, keySpec, accRH, m.is8vaActiveRH, m.is15maActiveRH, m.is8vbActiveLH, m.is15mbActiveLH, showOnlyMajorRests, m.activeKeySignature, getBpmAtTime, isRollView, instrumentMode);
+        const processedLH = instrumentMode === 'drum' ? { notes: [], tuplets: [] } : processHandAndAccidentals(getFragmentsForHand('left'), 'left', m.effectiveClefLH, m.startTimeMs, m.endTimeMs, keySpec, accLH, m.is8vaActiveRH, m.is15maActiveRH, m.is8vbActiveLH, m.is15mbActiveLH, showOnlyMajorRests, m.activeKeySignature, getBpmAtTime, isRollView, instrumentMode);
         
         m.rightHand = processedRH.notes;
         m.rightHandTuplets = processedRH.tuplets;
@@ -647,5 +705,5 @@ export const getVexFlowRenderData = (
         
         measures.push(m); cumulativeWidth += m.width;
     }
-    return { measures, octaveLines, tempoMarkings, topStaveYOffset, fragments: allFragments, noteIdToFragmentsMap, keySignature: keySignatureStr, timeSignature, verticalSpacing };
+    return { measures, octaveLines, tempoMarkings, topStaveYOffset, fragments: allFragments, noteIdToFragmentsMap, keySignature: keySignatureStr, timeSignature, verticalSpacing, instrumentMode };
 };

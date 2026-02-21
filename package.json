@@ -1,4 +1,3 @@
-
 {
   "name": "octavia:-piano-rythem-game",
   "private": true,
@@ -7,19 +6,23 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "lint": "tsc --noEmit",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.47.1",
+    "@tonejs/midi": "^2.0.28",
+    "jszip": "3.10.1",
+    "motion": "^12.38.0",
+    "opensheetmusicdisplay": "1.8.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "opensheetmusicdisplay": "1.8.0",
-    "jszip": "3.10.1",
-    "vexflow": "4.2.0",
-    "@tonejs/midi": "^2.0.28",
-    "@supabase/supabase-js": "^2.47.1"
+    "vexflow": "4.2.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^5.0.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
