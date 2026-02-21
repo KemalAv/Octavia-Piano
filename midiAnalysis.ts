@@ -719,7 +719,8 @@ export function analyzeMidi(
     notes: MidiNotePlaybackItem[],
     totalDurationMs: number,
     config: AnalysisConfig = DEFAULT_ANALYSIS_CONFIG,
-    originalDurationMsForChunking?: number
+    originalDurationMsForChunking?: number,
+    instrumentMode?: 'piano' | 'drum'
 ): ExtendedResult | null {
     // This is the main analysis for the given (potentially scaled) tempo
     const currentResult = analyzeMidiInternal(notes, totalDurationMs, config, originalDurationMsForChunking);
@@ -729,44 +730,47 @@ export function analyzeMidi(
         ? originalDurationMsForChunking / totalDurationMs
         : 1.0;
     
-    // If tempo is not scaled, or if we couldn't get a result, return as is
-    if (Math.abs(playbackTempoMultiplier - 1.0) < 0.001 || !currentResult) {
-        return currentResult;
-    }
-
     // If tempo is scaled, we need the original score to apply the special logic.
-    // Un-scale the notes to get their original timings.
-    const originalNotes = notes.map(n => ({
-        ...n,
-        timeMs: n.timeMs * playbackTempoMultiplier,
-        durationMs: n.durationMs * playbackTempoMultiplier,
-    }));
-    
-    const originalAnalysis = analyzeMidiInternal(originalNotes, originalDurationMsForChunking!, config, originalDurationMsForChunking);
-    const originalScore = originalAnalysis?.performanceScore;
+    if (Math.abs(playbackTempoMultiplier - 1.0) >= 0.001 && currentResult) {
+        // Un-scale the notes to get their original timings.
+        const originalNotes = notes.map(n => ({
+            ...n,
+            timeMs: n.timeMs * playbackTempoMultiplier,
+            durationMs: n.durationMs * playbackTempoMultiplier,
+        }));
+        
+        const originalAnalysis = analyzeMidiInternal(originalNotes, originalDurationMsForChunking!, config, originalDurationMsForChunking);
+        const originalScore = originalAnalysis?.performanceScore;
 
-    // The special "imitation" logic only applies if the ORIGINAL score is below 100.
-    if (originalScore && originalScore < 100) {
-        let scaledScore;
-        if (playbackTempoMultiplier < 1.0) { // Slower tempo
-            // Apply a more aggressive penalty for slowing down easy songs. Power > 1.
-            scaledScore = Math.round(originalScore * Math.pow(playbackTempoMultiplier, 0.67));
-        } else { // Faster tempo
-            // Apply a less aggressive bonus for speeding up easy songs. Power < 1.
-            scaledScore = Math.round(originalScore * Math.pow(playbackTempoMultiplier, 1.5));
+        // The special "imitation" logic now applies ALWAYS based on user request ("follow tempo multiplier")
+        if (originalScore) {
+            // Unconditionally use linear scaling to match the "follow tempo multiplier" requirement for base score.
+            const scaledScore = Math.round(originalScore * playbackTempoMultiplier);
+            
+            // Recalculate levels based on the new "imitated" score
+            const { difficultyLevel, starLevel } = calculateDifficultyLevels(scaledScore);
+            
+            // We use the detailed analysis from the *current* tempo (for parameters like NPS),
+            // but override the final summary scores with our simplified values.
+            currentResult.performanceScore = scaledScore;
+            currentResult.difficultyLevel = difficultyLevel;
+            currentResult.parameters.starLevel = starLevel;
         }
-        
-        // Recalculate levels based on the new "imitated" score
-        const { difficultyLevel, starLevel } = calculateDifficultyLevels(scaledScore);
-        
-        // We use the detailed analysis from the *current* tempo (for parameters like NPS),
-        // but override the final summary scores with our imitated values.
-        currentResult.performanceScore = scaledScore;
-        currentResult.difficultyLevel = difficultyLevel;
-        currentResult.parameters.starLevel = starLevel;
     }
     
     // For songs with original score >= 100, or if original score couldn't be calculated,
     // return the result from the standard analysis, which is working as expected.
+    
+    if (currentResult && instrumentMode === 'drum') {
+        const pianoScore = currentResult.performanceScore;
+        // Formula: (drum score) = 0.5 * (piano score) ^ 1.5
+        const drumScore = Math.max(1, Math.round(0.5 * Math.pow(pianoScore, 1.5)));
+        const { difficultyLevel, starLevel } = calculateDifficultyLevels(drumScore);
+        
+        currentResult.performanceScore = drumScore;
+        currentResult.difficultyLevel = difficultyLevel;
+        currentResult.parameters.starLevel = starLevel;
+    }
+
     return currentResult;
 }

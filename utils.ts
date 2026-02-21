@@ -293,10 +293,19 @@ export const getBeatTimesInWindow = (
     if (msPerBeatOriginal <= 0) continue; // Avoid infinite loop
 
     // NEW LOGIC: Continuously generate beats until the next bar line to handle irregular measures.
+    let currentOriginalTime = barStartOriginalTime;
     let beatCount = 0;
     while (true) {
-        const beatOriginalTime = barStartOriginalTime + (beatCount * msPerBeatOriginal);
-        const beatScaledTime = beatOriginalTime / playbackTempoMultiplier;
+        // Fetch the tempo at the current beat's time to handle tempo changes within a measure
+        const activeTempoBpmAtBeat = getActiveTempoBpmAtOriginalTime(
+          currentOriginalTime,
+          originalTempoEvents,
+          originalInitialTempoBpm
+        );
+        const msPerQuarterNoteOriginal = 60000 / activeTempoBpmAtBeat;
+        const msPerBeatOriginal = msPerQuarterNoteOriginal * (4 / activeTimeSignature.denominator);
+
+        const beatScaledTime = currentOriginalTime / playbackTempoMultiplier;
 
         // Stop if we've passed the next measure or are well beyond the scheduling window
         if (beatScaledTime >= nextBarStartScaledTime || beatScaledTime >= windowEndScaledTimeMs + 50) {
@@ -312,6 +321,7 @@ export const getBeatTimesInWindow = (
             });
         }
         
+        currentOriginalTime += msPerBeatOriginal;
         beatCount++;
     }
   }
@@ -372,10 +382,16 @@ export function convertScoreToPerformanceSummary(score: Score, songTitle: string
     rank,
     hitCount,
     errorCount,
+    perfectCount: score.perfect_count ?? hitCount,
+    greatCount: score.great_count ?? errorCount,
+    goodCount: score.good_count ?? 0,
+    missCount: score.miss_count ?? (totalNotes - hitCount - errorCount),
     totalNoteCount: totalNotes,
     playbackTempoMultiplier: score.tempo_multiplier ?? 1, // Use stored tempo, default to 1
     totalWaitTimeMs: score.total_wait_time_ms ?? 0, // Use stored value, fallback to 0
     gameplayStyle: score.gameplay_style,
+    maxCombo: score.max_combo ?? 0,
+    isNonStop: score.mode === 'retical' || score.mode === 'autoplay',
   };
 }
 
@@ -427,6 +443,25 @@ export const hexToRgba = (hex: string, alpha: number): string => {
 };
 
 /**
+ * Converts a frequency in Hz to a MIDI note number.
+ * @param frequency The frequency in Hz.
+ * @returns The MIDI note number.
+ */
+export function frequencyToMidi(frequency: number): number {
+  if (frequency <= 0) return 0;
+  return Math.round(69 + 12 * Math.log2(frequency / 440));
+}
+
+/**
+ * Converts a MIDI note number to its fundamental frequency in Hz.
+ * @param midi The MIDI note number.
+ * @returns The frequency in Hz.
+ */
+export function midiToFrequency(midi: number): number {
+  return 440 * Math.pow(2, (midi - 69) / 12);
+}
+
+/**
  * Lightens a hex color by a given percentage.
  * @param hex The hex color string (e.g., '#RRGGBB').
  * @param percent The percentage to lighten (0-100).
@@ -436,4 +471,17 @@ export const lightenHex = (hex: string, percent: number): string => {
     if (!hex || typeof hex !== 'string') return '#FFFFFF';
     const f=parseInt(hex.slice(1),16),t=255,p=percent/100,R=f>>16,G=f>>8&0x00FF,B=f&0x0000FF;
     return "#"+(0x1000000+(Math.round((t-R)*p)+R)*0x10000+(Math.round((t-G)*p)+G)*0x100+(Math.round((t-B)*p)+B)).toString(16).slice(1);
+};
+
+export const getRankColorClass = (rank: string) => {
+    switch (rank) {
+      case 'X': return 'animate-rainbow-pulse'; // Legendary/Perfect - Rainbow RGB Pulse
+      case 'SS': return 'text-fuchsia-400 drop-shadow-[0_0_8px_rgba(232,121,249,0.7)]'; // Near Perfect
+      case 'S': return 'text-purple-400';
+      case 'A': return 'text-lime-400';
+      case 'B': return 'text-cyan-400';
+      case 'C': return 'text-yellow-400';
+      case 'D': return 'text-red-400';
+      default: return 'text-slate-400';
+    }
 };

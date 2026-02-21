@@ -13,6 +13,7 @@ interface PianoKeyboardProps {
   onUiKeyRelease: (keyName: string, midiNote: number) => void;
   rightHandColor: string;
   leftHandColor: string;
+  hitNoteColor: string;
   showQwertyShortcuts: boolean;
   qwertyCurrentOctaveShift: number;
   width: number;
@@ -32,6 +33,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
   onUiKeyRelease,
   rightHandColor,
   leftHandColor,
+  hitNoteColor,
   showQwertyShortcuts,
   qwertyCurrentOctaveShift,
   width,
@@ -216,6 +218,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
         height={keyDef.type === 'white' ? layoutConfig.whiteKeyHeight : layoutConfig.blackKeyHeight}
         rightHandColor={rightHandColor}
         leftHandColor={leftHandColor}
+        hitNoteColor={hitNoteColor}
         showQwertyShortcut={showQwertyShortcuts}
         qwertyKey={qwertyKeyForDisplay}
         lowDetailMode={lowDetailMode}

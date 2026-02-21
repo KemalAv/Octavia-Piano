@@ -1,5 +1,5 @@
 
-import { PianoKeyDefinition, PianoKeyType, QwertyKeyMapEntry, ViewMode, NoteLabelType, ThemeSettings, DevicePreset, LayoutDimensions, MirpKeyMapEntry } from './types';
+import { PianoKeyDefinition, PianoKeyType, QwertyKeyMapEntry, ViewMode, NoteLabelType, ThemeSettings, DevicePreset, LayoutDimensions, MirpKeyMapEntry, DrumPadConfig } from './types';
 
 // Admin UUID - IMPORTANT: Replace with the actual UUID of your admin user in Supabase
 // You can find your user's UUID in the Supabase Auth -> Users table.
@@ -152,6 +152,150 @@ const generatePianoKeys = (): PianoKeyDefinition[] => {
 
 export const PIANO_KEYS_CONFIG: PianoKeyDefinition[] = generatePianoKeys();
 
+export const DRUM_SOUND_MAP: Record<number, string> = {
+  35: 'bass.mp3',
+  36: 'bass.mp3',
+  37: 'snare drum.mp3',
+  38: 'snare drum.mp3',
+  39: 'snare drum.mp3', // Hand Clap
+  40: 'snare drum.mp3',
+  41: 'floor tom.mp3',
+  42: 'Hi-hat (closed).mp3',
+  43: 'floor tom.mp3',
+  44: 'Hi-hat (foot).mp3',
+  45: 'low tom-tom.mp3',
+  46: 'Hi-hat (open).mp3',
+  47: 'low tom-tom.mp3',
+  48: 'high tom-tom.mp3',
+  49: 'Crash cymbal.mp3',
+  50: 'high tom-tom.mp3',
+  51: 'Ride cymbal.mp3',
+  52: 'Crash cymbal.mp3',
+  53: 'Ride cymbal.mp3',
+  54: 'Hi-hat (closed).mp3', // Tambourine
+  55: 'Crash cymbal.mp3',
+  56: 'Hi-hat (closed).mp3', // Cowbell
+  57: 'Crash cymbal.mp3',
+  58: 'Hi-hat (closed).mp3', // Vibraslap
+  59: 'Ride cymbal.mp3',
+  60: 'high tom-tom.mp3', // Hi Bongo
+  61: 'low tom-tom.mp3', // Low Bongo
+  62: 'high tom-tom.mp3', // Mute Hi Conga
+  63: 'high tom-tom.mp3', // Open Hi Conga
+  64: 'low tom-tom.mp3', // Low Conga
+  65: 'high tom-tom.mp3', // High Timbale
+  66: 'low tom-tom.mp3', // Low Timbale
+  67: 'high tom-tom.mp3', // High Agogo
+  68: 'low tom-tom.mp3', // Low Agogo
+  69: 'Hi-hat (closed).mp3', // Cabasa
+  70: 'Hi-hat (closed).mp3', // Maracas
+  71: 'Hi-hat (closed).mp3', // Short Whistle
+  72: 'Hi-hat (closed).mp3', // Long Whistle
+  73: 'Hi-hat (closed).mp3', // Short Guiro
+  74: 'Hi-hat (closed).mp3', // Long Guiro
+  75: 'Hi-hat (closed).mp3', // Claves
+  76: 'Hi-hat (closed).mp3', // Hi Wood Block
+  77: 'Hi-hat (closed).mp3', // Low Wood Block
+  78: 'Hi-hat (closed).mp3', // Mute Cuica
+  79: 'Hi-hat (closed).mp3', // Open Cuica
+  80: 'Hi-hat (closed).mp3', // Mute Triangle
+  81: 'Hi-hat (closed).mp3', // Open Triangle
+};
+
+export const DRUM_PRIMARY_MIDI_MAP: Record<number, number> = {
+  35: 36, // Bass
+  36: 36,
+  37: 38, // Snare
+  38: 38,
+  39: 38, // Hand Clap -> Snare
+  40: 38,
+  41: 41, // Floor Tom
+  43: 41,
+  42: 42, // Hi-hat closed
+  44: 44, // Hi-hat foot
+  45: 45, // Low tom
+  47: 45,
+  61: 45, // Low Bongo -> Low Tom
+  64: 45, // Low Conga -> Low Tom
+  66: 45, // Low Timbale -> Low Tom
+  68: 45, // Low Agogo -> Low Tom
+  46: 46, // Hi-hat open
+  48: 48, // High tom
+  50: 48,
+  60: 48, // Hi Bongo -> High Tom
+  62: 48, // Mute Hi Conga -> High Tom
+  63: 48, // Open Hi Conga -> High Tom
+  65: 48, // High Timbale -> High Tom
+  67: 48, // High Agogo -> High Tom
+  49: 49, // Crash
+  52: 49,
+  55: 49,
+  57: 49,
+  51: 51, // Ride
+  53: 51,
+  59: 51,
+  54: 42, // Percussion (Tambourine) -> Hi-hat
+  56: 42, // Cowbell -> Hi-hat
+  58: 42, // Vibraslap -> Hi-hat
+  69: 42, // Cabasa -> Hi-hat
+  70: 42, // Maracas -> Hi-hat
+  71: 42, // Short Whistle -> Hi-hat
+  72: 42, // Long Whistle -> Hi-hat
+  73: 42, // Short Guiro -> Hi-hat
+  74: 42, // Long Guiro -> Hi-hat
+  75: 42, // Claves -> Hi-hat
+  76: 42, // Hi Wood Block -> Hi-hat
+  77: 42, // Low Wood Block -> Hi-hat
+  78: 42, // Mute Cuica -> Hi-hat
+  79: 42, // Open Cuica -> Hi-hat
+  80: 42, // Mute Triangle -> Hi-hat
+  81: 42, // Open Triangle -> Hi-hat
+};
+
+export const DRUM_KEYS_CONFIG: PianoKeyDefinition[] = [
+  { id: 'crash', name: 'Crash cymbal.mp3', displayName: 'Crash', type: 'white', midiNote: 49 },
+  { id: 'ride', name: 'Ride cymbal.mp3', displayName: 'Ride', type: 'white', midiNote: 51 },
+  { id: 'high_tom', name: 'high tom-tom.mp3', displayName: 'High Tom', type: 'white', midiNote: 48 },
+  { id: 'low_tom', name: 'low tom-tom.mp3', displayName: 'Low Tom', type: 'white', midiNote: 45 },
+  { id: 'floor_tom', name: 'floor tom-tom.mp3', displayName: 'Floor Tom', type: 'white', midiNote: 41 },
+  { id: 'snare', name: 'snare drum.mp3', displayName: 'Snare', type: 'white', midiNote: 38 },
+  { id: 'hihat_open', name: 'Hi-hat (open).mp3', displayName: 'Hi-Hat Open', type: 'white', midiNote: 46 },
+  { id: 'hihat_closed', name: 'Hi-hat (closed).mp3', displayName: 'Hi-Hat Closed', type: 'white', midiNote: 42 },
+  { id: 'hihat_foot', name: 'Hi-hat (foot).mp3', displayName: 'Hi-Hat Foot', type: 'white', midiNote: 44 },
+  { id: 'bass', name: 'bass.mp3', displayName: 'Bass Drum', type: 'white', midiNote: 36 },
+];
+
+export const DRUM_KEYBOARD_MAP: Record<string, number> = {
+  'b': 36, 'n': 36, // bass
+  'f': 38, 'g': 38, // snare
+  't': 48, 'y': 48, // high tom
+  'u': 45, 'i': 45, // low tom
+  'j': 41, 'k': 41, // floor tom
+  'c': 44, 'v': 44, // hihat foot
+  's': 42, 'd': 42, // hihat
+  'e': 49, 'r': 49, // crash
+  'o': 51, 'p': 51, // ride
+};
+
+export const DRUM_PADS: DrumPadConfig[] = [
+    { id: 'bass', name: 'BASS DRUM', midiNotes: [35, 36], x: 0.55, y: 0.75, radius: 0.15 },
+    { id: 'snare', name: 'SNARE DRUM', midiNotes: [38, 40, 37, 39], x: 0.35, y: 0.55, radius: 0.1 },
+    { id: 'hihat', name: 'HIT HAT', midiNotes: [42, 46, 54, 56, 58, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81], x: 0.15, y: 0.5, radius: 0.12 },
+    { id: 'hihat_foot', name: 'HIT HAT FOOT', midiNotes: [44], x: 0.35, y: 0.85, radius: 0.08 },
+    { id: 'high_tom', name: 'HIGH TOM', midiNotes: [50, 48, 60, 62, 63, 65, 67], x: 0.45, y: 0.3, radius: 0.1 },
+    { id: 'low_tom', name: 'LOW TOM', midiNotes: [47, 45, 61, 64, 66, 68], x: 0.65, y: 0.3, radius: 0.1 },
+    { id: 'floor_tom', name: 'FLOOR TOM', midiNotes: [43, 41], x: 0.75, y: 0.55, radius: 0.1 },
+    { id: 'crash', name: 'CRASH CYMBAL', midiNotes: [49, 57, 52, 55], x: 0.25, y: 0.2, radius: 0.12 },
+    { id: 'ride', name: 'RIDE CYMBAL', midiNotes: [51, 53, 59], x: 0.85, y: 0.2, radius: 0.12 },
+];
+
+export const DRUM_MIDI_TO_NAME_MAP: Record<number, string> = {};
+DRUM_PADS.forEach(pad => {
+  pad.midiNotes.forEach(note => {
+    DRUM_MIDI_TO_NAME_MAP[note] = pad.name;
+  });
+});
+
 
 // --- QWERTY Mini Keyboard Constants ---
 // This mapping uses `event.code.toLowerCase()` to be independent of keyboard language layouts.
@@ -297,6 +441,7 @@ export const MAX_QWERTY_OCTAVE_SHIFT = 2;
 // --- End QWERTY Mini Keyboard Constants ---
 
 // --- Default Settings Constants ---
+export const DEFAULT_NOTE_TOLERANCE = 200;
 export const DEFAULT_MASTER_VOLUME = 0.5;
 export const DEFAULT_METRONOME_VOLUME = 0.5;
 export const DEFAULT_MP3_VOLUME = 0.5; // NEW: Default MP3 volume
@@ -305,13 +450,13 @@ export const DEFAULT_NOTE_LABEL_TYPE: NoteLabelType = 'none'; // Updated to 'non
 export const DEFAULT_SHOW_ONLY_MAJOR_NOTES = false;
 export const DEFAULT_SHOW_QWERTY_SHORTCUTS = false;
 export const DEFAULT_HIDE_BAR_NAVIGATION_BUTTONS = false; // CHANGED: Always show bar nav buttons by default
-export const DEFAULT_AUTO_HIDE_TOP_BAR = false;
 export const DEFAULT_SHOW_PIANO_TILES_BACKGROUND = true; // New Default
 export const DEFAULT_THEME_SETTINGS: ThemeSettings = {
   rightHandColor: '#a000ff',
   leftHandColor: '#007dff',  
   fallingNotesBackgroundColor: '#1c2636',
-  backgroundUrl: '',
+  hitNoteColor: '#f59e0b', // Amber-500
+  backgroundUrl: '/wallpaper.jpg',
   backgroundOpacity: 0.25,
 };
 // --- End Default Settings Constants ---

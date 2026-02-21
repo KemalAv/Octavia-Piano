@@ -159,9 +159,15 @@ declare global {
   }
 }
 
-// ========================================
-// APP SETTINGS & UI
-// ========================================
+export interface DrumPadConfig {
+    id: string;
+    name: string;
+    midiNotes: number[];
+    x: number; // 0 to 1
+    y: number; // 0 to 1
+    radius: number; // base radius relative to canvas height
+    icon?: string; // NEW: Added icon property
+}
 
 export type MidiAccessStatus =
   | 'uninitialized'
@@ -173,7 +179,11 @@ export type MidiAccessStatus =
 export type MetronomeMode = 'off' | 'beat' | 'bar'; // UPDATED: Added 'beat' mode
 // @FIX: 'lenient' and 'strict' modes are merged into a single practice mode with adjustable tolerance.
 export type WaitMode = 'off' | 'strict' | 'rhythm' | 'retical';
-export type ViewMode = 'falling' | 'sheet' | 'sheet-roll' | 'sheet-qwerty';
+
+export type JudgmentCategory = 'perfect' | 'great' | 'good' | 'miss';
+export type AccuracyLevel = 3 | 4 | 5 | 6 | 7;
+
+export type ViewMode = 'falling' | 'sheet' | 'sheet-roll' | 'sheet-qwerty' | 'drum_mania';
 export type Screen =
   | 'mainMenu'
   | 'songSelection'
@@ -186,22 +196,23 @@ export type Screen =
   | 'contact'
   | 'privacy'
   | 'disclaimer'
+  | 'howToConnect'
   | 'midiEditor'; // NEW: Added midiEditor
-  
+
 export type PracticeHand = 'left' | 'right' | 'both';
 export type NoteLabelType = 'none' | 'fingering' | 'noteName' | 'qwerty';
 
 export interface MicThresholds {
-    subBass: number;
-    bass: number;
-    mid: number;
-    treble: number;
-    highTreble: number;
+  subBass: number;
+  bass: number;
+  mid: number;
+  treble: number;
+  highTreble: number;
 }
 
 export interface BackingTrackConfig {
-  type: 'none' | 'mp3';
-  url?: string; // Blob URL for MP3
+  type: 'none' | 'mp3' | 'youtube' | 'link';
+  url?: string; // Blob URL for MP3 or YouTube/External Link
   offsetMs: number;
 }
 
@@ -211,14 +222,18 @@ export interface GameSettings {
   practiceHand: PracticeHand;
   hideBarNavigationButtons?: boolean;
   noteToleranceMs?: number;
+  accuracyLevel?: AccuracyLevel; // NEW: Accuracy Level (3-7)
   isNonStop?: boolean;
   backingTrack?: BackingTrackConfig; // NEW: Backing track configuration
+  instrumentMode?: 'piano' | 'drum'; // NEW: Instrument mode
+  arDirection?: 'normal' | 'reverse'; // NEW: AR direction
 }
 
 export interface ThemeSettings {
   rightHandColor: string;
   leftHandColor: string;
   fallingNotesBackgroundColor: string;
+  hitNoteColor: string; // NEW: Added hitNoteColor
   backgroundUrl?: string;
   backgroundOpacity?: number;
 }
@@ -231,17 +246,26 @@ export interface MetronomeAudioNode {
 
 export interface PerformanceSummary {
   accuracy: number;
-  speed: number;
   gameplayPercentage: number;
   baseMidiScore: number;
   finalScore: number;
   rank: string;
-  hitCount: number;
-  errorCount: number;
+  hitCount: number; // This will now map to 'perfect'
+  perfectCount: number;
+  greatCount: number;
+  goodCount: number;
+  missCount: number;
+  maxCombo: number;
   totalNoteCount: number;
   playbackTempoMultiplier: number;
-  totalWaitTimeMs: number;
-  gameplayStyle?: 'piano' | 'computer';
+  gameplayStyle?: string;
+  instrumentMode?: 'piano' | 'drum';
+  isMicEnabled?: boolean;
+  isNonStop?: boolean;
+  isAutoplay?: boolean;
+  speed?: number;
+  totalWaitTimeMs?: number;
+  errorCount?: number;
 }
 
 // FIX: Add UserSession type for Supabase integration.
@@ -259,15 +283,21 @@ export interface Score {
   song_id: string;
   final_score: number;
   accuracy: number;
-  speed: number;
   rank: string;
-  notes_hit: number;
-  errors: number;
+  notes_hit: number; // Maps to perfect
+  perfect_count: number;
+  great_count: number;
+  good_count: number;
+  miss_count: number;
+  max_combo?: number;
   total_notes: number;
   mode: string;
   tempo_multiplier?: number;
+  gameplay_style?: string;
+  instrument_mode?: 'piano' | 'drum';
+  speed?: number;
   total_wait_time_ms?: number;
-  gameplay_style?: 'piano' | 'computer';
+  errors?: number;
   // FIX: Add 'artist' to songs object to match Supabase query in AccountModal.tsx.
   songs?: { title: string; artist: string; } | null;
   profiles?: { username: string; avatar_url: string | null; created_at: string | null; } | null; // Added avatar_url and created_at
@@ -304,6 +334,7 @@ export interface OnlineSong {
   description?: string;
   file_path: string;
   uploader_id: string;
+  accuracy_level?: number;
   difficulty_level: number | null;
   performance_score: number | null;
   total_notes: number | null;
@@ -315,20 +346,21 @@ export interface OnlineSong {
   dislike_count?: number;
   midi_link?: string;
   midi_offset?: number;
+  background_url?: string;
 }
 
 export interface FriendWithProfile {
-    user_id: string;
-    friend_id: string;
-    created_at: string;
-    friend_profile: Profile; // Updated to match the alias `friend_profile` in the Supabase query
+  user_id: string;
+  friend_id: string;
+  created_at: string;
+  friend_profile: Profile; // Updated to match the alias `friend_profile` in the Supabase query
 }
 
 export interface LeaderboardEntry {
-    user_id: string;
-    username: string;
-    avatar_url: string | null;
-    total_score: number;
+  user_id: string;
+  username: string;
+  avatar_url: string | null;
+  total_score: number;
 }
 
 // ========================================
@@ -377,10 +409,11 @@ export interface VexFlowNoteInfo {
     keys: string[];
     duration: string;
     dots: number;
-    clef: 'treble' | 'bass';
+    clef: 'treble' | 'bass' | 'percussion';
   };
   midiValue: number;
   accidentals?: { index: number; type: string }[];
+  noteHeads?: string[];
   fragmentMapping?: { fragmentId: string; keyIndex: number }[];
   // FIX: Added missing properties for tie rendering logic.
   originalNoteIds?: string[];
@@ -414,10 +447,10 @@ export interface VexFlowMeasureData {
   newKeySignature?: string;
   newTimeSignature?: TimeSignatureInfo;
   activeKeySignature: string;
-  effectiveClefRH: 'treble' | 'bass';
-  effectiveClefLH: 'treble' | 'bass';
-  newClefRH?: 'treble' | 'bass';
-  newClefLH?: 'treble' | 'bass';
+  effectiveClefRH: 'treble' | 'bass' | 'percussion';
+  effectiveClefLH: 'treble' | 'bass' | 'percussion';
+  newClefRH?: 'treble' | 'bass' | 'percussion';
+  newClefLH?: 'treble' | 'bass' | 'percussion';
   starts8vaRH: boolean;
   ends8vaRH: boolean;
   starts15maRH: boolean; // NEW: 15ma support
@@ -426,7 +459,7 @@ export interface VexFlowMeasureData {
   ends8vbLH: boolean;
   starts15mbLH: boolean; // NEW: 15mb support
   ends15mbLH: boolean;   // NEW: 15mb support
-  is8vaActiveRH: boolean; 
+  is8vaActiveRH: boolean;
   is15maActiveRH: boolean; // NEW: 15ma support
   is8vbActiveLH: boolean;
   is15mbActiveLH: boolean; // NEW: 15mb support
@@ -435,6 +468,7 @@ export interface VexFlowMeasureData {
   hasDottedBeamableNotes: boolean;
   rightHandTuplets: VexFlowTupletGroup[]; // NEW
   leftHandTuplets: VexFlowTupletGroup[];  // NEW
+  instrumentMode?: 'piano' | 'drum';
 }
 
 export interface OctaveLineInfo {
@@ -456,6 +490,7 @@ export interface VexFlowRenderData {
   keySignature: string;
   timeSignature: TimeSignatureInfo;
   verticalSpacing: number; // NEW: Pass vertical spacing information
+  instrumentMode?: 'piano' | 'drum';
 }
 
 // ========================================
@@ -463,87 +498,87 @@ export interface VexFlowRenderData {
 // ========================================
 
 export interface AnalysisConfig {
-    densityWindowMs: number;
-    densityStepMs: number;
-    densityMinNorm: number;
-    densityMaxNorm: number;
-    awkwardIntervalMin: number;
-    awkwardIntervalMax: number;
-    awkwardGapMin: number;
-    awkwardGapMax: number;
-    awkwardWeightMax: number;
-    zigzagGapMin: number;
-    zigzagGapMax: number;
-    zigzagWeightMax: number;
-    repetitionWindow: number;
-    repetitionWeightMin: number;
-    repetitionWeightMax: number;
-    abstractnessWeightMax: number;
-    timingVarianceMax: number;
-    complexityAwkwardWeight: number;
-    complexityZigzagWeight: number;
-    complexityAbstractWeight: number;
-    complexityTimingWeight: number;
-    complexityFinalMin: number;
-    complexityFinalMax: number;
-    tightIntervalMax: number;
-    tightIntervalDtMax: number;
-    tightIntervalMinNorm: number;
-    tightIntervalMaxNorm: number;
-    chordMobilityMinInterval: number;
-    chordMobilityMinNorm: number;
-    chordMobilityMaxNorm: number;
-    effortWindow: number;
-    effortStep: number;
-    effortNormMin: number;
-    effortNormMax: number;
-    effortConsistencyDiscount: number;
-    rangeWindow: number;
-    rangeStep: number;
-    rangeNormMin: number;
-    rangeNormMax: number;
-    arpNpsMin: number;
-    arpNpsMax: number;
-    arpRangeMin: number;
-    arpRangeMax: number;
-    arpJumpSmall: number;
-    arpJumpSmallWeight: number;
-    arpJumpLarge: number;
-    arpJumpLargeWeight: number;
-    arpJumpWeight: number;
-    arpZigzagWeight: number;
-    arpSpeedWeight: number;
-    arpRangeWeight: number;
-    arpJumpZigzagWeight: number;
-    arpConsistencyWeight: number;
-    trillRatio: number;
-    trillMaxInterval: number;
-    trillMaxGap: number;
-    trillNormMin: number;
-    trillNormMax: number;
-    npsNormMin: number;
-    npsNormMax: number;
-    weightSpeedNps: number;
-    weightSpeedDensity: number;
-    weightSpeedEffort: number;
-    polyphonyNormMin: number;
-    polyphonyNormMax: number;
-    weightCompPolyphony: number;
-    weightCompAbstract: number;
-    weightCompInterval: number;
-    weightCompChordMobility: number;
-    weightCompRange: number;
-    durationNormMin: number;
-    durationNormMax: number;
-    finalWeightSpeed: number;
-    finalWeightComplexity: number;
-    finalWeightArpeggio: number;
-    penaltyRepetition: number;
-    penaltyTrill: number;
-    bonusStamina: number;
-    expFactor: number;
-    scale: number;
-    base: number;
+  densityWindowMs: number;
+  densityStepMs: number;
+  densityMinNorm: number;
+  densityMaxNorm: number;
+  awkwardIntervalMin: number;
+  awkwardIntervalMax: number;
+  awkwardGapMin: number;
+  awkwardGapMax: number;
+  awkwardWeightMax: number;
+  zigzagGapMin: number;
+  zigzagGapMax: number;
+  zigzagWeightMax: number;
+  repetitionWindow: number;
+  repetitionWeightMin: number;
+  repetitionWeightMax: number;
+  abstractnessWeightMax: number;
+  timingVarianceMax: number;
+  complexityAwkwardWeight: number;
+  complexityZigzagWeight: number;
+  complexityAbstractWeight: number;
+  complexityTimingWeight: number;
+  complexityFinalMin: number;
+  complexityFinalMax: number;
+  tightIntervalMax: number;
+  tightIntervalDtMax: number;
+  tightIntervalMinNorm: number;
+  tightIntervalMaxNorm: number;
+  chordMobilityMinInterval: number;
+  chordMobilityMinNorm: number;
+  chordMobilityMaxNorm: number;
+  effortWindow: number;
+  effortStep: number;
+  effortNormMin: number;
+  effortNormMax: number;
+  effortConsistencyDiscount: number;
+  rangeWindow: number;
+  rangeStep: number;
+  rangeNormMin: number;
+  rangeNormMax: number;
+  arpNpsMin: number;
+  arpNpsMax: number;
+  arpRangeMin: number;
+  arpRangeMax: number;
+  arpJumpSmall: number;
+  arpJumpSmallWeight: number;
+  arpJumpLarge: number;
+  arpJumpLargeWeight: number;
+  arpJumpWeight: number;
+  arpZigzagWeight: number;
+  arpSpeedWeight: number;
+  arpRangeWeight: number;
+  arpJumpZigzagWeight: number;
+  arpConsistencyWeight: number;
+  trillRatio: number;
+  trillMaxInterval: number;
+  trillMaxGap: number;
+  trillNormMin: number;
+  trillNormMax: number;
+  npsNormMin: number;
+  npsNormMax: number;
+  weightSpeedNps: number;
+  weightSpeedDensity: number;
+  weightSpeedEffort: number;
+  polyphonyNormMin: number;
+  polyphonyNormMax: number;
+  weightCompPolyphony: number;
+  weightCompAbstract: number;
+  weightCompInterval: number;
+  weightCompChordMobility: number;
+  weightCompRange: number;
+  durationNormMin: number;
+  durationNormMax: number;
+  finalWeightSpeed: number;
+  finalWeightComplexity: number;
+  finalWeightArpeggio: number;
+  penaltyRepetition: number;
+  penaltyTrill: number;
+  bonusStamina: number;
+  expFactor: number;
+  scale: number;
+  base: number;
 }
 
 export interface AnalysisResult {
@@ -559,7 +594,7 @@ export interface AnalysisResult {
     /** Intensitas fisik dan stamina lokal */
     physicalEffort: number;
     /** Rentang nada aktif */
-    rangeIntensity: number;
+    rangeIntensity?: number;
     /** Kompleksitas interval ketat / gerak jari cepat */
     chordMobility: number;
     /** Kecepatan arpeggio & keahlian */

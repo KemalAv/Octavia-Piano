@@ -18,11 +18,14 @@ interface FallingNotesAreaProps {
   noteLabelType: NoteLabelType;
   rightHandColor: string;
   leftHandColor: string;
+  hitNoteColor: string;
   backgroundColor: string;
   activeKeySignature: string; // NEW: Added activeKeySignature prop
   activeTempoBpm: number; // NEW: For displaying current BPM
   showOnlyMajorNotes: boolean;
   showPianoTilesBackground: boolean; // NEW: Show Piano Tiles Background Prop
+  isPaused?: boolean; // NEW: For interaction
+  onSeek?: (timeMs: number) => void; // NEW: For interaction
   // NEW: Props for QWERTY labels
   qwertyLayout?: QwertyLayout;
   qwertyCurrentOctaveShift?: number;
@@ -44,11 +47,14 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
   noteLabelType,
   rightHandColor,
   leftHandColor,
+  hitNoteColor,
   backgroundColor,
   activeKeySignature, // Destructure the new prop
   activeTempoBpm,
   showOnlyMajorNotes,
   showPianoTilesBackground,
+  isPaused = false,
+  onSeek,
   qwertyLayout = 'default',
   qwertyCurrentOctaveShift = 0,
   mirpTranspose = 0,
@@ -161,7 +167,7 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
         return (
           <div
             key={`bar-line-container-${barTimeMs}`}
-            className="absolute left-0 w-full"
+            className="absolute left-0 w-full pointer-events-none"
             style={{ top: `${yPositionPx}px`, zIndex: 5 }}
             aria-hidden="true"
           >
@@ -174,13 +180,61 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
                 color: isLightBackground ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)',
               }}
             >
-              {Math.floor(barTimeMs / ((60000 / activeTempoBpm) * 4)) + 1}
+              {index + 1}
             </span>
           </div>
         );
       })
       .filter(Boolean);
   }, [barLines, currentTimeMs, actualHeight, pixelsPerMillisecond, isRising, isLightBackground, activeTempoBpm]);
+
+  const dragRef = React.useRef<{ isDragging: boolean; startY: number; startTime: number } | null>(null);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (!isPaused || isRising) return;
+    dragRef.current = {
+      isDragging: true,
+      startY: e.clientY,
+      startTime: currentTimeMs
+    };
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!dragRef.current || !dragRef.current.isDragging) return;
+    const deltaY = e.clientY - dragRef.current.startY;
+    const deltaTime = deltaY / pixelsPerMillisecond;
+    onSeek?.(dragRef.current.startTime + deltaTime);
+  };
+
+  const handleMouseUp = () => {
+    if (dragRef.current) dragRef.current.isDragging = false;
+  };
+
+  const handleWheel = (e: React.WheelEvent) => {
+    if (!isPaused || isRising) return;
+    const deltaTime = -e.deltaY / pixelsPerMillisecond;
+    onSeek?.(currentTimeMs + deltaTime);
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (!isPaused || isRising) return;
+    dragRef.current = {
+      isDragging: true,
+      startY: e.touches[0].clientY,
+      startTime: currentTimeMs
+    };
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!dragRef.current || !dragRef.current.isDragging) return;
+    const deltaY = e.touches[0].clientY - dragRef.current.startY;
+    const deltaTime = deltaY / pixelsPerMillisecond;
+    onSeek?.(dragRef.current.startTime + deltaTime);
+  };
+
+  const handleTouchEnd = () => {
+    if (dragRef.current) dragRef.current.isDragging = false;
+  };
 
 
   if (actualHeight <= 0 || pixelsPerMillisecond <= 0) {
@@ -200,7 +254,15 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
 
   return (
     <div
-      className="relative shadow-2xl overflow-hidden no-select"
+      className={`relative shadow-2xl overflow-hidden no-select ${isPaused && !isRising ? 'cursor-ns-resize' : ''}`}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseUp}
+      onWheel={handleWheel}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
       style={{
         width: `${width}px`,
         height: `${actualHeight}px`,
@@ -332,7 +394,7 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
                 const boxShadow = 'none';
 
                 if (currentStatus === 'user_played') {
-                    borderStyle = { border: `2px solid ${USER_PLAY_COLOR}` };
+                    borderStyle = { border: `2px solid ${hitNoteColor}` };
                 } else if (currentStatus === 'playing') {
                     borderStyle = { border: `2px solid rgba(255, 255, 255, 0.9)` };
                 } else if (currentStatus === 'waiting') {

@@ -10,10 +10,21 @@ interface MainMenuProps {
   onSocial: () => void;
   onOpenLoginModal: () => void;
   onOpenAccountModal: () => void;
-  onNavigate: (screen: Screen) => void; // New prop for generic navigation
+  onNavigate: (screen: Screen) => void;
+  instrumentMode: 'piano' | 'drum';
+  onInstrumentModeChange: (mode: 'piano' | 'drum') => void;
 }
 
-const MainMenu: React.FC<MainMenuProps> = ({ onPlay, onSettings, onSocial, onOpenLoginModal, onOpenAccountModal, onNavigate }) => {
+const MainMenu: React.FC<MainMenuProps> = ({ 
+  onPlay, 
+  onSettings, 
+  onSocial, 
+  onOpenLoginModal, 
+  onOpenAccountModal, 
+  onNavigate,
+  instrumentMode,
+  onInstrumentModeChange
+}) => {
   const { session, loading } = useAuth(); // Use the auth hook
   const [isRendered, setIsRendered] = useState(false);
 
@@ -56,7 +67,7 @@ const MainMenu: React.FC<MainMenuProps> = ({ onPlay, onSettings, onSocial, onOpe
   }
 
   return (
-    <div className={`fixed inset-0 bg-slate-950 flex flex-col items-center justify-center z-50 p-4 transition-opacity duration-500 ease-in-out ${isRendered ? 'opacity-100' : 'opacity-0'}`}>
+    <div className={`fixed inset-0 bg-slate-950/60 flex flex-col items-center justify-center z-50 p-4 transition-opacity duration-500 ease-in-out ${isRendered ? 'opacity-100' : 'opacity-0'}`}>
       
       <div 
         className={`relative z-10 p-8 md:p-12 rounded-2xl shadow-2xl text-center max-w-md w-full border border-white/10 max-h-[85vh] overflow-y-auto custom-scrollbar transform transition-all duration-500 ease-in-out bg-slate-900/80 ${isRendered ? 'scale-100 translate-y-0' : 'scale-95 translate-y-4'}`}
@@ -75,12 +86,27 @@ const MainMenu: React.FC<MainMenuProps> = ({ onPlay, onSettings, onSocial, onOpe
             OCTAVIA
             </h1>
             <p className="text-slate-400 text-sm tracking-widest uppercase font-semibold">
-              Piano Rhythm Game
-
+              {instrumentMode === 'piano' ? 'Piano Rhythm Game' : 'Drum Rhythm Game'}
             </p>
         </div>
 
         <div className="space-y-4">
+          {/* Instrument Mode Selector */}
+          <div className="flex bg-slate-800 p-1 rounded-xl border border-white/5 mb-4">
+            <button 
+              onClick={() => onInstrumentModeChange('piano')}
+              className={`flex-1 py-2 rounded-lg font-bold transition-all text-sm ${instrumentMode === 'piano' ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+            >
+              PIANO
+            </button>
+            <button 
+              onClick={() => onInstrumentModeChange('drum')}
+              className={`flex-1 py-2 rounded-lg font-bold transition-all text-sm ${instrumentMode === 'drum' ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+            >
+              DRUM (BETA)
+            </button>
+          </div>
+
           <button onClick={onPlay} className={`${buttonBaseStyle} ${primaryButtonStyle}`}>
             <span className="relative z-10">PLAY NOW</span>
           </button>
@@ -103,8 +129,9 @@ const MainMenu: React.FC<MainMenuProps> = ({ onPlay, onSettings, onSocial, onOpe
         </div>
         
         <div className="mt-8 pt-4 border-t border-white/5">
-            <p className="text-xs text-slate-500 mb-2">v1.0.5 &bull; Created by Kemal Av</p>
-            <div className="flex justify-center gap-4 text-xs text-slate-400">
+            <p className="text-xs text-slate-500 mb-2">v1.0.6 &bull; Created by Kemal Av</p>
+            <div className="flex justify-center gap-4 text-xs text-slate-400 flex-wrap">
+                <button onClick={() => onNavigate('howToConnect')} className="hover:text-cyan-400 transition-colors">How to Connect</button>
                 <button onClick={() => onNavigate('about')} className="hover:text-cyan-400 transition-colors">About</button>
                 <button onClick={() => onNavigate('contact')} className="hover:text-cyan-400 transition-colors">Contact</button>
                 <button onClick={() => onNavigate('privacy')} className="hover:text-cyan-400 transition-colors">Privacy</button>

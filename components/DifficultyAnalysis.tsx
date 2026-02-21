@@ -139,7 +139,6 @@ const DifficultyAnalysis: React.FC<DifficultyAnalysisProps> = ({ analysisResult,
                     <StatItem label="Interval Complexity" value={parameters.intervalComplexity?.toFixed(2)} />
                     <StatItem label="Physical Effort" value={parameters.physicalEffort?.toFixed(2)} />
                     <StatItem label="Stamina Factor" value={parameters.staminaFactor?.toFixed(2)} />
-                    <StatItem label="Range Intensity" value={parameters.rangeIntensity?.toFixed(2)} />
                 </div>
                 <div>
                     <h3 className="text-lg font-semibold text-slate-200 border-b border-slate-600 pb-1 mb-2">Technical Components</h3>

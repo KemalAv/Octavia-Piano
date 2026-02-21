@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { PerformanceSummary } from '../types';
+import { getRankColorClass } from '../utils';
 
 interface PerformanceSummaryProps {
   isVisible: boolean;
@@ -23,19 +24,6 @@ const PerformanceSummaryModal: React.FC<PerformanceSummaryProps> = ({ isVisible,
   if (!isVisible || !summary) {
     return null;
   }
-
-  const getRankColorClass = (rank: string) => {
-    switch (rank) {
-      case 'X': return 'animate-rainbow-pulse'; // Legendary/Perfect - Rainbow RGB Pulse
-      case 'SS': return 'text-fuchsia-400 drop-shadow-[0_0_8px_rgba(232,121,249,0.7)]'; // Near Perfect
-      case 'S': return 'text-purple-400';
-      case 'A': return 'text-lime-400';
-      case 'B': return 'text-cyan-400';
-      case 'C': return 'text-yellow-400';
-      case 'D': return 'text-red-400';
-      default: return 'text-slate-400';
-    }
-  };
   
   const formatDelayTime = (ms: number) => {
     if (isNaN(ms) || ms < 0) return '0.000s';
@@ -75,18 +63,34 @@ const PerformanceSummaryModal: React.FC<PerformanceSummaryProps> = ({ isVisible,
             <div className="col-span-2 mb-4 p-2 bg-slate-700/50 rounded-lg border border-slate-600/50">
                 <StatRow 
                     label="Gameplay Style" 
-                    value={summary.gameplayStyle === 'computer' ? 'Computer Keyboard' : 'Piano / MIDI'} 
+                    value={summary.gameplayStyle || 'N/A'} 
                     valueColor="text-cyan-300" 
                 />
             </div>
-            <StatRow label="Final Score" value={Math.round(summary.finalScore).toLocaleString()} valueColor="text-white" />
-            <StatRow label="Accuracy" value={`${summary.accuracy.toFixed(2)}%`} valueColor="text-cyan-300" />
-            <StatRow label="Speed Efficiency" value={`${summary.speed.toFixed(2)}%`} valueColor="text-yellow-300" />
-            <StatRow label="Gameplay %" value={`${summary.gameplayPercentage.toFixed(2)}%`} valueColor="text-violet-300" />
-            <StatRow label="Hits" value={summary.hitCount} valueColor="text-emerald-300" />
-            <StatRow label="Misses" value={summary.errorCount} valueColor="text-rose-400" />
-            <StatRow label="Wait Time" value={formatDelayTime(summary.totalWaitTimeMs)} valueColor="text-slate-300" />
-            <StatRow label="Tempo" value={`${Math.round(summary.playbackTempoMultiplier * 100)}%`} valueColor="text-slate-300" />
+            
+            {summary.isNonStop || summary.isAutoplay ? (
+                <>
+                    <StatRow label="Accuracy" value={`${summary.accuracy.toFixed(2)}%`} valueColor="text-cyan-300" />
+                    <StatRow label="Perfect" value={summary.perfectCount} valueColor="text-yellow-400" />
+                    <StatRow label="Great" value={summary.greatCount} valueColor="text-emerald-400" />
+                    <StatRow label="Good" value={summary.goodCount} valueColor="text-blue-400" />
+                    <StatRow label="Miss" value={summary.missCount} valueColor="text-rose-400" />
+                    <StatRow label="Max Combo" value={summary.maxCombo || 0} valueColor="text-orange-400" />
+                    <StatRow label="Performance Score" value={Math.round(summary.finalScore).toLocaleString()} valueColor="text-white" />
+                </>
+            ) : (
+                <>
+                    <StatRow label="Performance Score" value={Math.round(summary.finalScore).toLocaleString()} valueColor="text-white" />
+                    <StatRow label="Accuracy" value={`${summary.accuracy.toFixed(2)}%`} valueColor="text-cyan-300" />
+                    <StatRow label="Max Combo" value={summary.maxCombo || 0} valueColor="text-orange-400" />
+                    <StatRow label="Speed Efficiency" value={`${(summary.speed || 0).toFixed(2)}%`} valueColor="text-cyan-300" />
+                    <StatRow label="Gameplay %" value={`${(summary.gameplayPercentage || 0).toFixed(2)}%`} valueColor="text-cyan-300" />
+                    <StatRow label="Hits" value={summary.hitCount || 0} valueColor="text-yellow-400" />
+                    <StatRow label="Error" value={summary.errorCount || 0} valueColor="text-rose-400" />
+                    <StatRow label="Wait Time" value={formatDelayTime(summary.totalWaitTimeMs || 0)} valueColor="text-slate-300" />
+                    <StatRow label="Tempo" value={`${Math.round(summary.playbackTempoMultiplier * 100)}%`} valueColor="text-slate-300" />
+                </>
+            )}
         </div>
 
         <button

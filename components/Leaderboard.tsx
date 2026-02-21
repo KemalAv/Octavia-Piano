@@ -4,11 +4,11 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../AuthContext';
 import { LeaderboardEntry, Profile, FriendWithProfile } from '../types';
 import ViewProfileModal from './ViewProfileModal';
-import AdBanner from './AdBanner'; // Import AdBanner
 
 interface LeaderboardProps {
   onBack: () => void;
   onGoToOnlineSong: (songId: string) => void;
+  instrumentMode: 'piano' | 'drum';
 }
 
 const PlaceholderAvatar: React.FC = () => (
@@ -19,9 +19,10 @@ const PlaceholderAvatar: React.FC = () => (
     </div>
 );
 
-const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong }) => {
+const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong, instrumentMode: initialInstrumentMode }) => {
     const { user } = useAuth();
     const [activeTab, setActiveTab] = useState<'leaderboard' | 'search' | 'friends' | 'requests' | 'community'>('leaderboard');
+    const [instrumentMode, setInstrumentMode] = useState<'piano' | 'drum'>(initialInstrumentMode);
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState<{ type: 'error' | 'success', text: string } | null>(null);
     const [isRendered, setIsRendered] = useState(false);
@@ -55,15 +56,32 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong }) =
         setLoading(true);
         setMessage(null);
         try {
-            const { data, error } = await supabase.rpc('get_leaderboard');
-            if (error) throw error;
-            setLeaderboardData(data as LeaderboardEntry[]);
+            // Check if instrument_mode column exists in scores table
+            const { data: testData, error: testError } = await supabase.from('scores').select('instrument_mode').limit(1);
+            const hasInstrumentMode = !testError || testError.code !== '42703';
+
+            const rpcParams = hasInstrumentMode ? { p_instrument_mode: instrumentMode } : {};
+            const { data, error } = await supabase.rpc('get_leaderboard', rpcParams);
+            
+            if (error) {
+                // If RPC fails with the parameter, try without it as a fallback
+                if (hasInstrumentMode) {
+                    const { data: fallbackData, error: fallbackError } = await supabase.rpc('get_leaderboard');
+                    if (fallbackError) throw fallbackError;
+                    setLeaderboardData(fallbackData as LeaderboardEntry[]);
+                } else {
+                    throw error;
+                }
+            } else {
+                setLeaderboardData(data as LeaderboardEntry[]);
+            }
         } catch (err: any) {
+            console.error("Leaderboard fetch failed:", err);
             setMessage({ type: 'error', text: `Failed to load leaderboard: ${err.message}` });
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [instrumentMode]);
 
     const fetchRelationships = useCallback(async () => {
         if (!user) return;
@@ -284,9 +302,8 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong }) =
     };
 
     return (
-        <div className={`fixed inset-0 bg-slate-900 flex flex-col items-center justify-center z-40 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'opacity-100' : 'opacity-0'}`}>
+        <div className={`fixed inset-0 bg-slate-900/60 flex flex-col items-center justify-center z-40 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'opacity-100' : 'opacity-0'}`}>
             {/* Show AdBanner only if there is content (leaderboard data loaded) */}
-            {!loading && leaderboardData.length > 0 && <AdBanner />}
 
             <div className="absolute top-4 left-4" style={{ zIndex: 9999 }}>
                 <button onClick={onBack} className={`${tertiaryButtonStyle} py-2 px-4 text-base shadow-md`}>&larr; Back to Menu</button>
@@ -310,28 +327,52 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong }) =
                 <div className="p-8 md:p-12 overflow-y-auto custom-scrollbar flex-grow flex flex-col">
                     {message && <div className={`p-3 mb-4 rounded-lg text-sm ${message.type === 'error' ? 'bg-red-200 text-red-800' : 'bg-green-200 text-green-800'}`} role={message.type === 'error' ? 'alert' : 'status'}>{message.text}</div>}
 
-                    {activeTab === 'leaderboard' && renderList(
-                        <table className="w-full text-left table-fixed">
-                            <thead>
-                                <tr className="sticky top-0 bg-slate-900/80 backdrop-blur-sm">
-                                    <th className="p-3 text-sm font-semibold text-slate-400 w-16 text-center">Rank</th>
-                                    <th className="p-3 text-sm font-semibold text-slate-400">Player</th>
-                                    <th className="p-3 text-sm font-semibold text-slate-400 text-right">Total Score</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {leaderboardData.map((entry, index) => (
-                                    <tr key={entry.user_id} className="border-b border-slate-700 hover:bg-slate-700/50">
-                                        <td className="p-3 font-bold text-slate-300 text-center">{index + 1}</td>
-                                        <td className="p-3 flex items-center gap-4 cursor-pointer" onClick={() => setSelectedProfileData({ userId: entry.user_id, rank: index + 1 })}>
-                                            {entry.avatar_url ? <img src={entry.avatar_url} alt={entry.username} className="w-12 h-12 rounded-full object-cover" /> : <PlaceholderAvatar />}
-                                            <span className="font-semibold text-white truncate">{entry.username}</span>
-                                        </td>
-                                        <td className="p-3 font-mono text-cyan-300 text-right">{Math.round(entry.total_score).toLocaleString()}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                    {activeTab === 'leaderboard' && (
+                        <div className="flex flex-col h-full">
+                            <div className="flex justify-between items-center mb-6 flex-shrink-0">
+                                <div className="text-left">
+                                    <h2 className="text-3xl font-bold text-cyan-400 mb-1">{instrumentMode === 'drum' ? 'Drum' : 'Piano'} Global Leaderboard</h2>
+                                    <p className="text-sm text-slate-400">Top performers across the globe</p>
+                                </div>
+                                <div className="flex bg-slate-700 rounded-lg p-1">
+                                    <button 
+                                        onClick={() => setInstrumentMode('piano')}
+                                        className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${instrumentMode === 'piano' ? 'bg-cyan-500 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+                                    >
+                                        Piano
+                                    </button>
+                                    <button 
+                                        onClick={() => setInstrumentMode('drum')}
+                                        className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${instrumentMode === 'drum' ? 'bg-violet-500 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+                                    >
+                                        Drum
+                                    </button>
+                                </div>
+                            </div>
+                            {renderList(
+                                <table className="w-full text-left table-fixed">
+                                    <thead>
+                                        <tr className="sticky top-0 bg-slate-900/80 backdrop-blur-sm">
+                                            <th className="p-3 text-sm font-semibold text-slate-400 w-16 text-center">Rank</th>
+                                            <th className="p-3 text-sm font-semibold text-slate-400">Player</th>
+                                            <th className="p-3 text-sm font-semibold text-slate-400 text-right">Total Score</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {leaderboardData.map((entry, index) => (
+                                            <tr key={entry.user_id} className="border-b border-slate-700 hover:bg-slate-700/50">
+                                                <td className="p-3 font-bold text-slate-300 text-center">{index + 1}</td>
+                                                <td className="p-3 flex items-center gap-4 cursor-pointer" onClick={() => setSelectedProfileData({ userId: entry.user_id, rank: index + 1 })}>
+                                                    {entry.avatar_url ? <img src={entry.avatar_url} alt={entry.username} className="w-12 h-12 rounded-full object-cover" /> : <PlaceholderAvatar />}
+                                                    <span className="font-semibold text-white truncate">{entry.username}</span>
+                                                </td>
+                                                <td className="p-3 font-mono text-cyan-300 text-right">{Math.round(entry.total_score).toLocaleString()}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            )}
+                        </div>
                     )}
 
                     {activeTab === 'search' && (

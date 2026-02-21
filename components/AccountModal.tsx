@@ -36,6 +36,7 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
 
   const [topScores, setTopScores] = useState<Score[]>([]);
   const [loadingScores, setLoadingScores] = useState(false);
+  const [instrumentTab, setInstrumentTab] = useState<'piano' | 'drum'>('piano');
 
   const [selectedPerformanceSummary, setSelectedPerformanceSummary] = useState<PerformanceSummary | null>(null); // NEW
 
@@ -82,7 +83,7 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
     }
 
     // Fetch scores, only for ranked songs
-    const { data: scoresData, error: scoresError } = await supabase
+    let scoresQuery = supabase
       .from('scores')
       // Use !inner to ensure only scores related to ranked songs are returned
       // And include is_ranked in the songs selection to confirm the filter
@@ -91,6 +92,15 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
       // Apply the filter on the joined 'songs' table
       .eq('songs.is_ranked', true) 
       .order('final_score', { ascending: false });
+
+    // Filter by gameplay_style groups instead of instrument_mode
+    if (instrumentTab === 'piano') {
+      scoresQuery = scoresQuery.in('gameplay_style', ['Piano', 'Computer Keyboard']);
+    } else {
+      scoresQuery = scoresQuery.in('gameplay_style', ['Keyboard/Touchscreen', 'Drum MIDI']);
+    }
+
+    const { data: scoresData, error: scoresError } = await scoresQuery;
 
       
     if (scoresError) {
@@ -115,7 +125,12 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
     }
     // Fetch leaderboard data for rank and total score
     try {
-        const { data: leaderboardData, error: leaderboardError } = await supabase.rpc('get_leaderboard');
+        // Check if instrument_mode column exists in scores table
+        const { data: testData, error: testError } = await supabase.from('scores').select('instrument_mode').limit(1);
+        const hasInstrumentMode = !testError || testError.code !== '42703';
+
+        const rpcParams = hasInstrumentMode ? { p_instrument_mode: instrumentTab } : {};
+        const { data: leaderboardData, error: leaderboardError } = await supabase.rpc('get_leaderboard', rpcParams);
         if (leaderboardError) throw leaderboardError;
 
         const userEntry = (leaderboardData as LeaderboardEntry[]).find(entry => entry.user_id === user.id);
@@ -133,7 +148,7 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
     }
     setLoadingScores(false);
 
-  }, [user]);
+  }, [user, instrumentTab]);
 
   useEffect(() => {
     if (user && isOpen) {
@@ -145,7 +160,7 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
       setTopScores([]);
       setSelectedPerformanceSummary(null); // NEW: Clear selected performance summary
     }
-  }, [user, isOpen, fetchProfileAndScores]);
+  }, [user, isOpen, fetchProfileAndScores, instrumentTab]);
 
   const handleUpdateUsername = async () => {
     if (!username.trim()) {
@@ -481,36 +496,57 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
                           )}
                         </div>
                         
-                         {(globalRank !== null || totalScore !== null || profile?.total_playtime_ms !== undefined) ? (
+                         {profile?.total_playtime_ms !== undefined && (
                             <div className="flex items-baseline gap-4 mt-2 text-slate-300 flex-wrap justify-center sm:justify-start">
                                 <div>
-                                    <span className="text-sm">Global Rank</span>
-                                    <p className="text-2xl font-bold text-white">#{globalRank ? globalRank.toLocaleString() : 'N/A'}</p>
-                                </div>
-                                <div>
-                                    <span className="text-sm">Total Score</span>
-                                    <p className="text-2xl font-bold text-white">{totalScore !== null ? Math.round(totalScore).toLocaleString() : '...'}</p>
-                                </div>
-                                <div>
-                                    <span className="text-sm">Playtime</span>
+                                    <span className="text-sm">Total Playtime</span>
                                     <p className="text-2xl font-bold text-white">{formatPlaytime(profile?.total_playtime_ms || 0)}</p>
                                 </div>
                                 <div>
-                                    <span className="text-sm">Notes Hit</span>
+                                    <span className="text-sm">Total Notes Hit</span>
                                     <p className="text-2xl font-bold text-white">{(profile?.total_notes_hit || 0).toLocaleString()}</p>
                                 </div>
-                            </div>
-                        ) : (
-                            <div className="mt-2 h-12"> {/* Placeholder to prevent layout shift */}
-                                {loadingScores && <div className="text-sm text-slate-400 animate-pulse">Loading rank...</div>}
                             </div>
                         )}
                     </div>
                 </div>
 
-                {topScores.length > 0 && (
-                    <div className="flex-grow flex flex-col min-h-0 mt-4">
-                        <h3 className="text-xl font-semibold text-violet-400 mb-2 flex-shrink-0">My Top Ranked Performances</h3>
+                <div className="flex-grow flex flex-col min-h-0 mt-4">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4 flex-shrink-0">
+                        <div>
+                            <h3 className="text-xl font-semibold text-violet-400">Ranked Performances</h3>
+                            <div className="flex items-baseline gap-4 mt-1">
+                                <div>
+                                    <span className="text-[10px] uppercase tracking-wider text-slate-500">Global Rank</span>
+                                    <p className="text-lg font-bold text-white">#{globalRank ? globalRank.toLocaleString() : 'N/A'}</p>
+                                </div>
+                                <div>
+                                    <span className="text-[10px] uppercase tracking-wider text-slate-500">Total Score</span>
+                                    <p className="text-lg font-bold text-white">{totalScore !== null ? Math.round(totalScore).toLocaleString() : '...'}</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex bg-slate-700 rounded-lg p-1">
+                            <button 
+                                onClick={() => setInstrumentTab('piano')}
+                                className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${instrumentTab === 'piano' ? 'bg-cyan-500 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+                            >
+                                Piano
+                            </button>
+                            <button 
+                                onClick={() => setInstrumentTab('drum')}
+                                className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${instrumentTab === 'drum' ? 'bg-violet-500 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+                            >
+                                Drum
+                            </button>
+                        </div>
+                    </div>
+                    
+                    {loadingScores ? (
+                        <div className="flex-grow flex items-center justify-center p-8 text-slate-400 animate-pulse bg-slate-900/30 rounded-lg border border-dashed border-slate-700">
+                            Loading performances...
+                        </div>
+                    ) : topScores.length > 0 ? (
                         <div className="flex-grow overflow-y-auto custom-scrollbar bg-slate-900/50 rounded-lg p-2 ring-1 ring-slate-700/50">
                             <table className="w-full text-left table-auto">
                                 <thead className="sticky top-0 bg-slate-900/80 backdrop-blur-sm">
@@ -523,13 +559,14 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
                                 </thead>
                                 <tbody>
                                 {topScores.map(score => (
-                                    <tr key={score.id} className="border-b border-slate-700">
+                                    <tr key={score.id} className="border-b border-slate-700 hover:bg-slate-800/30 transition-colors">
                                         <td 
                                             className="p-2 text-sm text-white truncate cursor-pointer hover:text-cyan-300 hover:underline"
                                             title={`Play MIDI: ${score.songs?.title}`}
                                             onClick={() => handleGoToSongClick(score.song_id)}
                                         >
-                                            {score.songs?.title || 'Unknown MIDI'}
+                                            <div className="font-medium truncate max-w-[120px] sm:max-w-[200px]">{score.songs?.title || 'Unknown MIDI'}</div>
+                                            <div className="text-[10px] text-slate-500 uppercase tracking-wider">{score.gameplay_style}</div>
                                         </td>
                                         <td className="p-2 text-xs text-slate-400 whitespace-nowrap">{formatScoreDate(score.created_at)}</td>
                                         <td 
@@ -542,19 +579,26 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
                                             className="p-2 font-bold text-lg text-center cursor-pointer"
                                             onClick={() => handleOpenPerformanceSummary(score)}
                                         >
-                                            {score.rank}
+                                            <span className={
+                                                score.rank === 'S' ? 'text-yellow-400' :
+                                                score.rank === 'A' ? 'text-cyan-400' :
+                                                score.rank === 'B' ? 'text-green-400' :
+                                                'text-slate-400'
+                                            }>
+                                                {score.rank}
+                                            </span>
                                         </td>
                                     </tr>
                                 ))}
                                 </tbody>
                             </table>
                         </div>
-                    </div>
-                )}
-                {loadingScores && <div className="text-center p-4 text-slate-300 animate-pulse">Loading scores...</div>}
-                {!loadingScores && topScores.length === 0 && (
-                    <div className="text-slate-400 text-center p-4">You have no scores on ranked MIDIs yet.</div>
-                )}
+                    ) : (
+                        <div className="flex-grow flex items-center justify-center p-8 text-slate-400 text-center bg-slate-900/30 rounded-lg border border-dashed border-slate-700">
+                            You have no scores on ranked MIDIs for this instrument yet.
+                        </div>
+                    )}
+                </div>
 
 
                 <div className="mt-6 flex items-center gap-4 flex-shrink-0">

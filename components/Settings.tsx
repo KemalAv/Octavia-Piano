@@ -30,8 +30,6 @@ interface SettingsProps {
   onShowQwertyShortcutsChange: (value: boolean) => void;
   hideBarNavigationButtons: boolean;
   onHideBarNavigationButtonsChange: (value: boolean) => void;
-  autoHideTopBar: boolean;
-  onAutoHideTopBarChange: (value: boolean) => void;
   masterVolume: number;
   onMasterVolumeChange: (volume: number) => void;
   metronomeVolume: number;
@@ -67,9 +65,18 @@ interface SettingsProps {
   // NEW: UI Zoom Prop
   uiZoom: number;
   onUiZoomChange: (zoom: number) => void;
+  uiZoomAuto: boolean;
+  onUiZoomAutoChange: (auto: boolean) => void;
   // NEW: MP3 Volume Prop
   mp3Volume: number;
   onMp3VolumeChange: (volume: number) => void;
+  // NEW: Drum Input Mode Prop
+  drumInputMode: 'midi' | 'non-midi';
+  onDrumInputModeChange: (mode: 'midi' | 'non-midi') => void;
+  arDirection: 'normal' | 'reverse';
+  onArDirectionChange: (direction: 'normal' | 'reverse') => void;
+  instrumentMode: 'piano' | 'drum';
+  onResetSettings: () => void;
 }
 
 const Section: React.FC<{ title: string; children: React.ReactNode; showInfoButton?: boolean; onInfoClick?: () => void }> = ({ title, children, showInfoButton, onInfoClick }) => (
@@ -152,7 +159,6 @@ export const Settings: React.FC<SettingsProps> = (props) => {
     showOnlyMajorNotes, onShowOnlyMajorNotesChange,
     showQwertyShortcuts,
     onShowQwertyShortcutsChange, hideBarNavigationButtons, onHideBarNavigationButtonsChange,
-    autoHideTopBar, onAutoHideTopBarChange,
     masterVolume, onMasterVolumeChange, metronomeVolume, onMetronomeVolumeChange,
     metronomeOffsetMs, onMetronomeOffsetChange, // These props now control Note Offset
     themeSettings, onThemeSettingsChange,
@@ -164,8 +170,12 @@ export const Settings: React.FC<SettingsProps> = (props) => {
     pianoRangeMode, onPianoRangeModeChange, customStartNote, onCustomStartNoteChange, customEndNote, onCustomEndNoteChange,
     qwertyLayout, onQwertyLayoutChange, 
     showPianoTilesBackground, onShowPianoTilesBackgroundChange, // Destructure new props
-    uiZoom, onUiZoomChange, // Destructure UI Zoom
+    uiZoom, onUiZoomChange, uiZoomAuto, onUiZoomAutoChange, // Destructure UI Zoom
     mp3Volume, onMp3VolumeChange, // NEW: Destructure MP3 Volume
+    drumInputMode, onDrumInputModeChange, // NEW: Destructure Drum Input Mode
+    arDirection, onArDirectionChange,
+    instrumentMode,
+    onResetSettings,
   } = props;
 
   const commonButtonStyles = "px-3 py-1.5 rounded text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-300 focus:ring-opacity-75 flex items-center justify-center shadow-md";
@@ -176,25 +186,22 @@ export const Settings: React.FC<SettingsProps> = (props) => {
   const numberInputStyle = `w-24 p-2 rounded-lg bg-slate-700 text-white border border-slate-600 focus:ring-violet-500 focus:border-violet-500 text-sm`;
 
 
-  const handleBackgroundUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
-        alert('Please select an image (JPEG, PNG, GIF) or video (MP4, WebM) file.');
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        onThemeSettingsChange({ ...themeSettings, backgroundUrl: reader.result as string });
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
   const handleClearBackground = () => {
     onThemeSettingsChange({ ...themeSettings, backgroundUrl: '' });
     if (fileInputRef.current) {
         fileInputRef.current.value = '';
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const url = event.target?.result as string;
+        onThemeSettingsChange({ ...themeSettings, backgroundUrl: url });
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -206,6 +213,8 @@ export const Settings: React.FC<SettingsProps> = (props) => {
             return <span className="text-sm text-slate-400 animate-pulse">Requesting Access...</span>;
         case 'denied':
             return <button onClick={connectMidi} className={`${commonButtonStyles} bg-red-500 hover:bg-red-600 text-white`}>Access Denied. Retry?</button>;
+        case 'unsupported':
+            return <span className="text-sm text-red-400">Web MIDI not supported in this browser.</span>;
         case 'granted':
              return <button onClick={connectMidi} className={`${commonButtonStyles} bg-green-600 hover:bg-green-700`}>Rescan Devices</button>;
         default:
@@ -248,102 +257,139 @@ export const Settings: React.FC<SettingsProps> = (props) => {
         
         <div className="space-y-8">
           <Section title="Gameplay Style">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <button
-                onClick={() => handleGameplayStyleChange('piano')}
-                className={`${gameplayPresetButtonBase} ${gameplayStyle === 'piano' ? gameplayPresetSelected : gameplayPresetUnselected}`}
-              >
-                <h4 className="font-bold text-lg text-violet-300">Piano</h4>
-                <p className="text-xs text-slate-300 mt-1">Optimized for MIDI keyboards and visual learning.</p>
-              </button>
-              <button
-                onClick={() => handleGameplayStyleChange('computer')}
-                className={`${gameplayPresetButtonBase} ${gameplayStyle === 'computer' ? gameplayPresetSelected : gameplayPresetUnselected}`}
-              >
-                <h4 className="font-bold text-lg text-violet-300">Keyboard Computer</h4>
-                <p className="text-xs text-slate-300 mt-1">Optimized for playing with your computer keyboard.</p>
-              </button>
-            </div>
+            {instrumentMode === 'piano' ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <button
+                  onClick={() => handleGameplayStyleChange('piano')}
+                  className={`${gameplayPresetButtonBase} ${gameplayStyle === 'piano' ? gameplayPresetSelected : gameplayPresetUnselected}`}
+                >
+                  <h4 className="font-bold text-lg text-violet-300">Piano</h4>
+                  <p className="text-xs text-slate-300 mt-1">Optimized for MIDI keyboards and visual learning.</p>
+                </button>
+                <button
+                  onClick={() => handleGameplayStyleChange('computer')}
+                  className={`${gameplayPresetButtonBase} ${gameplayStyle === 'computer' ? gameplayPresetSelected : gameplayPresetUnselected}`}
+                >
+                  <h4 className="font-bold text-lg text-violet-300">Keyboard Computer</h4>
+                  <p className="text-xs text-slate-300 mt-1">Optimized for playing with your computer keyboard.</p>
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <button
+                  onClick={() => onDrumInputModeChange('non-midi')}
+                  className={`${gameplayPresetButtonBase} ${drumInputMode === 'non-midi' ? gameplayPresetSelected : gameplayPresetUnselected}`}
+                >
+                  <h4 className="font-bold text-lg text-violet-300">Keyboard/Touchscreen</h4>
+                  <p className="text-xs text-slate-300 mt-1">Play drums using your computer keyboard or by clicking/touching the drum kit.</p>
+                </button>
+                <button
+                  onClick={() => onDrumInputModeChange('midi')}
+                  className={`${gameplayPresetButtonBase} ${drumInputMode === 'midi' ? gameplayPresetSelected : gameplayPresetUnselected}`}
+                >
+                  <h4 className="font-bold text-lg text-violet-300">Drum MIDI</h4>
+                  <p className="text-xs text-slate-300 mt-1">Play drums using a connected MIDI drum kit or controller.</p>
+                </button>
+              </div>
+            )}
           </Section>
 
           <Section title="Device & UI" showInfoButton={true} onInfoClick={() => setIsInfoModalOpen(true)}>
             <SettingRow label={`UI Zoom (${uiZoom}%)`} htmlFor="ui-zoom">
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => onUiZoomChange(Math.max(25, uiZoom - 5))}
-                  className="px-3 py-1 rounded-md text-lg font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-300 focus:ring-opacity-75 bg-slate-600 hover:bg-slate-700 text-slate-100 active:scale-95"
-                  aria-label="Decrease UI zoom"
-                >
-                  -
-                </button>
-                <input
-                  id="ui-zoom"
-                  type="range"
-                  min="25"
-                  max="200"
-                  step="5"
-                  value={uiZoom}
-                  onChange={e => onUiZoomChange(parseInt(e.target.value, 10))}
-                  className={`${rangeSliderStyle} w-32 md:w-40`}
-                />
-                <button
-                  onClick={() => onUiZoomChange(Math.min(200, uiZoom + 5))}
-                  className="px-3 py-1 rounded-md text-lg font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-300 focus:ring-opacity-75 bg-slate-600 hover:bg-slate-700 text-slate-100 active:scale-95"
-                  aria-label="Increase UI zoom"
-                >
-                  +
-                </button>
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => onUiZoomChange(Math.max(25, uiZoom - 5))}
+                    disabled={uiZoomAuto}
+                    className="px-3 py-1 rounded-md text-lg font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-300 focus:ring-opacity-75 bg-slate-600 hover:bg-slate-700 text-slate-100 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                    aria-label="Decrease UI zoom"
+                  >
+                    -
+                  </button>
+                  <input
+                    id="ui-zoom"
+                    type="range"
+                    min="25"
+                    max="200"
+                    step="5"
+                    value={uiZoom}
+                    disabled={uiZoomAuto}
+                    onChange={e => onUiZoomChange(parseInt(e.target.value, 10))}
+                    className={`${rangeSliderStyle} w-32 md:w-40 disabled:opacity-50 disabled:cursor-not-allowed`}
+                  />
+                  <button
+                    onClick={() => onUiZoomChange(Math.min(200, uiZoom + 5))}
+                    disabled={uiZoomAuto}
+                    className="px-3 py-1 rounded-md text-lg font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-300 focus:ring-opacity-75 bg-slate-600 hover:bg-slate-700 text-slate-100 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                    aria-label="Increase UI zoom"
+                  >
+                    +
+                  </button>
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={uiZoomAuto}
+                    onChange={(e) => onUiZoomAutoChange(e.target.checked)}
+                    className="w-4 h-4 text-cyan-600 bg-slate-700 border-slate-600 rounded focus:ring-cyan-500 focus:ring-2"
+                  />
+                  <span className="text-sm text-slate-300">Auto Fit Screen</span>
+                </label>
               </div>
             </SettingRow>
             
           </Section>
 
-          <Section title="Piano Display">
-            <SettingRow label="Visible Keys" htmlFor="piano-range-mode">
-              <select id="piano-range-mode" value={pianoRangeMode} onChange={e => onPianoRangeModeChange(e.target.value as any)} className={selectStyles}>
-                <option value="full">Full (88 keys)</option>
-                <option value="61-key">Compact (61 keys)</option>
-                <option value="37-key">QWERTY (37 keys)</option>
-                <option value="25-key">Mini (25 keys)</option>
-                <option value="custom">Custom Range</option>
-              </select>
-            </SettingRow>
+          {instrumentMode === 'piano' && (
+            <Section title="Piano Display">
+              <SettingRow label="Visible Keys" htmlFor="piano-range-mode">
+                <select id="piano-range-mode" value={pianoRangeMode} onChange={e => onPianoRangeModeChange(e.target.value as any)} className={selectStyles}>
+                  <option value="full">Full (88 keys)</option>
+                  <option value="61-key">Compact (61 keys)</option>
+                  <option value="37-key">QWERTY (37 keys)</option>
+                  <option value="25-key">Mini (25 keys)</option>
+                  <option value="custom">Custom Range</option>
+                </select>
+              </SettingRow>
 
-            {pianoRangeMode === 'custom' && (
-              <div className="bg-slate-900/50 p-4 rounded-lg space-y-3 ring-1 ring-slate-700">
-                <h4 className="text-md font-semibold text-slate-200">Custom Key Range</h4>
-                <SettingRow label="Start Note (e.g., C3)" htmlFor="custom-start-note">
-                  <input
-                    id="custom-start-note"
-                    type="text"
-                    value={customStartNote}
-                    onChange={e => onCustomStartNoteChange(e.target.value)}
-                    className={numberInputStyle}
-                    placeholder="e.g., A0"
-                  />
-                </SettingRow>
-                <SettingRow label="End Note (e.g., C5)" htmlFor="custom-end-note">
-                  <input
-                    id="custom-end-note"
-                    type="text"
-                    value={customEndNote}
-                    onChange={e => onCustomEndNoteChange(e.target.value)}
-                    className={numberInputStyle}
-                    placeholder="e.g., C8"
-                  />
-                </SettingRow>
-              </div>
-            )}
-          </Section>
+              {pianoRangeMode === 'custom' && (
+                <div className="bg-slate-900/50 p-4 rounded-lg space-y-3 ring-1 ring-slate-700">
+                  <h4 className="text-md font-semibold text-slate-200">Custom Key Range</h4>
+                  <SettingRow label="Start Note (e.g., C3)" htmlFor="custom-start-note">
+                    <input
+                      id="custom-start-note"
+                      type="text"
+                      value={customStartNote}
+                      onChange={e => onCustomStartNoteChange(e.target.value)}
+                      className={numberInputStyle}
+                      placeholder="e.g., A0"
+                    />
+                  </SettingRow>
+                  <SettingRow label="End Note (e.g., C5)" htmlFor="custom-end-note">
+                    <input
+                      id="custom-end-note"
+                      type="text"
+                      value={customEndNote}
+                      onChange={e => onCustomEndNoteChange(e.target.value)}
+                      className={numberInputStyle}
+                      placeholder="e.g., C8"
+                    />
+                  </SettingRow>
+                </div>
+              )}
+            </Section>
+          )}
 
-          <Section title="Controls">
-            <SettingRow label="QWERTY Keyboard Layout" htmlFor="qwerty-layout">
-              <select id="qwerty-layout" value={qwertyLayout} onChange={e => onQwertyLayoutChange(e.target.value as QwertyLayout)} className={selectStyles}>
-                <option value="mirp">Layout 1 (Roblox): Shift = black keys, ↑/↓ = ±1 semitones</option>
-                <option value="default">Layout 2 (Standard): ↑/↓ = ±1 octave</option>
-              </select>
-            </SettingRow>
-          </Section>
+          {instrumentMode === 'piano' && (
+            <Section title="Controls">
+              <SettingRow label="QWERTY Keyboard Layout" htmlFor="qwerty-layout">
+                <select id="qwerty-layout" value={qwertyLayout} onChange={e => onQwertyLayoutChange(e.target.value as QwertyLayout)} className={selectStyles}>
+                  <option value="mirp">Layout 1 (Roblox): Shift = black keys, ↑/↓ = ±1 semitones</option>
+                  <option value="default">Layout 2 (Standard): ↑/↓ = ±1 octave</option>
+                </select>
+              </SettingRow>
+            </Section>
+          )}
 
           <Section title="MIDI">
             <SettingRow label="Status">{renderMidiConnectButton()}</SettingRow>
@@ -358,82 +404,113 @@ export const Settings: React.FC<SettingsProps> = (props) => {
               <div>
                 <label htmlFor="midi-output" className="block mb-2 text-sm font-medium text-slate-300">Output Device</label>
                 <select id="midi-output" value={selectedMidiOutputId || ""} onChange={e => onSelectMidiOutput(e.target.value || null)} className={selectStyles} disabled={midiAccessStatus !== 'granted'}>
-                    <option value="">{midiInputs.size === 0 ? 'No Outputs Found' : 'Use Internal Synth'}</option>
+                    <option value="">{midiOutputs.size === 0 ? 'Internal Synth (No MIDI Outputs)' : 'Internal Synth (Default)'}</option>
                     {Array.from(midiOutputs.values()).map((output: MIDIOutput) => <option key={output.id} value={output.id}>{output.name}</option>)}
                 </select>
               </div>
             </div>
+            {midiAccessStatus === 'granted' && midiInputs.size === 0 && midiOutputs.size === 0 && (
+              <p className="text-xs text-amber-400 mt-2 text-center">
+                No MIDI devices detected. Try clicking "Rescan Devices" or reconnecting your device.
+              </p>
+            )}
           </Section>
           
-          <Section title="Acoustic Piano Input (Beta)">
-            <ToggleRow id="audio-input-enabled" label="Enable Microphone Input" checked={isAudioInputEnabled} onChange={onIsAudioInputEnabledChange} />
-            <SettingRow label="Input Device" htmlFor="audio-input-device">
-                <select 
-                    id="audio-input-device" 
-                    value={selectedAudioInputId || ""} 
-                    onChange={e => onSelectedAudioInputIdChange(e.target.value || null)} 
-                    className={selectStyles} 
-                    disabled={!isAudioInputEnabled}
-                >
-                    {audioInputs.length === 0 ? (
-                        <option value="">No microphones found</option>
-                    ) : (
-                        audioInputs.map(device => (
-                            <option key={device.deviceId} value={device.deviceId}>{device.label || `Microphone ${audioInputs.indexOf(device) + 1}`}</option>
-                        ))
-                    )}
-                </select>
-            </SettingRow>
-            {audioInputError && <p className="text-xs text-red-400 text-center">{audioInputError}</p>}
-            
-            {isAudioInputEnabled && (
-                <div className="bg-slate-900/50 p-4 rounded-lg mt-4 space-y-4 ring-1 ring-slate-700">
-                    <h4 className="text-md font-semibold text-slate-200 border-b border-slate-700 pb-2">Detection Sensitivity</h4>
-                    <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-2">Adjust dB thresholds per range (Lower = More Sensitive)</p>
-                    
-                    {(Object.keys(micThresholds) as Array<keyof MicThresholds>).map(key => (
-                        <SettingRow key={key} label={`${key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())} (${micThresholds[key]} dB)`} htmlFor={`mic-thresh-${key}`}>
-                            <input 
-                                id={`mic-thresh-${key}`}
-                                type="range" 
-                                min="-100" 
-                                max="-20" 
-                                step="1" 
-                                value={micThresholds[key]} 
-                                onChange={e => handleThresholdChange(key, parseInt(e.target.value, 10))} 
-                                className={`${rangeSliderStyle} max-w-[150px] md:max-w-[200px]`} 
-                            />
-                        </SettingRow>
-                    ))}
-                </div>
-            )}
+          {instrumentMode === 'piano' && (
+            <Section title="Acoustic Piano Input (Beta)">
+              <ToggleRow id="audio-input-enabled" label="Enable Microphone Input" checked={isAudioInputEnabled} onChange={onIsAudioInputEnabledChange} />
+              <SettingRow label="Input Device" htmlFor="audio-input-device">
+                  <select 
+                      id="audio-input-device" 
+                      value={selectedAudioInputId || ""} 
+                      onChange={e => onSelectedAudioInputIdChange(e.target.value || null)} 
+                      className={selectStyles} 
+                      disabled={!isAudioInputEnabled}
+                  >
+                      {audioInputs.length === 0 ? (
+                          <option value="">No microphones found</option>
+                      ) : (
+                          audioInputs.map(device => (
+                              <option key={device.deviceId} value={device.deviceId}>{device.label || `Microphone ${audioInputs.indexOf(device) + 1}`}</option>
+                          ))
+                      )}
+                  </select>
+              </SettingRow>
+              {audioInputError && <p className="text-xs text-red-400 text-center">{audioInputError}</p>}
+              
+              {isAudioInputEnabled && (
+                  <div className="bg-slate-900/50 p-4 rounded-lg mt-4 space-y-4 ring-1 ring-slate-700">
+                      <h4 className="text-md font-semibold text-slate-200 border-b border-slate-700 pb-2">Detection Sensitivity</h4>
+                      <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-2">Adjust dB thresholds per range (Lower = More Sensitive)</p>
+                      
+                      {(Object.keys(micThresholds) as Array<keyof MicThresholds>).map(key => (
+                          <SettingRow key={key} label={`${key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())} (${micThresholds[key]} dB)`} htmlFor={`mic-thresh-${key}`}>
+                              <input 
+                                  id={`mic-thresh-${key}`}
+                                  type="range" 
+                                  min="-100" 
+                                  max="-20" 
+                                  step="1" 
+                                  value={micThresholds[key]} 
+                                  onChange={e => handleThresholdChange(key, parseInt(e.target.value, 10))} 
+                                  className={`${rangeSliderStyle} max-w-[150px] md:max-w-[200px]`} 
+                              />
+                          </SettingRow>
+                      ))}
+                  </div>
+              )}
 
-             <p className="text-xs text-slate-500 text-center mt-2">
-                This feature uses your microphone to detect notes. Adjust the dB thresholds above to filter out background noise or catch quiet notes.
-            </p>
-          </Section>
+               <p className="text-xs text-slate-500 text-center mt-2">
+                  This feature uses your microphone to detect notes. Adjust the dB thresholds above to filter out background noise or catch quiet notes.
+              </p>
+            </Section>
+          )}
 
           <Section title="Visuals & Gameplay">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <SettingRow label="Game View" htmlFor="view-mode">
-                <select id="view-mode" value={viewMode} onChange={e => onViewModeChange(e.target.value as ViewMode)} className={`${selectStyles} max-w-xs`} disabled={gameplayStyle === 'computer'}>
-                  <option value="falling">Falling Notes</option>
-                  <option value="sheet">Sheet Music</option>
-                  <option value="sheet-roll">Sheet Music Roll</option>
-                  {gameplayStyle !== 'piano' && <option value="sheet-qwerty">Sheet Music QWERTY</option>}
-                </select>
-              </SettingRow>
-              <SettingRow label="Note Labels" htmlFor="note-label">
-                <select id="note-label" value={noteLabelType} onChange={e => onNoteLabelTypeChange(e.target.value as NoteLabelType)} className={`${selectStyles} max-w-xs`} disabled={gameplayStyle === 'computer'}>
-                  <option value="none">None</option>
-                  <option value="fingering">Fingering (Beta)</option>
-                  <option value="noteName">Note Name</option>
-                  {gameplayStyle !== 'piano' && <option value="qwerty">QWERTY Keys</option>}
-                </select>
-              </SettingRow>
-            </div>
-            <ToggleRow id="major-notes-only" label="Show Only Major Notes (Falling Notes)" checked={showOnlyMajorNotes} onChange={onShowOnlyMajorNotesChange} disabled={gameplayStyle === 'computer'}/>
+            {(instrumentMode === 'piano' || instrumentMode === 'drum') && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <SettingRow label="Game View" htmlFor="view-mode">
+                  <select id="view-mode" value={viewMode} onChange={e => onViewModeChange(e.target.value as ViewMode)} className={`${selectStyles} max-w-xs`} disabled={gameplayStyle === 'computer'}>
+                    <option value="falling">{instrumentMode === 'drum' ? 'Drum Typer' : 'Falling Notes'}</option>
+                    {(instrumentMode === 'drum' || drumInputMode === 'midi') && <option value="drum_mania">Drum Mania</option>}
+                    <option value="sheet">Sheet Music</option>
+                    <option value="sheet-roll">Sheet Music Roll</option>
+                    {gameplayStyle !== 'piano' && <option value="sheet-qwerty">Sheet Music QWERTY</option>}
+                  </select>
+                </SettingRow>
+                <SettingRow label="Note Labels" htmlFor="note-label">
+                  <select id="note-label" value={noteLabelType} onChange={e => onNoteLabelTypeChange(e.target.value as NoteLabelType)} className={`${selectStyles} max-w-xs`} disabled={gameplayStyle === 'computer'}>
+                    <option value="none">None</option>
+                    <option value="fingering">Fingering (Beta)</option>
+                    <option value="noteName">Note Name</option>
+                    {gameplayStyle !== 'piano' && <option value="qwerty">QWERTY Keys</option>}
+                  </select>
+                </SettingRow>
+              </div>
+            )}
+            {instrumentMode === 'piano' && (
+              <ToggleRow id="major-notes-only" label="Show Only Major Notes (Falling Notes)" checked={showOnlyMajorNotes} onChange={onShowOnlyMajorNotesChange} disabled={gameplayStyle === 'computer'}/>
+            )}
             <ToggleRow id="show-piano-tiles" label="Show Piano Tiles Background" checked={showPianoTilesBackground} onChange={onShowPianoTilesBackgroundChange} />
+            
+            {instrumentMode === 'drum' && (
+              <div className="bg-slate-900/50 p-4 rounded-lg mt-4 space-y-4 ring-1 ring-slate-700">
+                <h4 className="text-md font-semibold text-slate-200 border-b border-slate-700 pb-2">Drum Visual Settings</h4>
+                
+                <SettingRow label="AR Direction" htmlFor="ar-direction">
+                  <select 
+                    id="ar-direction" 
+                    value={arDirection} 
+                    onChange={e => onArDirectionChange(e.target.value as 'normal' | 'reverse')} 
+                    className={selectStyles}
+                  >
+                    <option value="normal">Normal (Outside to Inside)</option>
+                    <option value="reverse">Reverse (Inside to Outside)</option>
+                  </select>
+                </SettingRow>
+              </div>
+            )}
+
             <ToggleRow id="qwerty-shortcuts" label="Show QWERTY Shortcuts on Keys" checked={showQwertyShortcuts} onChange={onShowQwertyShortcutsChange} disabled={true} />
             
             {/* Bar Navigation Info - Toggle removed to force visible */}
@@ -448,8 +525,6 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd"></path></svg>
               </button>
             </div>
-
-            <ToggleRow id="auto-hide-top-bar" label="Auto-hide Top Bar" checked={autoHideTopBar} onChange={onAutoHideTopBarChange} />
           </Section>
           
           <Section title="Audio">
@@ -463,10 +538,9 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                 value={masterVolume} 
                 onChange={e => onMasterVolumeChange(parseFloat(e.target.value))} 
                 className={`${rangeSliderStyle} max-w-xs`} 
-                disabled={isAudioInputEnabled || selectedMidiInputId !== null}
               />
             </SettingRow>
-            {(isAudioInputEnabled || selectedMidiInputId) && <p className="text-xs text-red-400 mt-1">Piano volume disabled when Microphone or MIDI Input is active.</p>}
+            {(isAudioInputEnabled || selectedMidiInputId) && <p className="text-xs text-amber-400 mt-1">Piano volume defaulted to 0% because MIDI/Mic is active. You can still adjust it manually.</p>}
             <SettingRow label={`Metronome Volume (${Math.round(metronomeVolume*100)}%)`} htmlFor="metronome-volume">
               <input 
                 id="metronome-volume" 
@@ -519,55 +593,63 @@ export const Settings: React.FC<SettingsProps> = (props) => {
             <SettingRow label="Falling Notes Background" htmlFor="bg-color">
               <input type="color" id="bg-color" value={themeSettings.fallingNotesBackgroundColor} onChange={e => onThemeSettingsChange({...themeSettings, fallingNotesBackgroundColor: e.target.value})} className={colorInputStyle} />
             </SettingRow>
-             {/* FIX: Use 'SettingRow' instead of 'Section' and fix invalid prop 'htmlFor' */}
-             <SettingRow label="Custom Background" htmlFor="bg-url">
-                <div className="flex items-center gap-2">
-                    <input
-                        type="text"
-                        id="bg-url"
-                        placeholder="Image or Video URL..."
-                        value={themeSettings.backgroundUrl?.startsWith('data:') ? 'Uploaded File' : themeSettings.backgroundUrl || ''}
-                        readOnly={themeSettings.backgroundUrl?.startsWith('data:')}
-                        onChange={e => onThemeSettingsChange({...themeSettings, backgroundUrl: e.target.value})}
-                        className={`${numberInputStyle} w-full max-w-xs flex-grow`}
-                    />
-                    <input
-                        type="file"
-                        ref={fileInputRef}
-                        onChange={handleBackgroundUpload}
-                        accept="image/png, image/jpeg, image/gif, video/mp4, video/webm"
-                        className="hidden"
-                        id="bg-upload-input"
-                    />
-                    <label htmlFor="bg-upload-input" className={`${commonButtonStyles} ${secondaryButtonStyles} cursor-pointer`}>
-                        Upload
-                    </label>
+            <SettingRow label="Hit Note Color" htmlFor="hit-note-color">
+              <input type="color" id="hit-note-color" value={themeSettings.hitNoteColor} onChange={e => onThemeSettingsChange({...themeSettings, hitNoteColor: e.target.value})} className={colorInputStyle} />
+            </SettingRow>
+            
+            <div className="mt-4 pt-4 border-t border-slate-700 space-y-4">
+              <h4 className="text-md font-semibold text-violet-400">Background Image / Video</h4>
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-3">
+                  <input
+                    type="text"
+                    placeholder="URL (Image or MP4)"
+                    value={themeSettings.backgroundUrl}
+                    onChange={e => onThemeSettingsChange({ ...themeSettings, backgroundUrl: e.target.value })}
+                    className={`${numberInputStyle} flex-grow`}
+                  />
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className={`${commonButtonStyles} ${secondaryButtonStyles}`}
+                  >
+                    Upload
+                  </button>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileChange}
+                    accept="image/*,video/mp4,video/webm"
+                    className="hidden"
+                  />
+                  {themeSettings.backgroundUrl && (
                     <button
-                        onClick={handleClearBackground}
-                        className={`${commonButtonStyles} bg-red-600 hover:bg-red-700 text-white`}
-                        title="Remove background"
+                      onClick={handleClearBackground}
+                      className={`${commonButtonStyles} bg-red-600/50 hover:bg-red-600 text-white`}
                     >
-                        Clear
+                      Clear
                     </button>
+                  )}
                 </div>
-            </SettingRow>
-            <SettingRow label={`Background Opacity (${Math.round((themeSettings.backgroundOpacity ?? 0.2) * 100)}%)`} htmlFor="bg-opacity">
-              <input
-                id="bg-opacity"
-                type="range"
-                min="0"
-                max="1"
-                step="0.05"
-                value={themeSettings.backgroundOpacity ?? 0.2}
-                onChange={e => onThemeSettingsChange({...themeSettings, backgroundOpacity: parseFloat(e.target.value)})}
-                className={`${rangeSliderStyle} max-w-xs`}
-              />
-            </SettingRow>
+                <SettingRow label={`Background Opacity (${Math.round((themeSettings.backgroundOpacity ?? 0.25) * 100)}%)`} htmlFor="bg-opacity">
+                  <input
+                    id="bg-opacity"
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={themeSettings.backgroundOpacity ?? 0.25}
+                    onChange={e => onThemeSettingsChange({ ...themeSettings, backgroundOpacity: parseFloat(e.target.value) })}
+                    className={`${rangeSliderStyle} max-w-xs`}
+                  />
+                </SettingRow>
+              </div>
+            </div>
           </Section>
         </div>
 
         <div className="mt-8 flex justify-center space-x-4">
              <button onClick={onBack} className={`${commonButtonStyles} ${secondaryButtonStyles} w-32`} style={{ zIndex: 9999 }}>Back</button>
+             <button onClick={() => { if(confirm('Reset all settings to default?')) onResetSettings(); }} className={`${commonButtonStyles} bg-red-600 hover:bg-red-700 text-white w-40`} style={{ zIndex: 9999 }}>Reset Settings</button>
         </div>
 
       </div>
