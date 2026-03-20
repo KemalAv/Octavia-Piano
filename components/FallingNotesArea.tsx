@@ -80,14 +80,32 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
   }, [backgroundColor]);
 
   const visibleNotes = React.useMemo(() => {
-    if (actualHeight <= 0 || pixelsPerMillisecond <= 0 || isRising) return [];
-    return notes.filter(note => {
+    if (actualHeight <= 0 || pixelsPerMillisecond <= 0) return [];
+    
+    // Efficiently find visible notes using the sorted property of notes
+    const minTime = currentTimeMs - 5000; // Stay visible for 5s after passing to ensure they fall off screen
+    const maxTime = currentTimeMs + VIEWABLE_DURATION_MS + 100;
+
+    let startIndex = 0;
+    // Linear search for start index is fine for most songs, but we could use binary search if needed
+    while (startIndex < notes.length && notes[startIndex].timeMs < minTime) {
+        startIndex++;
+    }
+
+    const result: MidiNotePlaybackItem[] = [];
+    for (let i = startIndex; i < notes.length; i++) {
+        const note = notes[i];
+        if (note.timeMs > maxTime) break;
+        
         const duration = showOnlyMajorNotes ? Math.min(note.durationMs, VISUAL_NOTE_CAP_MS) : note.durationMs;
-        const noteStartTimeVisible = note.timeMs < currentTimeMs + VIEWABLE_DURATION_MS;
-        const noteEndTimeVisible = note.timeMs + duration > currentTimeMs;
-        return noteStartTimeVisible && noteEndTimeVisible;
-    });
-  }, [notes, actualHeight, pixelsPerMillisecond, currentTimeMs, VIEWABLE_DURATION_MS, showOnlyMajorNotes, isRising]);
+        const noteEndTimeVisible = note.timeMs + duration > currentTimeMs - 5000;
+        
+        if (noteEndTimeVisible) {
+            result.push(note);
+        }
+    }
+    return result;
+  }, [notes, actualHeight, pixelsPerMillisecond, currentTimeMs, VIEWABLE_DURATION_MS, showOnlyMajorNotes]);
 
   const pianoTilesBackground = React.useMemo(() => {
     if (!showPianoTilesBackground || actualHeight <= 0) return null;
@@ -152,19 +170,20 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
   const renderedBarLines = React.useMemo(() => {
     if (!barLines || actualHeight <= 0 || pixelsPerMillisecond <= 0) return null;
 
-    return barLines
-      .map((barTimeMs, index) => {
+    const bufferMs = 50 / pixelsPerMillisecond;
+    const minTime = isRising ? currentTimeMs - VIEWABLE_DURATION_MS - bufferMs : currentTimeMs - bufferMs;
+    const maxTime = isRising ? currentTimeMs + bufferMs : currentTimeMs + VIEWABLE_DURATION_MS + bufferMs;
+
+    return barLines.reduce((acc, barTimeMs, index) => {
+      if (barTimeMs >= minTime && barTimeMs <= maxTime) {
         let yPositionPx: number;
         if (isRising) {
-            yPositionPx = actualHeight - (currentTimeMs - barTimeMs) * pixelsPerMillisecond;
+            yPositionPx = actualHeight - (currentTimeMs - barTimeMs) * pixelsPerMillisecond - PLAY_LINE_THICKNESS_PX;
         } else {
-            yPositionPx = actualHeight + (currentTimeMs - barTimeMs) * pixelsPerMillisecond;
+            yPositionPx = actualHeight + (currentTimeMs - barTimeMs) * pixelsPerMillisecond - PLAY_LINE_THICKNESS_PX;
         }
         
-        if (yPositionPx < -20 || yPositionPx > actualHeight + 20) {
-          return null;
-        }
-        return (
+        acc.push(
           <div
             key={`bar-line-container-${barTimeMs}`}
             className="absolute left-0 w-full pointer-events-none"
@@ -184,9 +203,10 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
             </span>
           </div>
         );
-      })
-      .filter(Boolean);
-  }, [barLines, currentTimeMs, actualHeight, pixelsPerMillisecond, isRising, isLightBackground, activeTempoBpm]);
+      }
+      return acc;
+    }, [] as React.JSX.Element[]);
+  }, [barLines, currentTimeMs, actualHeight, pixelsPerMillisecond, isRising, isLightBackground, VIEWABLE_DURATION_MS]);
 
   const dragRef = React.useRef<{ isDragging: boolean; startY: number; startTime: number } | null>(null);
 
@@ -340,7 +360,7 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
                 return (
                     <div
                         key={note.id}
-                        className="absolute rounded-sm flex items-end justify-center pb-1 text-white font-bold text-xs overflow-hidden"
+                        className="absolute rounded-none flex items-end justify-center pb-1 text-white font-bold text-xs overflow-hidden"
                         style={{
                             left: `${keyPos.type === 'black' ? keyPos.x + (keyPos.width * 0.1) : keyPos.x + 1}px`,
                             bottom: `${bottomPx}px`,
@@ -379,10 +399,13 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
                 const activeInfo = activeMidiNotesInfo.get(note.noteId);
                 const currentStatus = activeInfo ? activeInfo.status : null;
 
-                let yPositionPxCalc = -note.timeMs * pixelsPerMillisecond - noteHeightPx;
+                const timePast = currentTimeMs - note.timeMs;
+                const opacity = timePast > 0 ? Math.max(0, 1 - timePast / 500) : 1;
+
+                let yPositionPxCalc = -note.timeMs * pixelsPerMillisecond - noteHeightPx - PLAY_LINE_THICKNESS_PX;
 
                 if (currentStatus === 'waiting') {
-                    yPositionPxCalc = - (PLAY_LINE_THICKNESS_PX / 2) - noteHeightPx - note.timeMs * pixelsPerMillisecond;
+                    yPositionPxCalc = - PLAY_LINE_THICKNESS_PX - noteHeightPx - note.timeMs * pixelsPerMillisecond;
                 }
                 
                 let baseColor = note.hand === 'left' ? leftHandColor : rightHandColor;
@@ -434,7 +457,7 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
                 return (
                   <div
                     key={note.noteId}
-                    className="absolute rounded-sm flex items-end justify-center pb-1 text-white font-bold text-xs overflow-hidden"
+                    className="absolute rounded-none flex items-end justify-center pb-1 text-white font-bold text-xs overflow-hidden"
                     style={{
                         left: `${keyPos.type === 'black' ? keyPos.x + (keyPos.width * 0.1) : keyPos.x + 1}px`,
                         top: `${yPositionPxCalc}px`,

@@ -50,24 +50,31 @@ const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, lowDetailMode 
 
     try {
         addLog("Fetching songs...");
-        const { data: songs, error: fetchError } = await supabase.from('songs').select('id, title, file_path');
+        const { data: songs, error: fetchError } = await supabase.from('songs').select('id, title, file_path, instrument_mode');
         if (fetchError) throw fetchError;
         
         setTotal(songs.length);
         addLog(`Found ${songs.length} songs.`);
 
         let completed = 0;
-        for (const song of songs as OnlineSong[]) {
+        for (const song of songs as any[]) {
             try {
                 addLog(`Processing: ${song.title}`);
                 const { data: blob, error: dlError } = await supabase.storage.from('midi-files').download(song.file_path);
                 if (dlError) throw dlError;
 
                 const file = new File([blob!], 'temp.mid');
-                const analysisData = await parseFileForAnalysis(file, midiNoteToNameMap);
+                const isDrum = (song as any).instrument_mode === 'drum';
+                const currentMidiNoteToNameMap = new Map<number, string>();
+                PIANO_KEYS_CONFIG.forEach(key => currentMidiNoteToNameMap.set(key.midiNote, key.name));
+                if (isDrum) {
+                    Object.entries(DRUM_MIDI_TO_NAME_MAP).forEach(([midi, name]) => currentMidiNoteToNameMap.set(parseInt(midi), name));
+                }
+
+                const analysisData = await parseFileForAnalysis(file, currentMidiNoteToNameMap);
                 if (!analysisData) throw new Error("Parse failed");
 
-                const result = analyzeMidi(analysisData.notes, analysisData.originalTotalMusicalDurationMs, undefined, analysisData.originalTotalMusicalDurationMs);
+                const result = analyzeMidi(analysisData.notes, analysisData.originalTotalMusicalDurationMs, undefined, analysisData.originalTotalMusicalDurationMs, (song as any).instrument_mode);
                 const newPS = result?.performanceScore || 0;
 
                 const { error: upError } = await supabase.from('songs').update({
@@ -148,11 +155,34 @@ const handleRecalculatePlayerScores = useCallback(async () => {
               const score = ((entry.perfect_count || 0) * 1.0) + ((entry.great_count || 0) * 0.3333333333) + ((entry.good_count || 0) * 0.1666666667);
               const accuracy = effectiveTotal > 0 ? (score / effectiveTotal) * 100 : 100;
 
-              const speedEff = 100;
+              // If Base PS is fixed (>= 100), we must include speed in gameplayPS.
+              // If Base PS scales (< 100), speed is already in Base PS, so we use 100 for speedEff.
+              const speedEff = basePS >= 100 ? ((entry.tempo_multiplier || 1) * 100) : 100;
               const gameplayPS = (accuracy + speedEff) / 2;
 
-              // Formula: Base Score × max(0, (g - 75) / 25)^1.5
-              const calculatedFinalScore = basePS * Math.pow(Math.max(0, (gameplayPS - 75) / 25), 1.5);
+              let rank = "D";
+              if (gameplayPS >= 100) rank = "X";
+              else if (gameplayPS >= 97.5) rank = "SS";
+              else if (gameplayPS >= 95) rank = "S";
+              else if (gameplayPS >= 92.5) rank = "A";
+              else if (gameplayPS >= 90) rank = "B";
+              else if (gameplayPS >= 87.5) rank = "C";
+              else rank = "D";
+
+              let multiplier = Math.pow(Math.max(0, (gameplayPS - 75) / 25), 4);
+              if (gameplayPS >= 97.5) {
+                multiplier += (1 - multiplier) * 0.55;
+              } else if (gameplayPS >= 95) {
+                multiplier += (1 - multiplier) * 0.45;
+              } else if (gameplayPS >= 92.5) {
+                multiplier += (1 - multiplier) * 0.25;
+              } else if (gameplayPS >= 90) {
+                multiplier += (1 - multiplier) * 0.10;
+              } else if (gameplayPS >= 87.5) {
+                multiplier += (1 - multiplier) * 0.05;
+              }
+
+              const calculatedFinalScore = basePS * multiplier;
 
               const newFinalScore = parseFloat(calculatedFinalScore.toFixed(2));
 
@@ -162,15 +192,6 @@ const handleRecalculatePlayerScores = useCallback(async () => {
                   setProgress(completed);
                   continue;
               }
-
-              // Tentukan Rank berdasarkan gameplayPS (sesuai normal calculation di App.tsx)
-              let rank = "D";
-              if (gameplayPS >= 100) rank = "X";
-              else if (gameplayPS >= 97.5) rank = "SS";
-              else if (gameplayPS >= 95) rank = "S";
-              else if (gameplayPS >= 91.25) rank = "A";
-              else if (gameplayPS >= 87.5) rank = "B";
-              else if (gameplayPS >= 75) rank = "C";
 
               // UPDATE
               const { error: upError } = await supabase
@@ -212,14 +233,14 @@ const handleRecalculatePlayerScores = useCallback(async () => {
         
         <div className="space-y-4 mb-6">
             <div className="bg-slate-900/50 p-4 rounded-lg border border-red-500/30">
-                <h3 className="text-lg font-bold text-red-400 mb-1">Step 1: Update Song Metadata</h3>
-                <p className="text-xs text-slate-400 mb-3">Re-analyzes MIDI files to set new base Performance Scores in 'songs' table.</p>
+                <h3 className="text-lg font-bold text-red-400 mb-1">Step 1: Update Song Metadata (Piano & Drum)</h3>
+                <p className="text-xs text-slate-400 mb-3">Re-analyzes MIDI files for both Piano and Drum modes to set new base Performance Scores.</p>
                 <button onClick={handleReanalyze} disabled={isLoading} className="w-full bg-red-600 hover:bg-red-700 py-2 rounded font-bold disabled:opacity-50">Run Song Analysis</button>
             </div>
 
             <div className="bg-slate-900/50 p-4 rounded-lg border border-orange-500/30">
                 <h3 className="text-lg font-bold text-orange-400 mb-1">Step 2: Recalculate Player Scores</h3>
-                <p className="text-xs text-slate-400 mb-3">Updates 'scores' table using the new base PS from 'songs'.</p>
+                <p className="text-xs text-slate-400 mb-3">Recalculate Player Scores match new system</p>
                 <button onClick={handleRecalculatePlayerScores} disabled={isLoading} className="w-full bg-orange-600 hover:bg-orange-700 py-2 rounded font-bold disabled:opacity-50">Run Score Recalculation</button>
             </div>
         </div>

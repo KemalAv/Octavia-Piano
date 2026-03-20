@@ -201,7 +201,7 @@ export async function parseMidiData(
         }
     });
 
-    const rawNotes: Omit<MidiNotePlaybackItem, 'noteId'>[] = [];
+    const uniqueNotesMap = new Map<string, Omit<MidiNotePlaybackItem, 'noteId'>>();
     midi.tracks.forEach((track, trackIndex) => {
         track.notes.forEach(note => {
             // Removed the duration filter (note.durationTicks < ppq / 32) to ensure all notes,
@@ -225,7 +225,7 @@ export async function parseMidiData(
                     hand = note.midi < HAND_SPLIT_MIDI_NOTE ? 'left' : 'right';
                 }
 
-                rawNotes.push({
+                const newNote = {
                     midi: note.midi,
                     timeMs: Math.round(note.time * 1000) + INITIAL_PLAYBACK_DELAY_MS,
                     durationMs: Math.round(note.duration * 1000),
@@ -236,11 +236,23 @@ export async function parseMidiData(
                     originalTrackSourceInfo: `midi_track_${trackIndex}`,
                     ticks: note.ticks,
                     durationTicks: note.durationTicks
-                });
+                };
+
+                const key = `${note.ticks}_${note.midi}`;
+                if (uniqueNotesMap.has(key)) {
+                    const existingNote = uniqueNotesMap.get(key)!;
+                    // If the existing note is right hand and the new one is left hand, replace it.
+                    if (existingNote.hand === 'right' && newNote.hand === 'left') {
+                        uniqueNotesMap.set(key, newNote);
+                    }
+                } else {
+                    uniqueNotesMap.set(key, newNote);
+                }
             }
         });
     });
 
+    const rawNotes = Array.from(uniqueNotesMap.values());
     rawNotes.sort((a, b) => a.timeMs - b.timeMs);
 
     if (midi.header.keySignatures.length === 0) {
@@ -475,13 +487,26 @@ export async function parseMusicXmlData(
         });
     });
 
-    rawNotes.sort((a, b) => a.timeMs - b.timeMs || (a.ticks ?? 0) - (b.ticks ?? 0));
+    const uniqueNotesMap = new Map<string, Omit<MidiNotePlaybackItem, 'noteId'>>();
+    for (const note of rawNotes) {
+        const key = `${note.ticks}_${note.midi}`;
+        if (uniqueNotesMap.has(key)) {
+            const existingNote = uniqueNotesMap.get(key)!;
+            if (existingNote.hand === 'right' && note.hand === 'left') {
+                uniqueNotesMap.set(key, note);
+            }
+        } else {
+            uniqueNotesMap.set(key, note);
+        }
+    }
+    const deduplicatedNotes = Array.from(uniqueNotesMap.values());
+    deduplicatedNotes.sort((a, b) => a.timeMs - b.timeMs || (a.ticks ?? 0) - (b.ticks ?? 0));
 
     // Check if any key events were explicitly parsed
     const hasKeyEvents = signatureEventsFromXml.some(e => e.key !== undefined);
 
     if (!hasKeyEvents) {
-        keySignature = guessKeySignature(rawNotes);
+        keySignature = guessKeySignature(deduplicatedNotes);
         signatureEventsFromXml.push({
             timeMs: 0,
             key: keySignature
@@ -489,7 +514,7 @@ export async function parseMusicXmlData(
     }
 
     let counter = 0;
-    const notes: MidiNotePlaybackItem[] = rawNotes.map(n => ({
+    const notes: MidiNotePlaybackItem[] = deduplicatedNotes.map(n => ({
         ...n,
         noteId: `xml-${n.originalTrackSourceInfo}-${n.ticks}-${counter++}`
     }));

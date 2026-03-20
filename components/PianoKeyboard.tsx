@@ -54,21 +54,39 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
   const isMouseDownRef = useRef(false);
   const activeMouseKeyRef = useRef<string | null>(null);
 
+  const whiteKeysPos = React.useMemo(() => keyPositions.filter(kp => kp.type === 'white'), [keyPositions]);
+  const blackKeysPos = React.useMemo(() => keyPositions.filter(kp => kp.type === 'black'), [keyPositions]);
+
   const getKeyFromClientCoords = useCallback((clientX: number, clientY: number): PianoKeyDefinition | null => {
-    const element = document.elementFromPoint(clientX, clientY);
-    if (!element) return null;
-    const keyName = element.getAttribute('data-key-name');
-    if (keyName) {
-      return keyDefMap.get(keyName) || null;
+    if (!keyPositions.length) return null;
+    
+    // Get the bounding rect of the keyboard container to calculate relative X
+    const container = document.querySelector('[aria-label="Interactive Piano Keyboard"]');
+    if (!container) return null;
+    
+    const rect = container.getBoundingClientRect();
+    const relativeX = clientX - rect.left;
+    const relativeY = clientY - rect.top;
+
+    // Check if within vertical bounds of the keyboard area (excluding labels)
+    if (relativeY < 0 || relativeY > layoutConfig.whiteKeyHeight) return null;
+
+    // Check black keys first (they are on top)
+    for (const kp of blackKeysPos) {
+      if (relativeX >= kp.x && relativeX <= kp.x + kp.width && relativeY <= layoutConfig.blackKeyHeight) {
+        return keyDefMap.get(kp.name) || null;
+      }
     }
-    if (element.parentElement) {
-        const parentKeyName = element.parentElement.getAttribute('data-key-name');
-        if(parentKeyName) {
-            return keyDefMap.get(parentKeyName) || null;
-        }
+
+    // Check white keys
+    for (const kp of whiteKeysPos) {
+      if (relativeX >= kp.x && relativeX <= kp.x + kp.width) {
+        return keyDefMap.get(kp.name) || null;
+      }
     }
+
     return null;
-  }, [keyDefMap]);
+  }, [whiteKeysPos, blackKeysPos, keyDefMap, layoutConfig]);
 
   const handleTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -172,9 +190,6 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
 
   const pianoDisplayWidth = width;
   const totalHeight = layoutConfig.whiteKeyHeight + layoutConfig.keyLabelHeight;
-
-  const whiteKeysPos = React.useMemo(() => keyPositions.filter(kp => kp.type === 'white'), [keyPositions]);
-  const blackKeysPos = React.useMemo(() => keyPositions.filter(kp => kp.type === 'black'), [keyPositions]);
 
   if (keyPositions.length === 0 || pianoDisplayWidth === 0) {
     return null; 

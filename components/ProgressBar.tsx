@@ -12,6 +12,7 @@ interface ProgressBarProps {
   isSeekingDisabled?: boolean;
   loopStartMs: number | null;
   loopEndMs: number | null;
+  barLines?: number[];
 }
 
 const ProgressBar: React.FC<ProgressBarProps> = ({
@@ -24,6 +25,7 @@ const ProgressBar: React.FC<ProgressBarProps> = ({
   isSeekingDisabled,
   loopStartMs,
   loopEndMs,
+  barLines = [],
 }) => {
   const progressBarRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -156,6 +158,21 @@ const ProgressBar: React.FC<ProgressBarProps> = ({
     }
   };
 
+  const barMarkers = React.useMemo(() => {
+    if (totalDurationMs <= 0 || !barLines.length) return null;
+    return barLines.map((barTimeMs, index) => {
+      const barPercent = (barTimeMs / totalDurationMs) * 100;
+      if (barPercent < 0 || barPercent > 100) return null;
+      return (
+        <div
+          key={`bar-${index}`}
+          className="absolute top-0 w-[1px] h-full bg-white/40 pointer-events-none"
+          style={{ left: `${barPercent}%` }}
+        />
+      );
+    });
+  }, [barLines, totalDurationMs]);
+
   return (
     <div
       ref={progressBarRef}
@@ -186,6 +203,7 @@ const ProgressBar: React.FC<ProgressBarProps> = ({
         className="bg-lime-500 absolute top-0 left-0 h-full"
         style={fillStyle}
       />
+      {barMarkers}
     </div>
   );
 };

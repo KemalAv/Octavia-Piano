@@ -29,8 +29,10 @@ interface DrumViewProps {
     onPadDown?: (padId: string) => void;
     onPadUp?: (padId: string) => void;
     themeSettings: ThemeSettings;
-    arDirection?: 'normal' | 'reverse';
+    zoomDirection?: 'normal' | 'reverse';
     zoomScale?: number;
+    isPaused?: boolean;
+    onSeek?: (timeMs: number) => void;
 }
 
 export const DrumView: React.FC<DrumViewProps> = ({
@@ -44,8 +46,10 @@ export const DrumView: React.FC<DrumViewProps> = ({
     onPadDown,
     onPadUp,
     themeSettings,
-    arDirection = 'normal',
-    zoomScale = 1
+    zoomDirection = 'normal',
+    zoomScale = 1,
+    isPaused = false,
+    onSeek
 }) => {
 
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -91,10 +95,9 @@ export const DrumView: React.FC<DrumViewProps> = ({
     }, []);
 
     const activePointersRef = useRef<Map<number, string>>(new Map());
+    const dragRef = useRef<{ isDragging: boolean; startX: number; startTime: number } | null>(null);
 
     const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-        if (!onPadDown) return;
-
         const canvas = canvasRef.current;
         if (!canvas) return;
 
@@ -106,6 +109,7 @@ export const DrumView: React.FC<DrumViewProps> = ({
         const centerX = dimensions.width / 2;
         const centerY = dimensions.height / 2;
 
+        let hitPad = false;
         for (const pad of DRUM_PADS) {
             const cx = centerX + (pad.x * dimensions.width - centerX) * layoutScale;
             const cy = centerY + (pad.y * dimensions.height - centerY) * layoutScale;
@@ -121,10 +125,30 @@ export const DrumView: React.FC<DrumViewProps> = ({
             const dy = y - cy;
 
             if (Math.sqrt(dx * dx + dy * dy) <= r) {
-                activePointersRef.current.set(e.pointerId, pad.id);
-                onPadDown(pad.id);
+                if (onPadDown) {
+                    activePointersRef.current.set(e.pointerId, pad.id);
+                    onPadDown(pad.id);
+                }
+                hitPad = true;
                 break;
             }
+        }
+
+        if (!hitPad && isPaused) {
+            dragRef.current = {
+                isDragging: true,
+                startX: e.clientX,
+                startTime: currentTimeMs
+            };
+        }
+    };
+
+    const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+        if (dragRef.current && dragRef.current.isDragging && onSeek) {
+            const deltaX = e.clientX - dragRef.current.startX;
+            const pixelsPerMillisecond = 1000 / approachDurationMsRef.current;
+            const deltaTime = -deltaX / (pixelsPerMillisecond || 0.5);
+            onSeek(dragRef.current.startTime + deltaTime);
         }
     };
 
@@ -134,6 +158,9 @@ export const DrumView: React.FC<DrumViewProps> = ({
             onPadUp(padId);
             activePointersRef.current.delete(e.pointerId);
         }
+        if (dragRef.current) {
+            dragRef.current.isDragging = false;
+        }
     };
 
     const handlePointerLeave = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -142,6 +169,17 @@ export const DrumView: React.FC<DrumViewProps> = ({
             onPadUp(padId);
             activePointersRef.current.delete(e.pointerId);
         }
+        if (dragRef.current) {
+            dragRef.current.isDragging = false;
+        }
+    };
+
+    const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
+        if (!isPaused || !onSeek) return;
+        const delta = e.deltaX || e.deltaY;
+        const pixelsPerMillisecond = 1000 / approachDurationMsRef.current;
+        const deltaTime = delta / (pixelsPerMillisecond || 0.5);
+        onSeek(currentTimeMs + deltaTime);
     };
 
     useEffect(() => {
@@ -417,45 +455,9 @@ export const DrumView: React.FC<DrumViewProps> = ({
 
                 const timeUntilHit = note.timeMs - currentMs;
 
-                return timeUntilHit > -200 && timeUntilHit <= approachDurationMsRef.current;
+                return timeUntilHit > 0 && timeUntilHit <= approachDurationMsRef.current;
 
             });
-// Handle hi-hat connection lines (midi 42 - Closed Hi-Hat)
-const closedHiHatNotes = visibleNotes.filter(n => n.midi === 42);
-
-closedHiHatNotes.forEach(note => {
-
-    const timeUntilHit = note.timeMs - currentMs;
-    const progress = 1 - (timeUntilHit / approachDurationMsRef.current);
-
-    if (progress >= 0 && progress <= 1.2) {
-
-        const hihatPad = DRUM_PADS.find(p => p.id === 'hihat');
-        const footPad = DRUM_PADS.find(p => p.id === 'hihat_foot');
-
-        if (hihatPad && footPad) {
-
-            const hx = centerX + (hihatPad.x * dimensions.width - centerX) * layoutScale;
-            const hy = centerY + (hihatPad.y * dimensions.height - centerY) * layoutScale;
-
-            const fx = centerX + (footPad.x * dimensions.width - centerX) * layoutScale;
-            const fy = centerY + (footPad.y * dimensions.height - centerY) * layoutScale;
-
-            ctx.beginPath();
-
-            ctx.moveTo(hx, hy);
-            ctx.lineTo(fx, fy);
-
-            ctx.strokeStyle = `rgba(139,92,246,${progress})`;
-            ctx.lineWidth = 2;
-
-            ctx.stroke();
-
-        }
-
-    }
-
-});
             visibleNotes.forEach(note => {
 
                 const pad = MIDI_TO_PAD_MAP.get(note.midi);
@@ -466,12 +468,27 @@ closedHiHatNotes.forEach(note => {
 
                 const progress = 1 - (timeUntilHit / approachDurationMsRef.current);
 
-                if (progress >= 0 && progress <= 1.2) {
+                if (timeUntilHit <= approachDurationMsRef.current && timeUntilHit > 0) {
 
                     const cx = centerX + (pad.x * dimensions.width - centerX) * layoutScale;
                     const cy = centerY + (pad.y * dimensions.height - centerY) * layoutScale;
 
-                    let maxR = pad.radius * dimensions.height;
+                    // Handle hi-hat connection lines (midi 42 - Closed Hi-Hat)
+                    if (note.midi === 42) {
+                        const footPad = DRUM_PADS.find(p => p.id === 'hihat_foot');
+                        if (footPad) {
+                            const fx = centerX + (footPad.x * dimensions.width - centerX) * layoutScale;
+                            const fy = centerY + (footPad.y * dimensions.height - centerY) * layoutScale;
+                            ctx.beginPath();
+                            ctx.moveTo(cx, cy);
+                            ctx.lineTo(fx, fy);
+                            ctx.strokeStyle = `rgba(139,92,246,1)`;
+                            ctx.lineWidth = 2;
+                            ctx.stroke();
+                        }
+                    }
+
+                    let maxR = pad.radius * dimensions.height / zoomScale;
 
                     if (pad.id === "bass") maxR *= 1.4;
                     if (pad.id === "snare") maxR *= 1.2;
@@ -481,10 +498,10 @@ closedHiHatNotes.forEach(note => {
 
                     let currentR: number;
 
-                    if (arDirection === 'reverse') {
-                        currentR = Math.max(0.1 * maxR, progress * maxR);
+                    if (zoomDirection === 'reverse') {
+                        currentR = Math.max(0.1 * maxR, progress * maxR * zoomScale);
                     } else {
-                        currentR = Math.max(maxR, (2 - progress) * maxR);
+                        currentR = Math.max(maxR * zoomScale, (2 - progress) * maxR * zoomScale);
                     }
 
                     const opacity = Math.min(1, progress * 2);
@@ -535,14 +552,16 @@ closedHiHatNotes.forEach(note => {
     }, [dimensions, drumInputMode, themeSettings]);
 
     return (
-        <div className="w-full h-full relative overflow-hidden touch-none">
+        <div className={`w-full h-full relative overflow-hidden touch-none ${isPaused ? 'cursor-ns-resize' : ''}`}>
 
             <canvas
                 ref={canvasRef}
                 onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
                 onPointerLeave={handlePointerLeave}
                 onPointerCancel={handlePointerLeave}
+                onWheel={handleWheel}
                 className="relative z-10"
                 style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none' }}
             />

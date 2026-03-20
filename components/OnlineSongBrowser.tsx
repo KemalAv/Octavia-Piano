@@ -10,13 +10,6 @@ import LeaderboardModal from './LeaderboardModal';
 import PerformanceSummaryModal from './PerformanceSummaryModal'; // NEW: Import PerformanceSummaryModal
 import { convertScoreToPerformanceSummary } from '../utils'; // NEW: Import utility for score conversion
 
-// This is necessary to prevent TypeScript errors with the adsbygoogle property on window
-declare global {
-  interface Window {
-    adsbygoogle: any[];
-  }
-}
-
 // Temporary cache for user usernames to avoid redundant Supabase calls
 const userUsernameCache = new Map<string, string>();
 
@@ -579,6 +572,10 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
     setDeleteError(null);
 
     try {
+      // Check if instrument_mode column exists in songs table
+      const { data: testSongData, error: testSongError } = await supabase.from('songs').select('instrument_mode').limit(1);
+      const hasSongInstrumentMode = !testSongError || testSongError.code !== '42703';
+
       let updateData: any = {
         title: editTitle,
         artist: editArtist,
@@ -589,6 +586,10 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
         background_url: editBackgroundUrl.trim() || null,
         accuracy_level: editAccuracyLevel,
       };
+
+      if (hasSongInstrumentMode) {
+        updateData.instrument_mode = instrumentMode;
+      }
 
       // If file is being replaced
       if (editFile) {
@@ -815,8 +816,6 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
 
   return (
     <div className="w-full h-full flex flex-col">
-      {/* Show AdBanner only if there are songs listed (i.e. content is present) */}
-
       <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
         <input
           type="text"

@@ -129,7 +129,6 @@ const MainMenu: React.FC<MainMenuProps> = ({
         </div>
         
         <div className="mt-8 pt-4 border-t border-white/5">
-            <p className="text-xs text-slate-500 mb-2">v1.0.6 &bull; Created by Kemal Av</p>
             <div className="flex justify-center gap-4 text-xs text-slate-400 flex-wrap">
                 <button onClick={() => onNavigate('howToConnect')} className="hover:text-cyan-400 transition-colors">How to Connect</button>
                 <button onClick={() => onNavigate('about')} className="hover:text-cyan-400 transition-colors">About</button>

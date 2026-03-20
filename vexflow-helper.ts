@@ -664,6 +664,7 @@ export const getVexFlowRenderData = (
         if (m.newTempoBpm !== undefined) tempoMarkings.push({ bpm: Math.round(m.newTempoBpm * playbackTempoMultiplier), x: cumulativeWidth, y: topStaveYOffset - 10 });
         
         const addOctaveLine = (check: (idx: number) => boolean, type: OctaveLineInfo['type'], hand: 'right' | 'left', yOff: number) => {
+            if (instrumentMode === 'drum') return;
             if (check(i) && (i === 0 || !check(i-1))) {
                 let end = i, w = 0; while (end < tempMeasures.length && check(end)) { w += tempMeasures[end].width; end++; }
                 octaveLines.push({ type, hand, startX: cumulativeWidth, endX: cumulativeWidth + w, startY: topStaveYOffset + yOff, endY: topStaveYOffset + yOff });

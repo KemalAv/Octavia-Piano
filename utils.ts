@@ -11,10 +11,7 @@
 export const getNoteZoom = (zoom: number, isRollView: boolean = false): number => {
   if (isRollView) return zoom; // Use linear zoom for roll view to keep sync
   if (zoom <= 0) return 0;
-  if (zoom >= 1) return zoom;
-  // A power of 1.6 provides an aggressive curve that matches the desired behavior
-  // where note widths shrink rapidly as zoom decreases below 100%.
-  return Math.pow(zoom, 1.6);
+  return zoom;
 };
 
 /**
@@ -31,10 +28,7 @@ export const getNoteZoom = (zoom: number, isRollView: boolean = false): number =
 export const getLayoutZoom = (zoom: number, isRollView: boolean = false): number => {
   if (isRollView) return zoom; // Use linear zoom for roll view to keep sync
   if (zoom <= 0) return 0;
-  if (zoom >= 1) return zoom;
-  // The 4th root (power of 0.25) provides a gentle curve that keeps the layout
-  // relatively wide even at low zoom levels, matching the requirements.
-  return Math.pow(zoom, 0.25);
+  return zoom;
 };
 
 // --- Enharmonic Correction Constants ---
@@ -318,6 +312,8 @@ export const getBeatTimesInWindow = (
                 timeMs: beatScaledTime,
                 // The first beat generated after a bar line is always the strong beat
                 isStrong: beatCount === 0,
+                beatIndex: beatCount,
+                timeSignature: activeTimeSignature,
             });
         }
         

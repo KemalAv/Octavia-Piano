@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { MidiAccessStatus, MIDIInput, MIDIOutput, NoteLabelType, ViewMode, ThemeSettings, DevicePreset, LayoutDimensions, QwertyLayout } from '../types';
-import { DEVICE_LAYOUTS } from '../constants'; // Import DEVICE_LAYOUTS
+import { MidiAccessStatus, MIDIInput, MIDIOutput, NoteLabelType, ViewMode, ThemeSettings, DevicePreset, LayoutDimensions, QwertyLayout } from './types';
+import { DEVICE_LAYOUTS } from './constants'; // Import DEVICE_LAYOUTS
 
 interface SettingsProps {
   onBack: () => void;

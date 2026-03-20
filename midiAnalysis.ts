@@ -1,4 +1,5 @@
 import { MidiNotePlaybackItem, AnalysisResult, ExtendedResult, AnalysisConfig } from './types';
+import { DRUM_PADS } from './constants';
 
 export const DEFAULT_ANALYSIS_CONFIG: AnalysisConfig = {
 densityWindowMs: 1000,
@@ -473,13 +474,11 @@ function calculateDifficultyLevels(performanceScore: number): { difficultyLevel:
 }
 
 
-// ============================================================
-// CHUNK ANALYSIS (original analyzeMidi)
-// ============================================================
 function _analyzeMidiChunk(
   notes: MidiNotePlaybackItem[],
   totalDurationMs: number,
-  config: AnalysisConfig = DEFAULT_ANALYSIS_CONFIG
+  config: AnalysisConfig = DEFAULT_ANALYSIS_CONFIG,
+  instrumentMode?: 'piano' | 'drum'
 ): ExtendedResult | null {
   if (!notes.length || totalDurationMs <= 500) return null;
 
@@ -610,7 +609,8 @@ function analyzeMidiInternal(
     notes: MidiNotePlaybackItem[],
     totalDurationMs: number,
     config: AnalysisConfig = DEFAULT_ANALYSIS_CONFIG,
-    originalDurationMsForChunking?: number
+    originalDurationMsForChunking?: number,
+    instrumentMode?: 'piano' | 'drum'
 ): ExtendedResult | null {
     if (!notes.length || totalDurationMs <= 500) return null;
 
@@ -629,7 +629,7 @@ function analyzeMidiInternal(
 
     // If song is short (based on original duration), analyze the whole thing as one chunk.
     if (durationForChunkingDecision <= CHUNK_DURATION_MS * 1.5) {
-        return _analyzeMidiChunk(normalizedNotes, normalizedDuration, config);
+        return _analyzeMidiChunk(normalizedNotes, normalizedDuration, config, instrumentMode);
     }
 
     const chunkAnalyses: ExtendedResult[] = [];
@@ -650,7 +650,7 @@ function analyzeMidiInternal(
         if (chunkNotes.length > MIN_NOTES_FOR_ANALYSIS) { 
             const relativeChunkNotes = chunkNotes.map(n => ({ ...n, timeMs: n.timeMs - startTime }));
             const chunkDuration = Math.min(scaledChunkDurationMs, normalizedDuration - startTime);
-            const analysis = _analyzeMidiChunk(relativeChunkNotes, chunkDuration, config);
+            const analysis = _analyzeMidiChunk(relativeChunkNotes, chunkDuration, config, instrumentMode);
             
             if (analysis) {
                 chunkAnalyses.push(analysis);
@@ -660,7 +660,7 @@ function analyzeMidiInternal(
 
     if (chunkAnalyses.length === 0) {
         // Fallback if no valid chunks were found (e.g., very sparse song)
-        return _analyzeMidiChunk(normalizedNotes, normalizedDuration, config);
+        return _analyzeMidiChunk(normalizedNotes, normalizedDuration, config, instrumentMode);
     }
     
     if (chunkAnalyses.length === 1) {
@@ -694,7 +694,7 @@ function analyzeMidiInternal(
     const { difficultyLevel, starLevel } = calculateDifficultyLevels(finalPerformanceScore);
 
     // Get meta stats for the whole song by running a one-off analysis
-    const wholeSongMeta = _analyzeMidiChunk(normalizedNotes, normalizedDuration, config)?.meta;
+    const wholeSongMeta = _analyzeMidiChunk(normalizedNotes, normalizedDuration, config, instrumentMode)?.meta;
 
     // Create a final result object.
     // Use parameters from the hardest chunk, but override the main scores and meta.
@@ -722,8 +722,15 @@ export function analyzeMidi(
     originalDurationMsForChunking?: number,
     instrumentMode?: 'piano' | 'drum'
 ): ExtendedResult | null {
+    let processedNotes = notes;
+    if (instrumentMode === 'drum') {
+        const allowedMidiNotes = new Set<number>();
+        DRUM_PADS.forEach(pad => pad.midiNotes.forEach(note => allowedMidiNotes.add(note)));
+        processedNotes = notes.filter(n => allowedMidiNotes.has(n.midi));
+    }
+
     // This is the main analysis for the given (potentially scaled) tempo
-    const currentResult = analyzeMidiInternal(notes, totalDurationMs, config, originalDurationMsForChunking);
+    const currentResult = analyzeMidiInternal(processedNotes, totalDurationMs, config, originalDurationMsForChunking, instrumentMode);
 
     // Determine if tempo has been scaled
     const playbackTempoMultiplier = (originalDurationMsForChunking && totalDurationMs > 0 && originalDurationMsForChunking > 0)
@@ -732,35 +739,13 @@ export function analyzeMidi(
     
     // If tempo is scaled, we need the original score to apply the special logic.
     if (Math.abs(playbackTempoMultiplier - 1.0) >= 0.001 && currentResult) {
-        // Un-scale the notes to get their original timings.
-        const originalNotes = notes.map(n => ({
-            ...n,
-            timeMs: n.timeMs * playbackTempoMultiplier,
-            durationMs: n.durationMs * playbackTempoMultiplier,
-        }));
-        
-        const originalAnalysis = analyzeMidiInternal(originalNotes, originalDurationMsForChunking!, config, originalDurationMsForChunking);
-        const originalScore = originalAnalysis?.performanceScore;
-
-        // The special "imitation" logic now applies ALWAYS based on user request ("follow tempo multiplier")
-        if (originalScore) {
-            // Unconditionally use linear scaling to match the "follow tempo multiplier" requirement for base score.
-            const scaledScore = Math.round(originalScore * playbackTempoMultiplier);
-            
-            // Recalculate levels based on the new "imitated" score
-            const { difficultyLevel, starLevel } = calculateDifficultyLevels(scaledScore);
-            
-            // We use the detailed analysis from the *current* tempo (for parameters like NPS),
-            // but override the final summary scores with our simplified values.
-            currentResult.performanceScore = scaledScore;
-            currentResult.difficultyLevel = difficultyLevel;
-            currentResult.parameters.starLevel = starLevel;
-        }
+        // For all songs, the score should scale with tempo.
+        // The standard analysis already handles this by using the scaled notes.
     }
     
-    // For songs with original score >= 100, or if original score couldn't be calculated,
+    // For songs with original score < 100, or if original score couldn't be calculated,
     // return the result from the standard analysis, which is working as expected.
-    
+
     if (currentResult && instrumentMode === 'drum') {
         const pianoScore = currentResult.performanceScore;
         // Formula: (drum score) = 0.5 * (piano score) ^ 1.5

@@ -70,7 +70,8 @@ const OffsetMeter = ({ offset, perfectWindow, greatWindow, goodWindow }: { offse
   const maxDisplayOffset = 500; // Fixed max display range for the entire bar
   const clampedOffset = Math.max(-maxDisplayOffset, Math.min(maxDisplayOffset, offset));
   
-  // Position of the indicator (0% is +500ms, 50% is 0ms, 100% is -500ms)
+  // Adjusted indicator logic: Positive offset (Early) moves Left, Negative offset (Late) moves Right
+  // To match user request: Early (Positive) should be labeled +, Late (Negative) should be labeled -
   const indicatorPercentage = 50 - (clampedOffset / maxDisplayOffset) * 50;
   
   // Widths of the zones (as percentage of the total bar width)
@@ -106,7 +107,7 @@ const OffsetMeter = ({ offset, perfectWindow, greatWindow, goodWindow }: { offse
         ></div>
       </div>
       
-      {/* Labels */}
+      {/* Labels: Early (+) on Left, Late (-) on Right as per request */}
       <div className="absolute top-5 left-0 right-0 h-4 pointer-events-none flex justify-between px-1">
         <span className="text-[8px] font-bold text-slate-500">+{maxDisplayOffset}ms</span>
         <span className="text-[8px] font-bold text-slate-400">0ms</span>
@@ -245,7 +246,7 @@ const TopBar: React.FC<TopBarProps> = (props) => {
             <button
               onClick={onCycleMetronomeMode}
               className={`${iconButtonStyles} ${metronomeMode !== 'off' ? activeToggleButtonStyles : secondaryButtonStyles}`}
-              title={`Metronome: ${metronomeMode === 'off' ? 'Off' : metronomeMode === 'beat' ? 'Beat' : 'Bar'}. Click to cycle.`}
+              title={`Metronome: ${metronomeMode === 'off' ? 'Off' : metronomeMode === 'beat' ? 'Beat' : metronomeMode === 'bar' ? 'Bar' : 'Drum'}. Click to cycle.`}
             >
               <VisualMetronome
                   beatState={metronomeMode !== 'off' ? metronomeBeat : null}
@@ -318,7 +319,7 @@ const TopBar: React.FC<TopBarProps> = (props) => {
               <div className="flex items-center gap-1 bg-slate-800/50 rounded-lg p-1 border border-slate-700" title="Adjust Zoom">
                   <button onClick={() => adjustZoom(true, false)} className={`${iconButtonStyles} w-7 h-7 bg-transparent hover:bg-slate-700 text-slate-400 hover:text-white`}>−</button>
                   <div className="flex flex-col items-center justify-center w-12">
-                      <span className="text-[9px] font-bold uppercase text-slate-400 leading-tight">{instrumentMode === 'drum' ? 'AR' : 'ZOOM'}</span>
+                      <span className="text-[9px] font-bold uppercase text-slate-400 leading-tight">ZOOM</span>
                       <span className="text-xs font-bold tabular-nums text-slate-200 leading-tight">
                           {instrumentMode === 'drum' ? noteSpeedMultiplier.toFixed(1) : `${Math.round(noteSpeedMultiplier * 100)}%`}
                       </span>
@@ -334,17 +335,17 @@ const TopBar: React.FC<TopBarProps> = (props) => {
   const isPracticeMode = waitMode === 'strict' || waitMode === 'rhythm';
 
   const ZoomControls = () => {
-    const isSpeedControl = viewMode === 'falling' || viewMode === 'sheet-roll' || instrumentMode === 'drum';
+    const isSpeedControl = viewMode === 'falling' || viewMode === 'sheet-roll' || (instrumentMode === 'drum' && viewMode !== 'sheet');
     const value = isSpeedControl ? noteSpeedMultiplier : sheetMusicZoom;
-    const titleText = isPlaying ? (instrumentMode === 'drum' ? "Pause to adjust AR" : "Pause to adjust zoom") : (isSpeedControl ? (instrumentMode === 'drum' ? "Adjust AR" : "Adjust Note Speed") : "Adjust Sheet Zoom");
+    const titleText = isPlaying ? "Pause to adjust zoom" : (isSpeedControl ? "Adjust Note Speed" : "Adjust Sheet Zoom");
 
     return (
         <div className="flex items-center gap-1 bg-slate-800/50 rounded-lg p-1 border border-slate-700" title={titleText}>
             <button onClick={() => adjustZoom(isSpeedControl, false)} disabled={!isFileLoaded || isPlaying} className={`${iconButtonStyles} w-7 h-7 bg-transparent hover:bg-slate-700 text-slate-400 hover:text-white`} aria-label="Decrease zoom">−</button>
             <div className="flex flex-col items-center justify-center w-12">
-                <span className="text-[9px] font-bold uppercase text-slate-400 leading-tight">{instrumentMode === 'drum' ? 'AR' : 'ZOOM'}</span>
+                <span className="text-[9px] font-bold uppercase text-slate-400 leading-tight">ZOOM</span>
                 <span className="text-xs font-bold tabular-nums text-slate-200 leading-tight">
-                    {instrumentMode === 'drum' ? value.toFixed(1) : `${Math.round(value * 100)}%`}
+                    {isSpeedControl ? (instrumentMode === 'drum' ? value.toFixed(1) : `${Math.round(value * 100)}%`) : `${Math.round(value * 100)}%`}
                 </span>
             </div>
             <button onClick={() => adjustZoom(isSpeedControl, true)} disabled={!isFileLoaded || isPlaying} className={`${iconButtonStyles} w-7 h-7 bg-transparent hover:bg-slate-700 text-slate-400 hover:text-white`} aria-label="Increase zoom">+</button>
@@ -436,7 +437,7 @@ const TopBar: React.FC<TopBarProps> = (props) => {
             onClick={onCycleMetronomeMode}
             disabled={!isMetronomeAvailable}
             className={`${iconButtonStyles} ${metronomeMode !== 'off' ? activeToggleButtonStyles : secondaryButtonStyles}`}
-            title={`Metronome: ${metronomeMode === 'off' ? 'Off' : metronomeMode === 'beat' ? 'Beat' : 'Bar'}. Click to cycle.`}
+            title={`Metronome: ${metronomeMode === 'off' ? 'Off' : metronomeMode === 'beat' ? 'Beat' : metronomeMode === 'bar' ? 'Bar' : 'Drum'}. Click to cycle.`}
           >
            <VisualMetronome
                beatState={metronomeMode !== 'off' ? metronomeBeat : null}
