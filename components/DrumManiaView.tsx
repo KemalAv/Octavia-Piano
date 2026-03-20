@@ -20,15 +20,15 @@ Object.entries(DRUM_KEYBOARD_MAP).forEach(([key, midi]) => {
 
 // Order from user request
 const MANIA_PAD_ORDER = [
-    'hihat',
     'hihat_foot',
+    'hihat',
     'crash',
     'snare',
-    'high_tom',
     'bass',
+    'high_tom',
     'low_tom',
-    'ride',
-    'floor_tom'
+    'floor_tom',
+    'ride'
 ];
 
 interface DrumManiaViewProps {
@@ -45,6 +45,8 @@ interface DrumManiaViewProps {
     zoomScale?: number;
     barLines?: number[];
     pixelsPerMillisecond?: number;
+    isPaused?: boolean;
+    onSeek?: (timeMs: number) => void;
 }
 
 export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
@@ -60,7 +62,9 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
     themeSettings,
     zoomScale = 1,
     barLines = [],
-    pixelsPerMillisecond = 0.5
+    pixelsPerMillisecond = 0.5,
+    isPaused = false,
+    onSeek
 }) => {
 
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -69,7 +73,7 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
     const approachDurationMsRef = useRef(1000);
 
     useEffect(() => {
-        approachDurationMsRef.current = 1000 / noteSpeedMultiplier;
+        approachDurationMsRef.current = 1000 / (noteSpeedMultiplier * 2);
     }, [noteSpeedMultiplier]);
 
     // Removed excessive logging for performance
@@ -106,11 +110,12 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
     }, []);
 
     const activePointersRef = useRef<Map<number, string>>(new Map());
+    const dragRef = useRef<{ isDragging: boolean; startY: number; startTime: number } | null>(null);
 
     const getPadLayout = () => {
         const padCount = MANIA_PAD_ORDER.length;
         const padWidth = dimensions.width / padCount;
-        const centerY = dimensions.height - 80; // Position pads near bottom
+        const centerY = dimensions.height - 90; // Indicators at the very bottom
 
         return MANIA_PAD_ORDER.map((id, index) => {
             const pad = DRUM_PADS.find(p => p.id === id)!;
@@ -124,7 +129,6 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
     };
 
     const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-        if (!onPadDown) return;
         const canvas = canvasRef.current;
         if (!canvas) return;
 
@@ -133,15 +137,35 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
         const y = (e.clientY - rect.top) / zoomScale;
 
         const pads = getPadLayout();
+        let hitPad = false;
 
         for (const pad of pads) {
             const dx = x - pad.cx;
             const dy = y - pad.cy;
             if (Math.sqrt(dx * dx + dy * dy) <= pad.r) {
-                activePointersRef.current.set(e.pointerId, pad.id);
-                onPadDown(pad.id);
+                if (onPadDown) {
+                    activePointersRef.current.set(e.pointerId, pad.id);
+                    onPadDown(pad.id);
+                }
+                hitPad = true;
                 break;
             }
+        }
+
+        if (!hitPad && isPaused) {
+            dragRef.current = {
+                isDragging: true,
+                startY: e.clientY,
+                startTime: currentTimeMs
+            };
+        }
+    };
+
+    const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+        if (dragRef.current && dragRef.current.isDragging && onSeek) {
+            const deltaY = e.clientY - dragRef.current.startY;
+            const deltaTime = deltaY / pixelsPerMillisecond;
+            onSeek(dragRef.current.startTime + deltaTime);
         }
     };
 
@@ -151,6 +175,9 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
             onPadUp(padId);
             activePointersRef.current.delete(e.pointerId);
         }
+        if (dragRef.current) {
+            dragRef.current.isDragging = false;
+        }
     };
 
     const handlePointerLeave = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -159,6 +186,16 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
             onPadUp(padId);
             activePointersRef.current.delete(e.pointerId);
         }
+        if (dragRef.current) {
+            dragRef.current.isDragging = false;
+        }
+    };
+
+    const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
+        if (!isPaused || !onSeek) return;
+        const delta = e.deltaX || e.deltaY;
+        const deltaTime = -delta / pixelsPerMillisecond;
+        onSeek(currentTimeMs + deltaTime);
     };
 
     useEffect(() => {
@@ -289,22 +326,27 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
             const currentUserKeys = userActiveKeysRef.current;
 
             const pads = getPadLayout();
-            const hitLineY = dimensions.height - 80;
+            const hitLineY = dimensions.height - 90; // Judgment line slightly above indicators
 
             // Draw lane backgrounds
             pads.forEach(pad => {
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.4)'; // Darker lanes like the image
                 ctx.fillRect(pad.cx - pad.r, 0, pad.r * 2, dimensions.height);
             });
 
             // Draw bar lines
+            const bufferMs = 50 / pixelsPerMillisecond;
+            const minBarTime = currentMs - bufferMs;
+            const maxBarTime = currentMs + (dimensions.height / pixelsPerMillisecond) + bufferMs;
+
             barLines.forEach((barTime, index) => {
+                if (barTime < minBarTime || barTime > maxBarTime) return;
                 const y = hitLineY - (barTime - currentMs) * pixelsPerMillisecond;
                 if (y >= 0 && y <= dimensions.height) {
                     ctx.beginPath();
                     ctx.moveTo(0, y);
                     ctx.lineTo(dimensions.width, y);
-                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
                     ctx.lineWidth = 2;
                     ctx.stroke();
                     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
@@ -338,7 +380,7 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
 
                 ctx.beginPath();
                 ctx.arc(pad.cx, pad.cy, pad.r, 0, Math.PI * 2);
-                
+
                 if (isUserActive) {
                     ctx.strokeStyle = themeSettings.hitNoteColor;
                 } else if (isPlaybackActive) {
@@ -346,7 +388,7 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
                 } else {
                     ctx.strokeStyle = '#8b5cf6';
                 }
-                
+
                 ctx.lineWidth = isActive ? 6 : 4;
                 ctx.stroke();
 
@@ -357,45 +399,74 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
                     ctx.fill();
                 }
 
+                // Draw indicator at hitLineY (optional, like the image)
+                ctx.beginPath();
+                ctx.arc(pad.cx, hitLineY, pad.r * 0.7, 0, Math.PI * 2);
+                ctx.strokeStyle = isActive ? 'rgba(34, 211, 238, 0.8)' : 'rgba(255, 255, 255, 0.2)';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                if (isActive) {
+                    ctx.beginPath();
+                    ctx.arc(pad.cx, hitLineY, pad.r * 0.7, 0, Math.PI * 2);
+                    ctx.fillStyle = 'rgba(34, 211, 238, 0.3)';
+                    ctx.fill();
+                }
+
                 drawIcon(pad.id, pad.cx, pad.cy, pad.r);
 
                 // Draw labels
                 ctx.fillStyle = isActive ? '#ffffff' : '#e2e8f0';
-                ctx.font = 'bold 10px "Exo 2", sans-serif';
+                ctx.font = 'bold 9px "Exo 2", sans-serif'; // Slightly smaller font to fit
                 ctx.textAlign = 'center';
-                ctx.fillText(pad.name, pad.cx, pad.cy + pad.r + 12);
+                ctx.fillText(pad.name, pad.cx, pad.cy + pad.r + 10);
 
                 if (drumInputMode === 'non-midi') {
                     const keys = PAD_TO_KEYS_MAP.get(pad.id);
                     if (keys) {
-                        ctx.fillStyle = isActive ? '#ffffff' : '#22d3ee';
-                        ctx.font = 'bold 12px "JetBrains Mono", monospace';
-                        ctx.fillText(`[${keys.join('/')}]`, pad.cx, pad.cy + pad.r + 26);
+                        ctx.fillStyle = isActive ? '#34d399' : '#22d3ee'; // Greener for active
+                        ctx.font = 'bold 10px "JetBrains Mono", monospace';
+                        ctx.fillText(`[${keys.join('/')}]`, pad.cx, pad.cy + pad.r + 22);
                     }
                 }
             });
 
             // Draw falling notes
-            const visibleNotes = currentPlaybackData.filter(note => {
-                const timeUntilHit = note.timeMs - currentMs;
-                const y = hitLineY - (timeUntilHit * pixelsPerMillisecond);
-                return y >= -50 && y <= dimensions.height + 50;
-            });
+            // Efficiently find visible notes using the sorted property of playbackData
+            const viewDurationMs = dimensions.height / pixelsPerMillisecond;
+            const minNoteTime = currentMs - 5000; // Stay visible for 5s after passing to ensure they fall off screen
+            const maxNoteTime = currentMs + viewDurationMs + 100;
+
+            // Simple linear search for the start index (could be binary search for even more speed, but linear is fine for most songs)
+            let startIndex = 0;
+            while (startIndex < currentPlaybackData.length && currentPlaybackData[startIndex].timeMs < minNoteTime) {
+                startIndex++;
+            }
+
+            const visibleNotes: MidiNotePlaybackItem[] = [];
+            for (let i = startIndex; i < currentPlaybackData.length; i++) {
+                const note = currentPlaybackData[i];
+                if (note.timeMs > maxNoteTime) break;
+                visibleNotes.push(note);
+            }
 
             // Handle hi-hat connection lines (midi 42 - Closed Hi-Hat)
             const closedHiHatNotes = visibleNotes.filter(n => n.midi === 42);
             closedHiHatNotes.forEach(note => {
                 const timeUntilHit = note.timeMs - currentMs;
-                const y = hitLineY - (timeUntilHit * pixelsPerMillisecond);
-                const progress = 1 - (timeUntilHit / approachDurationMsRef.current);
-                if (y >= -50 && y <= dimensions.height + 50) {
-                    const hihatPad = pads.find(p => p.id === 'hihat');
-                    const footPad = pads.find(p => p.id === 'hihat_foot');
-                    if (hihatPad && footPad) {
+                const hihatPad = pads.find(p => p.id === 'hihat');
+                const footPad = pads.find(p => p.id === 'hihat_foot');
+                
+                if (hihatPad && footPad) {
+                    const noteRadius = hihatPad.r * 0.6;
+                    const y = hitLineY - noteRadius - (timeUntilHit * pixelsPerMillisecond);
+                    
+                    if (y >= -50 && y <= dimensions.height + 50) {
                         ctx.beginPath();
-                        ctx.moveTo(hihatPad.cx, y);
-                        ctx.lineTo(footPad.cx, y);
-                        ctx.strokeStyle = `rgba(139,92,246,${Math.min(1, progress * 2)})`;
+                        // Draw connector line between hi-hat lane and hi-hat foot lane
+                        ctx.moveTo(footPad.cx, y);
+                        ctx.lineTo(hihatPad.cx, y);
+                        ctx.strokeStyle = `rgba(139,92,246,1.0)`; // Opacity 1.0 as requested
                         ctx.lineWidth = 2;
                         ctx.stroke();
                     }
@@ -407,17 +478,15 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
                 if (!pad) return;
 
                 const timeUntilHit = note.timeMs - currentMs;
-                const y = hitLineY - (timeUntilHit * pixelsPerMillisecond);
-                const progress = 1 - (timeUntilHit / approachDurationMsRef.current);
+                const noteRadius = pad.r * 0.6;
+                const y = hitLineY - noteRadius - (timeUntilHit * pixelsPerMillisecond);
 
                 if (y >= -50 && y <= dimensions.height + 50) {
-                    const opacity = Math.min(1, Math.max(0.2, progress * 2));
-
                     ctx.beginPath();
                     ctx.arc(pad.cx, y, pad.r * 0.6, 0, Math.PI * 2);
-                    ctx.fillStyle = `rgba(34,211,238,${opacity})`;
+                    ctx.fillStyle = `rgba(34,211,238,1)`;
                     ctx.fill();
-                    ctx.strokeStyle = `rgba(255,255,255,${opacity})`;
+                    ctx.strokeStyle = `rgba(255,255,255,1)`;
                     ctx.lineWidth = 2;
                     ctx.stroke();
                 }
@@ -431,13 +500,15 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
     }, [dimensions, drumInputMode, themeSettings, pixelsPerMillisecond]);
 
     return (
-        <div className="w-full h-full relative overflow-hidden touch-none">
+        <div className={`w-full h-full relative overflow-hidden touch-none ${isPaused ? 'cursor-ns-resize' : ''}`}>
             <canvas
                 ref={canvasRef}
                 onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
                 onPointerLeave={handlePointerLeave}
                 onPointerCancel={handlePointerLeave}
+                onWheel={handleWheel}
                 className="relative z-10"
                 style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none' }}
             />

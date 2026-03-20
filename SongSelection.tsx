@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
-import { ExtendedResult } from '../types';
-import DifficultyAnalysis from './DifficultyAnalysis';
-import OnlineSongBrowser from './OnlineSongBrowser';
+import { ExtendedResult } from './types';
+import DifficultyAnalysis from './components/DifficultyAnalysis';
+import OnlineSongBrowser from './components/OnlineSongBrowser';
 
 interface SongSelectionProps {
   onFileLoaded: (file: File, onlineSongId?: string) => Promise<void>;
@@ -10,6 +10,9 @@ interface SongSelectionProps {
   loadedSongName: string | null;
   analysisResult: ExtendedResult | null;
   isLoading: boolean;
+  selectedOnlineSongIdForNavigation: string | null;
+  onGoToOnlineSong: (songId: string) => void;
+  instrumentMode: 'piano' | 'drum';
 }
 
 const SongSelection: React.FC<SongSelectionProps> = ({
@@ -19,6 +22,9 @@ const SongSelection: React.FC<SongSelectionProps> = ({
   loadedSongName,
   analysisResult,
   isLoading,
+  selectedOnlineSongIdForNavigation,
+  onGoToOnlineSong,
+  instrumentMode,
 }) => {
   const [activeTab, setActiveTab] = useState<'local' | 'online'>('local');
   const [isOnlineLoading, setIsOnlineLoading] = useState(false);
@@ -144,6 +150,8 @@ const SongSelection: React.FC<SongSelectionProps> = ({
                             onSongLoaded={handleOnlineSongLoaded} 
                             isLoading={isOnlineLoading}
                             setLoadingState={setIsOnlineLoading}
+                            onGoToOnlineSong={onGoToOnlineSong}
+                            instrumentMode={instrumentMode}
                         />
                     </div>
                 )}

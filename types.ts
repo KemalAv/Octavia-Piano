@@ -176,7 +176,7 @@ export type MidiAccessStatus =
   | 'denied'
   | 'unsupported';
 
-export type MetronomeMode = 'off' | 'beat' | 'bar'; // UPDATED: Added 'beat' mode
+export type MetronomeMode = 'off' | 'beat' | 'bar' | 'drum';
 // @FIX: 'lenient' and 'strict' modes are merged into a single practice mode with adjustable tolerance.
 export type WaitMode = 'off' | 'strict' | 'rhythm' | 'retical';
 
@@ -220,13 +220,12 @@ export interface GameSettings {
   waitMode: WaitMode;
   playbackTempoMultiplier: number;
   practiceHand: PracticeHand;
-  hideBarNavigationButtons?: boolean;
   noteToleranceMs?: number;
   accuracyLevel?: AccuracyLevel; // NEW: Accuracy Level (3-7)
   isNonStop?: boolean;
   backingTrack?: BackingTrackConfig; // NEW: Backing track configuration
   instrumentMode?: 'piano' | 'drum'; // NEW: Instrument mode
-  arDirection?: 'normal' | 'reverse'; // NEW: AR direction
+  zoomDirection?: 'normal' | 'reverse'; // NEW: Zoom direction
 }
 
 export interface ThemeSettings {
@@ -389,6 +388,8 @@ export enum FileType {
 export interface BeatInfo {
   timeMs: number;
   isStrong: boolean;
+  beatIndex?: number;
+  timeSignature?: TimeSignatureInfo;
 }
 
 // ========================================
@@ -426,6 +427,7 @@ export interface VexFlowNoteInfo {
   vexNoteYPositions?: number[];
   vexNoteKeyProps?: { line: number }[];
   isTriplet?: boolean; // NEW: Flag for triplet notes
+  stem_direction?: number; // NEW: Explicit stem direction (1 = down, -1 = up)
 }
 
 // NEW: Interface for tuplet grouping

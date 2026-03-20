@@ -24,6 +24,7 @@ const VisualMetronome: React.FC<VisualMetronomeProps> = ({ beatState, metronomeM
       case 'off': return 'Off';
       case 'beat': return 'Beat'; // NEW: Display name for 'beat' mode
       case 'bar': return 'Bar';
+      case 'drum': return 'Drum';
       default: return ''; // Should not happen with MetronomeMode type
     }
   };

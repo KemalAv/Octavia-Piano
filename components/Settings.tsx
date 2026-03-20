@@ -4,6 +4,7 @@ import { DEVICE_LAYOUTS } from '../constants'; // Import DEVICE_LAYOUTS
 
 interface SettingsProps {
   onBack: () => void;
+  initialScrollTarget?: string;
   midiAccessStatus: MidiAccessStatus;
   midiInputs: Map<string, MIDIInput>;
   selectedMidiInputId: string | null;
@@ -28,8 +29,6 @@ interface SettingsProps {
   onShowOnlyMajorNotesChange: (value: boolean) => void;
   showQwertyShortcuts: boolean;
   onShowQwertyShortcutsChange: (value: boolean) => void;
-  hideBarNavigationButtons: boolean;
-  onHideBarNavigationButtonsChange: (value: boolean) => void;
   masterVolume: number;
   onMasterVolumeChange: (volume: number) => void;
   metronomeVolume: number;
@@ -73,10 +72,12 @@ interface SettingsProps {
   // NEW: Drum Input Mode Prop
   drumInputMode: 'midi' | 'non-midi';
   onDrumInputModeChange: (mode: 'midi' | 'non-midi') => void;
-  arDirection: 'normal' | 'reverse';
-  onArDirectionChange: (direction: 'normal' | 'reverse') => void;
+  zoomDirection: 'normal' | 'reverse';
+  onZoomDirectionChange: (direction: 'normal' | 'reverse') => void;
   instrumentMode: 'piano' | 'drum';
   onResetSettings: () => void;
+  metronomeBuffers?: { strong?: AudioBuffer | null, weak?: AudioBuffer | null };
+  audioContext?: AudioContext | null;
 }
 
 const Section: React.FC<{ title: string; children: React.ReactNode; showInfoButton?: boolean; onInfoClick?: () => void }> = ({ title, children, showInfoButton, onInfoClick }) => (
@@ -114,20 +115,269 @@ const ToggleRow: React.FC<{ label: string; id: string; checked: boolean; onChang
   );
 };
 
+const CalibrationModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  onCalibrate: (offset: number) => void;
+  midiInputs: Map<string, MIDIInput>;
+  selectedMidiInputId: string | null;
+  metronomeBuffers?: { strong?: AudioBuffer | null, weak?: AudioBuffer | null };
+  audioContext?: AudioContext | null;
+}> = ({ isOpen, onClose, onCalibrate, midiInputs, selectedMidiInputId, metronomeBuffers, audioContext }) => {
+  const [isRendered, setIsRendered] = useState(false);
+  const [clicks, setClicks] = useState<number[]>([]);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const isExternalContextRef = useRef<boolean>(false);
+  const nextNoteTimeRef = useRef<number>(0);
+  const timerIDRef = useRef<number | null>(null);
+  const beatCountRef = useRef<number>(0);
+  const metronomeBuffersRef = useRef<{ strong: AudioBuffer | null, weak: AudioBuffer | null }>({ strong: null, weak: null });
+  const lookahead = 25.0; // ms
+  const scheduleAheadTime = 0.1; // s
+  const tempo = 120; // bpm
+  const secondsPerBeat = 60.0 / tempo;
+
+  const scheduleNote = (time: number) => {
+    if (!audioCtxRef.current) return;
+    
+    const isStrongBeat = beatCountRef.current % 4 === 0;
+    // Use passed-in buffers if available, otherwise use internal ones (which we'll try to load as fallback)
+    const buffer = isStrongBeat 
+      ? (metronomeBuffers?.strong || metronomeBuffersRef.current.strong) 
+      : (metronomeBuffers?.weak || metronomeBuffersRef.current.weak);
+
+    if (buffer) {
+      const source = audioCtxRef.current.createBufferSource();
+      source.buffer = buffer;
+      source.connect(audioCtxRef.current.destination);
+      source.start(time);
+    } else {
+      // Fallback
+      const osc = audioCtxRef.current.createOscillator();
+      const envelope = audioCtxRef.current.createGain();
+      osc.frequency.value = isStrongBeat ? 880.0 : 440.0;
+      envelope.gain.value = 1;
+      envelope.gain.setValueAtTime(1, time);
+      envelope.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
+      osc.connect(envelope);
+      envelope.connect(audioCtxRef.current.destination);
+      osc.start(time);
+      osc.stop(time + 0.05);
+    }
+    beatCountRef.current++;
+  };
+
+  const isOpenRef = useRef(isOpen);
+  useEffect(() => {
+    isOpenRef.current = isOpen;
+  }, [isOpen]);
+
+  const scheduler = () => {
+    if (!isOpenRef.current || !audioCtxRef.current) return;
+    while (nextNoteTimeRef.current < audioCtxRef.current.currentTime + scheduleAheadTime) {
+      scheduleNote(nextNoteTimeRef.current);
+      nextNoteTimeRef.current += secondsPerBeat;
+    }
+    timerIDRef.current = window.setTimeout(scheduler, lookahead);
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      setIsRendered(true);
+      setClicks([]);
+      beatCountRef.current = 0;
+      
+      if (audioContext) {
+        audioCtxRef.current = audioContext;
+        isExternalContextRef.current = true;
+      } else {
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        audioCtxRef.current = new AudioContextClass();
+        isExternalContextRef.current = false;
+      }
+      
+      // Load metronome sounds if not provided
+      const loadSounds = async () => {
+        if (!audioCtxRef.current || (metronomeBuffers?.strong && metronomeBuffers?.weak)) return;
+        try {
+          const [strongRes, weakRes] = await Promise.all([
+            fetch('/sounds/metronome/strong_beat.mp3'),
+            fetch('/sounds/metronome/weak_beat.mp3')
+          ]);
+          const strongArrayBuffer = await strongRes.arrayBuffer();
+          const weakArrayBuffer = await weakRes.arrayBuffer();
+          const strongBuffer = await audioCtxRef.current.decodeAudioData(strongArrayBuffer);
+          const weakBuffer = await audioCtxRef.current.decodeAudioData(weakArrayBuffer);
+          metronomeBuffersRef.current = { strong: strongBuffer, weak: weakBuffer };
+        } catch (e) {
+          console.warn("Failed to load metronome sounds for calibration", e);
+        }
+      };
+      loadSounds();
+
+      nextNoteTimeRef.current = audioCtxRef.current.currentTime + 0.5;
+      scheduler();
+    } else {
+      setClicks([]); // Clear clicks when closing to prevent stale state
+      setTimeout(() => setIsRendered(false), 300);
+      if (timerIDRef.current) {
+        clearTimeout(timerIDRef.current);
+        timerIDRef.current = undefined;
+      }
+      if (!isExternalContextRef.current && audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
+        audioCtxRef.current.close().catch(e => console.error(e));
+      }
+    }
+    return () => {
+      if (timerIDRef.current) {
+        clearTimeout(timerIDRef.current);
+        timerIDRef.current = undefined;
+      }
+      if (!isExternalContextRef.current && audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
+        audioCtxRef.current.close().catch(e => console.error(e));
+      }
+    };
+  }, [isOpen, audioContext, metronomeBuffers]);
+
+  const handleInput = () => {
+    if (!isOpenRef.current || !audioCtxRef.current) return;
+    const now = audioCtxRef.current.currentTime;
+    const prevBeat = nextNoteTimeRef.current - secondsPerBeat;
+    const nextBeat = nextNoteTimeRef.current;
+    const closestBeat = (now - prevBeat < nextBeat - now) ? prevBeat : nextBeat;
+    
+    const diff = closestBeat - now; // positive if early, negative if late
+    const offset = diff * 1000; // in ms
+    
+    setClicks(prev => {
+      if (prev.length >= 8) return prev;
+      return [...prev, offset];
+    });
+  };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (clicks.length >= 8) {
+      const avg = Math.round(clicks.reduce((a, b) => a + b, 0) / clicks.length);
+      onCalibrate(avg + 80); // Add 80ms default internal offset
+      onClose();
+    }
+  }, [clicks, onCalibrate, onClose, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleMidiMessage = (e: any) => {
+      const [status, data1, data2] = e.data;
+      const cmd = status >> 4;
+      if (cmd === 9 && data2 > 0) { // Note on
+        handleInput();
+      }
+    };
+
+    const input = selectedMidiInputId ? midiInputs.get(selectedMidiInputId) : null;
+    if (input) {
+      input.addEventListener('midimessage', handleMidiMessage);
+    }
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!e.repeat) handleInput();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      if (input) input.removeEventListener('midimessage', handleMidiMessage);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, selectedMidiInputId, midiInputs]);
+
+  if (!isOpen && !isRendered) return null;
+
+  return (
+    <div className={`fixed inset-0 bg-slate-900/80 flex items-center justify-center z-[10000] p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'opacity-100' : 'opacity-0'}`}>
+      <div className={`bg-slate-800 p-8 rounded-xl shadow-2xl max-w-md w-full text-center transform transition-transform duration-300 ease-in-out ${isRendered ? 'scale-100' : 'scale-95'}`}>
+        <h3 className="text-2xl font-bold text-cyan-400 mb-4">Calibrate Note Offset</h3>
+        <p className="text-slate-300 mb-6">Listen to the metronome and press any key (MIDI or keyboard) exactly on the beat.</p>
+        <div className="flex justify-center gap-2 mb-8">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className={`w-4 h-4 rounded-full ${i < clicks.length ? 'bg-cyan-400 shadow-[0_0_10px_#22d3ee]' : 'bg-slate-600'}`} />
+          ))}
+        </div>
+        <button onClick={onClose} className="px-6 py-2 bg-slate-600 hover:bg-slate-700 text-white rounded-lg font-medium transition-colors">Cancel</button>
+      </div>
+    </div>
+  );
+};
+
 export const Settings: React.FC<SettingsProps> = (props) => {
+  const {
+    onBack, midiAccessStatus, midiInputs, selectedMidiInputId, onSelectMidiInput,
+    midiOutputs, selectedMidiOutputId, onSelectMidiOutput, connectMidi,
+    isAudioInputEnabled, onIsAudioInputEnabledChange, audioInputs, selectedAudioInputId, onSelectedAudioInputIdChange, audioInputError,
+    micThresholds, onMicThresholdsChange,
+    viewMode, onViewModeChange, noteLabelType, onNoteLabelTypeChange,
+    showOnlyMajorNotes, onShowOnlyMajorNotesChange,
+    showQwertyShortcuts,
+    onShowQwertyShortcutsChange,
+    masterVolume, onMasterVolumeChange, metronomeVolume, onMetronomeVolumeChange,
+    metronomeOffsetMs, onMetronomeOffsetChange,
+    themeSettings, onThemeSettingsChange,
+    devicePreset, onDevicePresetChange,
+    customWhiteKeyHeight, onCustomWhiteKeyHeightChange,
+    customBlackKeyHeight, onCustomBlackKeyHeightChange,
+    customKeyLabelHeight, onCustomKeyLabelHeightChange,
+    customMinWhiteKeyWidth, onCustomMinWhiteKeyWidthChange,
+    pianoRangeMode, onPianoRangeModeChange, customStartNote, onCustomStartNoteChange, customEndNote, onCustomEndNoteChange,
+    qwertyLayout, onQwertyLayoutChange,
+    showPianoTilesBackground, onShowPianoTilesBackgroundChange,
+    uiZoom, onUiZoomChange, uiZoomAuto, onUiZoomAutoChange,
+    mp3Volume, onMp3VolumeChange,
+    drumInputMode, onDrumInputModeChange,
+    zoomDirection, onZoomDirectionChange,
+    instrumentMode, onResetSettings, initialScrollTarget,
+    metronomeBuffers, audioContext
+  } = props;
+
   const [isRendered, setIsRendered] = useState(false);
   const [isInfoModalOpen, setIsInfoModalOpen] = useState(false); // NEW state for info modal
   const [isInfoModalRendered, setIsInfoModalRendered] = useState(false); // For info modal animations
-  // NEW: State for Bar Navigation info modal
-  const [isBarNavInfoModalOpen, setIsBarNavInfoModalOpen] = useState(false);
-  const [isBarNavInfoModalRendered, setIsBarNavInfoModalRendered] = useState(false);
+  const [isCalibratingOffset, setIsCalibratingOffset] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Automatically mute piano and metronome volume during calibration
+  useEffect(() => {
+    if (isCalibratingOffset) {
+      const originalVolume = masterVolume;
+      const originalMetronomeVolume = metronomeVolume;
+      onMasterVolumeChange(0);
+      onMetronomeVolumeChange(0);
+      
+      return () => {
+        // Restore volume when calibration ends or component unmounts
+        onMasterVolumeChange(originalVolume);
+        onMetronomeVolumeChange(originalMetronomeVolume);
+      };
+    }
+  }, [isCalibratingOffset, onMasterVolumeChange, onMetronomeVolumeChange]);
 
 
   useEffect(() => {
-    const timer = setTimeout(() => setIsRendered(true), 10);
+    const timer = setTimeout(() => {
+      setIsRendered(true);
+      if (initialScrollTarget) {
+        setTimeout(() => {
+          const el = document.getElementById(initialScrollTarget!);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.classList.add('ring-2', 'ring-cyan-400', 'ring-offset-2', 'ring-offset-slate-800', 'rounded-lg', 'transition-all', 'duration-1000');
+            setTimeout(() => {
+              el.classList.remove('ring-2', 'ring-cyan-400', 'ring-offset-2', 'ring-offset-slate-800', 'rounded-lg');
+            }, 2000);
+          }
+        }, 300); // wait for modal transition
+      }
+    }, 10);
     return () => clearTimeout(timer);
-  }, []);
+  }, [initialScrollTarget]);
 
   // Effect for info modal rendering
   useEffect(() => {
@@ -139,44 +389,6 @@ export const Settings: React.FC<SettingsProps> = (props) => {
     }
   }, [isInfoModalOpen]);
 
-  // NEW: Effect for Bar Navigation info modal rendering
-  useEffect(() => {
-    if (isBarNavInfoModalOpen) {
-      const timer = setTimeout(() => setIsBarNavInfoModalRendered(true), 10);
-      return () => clearTimeout(timer);
-    } else {
-      setIsBarNavInfoModalRendered(false);
-    }
-  }, [isBarNavInfoModalOpen]);
-
-
-  const {
-    onBack, midiAccessStatus, midiInputs, selectedMidiInputId, onSelectMidiInput,
-    midiOutputs, selectedMidiOutputId, onSelectMidiOutput, connectMidi,
-    isAudioInputEnabled, onIsAudioInputEnabledChange, audioInputs, selectedAudioInputId, onSelectedAudioInputIdChange, audioInputError,
-    micThresholds, onMicThresholdsChange,
-    viewMode, onViewModeChange, noteLabelType, onNoteLabelTypeChange,
-    showOnlyMajorNotes, onShowOnlyMajorNotesChange,
-    showQwertyShortcuts,
-    onShowQwertyShortcutsChange, hideBarNavigationButtons, onHideBarNavigationButtonsChange,
-    masterVolume, onMasterVolumeChange, metronomeVolume, onMetronomeVolumeChange,
-    metronomeOffsetMs, onMetronomeOffsetChange, // These props now control Note Offset
-    themeSettings, onThemeSettingsChange,
-    devicePreset, onDevicePresetChange,
-    customWhiteKeyHeight, onCustomWhiteKeyHeightChange,
-    customBlackKeyHeight, onCustomBlackKeyHeightChange,
-    customKeyLabelHeight, onCustomKeyLabelHeightChange,
-    customMinWhiteKeyWidth, onCustomMinWhiteKeyWidthChange,
-    pianoRangeMode, onPianoRangeModeChange, customStartNote, onCustomStartNoteChange, customEndNote, onCustomEndNoteChange,
-    qwertyLayout, onQwertyLayoutChange, 
-    showPianoTilesBackground, onShowPianoTilesBackgroundChange, // Destructure new props
-    uiZoom, onUiZoomChange, uiZoomAuto, onUiZoomAutoChange, // Destructure UI Zoom
-    mp3Volume, onMp3VolumeChange, // NEW: Destructure MP3 Volume
-    drumInputMode, onDrumInputModeChange, // NEW: Destructure Drum Input Mode
-    arDirection, onArDirectionChange,
-    instrumentMode,
-    onResetSettings,
-  } = props;
 
   const commonButtonStyles = "px-3 py-1.5 rounded text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-300 focus:ring-opacity-75 flex items-center justify-center shadow-md";
   const secondaryButtonStyles = "bg-slate-600 hover:bg-slate-700 text-slate-100";
@@ -497,11 +709,11 @@ export const Settings: React.FC<SettingsProps> = (props) => {
               <div className="bg-slate-900/50 p-4 rounded-lg mt-4 space-y-4 ring-1 ring-slate-700">
                 <h4 className="text-md font-semibold text-slate-200 border-b border-slate-700 pb-2">Drum Visual Settings</h4>
                 
-                <SettingRow label="AR Direction" htmlFor="ar-direction">
+                <SettingRow label="Zoom Direction" htmlFor="zoom-direction">
                   <select 
-                    id="ar-direction" 
-                    value={arDirection} 
-                    onChange={e => onArDirectionChange(e.target.value as 'normal' | 'reverse')} 
+                    id="zoom-direction" 
+                    value={zoomDirection} 
+                    onChange={e => onZoomDirectionChange(e.target.value as 'normal' | 'reverse')} 
                     className={selectStyles}
                   >
                     <option value="normal">Normal (Outside to Inside)</option>
@@ -512,19 +724,6 @@ export const Settings: React.FC<SettingsProps> = (props) => {
             )}
 
             <ToggleRow id="qwerty-shortcuts" label="Show QWERTY Shortcuts on Keys" checked={showQwertyShortcuts} onChange={onShowQwertyShortcutsChange} disabled={true} />
-            
-            {/* Bar Navigation Info - Toggle removed to force visible */}
-            <div className="flex items-center justify-between p-2 rounded-md bg-slate-700/30">
-              <span className="text-sm font-medium text-slate-300 flex-grow">Bar Navigation Controls</span>
-              <button 
-                onClick={() => setIsBarNavInfoModalOpen(true)}
-                className="ml-2 p-1 rounded-full bg-slate-600 hover:bg-slate-500 text-slate-300 hover:text-white transition-colors flex items-center justify-center"
-                aria-label="Information about Bar Navigation"
-                title="Information about Bar Navigation"
-              >
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd"></path></svg>
-              </button>
-            </div>
           </Section>
           
           <Section title="Audio">
@@ -534,20 +733,20 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                 type="range" 
                 min="0" 
                 max="1" 
-                step="0.25" // Snap every 25%
+                step="0.05" // Snap every 5%
                 value={masterVolume} 
                 onChange={e => onMasterVolumeChange(parseFloat(e.target.value))} 
                 className={`${rangeSliderStyle} max-w-xs`} 
               />
             </SettingRow>
-            {(isAudioInputEnabled || selectedMidiInputId) && <p className="text-xs text-amber-400 mt-1">Piano volume defaulted to 0% because MIDI/Mic is active. You can still adjust it manually.</p>}
+            {(isAudioInputEnabled || selectedMidiInputId) && <p className="text-xs text-amber-400 mt-1">Piano volume defaulted to 10% because MIDI/Mic is active. You can still adjust it manually.</p>}
             <SettingRow label={`Metronome Volume (${Math.round(metronomeVolume*100)}%)`} htmlFor="metronome-volume">
               <input 
                 id="metronome-volume" 
                 type="range" 
                 min="0" 
                 max="1" 
-                step="0.25" // Snap every 25%
+                step="0.05" // Snap every 5%
                 value={metronomeVolume} 
                 onChange={e => onMetronomeVolumeChange(parseFloat(e.target.value))} 
                 className={`${rangeSliderStyle} max-w-xs`} 
@@ -566,21 +765,26 @@ export const Settings: React.FC<SettingsProps> = (props) => {
               />
             </SettingRow>
             {/* Replaced Metronome Offset with Note Offset */}
-            <SettingRow label={`Note Offset (${metronomeOffsetMs > 0 ? '+' : ''}${metronomeOffsetMs}ms)`} htmlFor="note-offset">
-              <input 
-                id="note-offset" 
-                type="range" 
-                min="-250" 
-                max="250" 
-                step="5" 
-                value={metronomeOffsetMs} 
-                onChange={e => onMetronomeOffsetChange(parseInt(e.target.value, 10))} 
-                className={`${rangeSliderStyle} max-w-xs`} 
-              />
-            </SettingRow>
-            <p className="text-xs text-slate-500 mt-1">
-                Adjust hit detection timing. (+) shifts hitbox later (compensates input lag), (-) shifts hitbox earlier.
-            </p>
+            <div id="note-offset-section">
+              <SettingRow label={`Note Offset (${metronomeOffsetMs > 0 ? '+' : ''}${metronomeOffsetMs}ms)`} htmlFor="note-offset">
+                <div className="flex items-center gap-4 w-full">
+                  <input 
+                    id="note-offset" 
+                    type="range" 
+                    min="-250" 
+                    max="250" 
+                    step="5" 
+                    value={metronomeOffsetMs} 
+                    onChange={e => onMetronomeOffsetChange(parseInt(e.target.value, 10))} 
+                    className={`${rangeSliderStyle} flex-grow max-w-xs`} 
+                  />
+                  <button onClick={() => setIsCalibratingOffset(true)} className={`${commonButtonStyles} ${secondaryButtonStyles}`}>Calibrate</button>
+                </div>
+              </SettingRow>
+              <p className="text-xs text-slate-500 mt-1">
+                  Adjust hit detection timing. (+) shifts hitbox later (compensates input lag), (-) shifts hitbox earlier.
+              </p>
+            </div>
           </Section>
 
           <Section title="Appearance">
@@ -687,41 +891,15 @@ export const Settings: React.FC<SettingsProps> = (props) => {
           </div>
         </div>
       )}
-
-      {/* NEW: Bar Navigation Info Modal */}
-      {isBarNavInfoModalOpen && (
-        <div
-          className={`fixed inset-0 bg-slate-950 flex items-center justify-center z-[60] p-4 transition-opacity duration-300 ease-in-out ${isBarNavInfoModalRendered ? 'bg-opacity-80' : 'bg-opacity-0'}`}
-          onClick={() => setIsBarNavInfoModalOpen(false)} // Close on background click
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="bar-nav-info-title"
-        >
-          <div
-            className={`bg-slate-800/80 backdrop-blur-sm p-8 rounded-xl shadow-2xl max-w-md w-full ring-1 ring-slate-700 transform transition-all duration-300 ease-in-out ${isBarNavInfoModalRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
-            onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside the modal
-            role="document"
-          >
-            <div className="flex justify-between items-center mb-4">
-              <h2 id="bar-nav-info-title" className="text-2xl font-bold text-cyan-400">Bar Navigation Controls</h2>
-              <button
-                onClick={() => setIsBarNavInfoModalOpen(false)}
-                className="text-3xl text-slate-400 hover:text-white leading-none"
-                aria-label="Close information modal"
-              >&times;</button>
-            </div>
-            <p className="text-slate-300 text-lg mb-6">
-              Bar navigation buttons, which appear on the left and right sides of the screen during gameplay, are now enabled by default. They allow you to jump between beats or measures. They are active in practice modes when the metronome is set to 'Beat' or 'Bar'. You can disable them if you prefer.
-            </p>
-            <button
-              onClick={() => setIsBarNavInfoModalOpen(false)}
-              className="w-full bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-2 px-6 rounded-lg text-lg transition-colors"
-            >
-              Okay
-            </button>
-          </div>
-        </div>
-      )}
+      <CalibrationModal
+        isOpen={isCalibratingOffset}
+        onClose={() => setIsCalibratingOffset(false)}
+        onCalibrate={onMetronomeOffsetChange}
+        midiInputs={midiInputs}
+        selectedMidiInputId={selectedMidiInputId}
+        metronomeBuffers={metronomeBuffers}
+        audioContext={audioContext}
+      />
     </>
   );
 };

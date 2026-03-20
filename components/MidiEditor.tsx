@@ -18,7 +18,6 @@ const RHYTHM_BASES = [
     { label: '1/16', value: 0.25 },
     { label: '1/32', value: 0.125 },
     { label: '1/64', value: 0.0625 },
-    { label: '1/128', value: 0.03125 },
 ];
 
 const NOTE_TYPES = [
@@ -78,7 +77,9 @@ interface SelectionBox {
 interface MidiEditorProps {
     initialMidiFile: File | null;
     onClose: () => void;
+    onOpenSettings?: () => void;
     instrumentMode: 'piano' | 'drum';
+    zoomScale?: number;
 }
 
 const useHistory = <T,>(initialState: T) => {
@@ -139,7 +140,7 @@ const useHistory = <T,>(initialState: T) => {
 };
 
 
-const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instrumentMode }) => {
+const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, onOpenSettings, instrumentMode, zoomScale = 1 }) => {
     const [editorState, setEditorState, undo, redo, canUndo, canRedo] = useHistory<EditorState>({
         notes: [],
         tempos: [{ ticks: 0, bpm: 120 }],
@@ -153,6 +154,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
     const [vZoom, setVZoom] = useState(1);
     const [activeHand, setActiveHand] = useState<'right' | 'left'>('right');
     const [activeTool, setActiveTool] = useState<'draw' | 'delete' | 'select'>('draw');
+    const [activeDropdown, setActiveDropdown] = useState<'tools' | 'snap' | 'signatures' | 'view' | null>(null);
     const [snapBaseIndex, setSnapBaseIndex] = useState(3); // Default 1/8
     const [snapTypeIndex, setSnapTypeIndex] = useState(0); // Default Normal
     const [isPlaying, setIsPlaying] = useState(false);
@@ -161,6 +163,18 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
     const [editingTempoIndex, setEditingTempoIndex] = useState<number | null>(null);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [isSettingsRendered, setIsSettingsRendered] = useState(false);
+    const [tapTimes, setTapTimes] = useState<number[]>([]);
+    const [backingTrackCurrentTime, setBackingTrackCurrentTime] = useState(0);
+    const [backingTrackDuration, setBackingTrackDuration] = useState(0);
+    const [isAudioOnlyPlaying, setIsAudioOnlyPlaying] = useState(false);
+    const [metronomeMode, setMetronomeMode] = useState<'off' | 'beat' | 'bar'>('off');
+    const [metronomeVolume, setMetronomeVolume] = useState(0.5);
+    const [metronomeBeat, setMetronomeBeat] = useState<{ isStrong: boolean; timeMs: number } | null>(null);
+    const lastVisualBeatTimeRef = useRef<number>(-1);
+    const metronomeBuffersRef = useRef<{ strong: AudioBuffer | null, weak: AudioBuffer | null }>({ strong: null, weak: null });
+    const metronomeGainRef = useRef<GainNode | null>(null);
+    const nextBeatToScheduleIndexRef = useRef(0);
+    const allBeatTimesRef = useRef<{ timeMs: number, isStrong: boolean }[]>([]);
 
     const [dragInfo, setDragInfo] = useState<DragInfo | null>(null);
     const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
@@ -174,6 +188,16 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
     const [backingTrackVolume, setBackingTrackVolume] = useState(0.5);
     const [pianoVolume, setPianoVolume] = useState(0.5);
     const [isEditingOffset, setIsEditingOffset] = useState(false);
+    const prevPianoVolumeRef = useRef(0.5);
+
+    useEffect(() => {
+        if (isEditingOffset) {
+            prevPianoVolumeRef.current = pianoVolume;
+            setPianoVolume(0);
+        } else {
+            setPianoVolume(prevPianoVolumeRef.current);
+        }
+    }, [isEditingOffset]);
     const backingTrackRef = useRef<HTMLAudioElement>(null);
     const mp3InputRef = useRef<HTMLInputElement>(null);
     const audioPlayPromiseRef = useRef<Promise<void> | null>(null);
@@ -203,6 +227,31 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
             setIsSettingsRendered(false);
         }
     }, [isSettingsOpen]);
+
+    useEffect(() => {
+        let interval: number;
+        if (isSettingsOpen && backingType !== 'none' && backingTrackUrl) {
+            interval = window.setInterval(() => {
+                if (backingType === 'mp3' || (backingType === 'online' && !getYoutubeId(backingTrackUrl))) {
+                    if (backingTrackRef.current) {
+                        setBackingTrackCurrentTime(backingTrackRef.current.currentTime);
+                        setBackingTrackDuration(backingTrackRef.current.duration || 0);
+                        setIsAudioOnlyPlaying(!backingTrackRef.current.paused);
+                    }
+                } else if (backingType === 'online' && youtubePlayerRef.current && typeof youtubePlayerRef.current.getCurrentTime === 'function') {
+                    try {
+                        setBackingTrackCurrentTime(youtubePlayerRef.current.getCurrentTime());
+                        setBackingTrackDuration(youtubePlayerRef.current.getDuration() || 0);
+                        const playerState = youtubePlayerRef.current.getPlayerState();
+                        setIsAudioOnlyPlaying(playerState === 1); // 1 is playing
+                    } catch (e) {
+                        // Player might not be ready
+                    }
+                }
+            }, 100);
+        }
+        return () => clearInterval(interval);
+    }, [isSettingsOpen, backingType, backingTrackUrl]);
 
     const pixelsPerTick = 0.2 * zoom;
     const tickToPx = (tick: number) => tick * pixelsPerTick;
@@ -258,6 +307,62 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
             return { ...prev, notes: newNotes };
         });
     }, [clipboard, cursorTick, setEditorState]);
+
+    const handleTapTempo = useCallback(() => {
+        const now = performance.now();
+        setTapTimes(prev => {
+            const newTimes = [...prev, now].filter(t => now - t < 3000); // Keep last 3 seconds
+            if (newTimes.length >= 2) {
+                const intervals = [];
+                for (let i = 1; i < newTimes.length; i++) {
+                    intervals.push(newTimes[i] - newTimes[i - 1]);
+                }
+                const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+                const bpm = 60000 / avgInterval;
+                const roundedBpm = Math.round(bpm * 4) / 4;
+
+                setEditorState(prev => {
+                    if (!prev) return prev;
+                    const newTempos = [...prev.tempos];
+                    const existingIndex = newTempos.findIndex(t => t.ticks === cursorTick);
+                    if (existingIndex !== -1) {
+                        newTempos[existingIndex] = { ...newTempos[existingIndex], bpm: roundedBpm };
+                    } else {
+                        const precedingIndex = [...newTempos].reverse().findIndex(t => t.ticks <= cursorTick);
+                        if (precedingIndex !== -1) {
+                            const realIndex = newTempos.length - 1 - precedingIndex;
+                            newTempos[realIndex] = { ...newTempos[realIndex], bpm: roundedBpm };
+                        }
+                    }
+                    return { ...prev, tempos: newTempos.sort((a, b) => a.ticks - b.ticks) };
+                });
+            }
+            return newTimes;
+        });
+    }, [cursorTick, setEditorState]);
+
+    const toggleAudioOnly = useCallback(() => {
+        if (isPlaying) {
+            stopPlayback();
+            return;
+        }
+
+        if (backingType === 'none' || !backingTrackUrl) return;
+
+        if (isAudioOnlyPlaying) {
+            if (backingType === 'mp3' || (backingType === 'online' && !getYoutubeId(backingTrackUrl))) {
+                backingTrackRef.current?.pause();
+            } else if (backingType === 'online' && youtubePlayerRef.current) {
+                youtubePlayerRef.current.pauseVideo();
+            }
+        } else {
+            if (backingType === 'mp3' || (backingType === 'online' && !getYoutubeId(backingTrackUrl))) {
+                backingTrackRef.current?.play();
+            } else if (backingType === 'online' && youtubePlayerRef.current) {
+                youtubePlayerRef.current.playVideo();
+            }
+        }
+    }, [isPlaying, isAudioOnlyPlaying, backingType, backingTrackUrl]);
 
     const keysConfig = useMemo(() => instrumentMode === 'drum' ? DRUM_KEYS_CONFIG : PIANO_KEYS_CONFIG, [instrumentMode]);
 
@@ -347,6 +452,8 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
         await safePauseBackingTrack();
         safePauseYoutube();
         setIsPlaying(false);
+        setMetronomeBeat(null);
+        lastVisualBeatTimeRef.current = -1;
     }, [safePauseBackingTrack]);
 
     useEffect(() => {
@@ -398,6 +505,10 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
                 masterGainRef.current = audioContextRef.current.createGain();
                 masterGainRef.current.connect(audioContextRef.current.destination);
                 masterGainRef.current.gain.value = pianoVolume;
+
+                metronomeGainRef.current = audioContextRef.current.createGain();
+                metronomeGainRef.current.connect(audioContextRef.current.destination);
+                metronomeGainRef.current.gain.value = metronomeVolume;
             }
         };
         initAudio();
@@ -470,14 +581,17 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
         };
         loadMidi();
 
-        return () => { 
+        return () => {
+            stopPlayback();
             if (backingTrackUrl && backingTrackUrl.startsWith('blob:')) URL.revokeObjectURL(backingTrackUrl);
             if (audioContextRef.current) {
-                audioContextRef.current.close();
+                audioContextRef.current.close().catch(() => {});
                 audioContextRef.current = null;
+                masterGainRef.current = null;
+                metronomeGainRef.current = null;
             }
-        }
-    }, [initialMidiFile, setEditorState, getAudioBuffer]);
+        };
+    }, [initialMidiFile, setEditorState, getAudioBuffer, instrumentMode, backingTrackUrl, stopPlayback]);
 
     useEffect(() => {
         if (backingTrackRef.current) {
@@ -539,13 +653,17 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
 
     const safePlayYoutube = () => {
         if (youtubePlayerRef.current && typeof youtubePlayerRef.current.playVideo === 'function') {
-            youtubePlayerRef.current.playVideo();
+            try {
+                youtubePlayerRef.current.playVideo();
+            } catch (e) { console.warn("Failed to play YouTube", e); }
         }
     };
 
     const safePauseYoutube = () => {
         if (youtubePlayerRef.current && typeof youtubePlayerRef.current.pauseVideo === 'function') {
-            youtubePlayerRef.current.pauseVideo();
+            try {
+                youtubePlayerRef.current.pauseVideo();
+            } catch (e) { console.warn("Failed to pause YouTube", e); }
         }
     };
     // --- End YouTube API Integration ---
@@ -649,12 +767,89 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
 
     const lastProcessedEditorStateRef = useRef<EditorState | null>(null);
 
+    useEffect(() => {
+        if (metronomeGainRef.current) metronomeGainRef.current.gain.value = metronomeVolume;
+    }, [metronomeVolume]);
+
+    useEffect(() => {
+        const loadMetronome = async () => {
+            if (!audioContextRef.current) return;
+            try {
+                const [strongResp, weakResp] = await Promise.all([
+                    fetch('/sounds/metronome/strong_beat.mp3'),
+                    fetch('/sounds/metronome/weak_beat.mp3')
+                ]);
+                const [strongAb, weakAb] = await Promise.all([
+                    strongResp.arrayBuffer(),
+                    weakResp.arrayBuffer()
+                ]);
+                const [strongBuffer, weakBuffer] = await Promise.all([
+                    audioContextRef.current.decodeAudioData(strongAb),
+                    audioContextRef.current.decodeAudioData(weakAb)
+                ]);
+                metronomeBuffersRef.current = { strong: strongBuffer, weak: weakBuffer };
+            } catch (e) {
+                console.warn("Failed to load metronome sounds", e);
+            }
+        };
+        loadMetronome();
+    }, [audioContextRef.current]);
+
+    const calculateBeatTimes = useCallback(() => {
+        if (!editorState) return;
+        const beats: { timeMs: number, isStrong: boolean }[] = [];
+        const ppq = TICKS_PER_QUARTER;
+        
+        // Find max ticks
+        const maxTicks = Math.max(...editorState.notes.map(n => n.ticks + n.durationTicks), TICKS_PER_QUARTER * 16);
+        
+        // Sort signature events
+        const sigs = [...editorState.signatureEvents].sort((a, b) => a.ticks - b.ticks);
+        if (sigs.length === 0 || sigs[0].ticks > 0) {
+            sigs.unshift({ ticks: 0, timeSignature: [4, 4] });
+        }
+
+        let currentTick = 0;
+        let sigIdx = 0;
+
+        while (currentTick <= maxTicks) {
+            while (sigIdx < sigs.length - 1 && sigs[sigIdx + 1].ticks <= currentTick) {
+                sigIdx++;
+            }
+            const sig = sigs[sigIdx];
+            const [num, den] = sig.timeSignature || [4, 4];
+            const ticksPerBeat = ppq * (4 / den);
+            const beatsPerBar = num;
+            
+            // Calculate which beat in the bar we are at
+            const ticksSinceSigStart = currentTick - sig.ticks;
+            const beatInBar = Math.round(ticksSinceSigStart / ticksPerBeat) % beatsPerBar;
+            
+            beats.push({
+                timeMs: ticksToMs(currentTick),
+                isStrong: beatInBar === 0
+            });
+
+            currentTick += ticksPerBeat;
+        }
+        allBeatTimesRef.current = beats;
+    }, [editorState, ticksToMs]);
+
+    useEffect(() => {
+        calculateBeatTimes();
+    }, [calculateBeatTimes]);
+
     const togglePlay = useCallback(async () => {
         if (isPlaying) {
             await stopPlayback();
             return;
         }
         if (!audioContextRef.current || !editorState) return;
+        
+        // Start playback state immediately for UI responsiveness and to avoid race conditions in animate()
+        setIsPlaying(true);
+        isPlayingRef.current = true;
+
         const audioCtx = audioContextRef.current;
         if (audioCtx.state === 'suspended') await audioCtx.resume();
 
@@ -665,10 +860,21 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
                 break;
             }
         }
-        nextNoteToScheduleIndexRef.current = startIndex;
-
         const playbackStartAudioTime = audioCtx.currentTime;
         const playbackStartMs = ticksToMs(cursorTick);
+
+        lastVisualBeatTimeRef.current = -1;
+        setMetronomeBeat(null);
+
+        nextNoteToScheduleIndexRef.current = startIndex;
+        nextBeatToScheduleIndexRef.current = 0;
+        // Find the first beat to schedule
+        for (let i = 0; i < allBeatTimesRef.current.length; i++) {
+            if (allBeatTimesRef.current[i].timeMs >= playbackStartMs) {
+                nextBeatToScheduleIndexRef.current = i;
+                break;
+            }
+        }
 
         // Sync the last processed state to prevent immediate re-sync in the animation loop
         // which could cause the first few milliseconds of notes to be skipped due to frame delay.
@@ -686,7 +892,16 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
                 await safePauseBackingTrack();
                 audio.volume = backingTrackVolume;
                 if (audioStartTime >= 0) {
-                    audio.currentTime = audioStartTime;
+                    if (audio.readyState >= 1) {
+                        audio.currentTime = audioStartTime;
+                    } else {
+                        // If not ready, we'll have to wait or just play from start
+                        const onMetadata = () => {
+                            audio.currentTime = audioStartTime;
+                            audio.removeEventListener('loadedmetadata', onMetadata);
+                        };
+                        audio.addEventListener('loadedmetadata', onMetadata);
+                    }
                     await safePlayBackingTrack();
                 } else {
                     setTimeout(async () => {
@@ -702,12 +917,20 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
                 if (isYoutube) {
                     safePauseYoutube();
                     if (audioStartTime >= 0) {
-                        youtubePlayerRef.current.seekTo(audioStartTime, true);
+                        if (typeof youtubePlayerRef.current.seekTo === 'function') {
+                            try {
+                                youtubePlayerRef.current.seekTo(audioStartTime, true);
+                            } catch (e) { console.warn("YouTube seek failed", e); }
+                        }
                         safePlayYoutube();
                     } else {
                         setTimeout(() => {
                             if (isPlayingRef.current) {
-                                youtubePlayerRef.current.seekTo(0, true);
+                                if (typeof youtubePlayerRef.current.seekTo === 'function') {
+                                    try {
+                                        youtubePlayerRef.current.seekTo(0, true);
+                                    } catch (e) { console.warn("YouTube seek failed", e); }
+                                }
                                 safePlayYoutube();
                             }
                         }, -audioStartTime * 1000);
@@ -720,7 +943,15 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
                         audio.src = backingTrackUrl;
                         audio.volume = backingTrackVolume;
                         if (audioStartTime >= 0) {
-                            audio.currentTime = audioStartTime;
+                            if (audio.readyState >= 1) {
+                                audio.currentTime = audioStartTime;
+                            } else {
+                                const onMetadata = () => {
+                                    audio.currentTime = audioStartTime;
+                                    audio.removeEventListener('loadedmetadata', onMetadata);
+                                };
+                                audio.addEventListener('loadedmetadata', onMetadata);
+                            }
                             await safePlayBackingTrack();
                         } else {
                             setTimeout(async () => {
@@ -767,6 +998,14 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
                     newIndex++;
                 }
                 nextNoteToScheduleIndexRef.current = newIndex;
+
+                let newBeatIndex = 0;
+                while (newBeatIndex < allBeatTimesRef.current.length) {
+                    if (allBeatTimesRef.current[newBeatIndex].timeMs >= currentPlaybackTimeMs) break;
+                    newBeatIndex++;
+                }
+                nextBeatToScheduleIndexRef.current = newBeatIndex;
+
                 lastProcessedEditorStateRef.current = currentEditorState;
             }
 
@@ -802,6 +1041,42 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
                 currentIndex++;
             }
 
+            // Schedule Metronome
+            if (metronomeMode !== 'off' && metronomeBuffersRef.current.strong) {
+                let beatIdx = nextBeatToScheduleIndexRef.current;
+                while (beatIdx < allBeatTimesRef.current.length) {
+                    const beat = allBeatTimesRef.current[beatIdx];
+                    const beatScheduledStartAudioTime = playbackStartAudioTime + (beat.timeMs - playbackStartMs) / 1000;
+                    
+                    if (beatScheduledStartAudioTime < scheduleUntilAudioTime) {
+                        if (beatScheduledStartAudioTime > audioNow - 0.1) {
+                            const shouldPlay = metronomeMode === 'beat' || (metronomeMode === 'bar' && beat.isStrong);
+                            if (shouldPlay) {
+                                const buffer = beat.isStrong ? metronomeBuffersRef.current.strong : metronomeBuffersRef.current.weak;
+                                if (buffer && metronomeGainRef.current) {
+                                    const source = audioContextRef.current!.createBufferSource();
+                                    source.buffer = buffer;
+                                    source.connect(metronomeGainRef.current);
+                                    source.start(beatScheduledStartAudioTime);
+                                }
+                            }
+                        }
+                        nextBeatToScheduleIndexRef.current = beatIdx + 1;
+                    } else {
+                        break;
+                    }
+                    beatIdx++;
+                }
+            }
+
+            // Update visual metronome
+            const currentPlaybackTimeMs = (audioNow - playbackStartAudioTime) * 1000 + playbackStartMs;
+            const activeBeat = [...allBeatTimesRef.current].reverse().find(b => b.timeMs <= currentPlaybackTimeMs);
+            if (activeBeat && lastVisualBeatTimeRef.current !== activeBeat.timeMs) {
+                lastVisualBeatTimeRef.current = activeBeat.timeMs;
+                setMetronomeBeat(activeBeat);
+            }
+
             const elapsedMs = performance.now() - animationStartTime;
             const newCursorTick = msToTicksRef.current(playbackStartMs + elapsedMs);
             setCursorTick(newCursorTick);
@@ -818,7 +1093,6 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
         };
 
         playbackRequestRef.current = requestAnimationFrame(animate);
-        setIsPlaying(true);
     }, [isPlaying, stopPlayback, editorState, cursorTick, ticksToMs, msToTicks, playNoteSound, backingTrackUrl, backingTrackOffset, backingTrackVolume, safePauseBackingTrack, safePlayBackingTrack]);
 
     const snapTick = (tick: number) => { const s = snapTicks; return Math.round(tick / s) * s; };
@@ -858,8 +1132,8 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
         if (!scrollContainer || !editorState) return;
 
         const containerRect = scrollContainer.getBoundingClientRect();
-        const absoluteX = e.clientX - containerRect.left + scrollContainer.scrollLeft;
-        const absoluteY = e.clientY - containerRect.top + scrollContainer.scrollTop;
+        const absoluteX = (e.clientX - containerRect.left) / zoomScale + scrollContainer.scrollLeft;
+        const absoluteY = (e.clientY - containerRect.top) / zoomScale + scrollContainer.scrollTop;
 
         // The note grid is offset by the ruler's height inside the scrollable content
         const gridY = absoluteY - RULER_HEIGHT;
@@ -881,7 +1155,9 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
                     return { ...prev, notes: newNotes };
                 });
 
-                playNoteSound(midi, 0.8, 0.25, audioContextRef.current!.currentTime);
+                if (audioContextRef.current) {
+                    playNoteSound(midi, 0.8, 0.25, audioContextRef.current.currentTime);
+                }
             });
         } else if (activeTool === 'select') {
             handleMouseDownShared(() => {
@@ -943,7 +1219,9 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
                 });
             });
         } else {
-            playNoteSound(note.midi, note.velocity, ticksToMs(note.durationTicks) / 1000, audioContextRef.current!.currentTime);
+            if (audioContextRef.current) {
+                playNoteSound(note.midi, note.velocity, ticksToMs(note.durationTicks) / 1000, audioContextRef.current.currentTime);
+            }
         }
     };
 
@@ -953,12 +1231,12 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
         handleMouseDownShared(() => {
             const laneEl = e.currentTarget as HTMLDivElement;
             const rect = laneEl.getBoundingClientRect();
-            const x = e.clientX - rect.left;
+            const x = (e.clientX - rect.left) / zoomScale;
             const tick = pxToTick(x + (gridContainerRef.current?.scrollLeft || 0));
             if (index !== undefined) {
                 setDragInfo({ type: 'tempo', tempoIndex: index, initialBpm: editorState?.tempos[index].bpm, startX: e.clientX, startY: e.clientY });
             } else {
-                const y = e.clientY - rect.top;
+                const y = (e.clientY - rect.top) / zoomScale;
                 const bpm = 500 - (y / laneEl.clientHeight) * 480;
                 setEditorState(prev => ({ ...prev, tempos: [...prev.tempos, { ticks: snapTick(tick), bpm: Math.round(Math.max(20, bpm)) }].sort((a, b) => a.ticks - b.ticks) }));
             }
@@ -969,11 +1247,11 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
         const handleMouseMove = (e: MouseEvent) => {
             if (isDraggingRulerRef.current && gridContainerRef.current) {
                 const rect = gridContainerRef.current.getBoundingClientRect();
-                const x = e.clientX - rect.left;
+                const x = (e.clientX - rect.left) / zoomScale;
                 setCursorTick(Math.max(0, pxToTick(x + gridContainerRef.current.scrollLeft)));
             } else if (dragInfo && isDraggingRef.current) {
                 if (dragInfo.type === 'selection' && dragInfo.initialNotes && dragInfo.minOriginalTick !== undefined) {
-                    const dx = e.clientX - dragInfo.startX; const dy = e.clientY - dragInfo.startY;
+                    const dx = (e.clientX - dragInfo.startX) / zoomScale; const dy = (e.clientY - dragInfo.startY) / zoomScale;
                     const rawTickDelta = pxToTick(dx);
                     const rowDelta = Math.round(dy / effectiveRowHeight);
 
@@ -995,7 +1273,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
                         })
                     }), true);
                 } else if (dragInfo.type === 'tempo' && dragInfo.tempoIndex !== undefined) {
-                    const dy = e.clientY - dragInfo.startY;
+                    const dy = (e.clientY - dragInfo.startY) / zoomScale;
                     const bpmDelta = (dy / (gridContainerRef.current?.clientHeight ?? totalHeight)) * 480;
                     setEditorState(prev => {
                         const newTempos = [...prev.tempos];
@@ -1008,8 +1286,8 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
             } else if (selectionBox && isDraggingRef.current && gridContainerRef.current) {
                 const scrollContainer = gridContainerRef.current;
                 const rect = scrollContainer.getBoundingClientRect();
-                const x = e.clientX - rect.left + scrollContainer.scrollLeft;
-                const y = e.clientY - rect.top + scrollContainer.scrollTop - RULER_HEIGHT;
+                const x = (e.clientX - rect.left) / zoomScale + scrollContainer.scrollLeft;
+                const y = (e.clientY - rect.top) / zoomScale + scrollContainer.scrollTop - RULER_HEIGHT;
                 setSelectionBox(prev => prev ? { ...prev, endX: x, endY: Math.max(0, y) } : null);
             }
         };
@@ -1074,7 +1352,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
         const rulerEl = e.currentTarget as HTMLDivElement;
         const rect = rulerEl.getBoundingClientRect();
         const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-        const x = clientX - rect.left;
+        const x = (clientX - rect.left) / zoomScale;
         if (x < 0) return;
         setCursorTick(Math.max(0, pxToTick(x + (gridContainerRef.current?.scrollLeft || 0))));
     };
@@ -1141,6 +1419,11 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a'); a.href = url; a.download = `octavia_edit_${Date.now()}.mid`; a.click();
         URL.revokeObjectURL(url);
+    };
+
+    const handleExportAndExit = () => {
+        handleExport();
+        onClose();
     };
 
     const handleBackingTrackUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1321,98 +1604,195 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
     return (
         <div className="fixed inset-0 bg-slate-950 z-50 flex flex-col text-slate-200 font-sans select-none overflow-hidden">
             {backingType === 'mp3' && backingTrackUrl && <audio ref={backingTrackRef} src={backingTrackUrl} />}
-            {backingType === 'online' && <div id="editor-youtube-player" style={{ position: 'absolute', width: 0, height: 0, pointerEvents: 'none' }} />}
+            <div id="editor-youtube-player" style={{ position: 'absolute', width: 0, height: 0, pointerEvents: 'none', visibility: backingType === 'online' ? 'visible' : 'hidden' }} />
             {backingType === 'online' && backingTrackUrl && !getYoutubeId(backingTrackUrl) && <audio ref={backingTrackRef} src={backingTrackUrl} />}
 
             {/* HEADER */}
-            <div className="h-16 bg-slate-900 border-b border-white/10 flex items-center px-4 justify-between gap-4 shadow-xl z-50 flex-shrink-0">
-                <div className="flex items-center gap-3">
-                    <h2 className="text-xl font-black text-cyan-400 mr-2 tracking-tighter italic">MIDI EDITOR</h2>
-                    <button onClick={togglePlay} className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${isPlaying ? 'bg-amber-500 scale-110' : 'bg-cyan-600 hover:bg-cyan-500 shadow-cyan-500/20 shadow-lg'}`}>
-                        {isPlaying ? <svg className="w-5 h-5 fill-black" viewBox="0 0 24 24"><path d="M6 4h4v16H6zm8 0h4v16h-4z" /></svg> : <svg className="w-5 h-5 fill-white" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>}
+            <div className="h-14 bg-slate-900 border-b border-white/10 flex items-center px-4 justify-between gap-2 shadow-xl z-50 flex-shrink-0">
+                <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-black text-cyan-400 mr-2 tracking-tighter italic hidden sm:block uppercase">Midi Editor</h2>
+                    <button onClick={togglePlay} className={`w-9 h-9 rounded-full flex items-center justify-center transition-all ${isPlaying ? 'bg-amber-500 scale-110' : 'bg-cyan-600 hover:bg-cyan-500 shadow-cyan-500/20 shadow-lg'}`}>
+                        {isPlaying ? <svg className="w-4 h-4 fill-black" viewBox="0 0 24 24"><path d="M6 4h4v16H6zm8 0h4v16h-4z" /></svg> : <svg className="w-4 h-4 fill-white" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>}
                     </button>
-                    <div className="flex items-center gap-1">
-                        <button onClick={undo} disabled={!canUndo} className="p-2 rounded-full bg-slate-800 hover:bg-slate-700 disabled:opacity-30" title="Undo (Ctrl+Z)"><svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M7.707 3.293a1 1 0 010 1.414L5.414 7H11a7 7 0 110 14h-1a1 1 0 110-2h1a5 5 0 100-10H5.414l2.293 2.293a1 1 0 11-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd"></path></svg></button>
-                        <button onClick={redo} disabled={!canRedo} className="p-2 rounded-full bg-slate-800 hover:bg-slate-700 disabled:opacity-30" title="Redo (Ctrl+Y)"><svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M12.293 3.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L14.586 9H9a7 7 0 100 14h1a1 1 0 100-2H9a5 5 0 110-10h5.586l-2.293-2.293a1 1 0 010-1.414z" clipRule="evenodd"></path></svg></button>
+                    <div className="flex items-center gap-3 px-3 py-1.5 bg-slate-800/40 rounded-lg border border-white/5 ml-2">
+                        <div className="flex flex-col items-center">
+                            <span className="text-[7px] text-slate-500 uppercase font-black leading-none mb-1">Tempo</span>
+                            <span className="text-[11px] font-mono font-bold text-amber-400 leading-none">{Math.round(getBpmAtTick(cursorTick))}</span>
+                        </div>
+                        <div className="h-5 w-px bg-white/10"></div>
+                        <div className="flex flex-col items-center">
+                            <span className="text-[7px] text-slate-500 uppercase font-black leading-none mb-1">Sign</span>
+                            <span className="text-[11px] font-mono font-bold text-slate-300 leading-none">{currentBarSignatures.time}</span>
+                        </div>
+                        <div className="h-5 w-px bg-white/10"></div>
+                        <div className="flex flex-col items-center">
+                            <span className="text-[7px] text-slate-500 uppercase font-black leading-none mb-1">Key</span>
+                            <span className="text-[11px] font-mono font-bold text-slate-300 leading-none">{currentBarSignatures.key}</span>
+                        </div>
+                        <div className="h-5 w-px bg-white/10"></div>
+                        <div className="flex items-center justify-center w-4">
+                            <div className={`w-2 h-2 rounded-full transition-all duration-75 ${metronomeBeat?.isStrong ? 'bg-amber-500 scale-125 shadow-[0_0_10px_rgba(245,158,11,0.8)]' : (metronomeBeat ? 'bg-cyan-400 scale-110' : 'bg-slate-700')}`}></div>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-0.5 ml-1">
+                        <button onClick={undo} disabled={!canUndo} className="p-1.5 rounded-full bg-slate-800 hover:bg-slate-700 disabled:opacity-30" title="Undo (Ctrl+Z)"><svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M7.707 3.293a1 1 0 010 1.414L5.414 7H11a7 7 0 110 14h-1a1 1 0 110-2h1a5 5 0 100-10H5.414l2.293 2.293a1 1 0 11-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd"></path></svg></button>
+                        <button onClick={redo} disabled={!canRedo} className="p-1.5 rounded-full bg-slate-800 hover:bg-slate-700 disabled:opacity-30" title="Redo (Ctrl+Y)"><svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M12.293 3.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L14.586 9H9a7 7 0 100 14h1a1 1 0 100-2H9a5 5 0 110-10h5.586l-2.293-2.293a1 1 0 010-1.414z" clipRule="evenodd"></path></svg></button>
+                        <button onClick={handleExportAndExit} className="ml-2 bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded text-[10px] font-black shadow-lg transition-transform active:scale-95 flex items-center gap-1">
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                            EXPORT & EXIT
+                        </button>
                     </div>
                 </div>
-                <div className="flex items-center gap-3 bg-slate-800/80 p-1.5 rounded-lg border border-white/10">
-                    <div className="flex items-center gap-1">
-                        {(['select', 'draw', 'delete'] as const).map(tool => (
-                            <button key={tool} onClick={() => setActiveTool(tool)} className={`px-3 py-1 rounded text-xs font-black ${activeTool === tool ? 'bg-cyan-500 text-white' : 'bg-slate-700 text-slate-500 hover:bg-slate-600'}`}>{tool.charAt(0).toUpperCase() + tool.slice(1)}</button>
-                        ))}
-                    </div>
-                    <div className="h-6 w-px bg-white/10"></div>
-                    <div className="flex items-center gap-1">
-                        <button onClick={() => setActiveHand('right')} className={`px-2 py-1 rounded text-xs font-bold transition-colors ${activeHand === 'right' ? 'bg-violet-500 text-white' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'}`}>Right Hand</button>
-                        <button onClick={() => setActiveHand('left')} className={`px-2 py-1 rounded text-xs font-bold transition-colors ${activeHand === 'left' ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'}`}>Left Hand</button>
-                    </div>
-                    <div className="h-6 w-px bg-white/10"></div>
-                    <div className="flex gap-2">
-                        <div className="flex flex-col">
-                            <span className="text-[9px] uppercase text-slate-500 font-bold">Rhythm</span>
-                            <select value={snapBaseIndex} onChange={e => setSnapBaseIndex(Number(e.target.value))} className="bg-transparent text-xs font-black text-white outline-none cursor-pointer">
-                                {RHYTHM_BASES.map((opt, i) => (<option key={i} value={i} className="bg-slate-900">{opt.label}</option>))}
-                            </select>
-                        </div>
-                        <div className="flex flex-col">
-                            <span className="text-[9px] uppercase text-slate-500 font-bold">Type</span>
-                            <select value={snapTypeIndex} onChange={e => setSnapTypeIndex(Number(e.target.value))} className="bg-transparent text-xs font-black text-white outline-none cursor-pointer">
-                                {NOTE_TYPES.map((opt, i) => (<option key={i} value={i} className="bg-slate-900">{opt.label}</option>))}
-                            </select>
-                        </div>
-                    </div>
-                    <div className="h-6 w-px bg-white/10"></div>
-                    {['Key', 'Time'].map(type => (
-                        <React.Fragment key={type}>
-                            <div className="flex flex-col px-2">
-                                <span className="text-[9px] uppercase text-slate-500 font-bold">{type}</span>
-                                {type === 'Key' ?
-                                    <select value={currentBarSignatures.key} onChange={e => handleSignatureChange('key', e.target.value)} className="bg-transparent text-xs font-black text-white outline-none cursor-pointer w-12">{KEY_SIGNATURES.map(k => (<option key={k} value={k} className="bg-slate-900">{k}</option>))}</select> :
-                                    <input key={`time-sig-${currentBarSignatures.time}-${getCurrentBarStartTick()}`} type="text" defaultValue={currentBarSignatures.time} onBlur={e => handleSignatureChange('time', e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleSignatureChange('time', e.currentTarget.value); }} className="bg-transparent text-xs font-black text-white outline-none w-12" placeholder="4/4" />
-                                }
-                            </div>
-                            <div className="h-6 w-px bg-white/10"></div>
-                        </React.Fragment>
-                    ))}
-                    <button onClick={() => setShowBpmAutomation(p => !p)} className={`px-3 py-1 rounded text-xs font-black ${showBpmAutomation ? 'bg-amber-500 text-white' : 'bg-slate-700 text-slate-500'}`}>BPM</button>
 
-                    <div className="h-6 w-px bg-white/10"></div>
-
-                    {/* Zoom Controls */}
-                    <div className="flex items-center gap-2 px-2">
-                        <div className="flex flex-col items-center">
-                            <span className="text-[8px] uppercase text-slate-500 font-bold">Pitch</span>
-                            <div className="flex items-center gap-1">
-                                <button onClick={() => setVZoom(p => Math.max(0.2, p - 0.1))} className="w-5 h-5 rounded bg-slate-700 hover:bg-slate-600 text-xs flex items-center justify-center">−</button>
-                                <button onClick={() => setVZoom(p => Math.min(3, p + 0.1))} className="w-5 h-5 rounded bg-slate-700 hover:bg-slate-600 text-xs flex items-center justify-center">+</button>
-                            </div>
-                        </div>
-                        <div className="flex flex-col items-center ml-1">
-                            <span className="text-[8px] uppercase text-slate-500 font-bold">Time</span>
-                            <div className="flex items-center gap-1">
-                                <button onClick={() => setZoom(p => Math.max(0.1, p - 0.1))} className="w-5 h-5 rounded bg-slate-700 hover:bg-slate-600 text-xs flex items-center justify-center">−</button>
-                                <button onClick={() => setZoom(p => Math.min(5, p + 0.1))} className="w-5 h-5 rounded bg-slate-700 hover:bg-slate-600 text-xs flex items-center justify-center">+</button>
-                            </div>
-                        </div>
+                <div className="flex items-center gap-2">
+                    {/* Simplified Dropdowns */}
+                    <div className="flex items-center gap-1 bg-slate-800/80 p-1 rounded-lg border border-white/10">
+                        {/* BPM TOGGLE */}
                         <button 
-                            onClick={handleFitToScreen} 
-                            className="ml-2 px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-[10px] font-bold text-slate-300 transition-colors"
-                            title="Fit to Screen"
+                            onClick={() => setShowBpmAutomation(p => !p)} 
+                            className={`px-2 py-1.5 rounded text-[10px] font-black uppercase transition-colors ${showBpmAutomation ? 'bg-amber-500 text-white shadow-[0_0_10px_rgba(245,158,11,0.3)]' : 'hover:bg-slate-700 text-slate-300'}`}
                         >
-                            FIT
+                            BPM
                         </button>
-                        <button 
-                            onClick={() => { setZoom(1); setVZoom(1); }} 
-                            className="ml-1 px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-[10px] font-bold text-slate-300 transition-colors"
-                            title="Reset to 100%"
-                        >
-                            100%
-                        </button>
+
+                        <div className="h-5 w-px bg-white/10 mx-0.5"></div>
+
+                        {/* TOOLS */}
+                        <div className="flex items-center gap-1">
+                            {(['select', 'draw', 'delete'] as const).map(tool => (
+                                <button 
+                                    key={tool} 
+                                    onClick={() => setActiveTool(tool)} 
+                                    className={`px-2 py-1.5 rounded text-[10px] font-bold uppercase transition-colors ${activeTool === tool ? 'bg-cyan-500 text-white shadow-[0_0_10px_rgba(6,182,212,0.3)]' : 'hover:bg-slate-700 text-slate-300'}`}
+                                >
+                                    {tool}
+                                </button>
+                            ))}
+                        </div>
+
+                        <div className="h-5 w-px bg-white/10 mx-0.5"></div>
+
+                        {/* HAND TOGGLE */}
+                        {instrumentMode !== 'drum' && (
+                            <>
+                                <button 
+                                    onClick={() => setActiveHand(p => p === 'right' ? 'left' : 'right')}
+                                    className={`px-2 py-1.5 rounded text-[10px] font-bold uppercase transition-colors ${activeHand === 'right' ? 'bg-violet-500/20 text-violet-400' : 'bg-blue-500/20 text-blue-400'}`}
+                                    title={`Current Hand: ${activeHand.toUpperCase()}`}
+                                >
+                                    {activeHand === 'right' ? 'R-Hand' : 'L-Hand'}
+                                </button>
+
+                                <div className="h-5 w-px bg-white/10 mx-0.5"></div>
+                            </>
+                        )}
+
+                        {/* GRID DROPDOWN (Combined Snap & Signatures) */}
+                        <div className="relative">
+                            <button 
+                                onClick={() => setActiveDropdown(activeDropdown === 'snap' ? null : 'snap')}
+                                className={`px-2 py-1.5 rounded flex items-center gap-1.5 text-xs font-bold transition-colors ${activeDropdown === 'snap' ? 'bg-cyan-500 text-white' : 'hover:bg-slate-700 text-slate-300'}`}
+                            >
+                                <span>GRID: {RHYTHM_BASES[snapBaseIndex].label}</span>
+                                <svg className={`w-3 h-3 transition-transform ${activeDropdown === 'snap' ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7"></path></svg>
+                            </button>
+                            {activeDropdown === 'snap' && (
+                                <div className="absolute top-full left-0 mt-1 w-56 bg-slate-900 border border-white/10 rounded-lg shadow-2xl p-3 z-[100]">
+                                    <div className="mb-3">
+                                        <div className="text-[9px] uppercase text-slate-500 font-bold mb-1.5">Snap Settings</div>
+                                        <div className="grid grid-cols-2 gap-1 mb-2">
+                                            {RHYTHM_BASES.map((opt, i) => (
+                                                <button key={i} onClick={() => setSnapBaseIndex(i)} className={`px-2 py-1 rounded text-[10px] font-bold text-left ${snapBaseIndex === i ? 'bg-cyan-500/20 text-cyan-400' : 'hover:bg-slate-800 text-slate-400'}`}>{opt.label}</button>
+                                            ))}
+                                        </div>
+                                        <div className="grid grid-cols-3 gap-1">
+                                            {NOTE_TYPES.map((opt, i) => (
+                                                <button key={i} onClick={() => setSnapTypeIndex(i)} className={`px-1 py-1 rounded text-[9px] font-bold text-center ${snapTypeIndex === i ? 'bg-cyan-500/20 text-cyan-400' : 'hover:bg-slate-800 text-slate-400'}`}>{opt.label}</button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="h-px bg-white/5 my-3"></div>
+
+                                    <div className="mb-3">
+                                        <div className="text-[9px] uppercase text-slate-500 font-bold mb-1.5">Auto BPM Sync</div>
+                                        <button 
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleTapTempo();
+                                            }}
+                                            className="w-full py-2 bg-amber-600 hover:bg-amber-500 text-white text-[10px] font-black rounded uppercase transition shadow-lg shadow-amber-900/20 active:scale-95"
+                                        >
+                                            Tap per Beat
+                                        </button>
+                                        <div className="text-[8px] text-slate-500 mt-1 text-center italic">Click along to the beat to sync BPM</div>
+                                    </div>
+                                    
+                                    <div className="h-px bg-white/5 my-3"></div>
+                                    
+                                    <div className="mb-3">
+                                        <div className="text-[9px] uppercase text-slate-500 font-bold mb-1.5">Signatures</div>
+                                        <div className="flex gap-2 mb-2">
+                                            <div className="flex-1">
+                                                <div className="text-[8px] text-slate-500 mb-0.5 uppercase">Key</div>
+                                                <select value={currentBarSignatures.key} onChange={e => handleSignatureChange('key', e.target.value)} className="w-full bg-slate-800 text-[10px] font-bold text-white p-1 rounded outline-none border border-white/5">
+                                                    {KEY_SIGNATURES.map(k => (<option key={k} value={k}>{k}</option>))}
+                                                </select>
+                                            </div>
+                                            <div className="flex-1">
+                                                <div className="text-[8px] text-slate-500 mb-0.5 uppercase">Time</div>
+                                                <input 
+                                                    type="text" 
+                                                    defaultValue={currentBarSignatures.time} 
+                                                    onBlur={e => handleSignatureChange('time', e.target.value)} 
+                                                    onKeyDown={(e) => { if (e.key === 'Enter') { handleSignatureChange('time', e.currentTarget.value); } }} 
+                                                    className="w-full bg-slate-800 text-[10px] font-bold text-white p-1 rounded outline-none border border-white/5" 
+                                                    placeholder="4/4" 
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="h-5 w-px bg-white/10 mx-0.5"></div>
+
+                        {/* VIEW DROPDOWN */}
+                        <div className="relative">
+                            <button 
+                                onClick={() => setActiveDropdown(activeDropdown === 'view' ? null : 'view')}
+                                className={`px-2 py-1.5 rounded flex items-center gap-1.5 text-xs font-bold transition-colors ${activeDropdown === 'view' ? 'bg-cyan-500 text-white' : 'hover:bg-slate-700 text-slate-300'}`}
+                            >
+                                <span>VIEW</span>
+                                <svg className={`w-3 h-3 transition-transform ${activeDropdown === 'view' ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7"></path></svg>
+                            </button>
+                            {activeDropdown === 'view' && (
+                                <div className="absolute top-full right-0 mt-1 w-48 bg-slate-900 border border-white/10 rounded-lg shadow-2xl p-3 z-[100]">
+                                    <div className="mb-3">
+                                        <div className="text-[9px] uppercase text-slate-500 font-bold mb-1.5">Pitch Zoom</div>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <button onClick={() => setVZoom(p => Math.max(0.2, p - 0.1))} className="flex-1 h-7 rounded bg-slate-800 hover:bg-slate-700 text-sm font-bold">−</button>
+                                            <span className="text-[10px] font-mono text-cyan-400 w-8 text-center">{Math.round(vZoom * 100)}%</span>
+                                            <button onClick={() => setVZoom(p => Math.min(3, p + 0.1))} className="flex-1 h-7 rounded bg-slate-800 hover:bg-slate-700 text-sm font-bold">+</button>
+                                        </div>
+                                    </div>
+                                    <div className="mb-3">
+                                        <div className="text-[9px] uppercase text-slate-500 font-bold mb-1.5">Time Zoom</div>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <button onClick={() => setZoom(p => Math.max(0.1, p - 0.1))} className="flex-1 h-7 rounded bg-slate-800 hover:bg-slate-700 text-sm font-bold">−</button>
+                                            <span className="text-[10px] font-mono text-cyan-400 w-8 text-center">{Math.round(zoom * 100)}%</span>
+                                            <button onClick={() => setZoom(p => Math.min(5, p + 0.1))} className="flex-1 h-7 rounded bg-slate-800 hover:bg-slate-700 text-sm font-bold">+</button>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => { handleFitToScreen(); setActiveDropdown(null); }} className="w-full py-1.5 rounded bg-cyan-600 hover:bg-cyan-500 text-[10px] font-bold text-white transition-colors uppercase">Fit to Screen</button>
+                                    <button onClick={() => { setZoom(1); setVZoom(1); setActiveDropdown(null); }} className="w-full py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] font-bold text-slate-300 transition-colors uppercase mt-1">Reset 100%</button>
+                                </div>
+                            )}
+                        </div>
                     </div>
 
-                    <div className="h-6 w-px bg-white/10"></div>
-                    <button onClick={() => setIsSettingsOpen(true)} className="p-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300" title="Editor Settings">
+                    <button onClick={() => setIsSettingsOpen(true)} className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-cyan-400 transition-all border border-white/5" title="Editor Settings">
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37a1.724 1.724 0 002.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
                     </button>
                 </div>
@@ -1556,7 +1936,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
                                             const top = midiToY(note.midi);
                                             if (top === -1) return null;
                                             const left = tickToPx(note.ticks), width = Math.max(2, tickToPx(note.durationTicks));
-                                            const colorClass = note.hand === 'right' ? 'bg-violet-500 border-violet-300' : 'bg-blue-500 border-blue-300';
+                                            const colorClass = instrumentMode === 'drum' ? 'bg-amber-500 border-amber-300' : (note.hand === 'right' ? 'bg-violet-500 border-violet-300' : 'bg-blue-500 border-blue-300');
                                             const selectedClass = note.selected ? 'ring-2 ring-offset-2 ring-offset-black ring-yellow-400' : '';
                                             return (
                                                 <div key={note.id} className={`absolute rounded-[2px] border opacity-80 hover:opacity-100 transition-opacity ${colorClass} ${selectedClass} flex items-center justify-center overflow-hidden`}
@@ -1583,10 +1963,9 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
                     <div className={`bg-slate-800 p-8 rounded-xl shadow-2xl max-w-md w-full ring-1 ring-slate-700 transform transition-all duration-300 ease-in-out ${isSettingsRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`} onClick={e => e.stopPropagation()}>
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-2xl font-bold text-cyan-400">Editor Settings</h3>
-                            <button onClick={() => setIsSettingsOpen(false)} className="text-slate-400 hover:text-white text-2xl">&times;</button>
                         </div>
 
-                        <div className="space-y-6">
+                        <div className="space-y-6 max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar">
                             <div>
                                 <div className="flex justify-between mb-2">
                                     <label className="text-sm font-bold text-slate-300 uppercase">Piano Volume</label>
@@ -1595,9 +1974,26 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
                                 <input type="range" min="0" max="1" step="0.05" value={pianoVolume} onChange={(e) => setPianoVolume(parseFloat(e.target.value))} className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer" />
                             </div>
 
-                            <div className="flex justify-between gap-4 mt-6">
-                                <button onClick={handleExport} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded text-xs font-black shadow-lg transition-transform active:scale-95 flex-1">EXPORT</button>
-                                <button onClick={onClose} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded text-xs font-black transition-colors flex-1">EXIT</button>
+                            <div>
+                                <div className="flex justify-between mb-2">
+                                    <label className="text-sm font-bold text-slate-300 uppercase">Metronome</label>
+                                    <div className="flex gap-1 bg-slate-900 p-1 rounded-lg">
+                                        {(['off', 'beat', 'bar'] as const).map(mode => (
+                                            <button
+                                                key={mode}
+                                                onClick={() => setMetronomeMode(mode)}
+                                                className={`px-3 py-1 text-[10px] font-black rounded uppercase transition ${metronomeMode === mode ? 'bg-cyan-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+                                            >
+                                                {mode}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="flex justify-between mb-2">
+                                    <label className="text-xs text-slate-400 uppercase">Metronome Volume</label>
+                                    <span className="text-cyan-400 font-mono text-xs">{Math.round(metronomeVolume * 100)}%</span>
+                                </div>
+                                <input type="range" min="0" max="1" step="0.05" value={metronomeVolume} onChange={(e) => setMetronomeVolume(parseFloat(e.target.value))} className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer" />
                             </div>
 
                             <div className="bg-slate-900/50 p-4 rounded-lg space-y-4 border border-slate-700">
@@ -1622,15 +2018,26 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
                                     </div>
                                 </div>
 
-                                {backingType !== 'none' && (
-                                    <div className="bg-amber-500/10 border border-amber-500/30 p-2 rounded text-[10px] text-amber-200 leading-tight">
-                                        <p className="font-bold flex items-center gap-1 mb-1">
-                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-                                            IMPORTANT:
+                                <div className="bg-amber-500/10 border border-amber-500/30 p-2 rounded text-[10px] text-amber-200 leading-tight">
+                                    <p className="font-bold flex items-center gap-1 mb-1">
+                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                                        IMPORTANT:
+                                    </p>
+                                    <div className="space-y-1">
+                                        <p>Warning: For YouTube backing tracks, please use the preset speeds (0.5x, 0.75x, 1x, etc.) to avoid audio sync issues. Custom speeds may cause drift.</p>
+                                        <p>Please refresh the browser if the YouTube/MP3 audio does not appear when switching between the Game and the Editor.</p>
+                                        <p>
+                                            If your MIDI controller feels delayed, consider adjusting the note offset in settings. Click the icon to go directly to the note offset settings, where you can calibrate it automatically by pressing a note in sync with the metronome beat.
+                                            {onOpenSettings && (
+                                                <button onClick={onOpenSettings} className="inline-flex items-center justify-center ml-1 text-cyan-400 hover:text-cyan-300 transition-colors" title="Open Settings">
+                                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                                                </button>
+                                            )}
                                         </p>
-                                        Please refresh the browser if the YouTube/MP3 audio does not appear when switching between the Game and the Editor.
+                                        <p>If the MP3 feels out of sync, try pausing and playing it again, or stop and restart the track.</p>
+                                        <p>If the MP3 is still out of sync, try adjusting the Sync Offset (Audio vs MIDI) by ±100 ms from the original offset.</p>
                                     </div>
-                                )}
+                                </div>
 
                                 {backingType === 'mp3' && (
                                     <div className="flex flex-col gap-2">
@@ -1678,6 +2085,58 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
 
                                 {backingType !== 'none' && backingTrackUrl && (
                                     <>
+                                        <div className="bg-slate-900 p-3 rounded-lg border border-slate-700 mb-4">
+                                            <div className="flex justify-between items-center mb-1.5">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Audio Progress</span>
+                                                    <button 
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            toggleAudioOnly();
+                                                        }}
+                                                        className="p-1 bg-slate-800 hover:bg-slate-700 text-cyan-400 rounded-full border border-slate-700 transition-colors active:scale-95"
+                                                        title={isAudioOnlyPlaying ? "Pause" : "Play"}
+                                                    >
+                                                        {isAudioOnlyPlaying ? (
+                                                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                                                        ) : (
+                                                            <svg className="w-3 h-3 ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                                                        )}
+                                                    </button>
+                                                </div>
+                                                <span className="text-[10px] font-mono text-cyan-400">
+                                                    {Math.floor(backingTrackCurrentTime / 60)}:{Math.floor(backingTrackCurrentTime % 60).toString().padStart(2, '0')}.<span className="text-[8px] opacity-70">{Math.floor((backingTrackCurrentTime % 1) * 1000).toString().padStart(3, '0')}</span> / {Math.floor(backingTrackDuration / 60)}:{Math.floor(backingTrackDuration % 60).toString().padStart(2, '0')}
+                                                </span>
+                                            </div>
+                                            <div 
+                                                className="w-full h-3 bg-slate-800 rounded-full overflow-hidden cursor-pointer relative group"
+                                                onClick={(e) => {
+                                                    const rect = e.currentTarget.getBoundingClientRect();
+                                                    const x = e.clientX - rect.left;
+                                                    const percentage = x / rect.width;
+                                                    const newTime = percentage * backingTrackDuration;
+                                                    
+                                                    if (backingType === 'mp3' || (backingType === 'online' && !getYoutubeId(backingTrackUrl))) {
+                                                        if (backingTrackRef.current) backingTrackRef.current.currentTime = newTime;
+                                                    } else if (backingType === 'online' && youtubePlayerRef.current && typeof youtubePlayerRef.current.seekTo === 'function') {
+                                                        youtubePlayerRef.current.seekTo(newTime, true);
+                                                    }
+                                                }}
+                                            >
+                                                <div 
+                                                    className="h-full bg-gradient-to-r from-cyan-600 to-blue-500 transition-all duration-100 ease-linear relative"
+                                                    style={{ width: `${(backingTrackCurrentTime / (backingTrackDuration || 1)) * 100}%` }}
+                                                >
+                                                    <div className="absolute right-0 top-0 bottom-0 w-1 bg-white/30 opacity-0 group-hover:opacity-100"></div>
+                                                </div>
+                                            </div>
+                                            <div className="flex justify-between mt-1">
+                                                <span className="text-[8px] text-slate-600 font-mono">0:00</span>
+                                                <span className="text-[9px] text-cyan-500 font-mono font-bold">{(backingTrackCurrentTime * 1000).toFixed(0)} ms</span>
+                                                <span className="text-[8px] text-slate-600 font-mono">{Math.floor(backingTrackDuration / 60)}:{Math.floor(backingTrackDuration % 60).toString().padStart(2, '0')}</span>
+                                            </div>
+                                        </div>
+
                                         <div>
                                             <div className="flex justify-between mb-2">
                                                 <label className="text-xs text-slate-400">Volume</label>
@@ -1701,15 +2160,13 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, instr
                                                     <span onClick={() => setIsEditingOffset(true)} className="text-sm font-mono text-cyan-300 cursor-pointer hover:text-white">{backingTrackOffset > 0 ? `+${backingTrackOffset}` : backingTrackOffset}ms</span>
                                                 )}
                                             </div>
-                                            <input type="range" min="-9999999" max="9999999" step="10" value={backingTrackOffset} onChange={(e) => setBackingTrackOffset(parseInt(e.target.value))} className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer" />
-                                            <p className="text-[10px] text-slate-500 mt-2">Adjust audio start relative to MIDI. Range: -9999999ms to +9999999ms.</p>
                                         </div>
                                     </>
                                 )}
                             </div>
                         </div>
 
-                        <button onClick={() => setIsSettingsOpen(false)} className="w-full mt-8 bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-2 rounded-lg transition-colors">Close</button>
+                        <button onClick={() => setIsSettingsOpen(false)} className="w-full mt-8 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded-lg transition-colors uppercase tracking-widest text-sm shadow-lg shadow-blue-900/20">Close</button>
                     </div>
                 </div>
             )}

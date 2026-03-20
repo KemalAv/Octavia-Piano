@@ -303,8 +303,6 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong, ins
 
     return (
         <div className={`fixed inset-0 bg-slate-900/60 flex flex-col items-center justify-center z-40 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'opacity-100' : 'opacity-0'}`}>
-            {/* Show AdBanner only if there is content (leaderboard data loaded) */}
-
             <div className="absolute top-4 left-4" style={{ zIndex: 9999 }}>
                 <button onClick={onBack} className={`${tertiaryButtonStyle} py-2 px-4 text-base shadow-md`}>&larr; Back to Menu</button>
             </div>

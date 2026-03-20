@@ -8,14 +8,13 @@ type BackingType = 'none' | 'mp3' | 'online';
 interface ModeSelectionProps {
     onStartGame: (settings: GameSettings) => void;
     onBack: () => void;
+    onOpenSettings?: () => void;
     analysisResult: ExtendedResult | null;
     analysisResultForPreview: ExtendedResult | null;
     fileName: string | null;
     initialTempoBpm: number | null;
     initialPlaybackTempoMultiplier: number;
     onPlaybackTempoMultiplierChange: (multiplier: number) => void;
-    currentHideBarNavigationButtons: boolean;
-    onHideBarNavigationButtonsChange: (value: boolean) => void;
     backingTrackFile: File | null;
     onBackingTrackFileChange: (file: File | null) => void;
     backingTrackOffset: number;
@@ -25,6 +24,8 @@ interface ModeSelectionProps {
     midiOffset: number | null;
     instrumentMode: 'piano' | 'drum';
     onInstrumentModeChange: (mode: 'piano' | 'drum') => void;
+    currentSongAccuracyLevel?: number | null;
+    userAverageOffset: number;
 }
 
 const tutorials = [
@@ -40,14 +41,13 @@ const tutorials = [
 const ModeSelection: React.FC<ModeSelectionProps> = ({
     onStartGame,
     onBack,
+    onOpenSettings,
     analysisResult,
     analysisResultForPreview,
     fileName,
     initialTempoBpm,
     initialPlaybackTempoMultiplier,
     onPlaybackTempoMultiplierChange,
-    currentHideBarNavigationButtons,
-    onHideBarNavigationButtonsChange,
     backingTrackFile,
     onBackingTrackFileChange,
     backingTrackOffset,
@@ -57,9 +57,12 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
     midiOffset,
     instrumentMode,
     onInstrumentModeChange,
+    currentSongAccuracyLevel,
+    userAverageOffset,
 }) => {
     const [selectedMode, setSelectedMode] = useState<Mode>('practice_lenient');
     const [practiceHand, setPracticeHand] = useState<PracticeHand>('both');
+    const [accuracyLevel, setAccuracyLevel] = useState<number>(currentSongAccuracyLevel || 5);
     const [noteToleranceMs, setNoteToleranceMs] = useState(150);
     const [isRendered, setIsRendered] = useState(false);
     const [isTutorialModalOpen, setIsTutorialModalOpen] = useState(false);
@@ -100,7 +103,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
     const modeButtonBase = "p-4 rounded-lg border-2 transition-all cursor-pointer h-full flex flex-col";
     const modeButtonUnselected = "bg-slate-700/50 border-slate-600 hover:bg-slate-700 hover:border-slate-500";
 
-    const minTempoPercentage = selectedMode === 'retical' ? 75 : 25;
+    const minTempoPercentage = selectedMode === 'retical' ? 75 : 10;
     const maxTempoPercentage = selectedMode === 'retical' ? 150 : 400;
 
     useEffect(() => {
@@ -121,17 +124,14 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
     const handleModeSelect = (mode: Mode) => {
         if (mode === 'retical' && isAudioInputEnabled) return;
         setSelectedMode(mode);
-        if (mode === 'practice_lenient') {
-            setNoteToleranceMs(instrumentMode === 'piano' ? 200 : 100);
-            setIsNonStop(false);
-        }
-        if (mode === 'practice_strict') {
-            setNoteToleranceMs(30);
-            setIsNonStop(false);
-        }
+        
+        // Reset accuracy level to song default when switching modes, 
+        // especially to ensure Retical mode uses the song's preset
         if (mode === 'retical') {
-            setNoteToleranceMs(instrumentMode === 'piano' ? 200 : 100);
+            setAccuracyLevel(currentSongAccuracyLevel || 5);
             setIsNonStop(true);
+        } else if (mode === 'practice_lenient' || mode === 'practice_strict') {
+            setIsNonStop(false);
         }
     };
 
@@ -186,12 +186,19 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
             };
         }
 
+        const finalAccuracyLevel = (selectedMode === 'practice_lenient' || selectedMode === 'practice_strict') 
+            ? accuracyLevel 
+            : (currentSongAccuracyLevel || 5);
+
+        const perfectWindow = 100 + (5 - finalAccuracyLevel) * 20;
+        const goodWindow = perfectWindow * 2;
+
         onStartGame({
             waitMode,
             playbackTempoMultiplier: initialPlaybackTempoMultiplier,
             practiceHand: (selectedMode === 'practice_lenient' || selectedMode === 'practice_strict') ? practiceHand : 'both',
-            hideBarNavigationButtons: selectedMode === 'retical' ? true : currentHideBarNavigationButtons,
-            noteToleranceMs: tolerance,
+            noteToleranceMs: selectedMode === 'practice_strict' ? 30 : goodWindow,
+            accuracyLevel: finalAccuracyLevel as any,
             isNonStop: selectedMode === 'retical' ? true : (selectedMode === 'practice_lenient' ? isNonStop : false),
             backingTrack: backingConfig,
             instrumentMode, // NEW
@@ -205,7 +212,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
     const handleOffsetInputBlur = (value: string) => {
         const val = parseInt(value, 10);
         if (!isNaN(val)) {
-            onBackingTrackOffsetChange(val);
+            onBackingTrackOffsetChange(val + (midiOffset || 0));
         }
         setIsEditingOffset(false);
     };
@@ -299,10 +306,18 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
                                     IMPORTANT:
                                 </p>
                                 <div className="space-y-2">
-                                    {backingType !== 'none' && (
-                                        <p>Please refresh the browser if the YouTube/MP3 audio does not appear when switching between the Game and the Editor.</p>
-                                    )}
-                                    <p>If your MIDI controller feels delayed, consider adjusting the note offset: for Non-Stop Mode, set it to +100 ms (Hitbox later) ; for Non-Stop Mode off, set it to -100 ms (Hitbox earlier) to counter input lag.</p>
+                                    <p>Warning: For YouTube backing tracks, please use the preset speeds (0.5x, 0.75x, 1x, etc.) to avoid audio sync issues. Custom speeds may cause drift.</p>
+                                    <p>Please refresh the browser if the YouTube/MP3 audio does not appear when switching between the Game and the Editor.</p>
+                                    <p>
+                                        If your MIDI controller feels delayed, consider adjusting the note offset in settings. Click the icon to go directly to the note offset settings, where you can calibrate it automatically by pressing a note in sync with the metronome beat.
+                                        {onOpenSettings && (
+                                            <button onClick={onOpenSettings} className="inline-flex items-center justify-center ml-1 text-cyan-400 hover:text-cyan-300 transition-colors" title="Open Settings">
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                                            </button>
+                                        )}
+                                    </p>
+                                    <p>If the MP3 feels out of sync, try pausing and playing it again, or stop and restart the track.</p>
+                                    <p>If the MP3 is still out of sync, try adjusting the Sync Offset (Audio vs MIDI) by ±100 ms from the original offset.</p>
                                 </div>
                             </div>
 
@@ -325,24 +340,29 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
                                     <div className="flex items-center justify-between mb-1">
                                         <label className="text-sm text-slate-400">Sync Offset (Audio vs MIDI)</label>
                                         <div className="flex items-center gap-2">
-                                            <span className="text-xs text-slate-500">Suggested: {(midiOffset || 0)}ms</span>
-                                            {isEditingOffset ? (
-                                                <input
-                                                    autoFocus
-                                                    type="number"
-                                                    className="bg-slate-700 text-cyan-300 border border-cyan-500 rounded px-1 text-sm font-mono w-20 text-center"
-                                                    defaultValue={backingTrackOffset}
-                                                    onKeyDown={(e) => { if (e.key === 'Enter') handleOffsetInputBlur(e.currentTarget.value); }}
-                                                    onBlur={(e) => handleOffsetInputBlur(e.currentTarget.value)}
-                                                />
-                                            ) : (
-                                                <span
-                                                    onClick={() => setIsEditingOffset(true)}
-                                                    className="text-sm font-mono text-cyan-300 cursor-pointer hover:text-white"
-                                                >
-                                                    User: {(backingTrackOffset - (midiOffset || 0)) > 0 ? `+${backingTrackOffset - (midiOffset || 0)}` : (backingTrackOffset - (midiOffset || 0))}ms
+                                            <span className="text-xs text-slate-500">Default: {(midiOffset || 0)}ms</span>
+                                            <div className="flex flex-col items-end">
+                                                {isEditingOffset ? (
+                                                    <input
+                                                        autoFocus
+                                                        type="number"
+                                                        className="bg-slate-700 text-cyan-300 border border-cyan-500 rounded px-1 text-sm font-mono w-20 text-center"
+                                                        defaultValue={backingTrackOffset - (midiOffset || 0)}
+                                                        onKeyDown={(e) => { if (e.key === 'Enter') handleOffsetInputBlur(e.currentTarget.value); }}
+                                                        onBlur={(e) => handleOffsetInputBlur(e.currentTarget.value)}
+                                                    />
+                                                ) : (
+                                                    <span
+                                                        onClick={() => setIsEditingOffset(true)}
+                                                        className="text-sm font-mono text-cyan-300 cursor-pointer hover:text-white"
+                                                    >
+                                                        User: {(backingTrackOffset - (midiOffset || 0)) > 0 ? `+${backingTrackOffset - (midiOffset || 0)}` : (backingTrackOffset - (midiOffset || 0))}ms
+                                                    </span>
+                                                )}
+                                                <span className="text-[10px] text-slate-500 mt-1">
+                                                    User Input: {userAverageOffset > 0 ? `+${Math.round(userAverageOffset)}` : Math.round(userAverageOffset)}ms
                                                 </span>
-                                            )}
+                                            </div>
                                         </div>
                                     </div>
                                     <div className="flex gap-2 mb-2">
@@ -354,8 +374,8 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
                                         min="-5000"
                                         max="5000"
                                         step="10"
-                                        value={backingTrackOffset}
-                                        onChange={(e) => onBackingTrackOffsetChange(parseInt(e.target.value))}
+                                        value={backingTrackOffset - (midiOffset || 0)}
+                                        onChange={(e) => onBackingTrackOffsetChange(parseInt(e.target.value) + (midiOffset || 0))}
                                         className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer"
                                     />
                                     <div className="flex justify-between text-[10px] text-slate-500 mt-1">
@@ -370,24 +390,18 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
                                 <div className="mt-3 p-3 rounded bg-black/30 border border-white/5 text-xs text-slate-400 space-y-1">
                                     {midiLink && (
                                         <div className="flex items-start gap-2">
-                                            <span className="font-bold text-slate-300 whitespace-nowrap">Suggested Source:</span>
+                                            <span className="font-bold text-slate-300 whitespace-nowrap">Default Source:</span>
                                             <a href={midiLink} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline break-all">{midiLink}</a>
                                         </div>
                                     )}
                                     {midiOffset != null && (
                                         <div className="flex items-center gap-2">
-                                            <span className="font-bold text-slate-300">Suggested Offset:</span>
+                                            <span className="font-bold text-slate-300">Default Offset:</span>
                                             <span className="text-cyan-300 font-mono">{midiOffset > 0 ? `+${midiOffset}` : midiOffset}ms</span>
                                         </div>
                                     )}
                                     <div className="flex items-start gap-2 pt-1 mt-1 border-t border-white/10">
-                                        {(midiLink && (midiLink.includes('youtube.com') || midiLink.includes('youtu.be'))) ? (
-                                            <div className="text-amber-400 text-xs font-bold space-y-1">
-                                                <p>Warning: For YouTube backing tracks, please use the preset speeds (0.5x, 0.75x, 1x, etc.) to avoid audio sync issues. Custom speeds may cause drift.</p>
-                                                <p>If the MP3 feels out of sync, try pausing and playing it again, or stop and restart the track.</p>
-                                                <p>If the MP3 is still out of sync, try adjusting the <strong>Sync Offset (Audio vs MIDI)</strong> by ±100 ms from the original offset.</p>
-                                            </div>
-                                        ) : (
+                                        {(midiLink && (midiLink.includes('youtube.com') || midiLink.includes('youtu.be'))) ? null : (
                                             <>
                                                 <span className="font-bold text-slate-300 whitespace-nowrap">Download MP3 via:</span>
                                                 <div className="flex flex-col items-start">
@@ -402,38 +416,66 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
                         </div>
                     </div>
 
-                    {isPractice && (
+                    {(isPractice || selectedMode === 'retical') && (
                         <div className="bg-slate-900/50 p-6 rounded-lg mb-6 space-y-6 ring-1 ring-slate-700">
                             <div>
-                                <h4 className="font-semibold text-lg text-center mb-3 text-slate-200">Note Tolerance</h4>
-                                <div className="flex items-center justify-center gap-4 px-4">
-                                    <input
-                                        id="note-tolerance-slider"
-                                        type="range"
-                                        min="10"
-                                        max="500"
-                                        step="5"
-                                        value={noteToleranceMs}
-                                        onChange={e => setNoteToleranceMs(parseInt(e.target.value, 10))}
-                                        className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer"
-                                    />
-                                    <span className="font-mono text-white w-16 text-center tabular-nums">{noteToleranceMs}ms</span>
+                                <h4 className="font-semibold text-lg text-center mb-3 text-slate-200">
+                                    Accuracy Level {selectedMode === 'retical' && <span className="text-amber-400 text-sm ml-2">(Locked to Song Default)</span>}
+                                </h4>
+                                <div className="flex flex-col items-center gap-4 px-4">
+                                    <div className="flex items-center w-full gap-4">
+                                        <input
+                                            id="accuracy-level-slider"
+                                            type="range"
+                                            min="3"
+                                            max="7"
+                                            step="1"
+                                            disabled={selectedMode === 'retical'}
+                                            value={selectedMode === 'retical' ? (currentSongAccuracyLevel || 5) : accuracyLevel}
+                                            onChange={e => setAccuracyLevel(parseInt(e.target.value, 10))}
+                                            className={`w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer ${selectedMode === 'retical' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                        />
+                                        <span className="font-mono text-cyan-400 text-2xl w-12 text-center tabular-nums">
+                                            {selectedMode === 'retical' ? (currentSongAccuracyLevel || 5) : accuracyLevel}
+                                        </span>
+                                    </div>
+                                    
+                                    <div className="grid grid-cols-3 gap-2 w-full text-center">
+                                        <div className="bg-emerald-500/10 border border-emerald-500/30 p-2 rounded">
+                                            <div className="text-emerald-400 text-[10px] uppercase font-bold">Perfect</div>
+                                            <div className="text-white font-mono text-sm">±{100 + (5 - (selectedMode === 'retical' ? (currentSongAccuracyLevel || 5) : accuracyLevel)) * 20}ms</div>
+                                        </div>
+                                        <div className="bg-sky-500/10 border border-sky-500/30 p-2 rounded">
+                                            <div className="text-sky-400 text-[10px] uppercase font-bold">Great</div>
+                                            <div className="text-white font-mono text-sm">±{(100 + (5 - (selectedMode === 'retical' ? (currentSongAccuracyLevel || 5) : accuracyLevel)) * 20) * 1.5}ms</div>
+                                        </div>
+                                        <div className="bg-amber-500/10 border border-amber-500/30 p-2 rounded">
+                                            <div className="text-amber-400 text-[10px] uppercase font-bold">Good</div>
+                                            <div className="text-white font-mono text-sm">±{(100 + (5 - (selectedMode === 'retical' ? (currentSongAccuracyLevel || 5) : accuracyLevel)) * 20) * 2}ms</div>
+                                        </div>
+                                    </div>
                                 </div>
-                                <p className="text-xs text-slate-400 text-center mt-3 h-8 flex items-center justify-center">
-                                    The time window to play notes in a chord together. {selectedMode === 'practice_strict' ? 'Strict default: 30ms' : `Default: ${instrumentMode === 'piano' ? '200ms' : '100ms'}`}.
+                                <p className="text-xs text-slate-400 text-center mt-4">
+                                    Lower levels are more lenient. Higher levels require more precision.
+                                    {selectedMode === 'retical' ? " Ranked mode uses the original accuracy level set by the song arranger." : " Practice mode allows you to customize this to match your skill level."}
                                 </p>
                             </div>
-                            <div className="border-t border-slate-700/50"></div>
-                            <div>
-                                <h4 className="font-semibold text-lg text-center mb-3 text-slate-200">Hand Selection</h4>
-                                <div className="flex justify-center gap-3">
-                                    {(['left', 'right', 'both'] as PracticeHand[]).map(hand => (
-                                        <button key={hand} onClick={() => setPracticeHand(hand)} className={`px-4 py-2 text-sm rounded-md font-semibold transition ${practiceHand === hand ? 'bg-cyan-500 text-white shadow-md' : 'bg-slate-600 hover:bg-slate-500'}`}>
-                                            {hand.charAt(0).toUpperCase() + hand.slice(1)} Hand{hand === 'both' ? 's' : ''}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
+                            
+                            {isPractice && (
+                                <>
+                                    <div className="border-t border-slate-700/50"></div>
+                                    <div>
+                                        <h4 className="font-semibold text-lg text-center mb-3 text-slate-200">Hand Selection</h4>
+                                        <div className="flex justify-center gap-3">
+                                            {(['left', 'right', 'both'] as PracticeHand[]).map(hand => (
+                                                <button key={hand} onClick={() => setPracticeHand(hand)} className={`px-4 py-2 text-sm rounded-md font-semibold transition ${practiceHand === hand ? 'bg-cyan-500 text-white shadow-md' : 'bg-slate-600 hover:bg-slate-500'}`}>
+                                                    {hand.charAt(0).toUpperCase() + hand.slice(1)} Hand{hand === 'both' ? 's' : ''}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </>
+                            )}
                         </div>
                     )}
 

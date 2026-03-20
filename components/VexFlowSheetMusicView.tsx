@@ -185,6 +185,7 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
   const [highlights, setHighlights] = useState<HighlightInfo[]>([]);
   const notePositionsRef = useRef<Map<string, BoundingBox>>(new Map());
   const [renderedLayoutId, setRenderedLayoutId] = useState(0);
+  const dragRef = useRef<{ isDragging: boolean; startX: number; startTime: number } | null>(null);
 
   useEffect(() => {
     if (renderedLayoutId > 0) {
@@ -278,21 +279,51 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
         
         if (bass) new StaveConnector(treble, bass).setType(StaveConnector.type.SINGLE_RIGHT).setContext(ctx).draw();
         
-        const createNote = (info: VexFlowNoteInfo) => { 
+        const createNote = (info: VexFlowNoteInfo, isLeftHand: boolean) => { 
             const n = new StaveNote({ ...info.vexNote }); 
             if (info.vexNote.dots) { for (let i = 0; i < info.vexNote.dots; i++) n.addModifier(new Dot()); } 
             if (info.accidentals) info.accidentals.forEach(acc => n.addModifier(new Accidental(acc.type), acc.index)); 
             
             n.setAttribute('id', info.vexNoteId); 
+            
+            // Middle line rule for single notes (will be overridden for beamed groups)
+            const props = n.getKeyProps();
+            let totalLine = 0;
+            props.forEach(p => totalLine += p.line);
+            const avgLine = totalLine / props.length;
+            const direction = avgLine >= 3 ? StaveNote.STEM_DOWN : StaveNote.STEM_UP;
+            
+            n.setStemDirection(direction);
             return n; 
         };
-        const rightInfoMap = new Map<string, VexFlowNoteInfo>(), rightStaveNotes: StaveNote[] = measure.rightHand.map(info => { const n = createNote(info); rightInfoMap.set(info.vexNoteId, info); return n; });
-        const leftInfoMap = new Map<string, VexFlowNoteInfo>(), leftStaveNotes: StaveNote[] = measure.leftHand.map(info => { const n = createNote(info); leftInfoMap.set(info.vexNoteId, info); return n; });
+        const rightInfoMap = new Map<string, VexFlowNoteInfo>(), rightStaveNotes: StaveNote[] = measure.rightHand.map(info => { const n = createNote(info, false); rightInfoMap.set(info.vexNoteId, info); return n; });
+        const leftInfoMap = new Map<string, VexFlowNoteInfo>(), leftStaveNotes: StaveNote[] = measure.leftHand.map(info => { const n = createNote(info, true); leftInfoMap.set(info.vexNoteId, info); return n; });
         
         const groupBeams = (notes: StaveNote[], timeSig: TimeSignatureInfo, tuplets: VexFlowTupletGroup[]) => {
             const beams: Beam[] = []; 
             let current: StaveNote[] = [];
             const { numerator, denominator } = timeSig;
+
+            const applyStemDirectionToGroup = (group: StaveNote[]) => {
+                if (group.length === 0) return;
+                
+                // Calculate average line position
+                let totalLine = 0;
+                let noteCount = 0;
+                group.forEach(n => {
+                    const props = n.getKeyProps();
+                    props.forEach(p => {
+                        totalLine += p.line;
+                        noteCount++;
+                    });
+                });
+                
+                const avgLine = totalLine / noteCount;
+                // Middle line is 3. If avgLine > 3 (higher), stems go DOWN. If avgLine < 3 (lower), stems go UP.
+                const direction = avgLine >= 3 ? StaveNote.STEM_DOWN : StaveNote.STEM_UP;
+                
+                group.forEach(n => n.setStemDirection(direction));
+            };
 
             // Identify indices that are part of tuplets
             const tupletIndices = new Set<number>();
@@ -311,9 +342,6 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
                 const isRest = note.isRest();
                 const isInTuplet = tupletIndices.has(i);
 
-                // We break beams if:
-                // 1. Current note is not beamable or is a rest.
-                // 2. Current note is in a tuplet (handled separately).
                 if (!isRest && isBeamableDuration && !isInTuplet) {
                     current.push(note);
                     const hasDotted = current.some(n => n.getModifiers().some(m => m instanceof Dot));
@@ -326,31 +354,38 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
                     const nextIsInTuplet = nextNote && tupletIndices.has(i + 1);
 
                     if (current.length >= limit || !nextIsBeamable || nextIsInTuplet) {
-                        if (current.length > 1) beams.push(new Beam(current));
+                        if (current.length > 1) {
+                            applyStemDirectionToGroup(current);
+                            beams.push(new Beam(current));
+                        }
                         current = [];
                     }
                 } else {
-                    if (current.length > 1) beams.push(new Beam(current));
+                    if (current.length > 1) {
+                        applyStemDirectionToGroup(current);
+                        beams.push(new Beam(current));
+                    }
                     current = [];
                 }
             }
-            if (current.length > 1) beams.push(new Beam(current));
+            if (current.length > 1) {
+                applyStemDirectionToGroup(current);
+                beams.push(new Beam(current));
+            }
 
             // Explicitly add beams for tuplets to ensure they are separated per group
             tuplets.forEach(t => {
                 const tupletNotes = t.indices.map(idx => notes[idx]);
-                // Filter out tuplets that consist only of rests (though unlikely to be tupleted)
                 const beamableTupletNotes = tupletNotes.filter(n => !n.isRest());
                 
                 if (beamableTupletNotes.length > 1) {
-                    // Check if all notes in the tuplet are actually beamable (8th, 16th, 32nd, 64th)
-                    // VexFlow throws if attempting to beam quarter notes (duration '4' or 'q'), 'h', 'w'.
                     const allNotesBeamable = beamableTupletNotes.every(n => {
                         const dur = n.getDuration();
                         return ['8', '16', '32', '64'].some(d => dur.includes(d));
                     });
                     
                     if (allNotesBeamable) {
+                        applyStemDirectionToGroup(beamableTupletNotes);
                         beams.push(new Beam(beamableTupletNotes));
                     }
                 }
@@ -363,8 +398,24 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
         const leftBeams = groupBeams(leftStaveNotes, measure.effectiveTimeSignature, measure.leftHandTuplets);
         
         // --- TUPLET RENDERING ---
-        const rhTupletObjs = measure.rightHandTuplets.map(g => new Tuplet(g.indices.map(idx => rightStaveNotes[idx])));
-        const lhTupletObjs = measure.leftHandTuplets.map(g => new Tuplet(g.indices.map(idx => leftStaveNotes[idx])));
+        const rhTupletObjs = measure.rightHandTuplets.map(g => {
+            const tupletNotes = g.indices.map(idx => rightStaveNotes[idx]);
+            const tuplet = new Tuplet(tupletNotes);
+            if (tupletNotes.length > 0) {
+                const direction = tupletNotes[0].getStemDirection();
+                tuplet.setTupletLocation(direction === StaveNote.STEM_UP ? Tuplet.LOCATION_TOP : Tuplet.LOCATION_BOTTOM);
+            }
+            return tuplet;
+        });
+        const lhTupletObjs = measure.leftHandTuplets.map(g => {
+            const tupletNotes = g.indices.map(idx => leftStaveNotes[idx]);
+            const tuplet = new Tuplet(tupletNotes);
+            if (tupletNotes.length > 0) {
+                const direction = tupletNotes[0].getStemDirection();
+                tuplet.setTupletLocation(direction === StaveNote.STEM_UP ? Tuplet.LOCATION_TOP : Tuplet.LOCATION_BOTTOM);
+            }
+            return tuplet;
+        });
 
         const voices: Voice[] = [];
         if (rightStaveNotes.length) voices.push(new Voice({ num_beats: measure.effectiveTimeSignature.numerator, beat_value: measure.effectiveTimeSignature.denominator }).setStrict(false).addTickables(rightStaveNotes));
@@ -404,7 +455,7 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
     if (!vexFlowData) { setHighlights([]); return; }
     const newHighlights: HighlightInfo[] = [];
     activePlaybackNotesInfo.forEach(activeInfo => {
-      let color: string | null = activeInfo.status === 'user_played' ? hitNoteColor : (['playing', 'waiting'].includes(activeInfo.status) ? (activeInfo.hand === 'left' ? leftHandColor : (activeInfo.hand === 'right' ? rightHandColor : SYSTEM_PLAY_COLOR)) : null);
+      let color: string | null = activeInfo.status === 'user_played' ? hitNoteColor : (['playing', 'waiting'].includes(activeInfo.status) ? (instrumentMode === 'drum' ? leftHandColor : (activeInfo.hand === 'left' ? leftHandColor : (activeInfo.hand === 'right' ? rightHandColor : SYSTEM_PLAY_COLOR))) : null);
       if (color) {
         vexFlowData.noteIdToFragmentsMap.get(activeInfo.noteId)?.forEach(fragment => {
           const position = notePositionsRef.current.get(fragment.fragmentId);
@@ -417,41 +468,139 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
 
   useEffect(() => {
     if (!vexFlowData || !scrollContainerRef.current || width <= 0) return;
-    const measures = vexFlowData.measures;
-    const allNotesSorted = vexFlowData.fragments.sort((a, b) => a.timeMs - b.timeMs);
-    const rightHandNotesSorted = allNotesSorted.filter(note => note.hand === 'right');
-    const notesForScrolling = rightHandNotesSorted.length > 0 ? rightHandNotesSorted : allNotesSorted;
-    if (!measures.length || !notesForScrolling.length) return;
-    let nextNoteIndex = notesForScrolling.findIndex(note => note.timeMs > currentTimeMs);
-    if (nextNoteIndex === -1) { nextNoteIndex = notesForScrolling.length - 1; }
-    const prevNoteIndex = Math.max(0, nextNoteIndex - 1);
-    const prevNote = notesForScrolling[prevNoteIndex];
-    const nextNote = notesForScrolling[nextNoteIndex];
-    const prevNotePos = notePositionsRef.current.get(prevNote.fragmentId);
-    const nextNotePos = notePositionsRef.current.get(nextNote.fragmentId);
-    let absoluteCursorX;
-    if (prevNotePos && nextNotePos && prevNote !== nextNote) {
-        const timeBetweenNotes = nextNote.timeMs - prevNote.timeMs;
-        const timeIntoInterval = currentTimeMs - prevNote.timeMs;
-        const progress = (timeBetweenNotes > 0) ? Math.max(0, Math.min(1, timeIntoInterval / timeBetweenNotes)) : 0;
-        const prevX = prevNotePos.getX();
-        const nextX = nextNotePos.getX();
-        absoluteCursorX = prevX + (nextX - prevX) * progress;
-    } else {
-        let currentMeasureIndex = measures.findIndex(m => currentTimeMs >= m.startTimeMs && currentTimeMs < m.endTimeMs);
-        if (currentMeasureIndex === -1) { currentMeasureIndex = currentTimeMs < measures[0].startTimeMs ? 0 : measures.length - 1; }
-        const currentMeasure = measures[currentMeasureIndex];
-        const measureStartX = HORIZONTAL_PADDING + measures.slice(0, currentMeasureIndex).reduce((sum, m) => sum + m.width, 0);
-        const progress = Math.min(1, Math.max(0, (currentTimeMs - currentMeasure.startTimeMs) / Math.max(1, currentMeasure.durationMs)));
-        absoluteCursorX = measureStartX + progress * currentMeasure.width;
+    
+    const anchorPoints: { timeMs: number, x: number }[] = [];
+    let accumulatedWidth = HORIZONTAL_PADDING;
+    
+    vexFlowData.measures.forEach(measure => {
+        const measureStartX = accumulatedWidth;
+        
+        const notesInMeasure = vexFlowData.fragments.filter(n => n.timeMs >= measure.startTimeMs && n.timeMs < measure.endTimeMs);
+        const rhNotes = notesInMeasure.filter(n => n.hand === 'right');
+        const lhNotes = notesInMeasure.filter(n => n.hand === 'left');
+        
+        let selectedNotes = [...rhNotes, ...lhNotes];
+        selectedNotes.sort((a, b) => a.timeMs - b.timeMs);
+        
+        // Add measure start
+        anchorPoints.push({ timeMs: measure.startTimeMs, x: measureStartX });
+        
+        selectedNotes.forEach(note => {
+            const pos = notePositionsRef.current.get(note.fragmentId);
+            if (pos) {
+                anchorPoints.push({ timeMs: note.timeMs, x: pos.getX() });
+            }
+        });
+        
+        accumulatedWidth += measure.width;
+    });
+    
+    if (vexFlowData.measures.length > 0) {
+        const lastMeasure = vexFlowData.measures[vexFlowData.measures.length - 1];
+        anchorPoints.push({ timeMs: lastMeasure.endTimeMs, x: accumulatedWidth });
     }
+    
+    anchorPoints.sort((a, b) => a.timeMs - b.timeMs);
+    
+    const uniqueAnchors: { timeMs: number, x: number }[] = [];
+    for (const pt of anchorPoints) {
+        if (uniqueAnchors.length === 0) {
+            uniqueAnchors.push(pt);
+        } else {
+            const last = uniqueAnchors[uniqueAnchors.length - 1];
+            if (pt.timeMs === last.timeMs) {
+                last.x = (last.x + pt.x) / 2;
+            } else {
+                uniqueAnchors.push(pt);
+            }
+        }
+    }
+    
+    let absoluteCursorX = HORIZONTAL_PADDING;
+    if (uniqueAnchors.length > 0) {
+        let nextIdx = uniqueAnchors.findIndex(pt => pt.timeMs > currentTimeMs);
+        if (nextIdx === -1) {
+            absoluteCursorX = uniqueAnchors[uniqueAnchors.length - 1].x;
+        } else if (nextIdx === 0) {
+            absoluteCursorX = uniqueAnchors[0].x;
+        } else {
+            const prev = uniqueAnchors[nextIdx - 1];
+            const next = uniqueAnchors[nextIdx];
+            const progress = (currentTimeMs - prev.timeMs) / (next.timeMs - prev.timeMs);
+            absoluteCursorX = prev.x + (next.x - prev.x) * progress;
+        }
+    }
+
     const newScrollOffset = (PLAY_LINE_X - SIDEBAR_WIDTH) - absoluteCursorX;
     scrollOffsetRef.current = newScrollOffset;
     scrollContainerRef.current.style.transform = `translateX(${newScrollOffset}px)`;
   }, [currentTimeMs, vexFlowData, width, PLAY_LINE_X]);
 
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (isPlaying || totalDurationMs <= 0) return;
+    dragRef.current = {
+      isDragging: true,
+      startX: e.clientX,
+      startTime: currentTimeMs
+    };
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!dragRef.current || !dragRef.current.isDragging || totalMusicWidth <= 0) return;
+    const deltaX = e.clientX - dragRef.current.startX;
+    const msPerPixel = totalDurationMs / totalMusicWidth;
+    const deltaTime = -deltaX * msPerPixel;
+    onSeek(Math.max(0, Math.min(totalDurationMs, dragRef.current.startTime + deltaTime)));
+  };
+
+  const handleMouseUp = () => {
+    if (dragRef.current) dragRef.current.isDragging = false;
+  };
+
+  const handleWheel = (e: React.WheelEvent) => {
+    if (isPlaying || totalDurationMs <= 0) return;
+    const msPerPixel = totalDurationMs / totalMusicWidth;
+    // deltaY is vertical scroll, but we want it to scroll horizontally
+    // or if the user uses horizontal scroll (deltaX)
+    const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+    const deltaTime = delta * msPerPixel * 2; // multiply by 2 for faster scrolling
+    onSeek(Math.max(0, Math.min(totalDurationMs, currentTimeMs + deltaTime)));
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (isPlaying || totalDurationMs <= 0) return;
+    dragRef.current = {
+      isDragging: true,
+      startX: e.touches[0].clientX,
+      startTime: currentTimeMs
+    };
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!dragRef.current || !dragRef.current.isDragging || totalMusicWidth <= 0) return;
+    const deltaX = e.touches[0].clientX - dragRef.current.startX;
+    const msPerPixel = totalDurationMs / totalMusicWidth;
+    const deltaTime = -deltaX * msPerPixel;
+    onSeek(Math.max(0, Math.min(totalDurationMs, dragRef.current.startTime + deltaTime)));
+  };
+
+  const handleTouchEnd = () => {
+    if (dragRef.current) dragRef.current.isDragging = false;
+  };
+
   return (
-    <div className="sheet-container no-select" style={{ width: `${width}px`, height: `${height}px`, backgroundColor }}>
+    <div 
+      className={`sheet-container no-select ${!isPlaying ? 'cursor-ew-resize' : ''}`} 
+      style={{ width: `${width}px`, height: `${height}px`, backgroundColor }}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseUp}
+      onWheel={handleWheel}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
       {vexFlowData && (
         <StickySignaturePanel 
           vexFlowData={vexFlowData} 
@@ -465,21 +614,6 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
         ref={containerRef} 
         className="sheet-content-wrapper" 
         style={{ left: `${SIDEBAR_WIDTH}px`, width: `calc(100% - ${SIDEBAR_WIDTH}px)`}}
-        onClick={(e) => {
-          if (!containerRef.current || !vexFlowData || totalDurationMs <= 0) return;
-          const rect = containerRef.current.getBoundingClientRect();
-          const clickXInContainer = e.clientX - rect.left;
-          const clickXInContent = clickXInContainer - scrollOffsetRef.current;
-          let accumulatedWidth = HORIZONTAL_PADDING;
-          for(const measure of vexFlowData.measures) {
-              if (clickXInContent >= accumulatedWidth && clickXInContent < accumulatedWidth + measure.width) {
-                  const progress = (clickXInContent - accumulatedWidth) / measure.width;
-                  onSeek(measure.startTimeMs + progress * measure.durationMs); 
-                  return; 
-              }
-              accumulatedWidth += measure.width;
-          }
-        }}
       >
         <div ref={scrollContainerRef} style={{ position: 'relative', width: totalMusicWidth, height, willChange: 'transform' }}>
           <div ref={vexFlowRenderRef} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }} />

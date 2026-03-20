@@ -16,7 +16,7 @@ export const BLACK_KEY_OFFSET_RATIO = 0.60; // Offset of black key start from it
 export const WHITE_KEY_HEIGHT_PX = 130;
 export const BLACK_KEY_HEIGHT_PX = 85;
 export const KEY_LABEL_AREA_HEIGHT_PX = 25;
-export const PROGRESS_BAR_HEIGHT_PX = 8; // Thinner progress bar
+export const PROGRESS_BAR_HEIGHT_PX = 14; // Slightly taller progress bar
 export const PLAY_LINE_THICKNESS_PX = 6; // Thickness of the visual play/target line
 // --- End Fixed Heights ---
 
@@ -266,12 +266,12 @@ export const DRUM_KEYS_CONFIG: PianoKeyDefinition[] = [
 ];
 
 export const DRUM_KEYBOARD_MAP: Record<string, number> = {
-  'b': 36, 'n': 36, // bass
+  'v': 36, 'n': 36, // bass
   'f': 38, 'g': 38, // snare
   't': 48, 'y': 48, // high tom
   'u': 45, 'i': 45, // low tom
   'j': 41, 'k': 41, // floor tom
-  'c': 44, 'v': 44, // hihat foot
+  'x': 44, 'c': 44, // hihat foot
   's': 42, 'd': 42, // hihat
   'e': 49, 'r': 49, // crash
   'o': 51, 'p': 51, // ride
@@ -281,7 +281,7 @@ export const DRUM_PADS: DrumPadConfig[] = [
     { id: 'bass', name: 'BASS DRUM', midiNotes: [35, 36], x: 0.55, y: 0.75, radius: 0.15 },
     { id: 'snare', name: 'SNARE DRUM', midiNotes: [38, 40, 37, 39], x: 0.35, y: 0.55, radius: 0.1 },
     { id: 'hihat', name: 'HIT HAT', midiNotes: [42, 46, 54, 56, 58, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81], x: 0.15, y: 0.5, radius: 0.12 },
-    { id: 'hihat_foot', name: 'HIT HAT FOOT', midiNotes: [44], x: 0.35, y: 0.85, radius: 0.08 },
+    { id: 'hihat_foot', name: 'HIT HAT FOOT', midiNotes: [44], x: 0.15, y: 0.85, radius: 0.08 },
     { id: 'high_tom', name: 'HIGH TOM', midiNotes: [50, 48, 60, 62, 63, 65, 67], x: 0.45, y: 0.3, radius: 0.1 },
     { id: 'low_tom', name: 'LOW TOM', midiNotes: [47, 45, 61, 64, 66, 68], x: 0.65, y: 0.3, radius: 0.1 },
     { id: 'floor_tom', name: 'FLOOR TOM', midiNotes: [43, 41], x: 0.75, y: 0.55, radius: 0.1 },
@@ -449,8 +449,8 @@ export const DEFAULT_VIEW_MODE: ViewMode = 'falling';
 export const DEFAULT_NOTE_LABEL_TYPE: NoteLabelType = 'none'; // Updated to 'none'
 export const DEFAULT_SHOW_ONLY_MAJOR_NOTES = false;
 export const DEFAULT_SHOW_QWERTY_SHORTCUTS = false;
-export const DEFAULT_HIDE_BAR_NAVIGATION_BUTTONS = false; // CHANGED: Always show bar nav buttons by default
 export const DEFAULT_SHOW_PIANO_TILES_BACKGROUND = true; // New Default
+export const DEFAULT_ZOOM_DIRECTION: 'normal' | 'reverse' = 'normal';
 export const DEFAULT_THEME_SETTINGS: ThemeSettings = {
   rightHandColor: '#a000ff',
   leftHandColor: '#007dff',  

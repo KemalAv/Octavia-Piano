@@ -76,6 +76,7 @@ const PerformanceSummaryModal: React.FC<PerformanceSummaryProps> = ({ isVisible,
                     <StatRow label="Good" value={summary.goodCount} valueColor="text-blue-400" />
                     <StatRow label="Miss" value={summary.missCount} valueColor="text-rose-400" />
                     <StatRow label="Max Combo" value={summary.maxCombo || 0} valueColor="text-orange-400" />
+                    <StatRow label="Tempo" value={`${Math.round(summary.playbackTempoMultiplier * 100)}%`} valueColor="text-slate-300" />
                     <StatRow label="Performance Score" value={Math.round(summary.finalScore).toLocaleString()} valueColor="text-white" />
                 </>
             ) : (

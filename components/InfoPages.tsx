@@ -50,10 +50,20 @@ export const AboutUs: React.FC<InfoPageProps> = ({ onBack }) => (
     <section>
       <h3 className="text-xl font-bold text-white mb-2">Our Mission: Redefining Music Practice</h3>
       <p className="mb-4">
-        Octavia was born from a simple yet powerful idea: learning piano shouldn't be a chore, and modern rhythm games shouldn't be limited to plastic controllers or computer keyboards. We believe that the discipline of learning a musical instrument can and should be infused with the same level of engagement and excitement found in world-class gaming.
+        Octavia was born from a simple yet powerful idea: learning piano shouldn't be a chore, and modern rhythm games shouldn't be limited to arcade controllers or computer keyboards. We believe that the discipline of learning a musical instrument can and should be infused with the same level of engagement and excitement found in world-class gaming.
       </p>
       <p>
         Our mission is to provide an accessible, high-performance platform that bridges the gap between serious instrument practice and interactive entertainment. By using real instruments as the primary input device, we help musicians develop tangible skills while enjoying a reward-driven progress system.
+      </p>
+    </section>
+
+    <section>
+      <h3 className="text-xl font-bold text-white mb-2">Advanced MIDI Editor & Composition</h3>
+      <p className="mb-4">
+        Octavia now features a professional-grade <strong>MIDI Editor</strong>, allowing users to create, refine, and automate their musical compositions directly in the browser. Whether you're drawing notes by hand, or mapping complex <strong>BPM</strong>, our editor provides the precision needed for serious work.
+      </p>
+      <p className="mb-4">
+        The editor supports <strong>Backing Track Integration</strong>, allowing you to sync your MIDI compositions with MP3 files or YouTube videos. With adjustable sync offsets and volume controls, you can practice or compose alongside your favorite tracks with ease.
       </p>
     </section>
 
@@ -63,7 +73,7 @@ export const AboutUs: React.FC<InfoPageProps> = ({ onBack }) => (
         Unlike traditional training applications, Octavia is built on a foundation of zero-latency rhythmic analysis. Utilizing the <strong>Web MIDI API</strong>, we communicate directly with your digital piano or MIDI controller, ensuring that every note you play is captured with millisecond precision.
       </p>
       <p className="mb-4">
-        Our rendering engine is powered by modern web technologies like <strong>React</strong> and <strong>Vite</strong>, allowing for a smooth 60fps experience even during complex musical passages. For sheet music, we integrate <strong>VexFlow</strong> and <strong>OpenSheetMusicDisplay</strong> to provide beautiful, responsive notation that adapts to your screen size.
+        Our rendering engine is powered by modern web technologies like <strong>React</strong> and <strong>Vite</strong>. For sheet music, we integrate <strong>VexFlow</strong> and <strong>OpenSheetMusicDisplay</strong> to provide beautiful, responsive notation that adapts to your screen size.
       </p>
       <p>
         Data persistence and community leaderboards are handled via <strong>Supabase</strong>, providing a secure and scalable environment for users to track their progress and compete with others globally.
@@ -81,9 +91,9 @@ export const AboutUs: React.FC<InfoPageProps> = ({ onBack }) => (
     </section>
 
     <section>
-      <h3 className="text-xl font-bold text-white mb-2">Open Source & Community Driven</h3>
+      <h3 className="text-xl font-bold text-white mb-2">Continuous Innovation</h3>
       <p>
-        Octavia is an evolving, community-centric project. We believe that the best tools for musicians are built by musicians who understand the technical and creative hurdles of the craft. We are constantly expanding our features, from advanced MIDI editor tools to better pedagogical analysis of MIDI files, all while keeping the platform free and open for everyone to explore.
+        Octavia is an evolving project dedicated to the intersection of music and technology. We are constantly expanding our features, from advanced pedagogical analysis of MIDI files to immersive game modes like <strong>Drum Mania</strong> and <strong>Piano Mode</strong>. Our goal is to create the ultimate digital companion for musicians of all skill levels.
       </p>
     </section>
   </InfoLayout>
@@ -93,7 +103,7 @@ export const ContactPage: React.FC<InfoPageProps> = ({ onBack }) => (
   <InfoLayout title="Contact Us" onBack={onBack}>
     <section className="space-y-6">
       <p className="text-lg">
-        Octavia is a community-driven project and we value your feedback. Whether you are experiencing technical difficulties, have suggestions for new features, or are interested in collaboration, our team is ready to assist you.
+        Octavia is a project dedicated to musical innovation and we value your feedback. Whether you are experiencing technical difficulties, have suggestions for new features, or are interested in collaboration, our team is ready to assist you.
       </p>
 
       <div className="grid md:grid-cols-2 gap-6">
@@ -271,9 +281,18 @@ export const HowToConnect: React.FC<InfoPageProps> = ({ onBack }) => (
     <section>
       <h3 className="text-xl font-bold text-white mb-2">4. Computer Keyboard</h3>
       <p className="mb-4 text-slate-300">
-        Don't have a piano? You can still play using your computer's QWERTY keyboard!
-        The middle row of your keyboard (A, S, D, F, etc.) corresponds to the white keys, and the top row (W, E, T, Y, etc.) corresponds to the black keys.
-        You can change the layout and octave shift in the Settings menu.
+        Don't have a piano? You can still play using your computer's QWERTY keyboard! Octavia supports two distinct layouts:
+      </p>
+      <ul className="list-disc list-inside space-y-2 text-slate-300 mb-4">
+        <li>
+          <strong>Roblox Layout</strong>: A specialized mapping popular in virtual piano communities (like on Roblox). It maps keys across the entire keyboard (numbers, letters) to a wide range of piano notes, allowing for more complex pieces to be played without shifting octaves.
+        </li>
+        <li>
+          <strong>Standard Layout</strong>: Maps your keyboard rows to a piano-like structure. The middle row (A, S, D, F...) acts as white keys, while the top row (W, E, T, Y...) acts as black keys.
+        </li>
+      </ul>
+      <p className="text-slate-300">
+        The application works by listening to your keystrokes and instantly translating them into MIDI signals, just like a real digital piano. You can switch between these layouts and adjust your base octave in the Settings menu.
       </p>
     </section>
   </InfoLayout>

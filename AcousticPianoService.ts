@@ -47,7 +47,7 @@ export class AcousticPianoService {
     
     // Process each channel
     for (let ch = 0; ch < this.analysers.length; ch++) {
-      this.analysers[ch].getFloatFrequencyData(this.frequencyDataBuffers[ch]);
+      this.analysers[ch].getFloatFrequencyData(this.frequencyDataBuffers[ch] as any);
       
       const hpsBuffer = new Float32Array(this.bufferLength);
       for (let i = 0; i < this.bufferLength; i++) {
