@@ -76,6 +76,7 @@ interface SelectionBox {
 
 interface MidiEditorProps {
     initialMidiFile: File | null;
+    initialBackingTrackOffset: number;
     onClose: () => void;
     onOpenSettings?: () => void;
     instrumentMode: 'piano' | 'drum';
@@ -140,7 +141,16 @@ const useHistory = <T,>(initialState: T) => {
 };
 
 
-const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, onOpenSettings, instrumentMode, zoomScale = 1 }) => {
+const MidiEditor: React.FC<MidiEditorProps> = ({ 
+    initialMidiFile, 
+    initialBackingTrackOffset,
+    onClose, 
+    onOpenSettings, 
+    instrumentMode, 
+    zoomScale = 1
+}) => {
+    const userAudioSyncOffset = 0; // MIDI Editor always uses 0ms offset as requested
+
     const [editorState, setEditorState, undo, redo, canUndo, canRedo] = useHistory<EditorState>({
         notes: [],
         tempos: [{ ticks: 0, bpm: 120 }],
@@ -168,7 +178,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, onOpe
     const [backingTrackDuration, setBackingTrackDuration] = useState(0);
     const [isAudioOnlyPlaying, setIsAudioOnlyPlaying] = useState(false);
     const [metronomeMode, setMetronomeMode] = useState<'off' | 'beat' | 'bar'>('off');
-    const [metronomeVolume, setMetronomeVolume] = useState(0.5);
+    const [metronomeVolume, setMetronomeVolume] = useState(1.0);
     const [metronomeBeat, setMetronomeBeat] = useState<{ isStrong: boolean; timeMs: number } | null>(null);
     const lastVisualBeatTimeRef = useRef<number>(-1);
     const metronomeBuffersRef = useRef<{ strong: AudioBuffer | null, weak: AudioBuffer | null }>({ strong: null, weak: null });
@@ -184,11 +194,12 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, onOpe
 
     const [backingType, setBackingType] = useState<'none' | 'mp3' | 'online'>('none');
     const [backingTrackUrl, setBackingTrackUrl] = useState<string | null>(null);
-    const [backingTrackOffset, setBackingTrackOffset] = useState(0);
-    const [backingTrackVolume, setBackingTrackVolume] = useState(0.5);
-    const [pianoVolume, setPianoVolume] = useState(0.5);
+    const [backingTrackOffset, setBackingTrackOffset] = useState(initialBackingTrackOffset);
+    const [backingTrackVolume, setBackingTrackVolume] = useState(1.0);
+    const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
+    const [pianoVolume, setPianoVolume] = useState(1.0);
     const [isEditingOffset, setIsEditingOffset] = useState(false);
-    const prevPianoVolumeRef = useRef(0.5);
+    const prevPianoVolumeRef = useRef(1.0);
 
     useEffect(() => {
         if (isEditingOffset) {
@@ -215,10 +226,12 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, onOpe
     const playbackRequestRef = useRef<number | null>(null);
     const isDraggingRulerRef = useRef(false);
     const isPlayingRef = useRef(isPlaying);
+    const playbackSpeedRef = useRef(playbackSpeed);
 
     const nextNoteToScheduleIndexRef = useRef(0);
 
     useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
+    useEffect(() => { playbackSpeedRef.current = playbackSpeed; }, [playbackSpeed]);
 
     useEffect(() => {
         if (isSettingsOpen) {
@@ -885,7 +898,10 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, onOpe
         if (backingTrackUrl && (backingType === 'mp3' || backingType === 'online')) {
             const offsetSeconds = backingTrackOffset / 1000;
             const midiStartSeconds = ticksToMs(cursorTick) / 1000;
-            const audioStartTime = midiStartSeconds + offsetSeconds;
+            
+            // User reported: YouTube in editor needs +200ms to feel normal
+            const internalEditorOffsetSec = backingType === 'online' ? (200 / 1000) : 0;
+            const audioStartTime = (midiStartSeconds + offsetSeconds) + (userAudioSyncOffset / 1000) + internalEditorOffsetSec;
 
             if (backingType === 'mp3' && backingTrackRef.current) {
                 const audio = backingTrackRef.current;
@@ -1018,7 +1034,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, onOpe
             while (currentIndex < currentEditorState.notes.length) {
                 const note = currentEditorState.notes[currentIndex];
                 const noteStartMs = safeTicksToMs(note.ticks);
-                const noteScheduledStartAudioTime = playbackStartAudioTime + (noteStartMs - playbackStartMs) / 1000;
+                const noteScheduledStartAudioTime = playbackStartAudioTime + (noteStartMs - playbackStartMs) / (1000 * playbackSpeedRef.current);
 
                 if (noteScheduledStartAudioTime < scheduleUntilAudioTime) {
                     // Only play if it's in the future or very recent past (to avoid catch-up bursts)
@@ -1046,7 +1062,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, onOpe
                 let beatIdx = nextBeatToScheduleIndexRef.current;
                 while (beatIdx < allBeatTimesRef.current.length) {
                     const beat = allBeatTimesRef.current[beatIdx];
-                    const beatScheduledStartAudioTime = playbackStartAudioTime + (beat.timeMs - playbackStartMs) / 1000;
+                    const beatScheduledStartAudioTime = playbackStartAudioTime + (beat.timeMs - playbackStartMs) / (1000 * playbackSpeedRef.current);
                     
                     if (beatScheduledStartAudioTime < scheduleUntilAudioTime) {
                         if (beatScheduledStartAudioTime > audioNow - 0.1) {
@@ -1078,7 +1094,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, onOpe
             }
 
             const elapsedMs = performance.now() - animationStartTime;
-            const newCursorTick = msToTicksRef.current(playbackStartMs + elapsedMs);
+            const newCursorTick = msToTicksRef.current(playbackStartMs + elapsedMs * playbackSpeedRef.current);
             setCursorTick(newCursorTick);
 
             const totalDurationTicks = Math.max(...currentEditorState.notes.map(n => n.ticks + n.durationTicks), 0);
@@ -2034,8 +2050,8 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, onOpe
                                                 </button>
                                             )}
                                         </p>
+                                        <p>If the MP3 is still out of sync, try adjusting the USER MS (Audio Sync) by ±100 ms from the original offset; the goal is to match the backing track with the metronome.</p>
                                         <p>If the MP3 feels out of sync, try pausing and playing it again, or stop and restart the track.</p>
-                                        <p>If the MP3 is still out of sync, try adjusting the Sync Offset (Audio vs MIDI) by ±100 ms from the original offset.</p>
                                     </div>
                                 </div>
 
@@ -2146,7 +2162,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, onOpe
                                         </div>
                                         <div>
                                             <div className="flex justify-between mb-2">
-                                                <label className="text-xs text-slate-400">Sync Offset</label>
+                                                <label className="text-xs text-slate-400">Default Offset</label>
                                                 {isEditingOffset ? (
                                                     <input
                                                         autoFocus
@@ -2161,8 +2177,33 @@ const MidiEditor: React.FC<MidiEditorProps> = ({ initialMidiFile, onClose, onOpe
                                                 )}
                                             </div>
                                         </div>
+
                                     </>
                                 )}
+
+                                <div>
+                                    <div className="flex justify-between mb-2">
+                                        <label className="text-xs text-slate-400">Playback Speed</label>
+                                        <span className="text-cyan-400 font-mono text-xs">{playbackSpeed}x</span>
+                                    </div>
+                                    <div className="flex gap-1 flex-wrap">
+                                        {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 2].map(speed => (
+                                            <button 
+                                                key={speed} 
+                                                onClick={() => {
+                                                    setPlaybackSpeed(speed);
+                                                    if (backingTrackRef.current) backingTrackRef.current.playbackRate = speed;
+                                                    if (youtubePlayerRef.current && typeof youtubePlayerRef.current.setPlaybackRate === 'function') {
+                                                        youtubePlayerRef.current.setPlaybackRate(speed);
+                                                    }
+                                                }}
+                                                className={`px-1.5 py-0.5 text-[10px] rounded border ${playbackSpeed === speed ? 'bg-cyan-600 border-cyan-500 text-white' : 'bg-slate-700 border-slate-600 text-slate-300'}`}
+                                            >
+                                                {speed}x
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
                             </div>
                         </div>
 

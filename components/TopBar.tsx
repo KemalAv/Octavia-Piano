@@ -64,6 +64,11 @@ interface TopBarProps {
   onFreePlayBpmChange?: (bpm: number) => void;
   freePlayTimeSignature?: TimeSignatureInfo;
   onFreePlayTimeSignatureChange?: (ts: TimeSignatureInfo) => void;
+  // NEW: Sync offset
+  userAudioSyncOffset: number;
+  onUserAudioSyncOffsetChange: (offset: number) => void;
+  isCalibrationMode?: boolean;
+  userAverageOffset?: number;
 }
 
 const OffsetMeter = ({ offset, perfectWindow, greatWindow, goodWindow }: { offset: number, perfectWindow: number, greatWindow: number, goodWindow: number }) => {
@@ -131,6 +136,9 @@ const TopBar: React.FC<TopBarProps> = (props) => {
     lastHitOffset, perfectWindow, greatWindow, goodWindow,
     combo, lastJudgment,
     freePlayBpm, onFreePlayBpmChange, freePlayTimeSignature, onFreePlayTimeSignatureChange,
+    userAudioSyncOffset, onUserAudioSyncOffsetChange,
+    isCalibrationMode,
+    userAverageOffset,
   }
   = props;
 
@@ -181,6 +189,108 @@ const TopBar: React.FC<TopBarProps> = (props) => {
       newValue = Math.max(0.1, Math.min(4.0, newValue));
       setter(newValue);
   };
+
+  if (isCalibrationMode) {
+    return (
+      <div className="relative z-[100] w-full bg-slate-900 border-b border-white/10 p-2 flex items-center justify-between shadow-2xl">
+        <div className="flex items-center gap-3">
+          <button onClick={onExit} className={`${iconButtonStyles} ${secondaryButtonStyles}`} title="Exit Calibration">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path></svg>
+          </button>
+          <div className="h-8 w-px bg-white/10 mx-1"></div>
+          <div className="text-xl font-black text-cyan-400 italic tracking-tighter uppercase ml-2 select-none">
+            Sync Tuner
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4 bg-slate-800/80 rounded-xl p-2 border border-cyan-500/30 shadow-[0_0_20px_rgba(6,182,212,0.15)]">
+           <div className="flex flex-col items-center mr-4">
+              <span className="text-[10px] font-bold uppercase text-slate-400 tracking-widest leading-none mb-1">Status</span>
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${isPlaying ? 'bg-emerald-500 animate-pulse' : 'bg-slate-500'}`}></div>
+                <span className="text-xs font-mono text-slate-200 uppercase"></span>
+              </div>
+           </div>
+
+           <div className="h-10 w-px bg-white/10"></div>
+
+            <div className="flex items-center gap-3 px-2">
+               <button 
+                onClick={(e) => { e.stopPropagation(); onUserAudioSyncOffsetChange(Math.round(userAudioSyncOffset - 100)); }} 
+                className={`${iconButtonStyles} w-10 h-10 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-white font-bold text-lg disabled:opacity-20`}
+                title="Decrease offset by 100ms"
+              >
+                ≪
+              </button>
+              <button 
+                onClick={(e) => { e.stopPropagation(); onUserAudioSyncOffsetChange(Math.round(userAudioSyncOffset - 10)); }} 
+                className={`${iconButtonStyles} w-10 h-10 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-white font-bold text-lg disabled:opacity-20`}
+                title="Decrease offset by 10ms"
+              >
+                −
+              </button>
+              
+              <div className="flex flex-col items-center justify-center min-w-[150px] bg-black/40 rounded-lg p-2 border border-cyan-500/20">
+                  <span className="text-[10px] font-bold uppercase text-cyan-400 tracking-widest leading-none mb-1">GLOBAL MS OFFSET</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-3xl font-black tabular-nums text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">
+                        {userAudioSyncOffset > 0 ? `+${userAudioSyncOffset}` : userAudioSyncOffset}
+                    </span>
+                    <span className="text-xs font-bold text-slate-500 self-end mb-1">ms</span>
+                  </div>
+                  {userAverageOffset !== undefined && (
+                    <div className="flex flex-col items-center mt-1 border-t border-white/5 pt-1 w-full">
+                      <span className="text-[9px] font-bold text-slate-500 uppercase tracking-tighter">Your Tap Timing (Avg)</span>
+                      <span className={`text-xs font-mono font-bold ${Math.abs(userAverageOffset) < 30 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                        {userAverageOffset > 0 ? `+${Math.round(userAverageOffset)}` : Math.round(userAverageOffset)}ms
+                      </span>
+                    </div>
+                  )}
+              </div>
+
+              <button 
+                onClick={(e) => { e.stopPropagation(); onUserAudioSyncOffsetChange(Math.round(userAudioSyncOffset + 10)); }} 
+                className={`${iconButtonStyles} w-10 h-10 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-white font-bold text-lg disabled:opacity-20`}
+                title="Increase offset by 10ms"
+              >
+                +
+              </button>
+              <button 
+                onClick={(e) => { e.stopPropagation(); onUserAudioSyncOffsetChange(Math.round(userAudioSyncOffset + 100)); }} 
+                className={`${iconButtonStyles} w-10 h-10 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-white font-bold text-lg disabled:opacity-20`}
+                title="Increase offset by 100ms"
+              >
+                ≫
+              </button>
+           </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          {isPlaying && (
+            <button 
+              onClick={(e) => { e.stopPropagation(); onPlay(); }} // Triggering play again forces a re-sync in App.tsx
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-cyan-600/20 hover:bg-cyan-600/40 border border-cyan-500/50 text-cyan-300 rounded-lg text-xs font-bold uppercase tracking-wider transition-all"
+              title="Force audio to match game clock immediately"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+              Fix Sync
+            </button>
+          )}
+          <div className="flex items-center gap-2 mr-4">
+               {!isPlaying ? (
+                  <button onClick={onPlay} disabled={!isFileLoaded} className={`${iconButtonStyles} ${primaryButtonStyles} w-12 h-12 rounded-xl`} aria-label="Play" title="Start Calibration Song">
+                      <svg className="w-6 h-6 fill-current" viewBox="0 0 20 20"><path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z"></path></svg>
+                  </button>
+              ) : (
+                  <button onClick={onPause} className={`${iconButtonStyles} ${primaryButtonStyles} w-12 h-12 rounded-xl`} aria-label="Pause" title="Pause">
+                      <svg className="w-6 h-6 fill-current" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 4a1 1 0 00-1 1v10a1 1 0 001 1h1a1 1 0 001-1V5a1 1 0 00-1-1H5zM12 4a1 1 0 00-1 1v10a1 1 0 001 1h1a1 1 0 001-1V5a1 1 0 00-1-1h-1z" clipRule="evenodd"></path></svg>
+                  </button>
+              )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (isFreePlayMode) {
     return (
@@ -316,7 +426,7 @@ const TopBar: React.FC<TopBarProps> = (props) => {
                   )}
               </div>
 
-              <div className="flex items-center gap-1 bg-slate-800/50 rounded-lg p-1 border border-slate-700" title="Adjust Zoom">
+          <div className="flex items-center gap-1 bg-slate-800/50 rounded-lg p-1 border border-slate-700" title="Adjust Zoom">
                   <button onClick={() => adjustZoom(true, false)} className={`${iconButtonStyles} w-7 h-7 bg-transparent hover:bg-slate-700 text-slate-400 hover:text-white`}>−</button>
                   <div className="flex flex-col items-center justify-center w-12">
                       <span className="text-[9px] font-bold uppercase text-slate-400 leading-tight">ZOOM</span>
@@ -326,6 +436,7 @@ const TopBar: React.FC<TopBarProps> = (props) => {
                   </div>
                   <button onClick={() => adjustZoom(true, true)} className={`${iconButtonStyles} w-7 h-7 bg-transparent hover:bg-slate-700 text-slate-400 hover:text-white`}>+</button>
               </div>
+
           </div>
         </div>
       </div>

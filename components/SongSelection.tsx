@@ -336,7 +336,7 @@ const SongSelection: React.FC<SongSelectionProps> = ({
                     <div className="flex flex-col items-center justify-center h-full gap-6 p-8 border-2 border-dashed border-slate-700 rounded-xl bg-slate-900/20">
                         <input
                             type="file"
-                            accept="audio/midi,.mid,.midi"
+                            accept=".mid,.midi,audio/mid,audio/midi,audio/x-midi,application/x-midi"
                             onChange={handleFileChange}
                             ref={fileInputRef}
                             className="hidden"

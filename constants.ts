@@ -442,9 +442,9 @@ export const MAX_QWERTY_OCTAVE_SHIFT = 2;
 
 // --- Default Settings Constants ---
 export const DEFAULT_NOTE_TOLERANCE = 200;
-export const DEFAULT_MASTER_VOLUME = 0.5;
-export const DEFAULT_METRONOME_VOLUME = 0.5;
-export const DEFAULT_MP3_VOLUME = 0.5; // NEW: Default MP3 volume
+export const DEFAULT_MASTER_VOLUME = 1.0;
+export const DEFAULT_METRONOME_VOLUME = 1.0;
+export const DEFAULT_MP3_VOLUME = 1.0; // NEW: Default MP3 volume
 export const DEFAULT_VIEW_MODE: ViewMode = 'falling';
 export const DEFAULT_NOTE_LABEL_TYPE: NoteLabelType = 'none'; // Updated to 'none'
 export const DEFAULT_SHOW_ONLY_MAJOR_NOTES = false;
@@ -458,6 +458,7 @@ export const DEFAULT_THEME_SETTINGS: ThemeSettings = {
   hitNoteColor: '#f59e0b', // Amber-500
   backgroundUrl: '/wallpaper.jpg',
   backgroundOpacity: 0.25,
+  pianoTilesOpacity: 50, // Default 50%
 };
 // --- End Default Settings Constants ---
 

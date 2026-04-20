@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MidiAccessStatus, MIDIInput, MIDIOutput, NoteLabelType, ViewMode, ThemeSettings, DevicePreset, LayoutDimensions, QwertyLayout, MicThresholds } from '../types';
-import { DEVICE_LAYOUTS } from '../constants'; // Import DEVICE_LAYOUTS
+import { DEVICE_LAYOUTS, DRUM_PADS } from '../constants'; // Import DEVICE_LAYOUTS
+import { DrumPadConfig } from '../types';
 
 interface SettingsProps {
   onBack: () => void;
@@ -74,6 +75,15 @@ interface SettingsProps {
   onDrumInputModeChange: (mode: 'midi' | 'non-midi') => void;
   zoomDirection: 'normal' | 'reverse';
   onZoomDirectionChange: (direction: 'normal' | 'reverse') => void;
+  drumTyperPadOpacity: number;
+  onDrumTyperPadOpacityChange: (opacity: number) => void;
+  // NEW: Anti Double Trigger props
+  antiDoubleTriggerEnabled: boolean;
+  onAntiDoubleTriggerEnabledChange: (enabled: boolean) => void;
+  antiDoubleTriggerInterval: number;
+  onAntiDoubleTriggerIntervalChange: (interval: number) => void;
+  drumMapping: DrumPadConfig[];
+  onDrumMappingChange: (mapping: DrumPadConfig[]) => void;
   instrumentMode: 'piano' | 'drum';
   onResetSettings: () => void;
   metronomeBuffers?: { strong?: AudioBuffer | null, weak?: AudioBuffer | null };
@@ -259,7 +269,7 @@ const CalibrationModal: React.FC<{
     if (!isOpen) return;
     if (clicks.length >= 8) {
       const avg = Math.round(clicks.reduce((a, b) => a + b, 0) / clicks.length);
-      onCalibrate(avg + 80); // Add 80ms default internal offset
+      onCalibrate(avg); // Remove hidden +80ms offset
       onClose();
     }
   }, [clicks, onCalibrate, onClose, isOpen]);
@@ -333,6 +343,10 @@ export const Settings: React.FC<SettingsProps> = (props) => {
     mp3Volume, onMp3VolumeChange,
     drumInputMode, onDrumInputModeChange,
     zoomDirection, onZoomDirectionChange,
+    drumTyperPadOpacity, onDrumTyperPadOpacityChange,
+    antiDoubleTriggerEnabled, onAntiDoubleTriggerEnabledChange,
+    antiDoubleTriggerInterval, onAntiDoubleTriggerIntervalChange,
+    drumMapping, onDrumMappingChange,
     instrumentMode, onResetSettings, initialScrollTarget,
     metronomeBuffers, audioContext
   } = props;
@@ -341,6 +355,69 @@ export const Settings: React.FC<SettingsProps> = (props) => {
   const [isInfoModalOpen, setIsInfoModalOpen] = useState(false); // NEW state for info modal
   const [isInfoModalRendered, setIsInfoModalRendered] = useState(false); // For info modal animations
   const [isCalibratingOffset, setIsCalibratingOffset] = useState(false);
+  const [mappingPadId, setMappingPadId] = useState<string | null>(null);
+  const [localDrumMapping, setLocalDrumMapping] = useState<DrumPadConfig[]>(drumMapping || DRUM_PADS);
+
+  useEffect(() => {
+    if (drumMapping) setLocalDrumMapping(drumMapping);
+  }, [drumMapping]);
+
+  useEffect(() => {
+    if (!mappingPadId) return;
+
+    const onMidiMessage = (e: any) => {
+      const data = e.data;
+      if (!data) return;
+      const [status, note, velocity] = data;
+      // Accept Note On (0x90) with velocity > 0
+      if ((status & 0xf0) === 0x90 && velocity > 0) {
+        setLocalDrumMapping(prev => {
+          const newMapping = [...prev];
+          const padIndex = newMapping.findIndex(p => p.id === mappingPadId);
+          if (padIndex !== -1) {
+            const pad = { ...newMapping[padIndex] };
+            if (!pad.midiNotes.includes(note)) {
+              pad.midiNotes = [...pad.midiNotes, note];
+              newMapping[padIndex] = pad;
+            }
+          }
+          return newMapping;
+        });
+      }
+    };
+
+    midiInputs.forEach(input => {
+      input.addEventListener('midimessage', onMidiMessage as any);
+    });
+
+    return () => {
+      midiInputs.forEach(input => {
+        input.removeEventListener('midimessage', onMidiMessage as any);
+      });
+    };
+  }, [mappingPadId, midiInputs]);
+
+  const handleRemoveNote = (padId: string, note: number) => {
+    setLocalDrumMapping(prev => {
+      const newMapping = [...prev];
+      const padIndex = newMapping.findIndex(p => p.id === padId);
+      if (padIndex !== -1) {
+        const pad = { ...newMapping[padIndex] };
+        pad.midiNotes = pad.midiNotes.filter(n => n !== note);
+        newMapping[padIndex] = pad;
+      }
+      return newMapping;
+    });
+  };
+
+  const handleSaveDrumMapping = () => {
+    onDrumMappingChange(localDrumMapping);
+    setMappingPadId(null);
+  };
+
+  const handleResetDrumMapping = () => {
+    setLocalDrumMapping(DRUM_PADS);
+  };
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Automatically mute piano and metronome volume during calibration
@@ -426,7 +503,14 @@ export const Settings: React.FC<SettingsProps> = (props) => {
         case 'denied':
             return <button onClick={connectMidi} className={`${commonButtonStyles} bg-red-500 hover:bg-red-600 text-white`}>Access Denied. Retry?</button>;
         case 'unsupported':
-            return <span className="text-sm text-red-400">Web MIDI not supported in this browser.</span>;
+            return (
+              <div className="flex flex-col items-end gap-1">
+                <span className="text-sm text-red-400">Web MIDI not supported in this browser.</span>
+                <span className="text-[10px] text-red-400/80 uppercase font-black tracking-tighter">
+                  Not supported on iOS/Safari. Use Android, Windows, Chrome/Edge.
+                </span>
+              </div>
+            );
         case 'granted':
              return <button onClick={connectMidi} className={`${commonButtonStyles} bg-green-600 hover:bg-green-700`}>Rescan Devices</button>;
         default:
@@ -704,6 +788,20 @@ export const Settings: React.FC<SettingsProps> = (props) => {
               <ToggleRow id="major-notes-only" label="Show Only Major Notes (Falling Notes)" checked={showOnlyMajorNotes} onChange={onShowOnlyMajorNotesChange} disabled={gameplayStyle === 'computer'}/>
             )}
             <ToggleRow id="show-piano-tiles" label="Show Piano Tiles Background" checked={showPianoTilesBackground} onChange={onShowPianoTilesBackgroundChange} />
+            {showPianoTilesBackground && (
+                <SettingRow label={`Piano Tiles Opacity (${themeSettings.pianoTilesOpacity || 50}%)`} htmlFor="piano-tiles-opacity">
+                    <input 
+                        id="piano-tiles-opacity" 
+                        type="range" 
+                        min="10" 
+                        max="100" 
+                        step="1" 
+                        value={themeSettings.pianoTilesOpacity || 50} 
+                        onChange={e => onThemeSettingsChange({ ...themeSettings, pianoTilesOpacity: parseInt(e.target.value, 10) })} 
+                        className={`${rangeSliderStyle} max-w-xs`} 
+                    />
+                </SettingRow>
+            )}
             
             {instrumentMode === 'drum' && (
               <div className="bg-slate-900/50 p-4 rounded-lg mt-4 space-y-4 ring-1 ring-slate-700">
@@ -764,15 +862,15 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                 className={`${rangeSliderStyle} max-w-xs`} 
               />
             </SettingRow>
-            {/* Replaced Metronome Offset with Note Offset */}
+            {/* Note Offset (Judgment lag compensation) */}
             <div id="note-offset-section">
               <SettingRow label={`Note Offset (${metronomeOffsetMs > 0 ? '+' : ''}${metronomeOffsetMs}ms)`} htmlFor="note-offset">
                 <div className="flex items-center gap-4 w-full">
                   <input 
                     id="note-offset" 
                     type="range" 
-                    min="-250" 
-                    max="250" 
+                    min="-500" 
+                    max="500" 
                     step="5" 
                     value={metronomeOffsetMs} 
                     onChange={e => onMetronomeOffsetChange(parseInt(e.target.value, 10))} 
@@ -782,9 +880,124 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                 </div>
               </SettingRow>
               <p className="text-xs text-slate-500 mt-1">
-                  Adjust hit detection timing. (+) shifts hitbox later (compensates input lag), (-) shifts hitbox earlier.
+                  Adjust input latency. (+) shifts hitbox earlier, (-) shifts hitbox later relative to visuals.
               </p>
             </div>
+
+            {/* Anti Double Trigger */}
+            <div id="anti-double-trigger-section" className="bg-slate-900/50 p-4 rounded-lg mt-4 space-y-4 ring-1 ring-slate-700">
+              <ToggleRow 
+                id="anti-double-trigger-enabled" 
+                label="Anti Double Trigger" 
+                checked={antiDoubleTriggerEnabled} 
+                onChange={onAntiDoubleTriggerEnabledChange} 
+              />
+              {antiDoubleTriggerEnabled && (
+                <div className="space-y-2">
+                  <SettingRow label={`Minimum Interval (${antiDoubleTriggerInterval.toFixed(2)}ms)`} htmlFor="anti-double-trigger-interval">
+                    <input 
+                      id="anti-double-trigger-interval" 
+                      type="range" 
+                      min="5" 
+                      max="200" 
+                      step="1" 
+                      value={antiDoubleTriggerInterval} 
+                      onChange={e => onAntiDoubleTriggerIntervalChange(parseFloat(e.target.value))} 
+                      className={`${rangeSliderStyle} max-w-xs focus:ring-cyan-500`} 
+                    />
+                  </SettingRow>
+                  <p className="text-[10px] text-slate-400">
+                    Prevents a single hit from triggering multiple inputs due to vibration. Range: 5ms - 200ms.
+                  </p>
+                </div>
+              )}
+
+              {/* NEW: Drum Typer Pad Opacity */}
+              <div className="pt-4 border-t border-slate-700/50 mt-2">
+                <SettingRow label="Appearing Keys Opacity (Drum Typer)" htmlFor="drum-typer-opacity">
+                  <div className="flex items-center gap-3 w-full">
+                    <span className="text-[10px] text-cyan-400 font-mono w-10 text-right">{drumTyperPadOpacity}%</span>
+                    <input 
+                      type="range" 
+                      id="drum-typer-opacity"
+                      min="0" 
+                      max="100" 
+                      step="1" 
+                      value={drumTyperPadOpacity} 
+                      onChange={e => onDrumTyperPadOpacityChange(parseInt(e.target.value))} 
+                      className={`${rangeSliderStyle} flex-grow focus:ring-cyan-500`} 
+                    />
+                  </div>
+                </SettingRow>
+                <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
+                  Controls the base visibility of drum pads. 0% hides pads entirely until notes approach — perfect for that "OSU-style" challenge.
+                </p>
+              </div>
+            </div>
+
+            {/* Drum Input Mapping */}
+            {instrumentMode === 'drum' && (
+              <div id="drum-mapping-section" className="bg-slate-900/50 p-4 rounded-lg mt-4 space-y-4 ring-1 ring-slate-700 text-left">
+                <div className="flex items-center justify-between border-b border-slate-700 pb-2 mb-2">
+                  <h4 className="text-md font-semibold text-cyan-400">Drum MIDI Mapping</h4>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={handleResetDrumMapping}
+                      className={`${commonButtonStyles} bg-slate-700 hover:bg-slate-600 text-slate-100 ring-1 ring-slate-600`}
+                    >
+                      Reset
+                    </button>
+                    <button 
+                      onClick={handleSaveDrumMapping}
+                      className={`${commonButtonStyles} bg-cyan-600 hover:bg-cyan-500 text-white shadow-lg shadow-cyan-900/20`}
+                    >
+                      Save Mapping
+                    </button>
+                  </div>
+                </div>
+                
+                <p className="text-[10px] text-slate-400 leading-relaxed">
+                  Select a drum kit component and hit your MIDI drum to assign it. You can map multiple MIDI notes to one component.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                  {localDrumMapping.map(pad => (
+                    <div key={pad.id} className={`flex flex-col p-3 rounded-lg border transition-all duration-200 ${mappingPadId === pad.id ? 'bg-cyan-900/40 border-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.4)] ring-1 ring-cyan-400' : 'bg-slate-800/50 border-slate-700 hover:border-slate-600'}`}>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex flex-col">
+                          <span className="text-[11px] font-bold text-slate-100 uppercase tracking-wider">{pad.name}</span>
+                          <span className="text-[9px] text-slate-500 italic lowercase">{pad.midiNotes.length} assigned</span>
+                        </div>
+                        <button 
+                          onClick={() => setMappingPadId(mappingPadId === pad.id ? null : pad.id)}
+                          className={`h-8 px-4 rounded font-bold text-[10px] transition-all transform active:scale-95 ${mappingPadId === pad.id ? 'bg-amber-500 text-white animate-pulse shadow-lg shadow-amber-900/40' : 'bg-slate-700 hover:bg-slate-600 text-slate-100 shadow-sm border border-slate-600'}`}
+                        >
+                          {mappingPadId === pad.id ? 'HIT DRUM!' : 'MAP'}
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 mt-2.5">
+                        {pad.midiNotes.length === 0 ? (
+                          <span className="text-[9px] text-slate-600 italic">No notes mapped</span>
+                        ) : (
+                          pad.midiNotes.sort((a,b) => a-b).map(note => (
+                            <div key={note} className="flex items-center gap-1.5 px-2 py-0.5 bg-slate-900/80 rounded border border-slate-700 text-[10px] text-cyan-300 group">
+                              <span>#{note}</span>
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); handleRemoveNote(pad.id, note); }}
+                                className="w-3.5 h-3.5 flex items-center justify-center rounded-full bg-slate-800 text-slate-400 hover:bg-red-500 hover:text-white transition-all text-[8px]"
+                                title="Remove mapping"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </Section>
 
           <Section title="Appearance">

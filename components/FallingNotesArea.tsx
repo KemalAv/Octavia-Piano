@@ -2,7 +2,7 @@
 import React from 'react';
 import { MidiNotePlaybackItem, KeyPosition, ActiveMidiNoteInfo, NoteLabelType, QwertyLayout, FreePlayLiveNote } from '../types';
 import { PLAY_LINE_THICKNESS_PX, USER_PLAY_COLOR, VISUAL_NOTE_CAP_MS, QWERTY_MINI_KEYBOARD_MAPPING, MIRP_KEYBOARD_MAPPING, KEY_CODES_TO_DISPLAY } from '../constants';
-import { darkenHex, formatKeySignatureForDisplay, SHARP_KEYS, FLAT_KEYS, NEUTRAL_KEYS, ENHARMONIC_MAP_TO_SHARP, ENHARMONIC_MAP_TO_FLAT } from '../utils';
+import { darkenHex, lightenHex, formatKeySignatureForDisplay, SHARP_KEYS, FLAT_KEYS, NEUTRAL_KEYS, ENHARMONIC_MAP_TO_SHARP, ENHARMONIC_MAP_TO_FLAT } from '../utils';
 
 interface FallingNotesAreaProps {
   notes: MidiNotePlaybackItem[];
@@ -23,8 +23,9 @@ interface FallingNotesAreaProps {
   activeKeySignature: string; // NEW: Added activeKeySignature prop
   activeTempoBpm: number; // NEW: For displaying current BPM
   showOnlyMajorNotes: boolean;
-  showPianoTilesBackground: boolean; // NEW: Show Piano Tiles Background Prop
-  isPaused?: boolean; // NEW: For interaction
+  showPianoTilesBackground: boolean;
+  pianoTilesOpacity?: number; // NEW
+  isPaused?: boolean;
   onSeek?: (timeMs: number) => void; // NEW: For interaction
   // NEW: Props for QWERTY labels
   qwertyLayout?: QwertyLayout;
@@ -53,6 +54,7 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
   activeTempoBpm,
   showOnlyMajorNotes,
   showPianoTilesBackground,
+  pianoTilesOpacity = 50,
   isPaused = false,
   onSeek,
   qwertyLayout = 'default',
@@ -60,6 +62,8 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
   mirpTranspose = 0,
   lowDetailMode = false,
 }) => {
+
+  const alphaMultiplier = pianoTilesOpacity / 100;
 
   const VIEWABLE_DURATION_MS = actualHeight > 0 && pixelsPerMillisecond > 0
     ? actualHeight / pixelsPerMillisecond
@@ -113,8 +117,11 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
     const blackTiles: React.JSX.Element[] = [];
 
     keyPositions.forEach((kp) => {
-        const whiteTileColor = isLightBackground ? 'rgba(0, 0, 0, 0.03)' : 'rgba(255, 255, 255, 0.05)';
-        const blackTileColor = isLightBackground ? 'rgba(0, 0, 0, 0.08)' : 'rgba(0, 0, 0, 0.2)';
+        const whiteTileAlpha = (isLightBackground ? 0.1 : 0.15) * alphaMultiplier;
+        const blackTileAlpha = alphaMultiplier;
+        
+        const whiteTileColor = isLightBackground ? `rgba(0, 0, 0, ${whiteTileAlpha})` : `rgba(255, 255, 255, ${whiteTileAlpha})`;
+        const blackTileColor = `rgba(0, 0, 0, ${blackTileAlpha})`;
         
         const style: React.CSSProperties = {
             left: `${kp.x}px`,
@@ -208,7 +215,14 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
     }, [] as React.JSX.Element[]);
   }, [barLines, currentTimeMs, actualHeight, pixelsPerMillisecond, isRising, isLightBackground, VIEWABLE_DURATION_MS]);
 
+  const containerRef = React.useRef<HTMLDivElement>(null);
   const dragRef = React.useRef<{ isDragging: boolean; startY: number; startTime: number } | null>(null);
+
+  const getScale = () => {
+    if (!containerRef.current) return 1;
+    const rect = containerRef.current.getBoundingClientRect();
+    return rect.height / containerRef.current.offsetHeight;
+  };
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (!isPaused || isRising) return;
@@ -221,7 +235,8 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!dragRef.current || !dragRef.current.isDragging) return;
-    const deltaY = e.clientY - dragRef.current.startY;
+    const scale = getScale();
+    const deltaY = (e.clientY - dragRef.current.startY) / scale;
     const deltaTime = deltaY / pixelsPerMillisecond;
     onSeek?.(dragRef.current.startTime + deltaTime);
   };
@@ -247,7 +262,8 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
 
   const handleTouchMove = (e: React.TouchEvent) => {
     if (!dragRef.current || !dragRef.current.isDragging) return;
-    const deltaY = e.touches[0].clientY - dragRef.current.startY;
+    const scale = getScale();
+    const deltaY = (e.touches[0].clientY - dragRef.current.startY) / scale;
     const deltaTime = deltaY / pixelsPerMillisecond;
     onSeek?.(dragRef.current.startTime + deltaTime);
   };
@@ -274,6 +290,7 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
 
   return (
     <div
+      ref={containerRef}
       className={`relative shadow-2xl overflow-hidden no-select ${isPaused && !isRising ? 'cursor-ns-resize' : ''}`}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
@@ -313,9 +330,9 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
                 
                 heightPx = Math.max(4, heightPx);
                 
-                let baseColor = note.hand === 'left' ? leftHandColor : rightHandColor;
+                let baseColorValue = note.hand === 'left' ? leftHandColor : rightHandColor;
                 if (keyPos.type === 'black') {
-                  baseColor = darkenHex(baseColor, 25);
+                  baseColorValue = lightenHex(baseColorValue, 20);
                 }
 
                 if (bottomPx > actualHeight + 50) {
@@ -366,7 +383,7 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
                             bottom: `${bottomPx}px`,
                             width: `${keyPos.type === 'black' ? keyPos.width * 0.8 : keyPos.width - 2}px`,
                             height: `${Math.max(1, heightPx - 2)}px`,
-                            backgroundColor: baseColor,
+                            backgroundColor: baseColorValue,
                             ...borderStyle,
                             boxShadow,
                             zIndex: isHeld ? 20 : 15,
@@ -408,9 +425,9 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
                     yPositionPxCalc = - PLAY_LINE_THICKNESS_PX - noteHeightPx - note.timeMs * pixelsPerMillisecond;
                 }
                 
-                let baseColor = note.hand === 'left' ? leftHandColor : rightHandColor;
+                let baseColorStandard = note.hand === 'left' ? leftHandColor : rightHandColor;
                 if (keyPos.type === 'black') {
-                  baseColor = darkenHex(baseColor, 25);
+                  baseColorStandard = lightenHex(baseColorStandard, 20);
                 }
 
                 let borderStyle: React.CSSProperties = {};
@@ -463,7 +480,7 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
                         top: `${yPositionPxCalc}px`,
                         width: `${keyPos.type === 'black' ? keyPos.width * 0.8 : keyPos.width - 2}px`,
                         height: `${Math.max(1, noteHeightPx - 2)}px`,
-                        backgroundColor: baseColor,
+                        backgroundColor: baseColorStandard,
                         ...borderStyle,
                         boxShadow,
                         zIndex: currentStatus ? 20 : 15,
