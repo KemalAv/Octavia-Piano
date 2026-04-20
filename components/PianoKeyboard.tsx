@@ -65,8 +65,13 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
     if (!container) return null;
     
     const rect = container.getBoundingClientRect();
-    const relativeX = clientX - rect.left;
-    const relativeY = clientY - rect.top;
+    
+    // Account for CSS scaling (zoom or transform: scale)
+    const scaleX = rect.width / (container as HTMLElement).offsetWidth;
+    const scaleY = rect.height / (container as HTMLElement).offsetHeight;
+    
+    const relativeX = (clientX - rect.left) / scaleX;
+    const relativeY = (clientY - rect.top) / scaleY;
 
     // Check if within vertical bounds of the keyboard area (excluding labels)
     if (relativeY < 0 || relativeY > layoutConfig.whiteKeyHeight) return null;

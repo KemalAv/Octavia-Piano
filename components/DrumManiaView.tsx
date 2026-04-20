@@ -2,21 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ActiveMidiNoteInfo, MidiNotePlaybackItem, DrumPadConfig, ThemeSettings, FreePlayLiveNote } from '../types';
 import { DRUM_KEYBOARD_MAP, DRUM_PADS } from '../constants';
 
-const MIDI_TO_PAD_MAP = new Map<number, DrumPadConfig>();
-DRUM_PADS.forEach(pad => {
-    pad.midiNotes.forEach(note => {
-        MIDI_TO_PAD_MAP.set(note, pad);
-    });
-});
-
-const PAD_TO_KEYS_MAP = new Map<string, string[]>();
-Object.entries(DRUM_KEYBOARD_MAP).forEach(([key, midi]) => {
-    const pad = MIDI_TO_PAD_MAP.get(midi);
-    if (pad) {
-        const existing = PAD_TO_KEYS_MAP.get(pad.id) || [];
-        PAD_TO_KEYS_MAP.set(pad.id, [...existing, key.toUpperCase()]);
-    }
-});
 
 // Order from user request
 const MANIA_PAD_ORDER = [
@@ -47,6 +32,8 @@ interface DrumManiaViewProps {
     pixelsPerMillisecond?: number;
     isPaused?: boolean;
     onSeek?: (timeMs: number) => void;
+    showPianoTilesBackground?: boolean;
+    pianoTilesOpacity?: number;
 }
 
 export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
@@ -64,8 +51,25 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
     barLines = [],
     pixelsPerMillisecond = 0.5,
     isPaused = false,
-    onSeek
+    onSeek,
+    showPianoTilesBackground = true,
+    pianoTilesOpacity = 50,
 }) => {
+    const MIDI_TO_PAD_MAP = new Map<number, DrumPadConfig>();
+    DRUM_PADS.forEach(pad => {
+        pad.midiNotes.forEach(note => {
+            MIDI_TO_PAD_MAP.set(note, pad);
+        });
+    });
+
+    const PAD_TO_KEYS_MAP = new Map<string, string[]>();
+    Object.entries(DRUM_KEYBOARD_MAP).forEach(([key, midi]) => {
+        const pad = MIDI_TO_PAD_MAP.get(midi);
+        if (pad) {
+            const existing = PAD_TO_KEYS_MAP.get(pad.id) || [];
+            PAD_TO_KEYS_MAP.set(pad.id, [...existing, key.toUpperCase()]);
+        }
+    });
 
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
@@ -121,8 +125,7 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
             const pad = DRUM_PADS.find(p => p.id === id)!;
             const cx = (index + 0.5) * padWidth;
             const cy = centerY;
-            let r = Math.min(padWidth * 0.4, 40);
-            if (id === 'bass') r *= 1.3; // Bass drum is larger
+            const r = Math.min(padWidth * 0.4, 40);
 
             return { ...pad, cx, cy, r };
         });
@@ -133,8 +136,13 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
         if (!canvas) return;
 
         const rect = canvas.getBoundingClientRect();
-        const x = (e.clientX - rect.left) / zoomScale;
-        const y = (e.clientY - rect.top) / zoomScale;
+
+        // Account for CSS scaling (zoom or transform: scale)
+        const scaleX = rect.width / (canvas as HTMLElement).offsetWidth;
+        const scaleY = rect.height / (canvas as HTMLElement).offsetHeight;
+
+        const x = (e.clientX - rect.left) / scaleX;
+        const y = (e.clientY - rect.top) / scaleY;
 
         const pads = getPadLayout();
         let hitPad = false;
@@ -163,7 +171,13 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
 
     const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
         if (dragRef.current && dragRef.current.isDragging && onSeek) {
-            const deltaY = e.clientY - dragRef.current.startY;
+            const canvas = canvasRef.current;
+            let scaleY = 1;
+            if (canvas) {
+                const rect = canvas.getBoundingClientRect();
+                scaleY = rect.height / (canvas as HTMLElement).offsetHeight;
+            }
+            const deltaY = (e.clientY - dragRef.current.startY) / scaleY;
             const deltaTime = deltaY / pixelsPerMillisecond;
             onSeek(dragRef.current.startTime + deltaTime);
         }
@@ -329,10 +343,13 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
             const hitLineY = dimensions.height - 90; // Judgment line slightly above indicators
 
             // Draw lane backgrounds
-            pads.forEach(pad => {
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.4)'; // Darker lanes like the image
-                ctx.fillRect(pad.cx - pad.r, 0, pad.r * 2, dimensions.height);
-            });
+            if (showPianoTilesBackground) {
+                const alpha = pianoTilesOpacity / 100;
+                pads.forEach(pad => {
+                    ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
+                    ctx.fillRect(pad.cx - pad.r, 0, pad.r * 2, dimensions.height);
+                });
+            }
 
             // Draw bar lines
             const bufferMs = 50 / pixelsPerMillisecond;

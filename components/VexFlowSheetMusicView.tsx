@@ -286,18 +286,72 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
             
             n.setAttribute('id', info.vexNoteId); 
             
-            // Middle line rule for single notes (will be overridden for beamed groups)
+            // Middle line rule for single notes: Notes on or above middle line (line 2) go DOWN, below go UP.
             const props = n.getKeyProps();
-            let totalLine = 0;
-            props.forEach(p => totalLine += p.line);
-            const avgLine = totalLine / props.length;
-            const direction = avgLine >= 3 ? StaveNote.STEM_DOWN : StaveNote.STEM_UP;
+            let onOrAboveCount = 0;
+            let belowCount = 0;
+            let maxDist = -1;
+            let farthestLine = 2;
+
+            props.forEach(p => {
+                const dist = Math.abs(p.line - 2);
+                if (dist > maxDist) {
+                    maxDist = dist;
+                    farthestLine = p.line;
+                }
+                if (p.line <= 2) onOrAboveCount++;
+                else belowCount++;
+            });
+
+            let direction: number;
+            if (onOrAboveCount > belowCount) {
+                direction = StaveNote.STEM_UP;
+            } else if (belowCount > onOrAboveCount) {
+                direction = StaveNote.STEM_DOWN;
+            } else {
+                // Tie: use the note farthest from the middle line.
+                direction = farthestLine <= 2 ? StaveNote.STEM_UP : StaveNote.STEM_DOWN;
+            }
             
             n.setStemDirection(direction);
             return n; 
         };
-        const rightInfoMap = new Map<string, VexFlowNoteInfo>(), rightStaveNotes: StaveNote[] = measure.rightHand.map(info => { const n = createNote(info, false); rightInfoMap.set(info.vexNoteId, info); return n; });
-        const leftInfoMap = new Map<string, VexFlowNoteInfo>(), leftStaveNotes: StaveNote[] = measure.leftHand.map(info => { const n = createNote(info, true); leftInfoMap.set(info.vexNoteId, info); return n; });
+        const rightStaveNotes: StaveNote[] = [];
+        const rightInfoMap = new Map<string, VexFlowNoteInfo>();
+        measure.rightHand.forEach(info => {
+            // Deduplication within right hand
+            const isDuplicate = rightStaveNotes.some(n => {
+                const rhInfo = rightInfoMap.get(n.getAttribute('id'));
+                return rhInfo && Math.abs(rhInfo.timeMs - info.timeMs) < 1 && rhInfo.midiValue === info.midiValue;
+            });
+            if (!isDuplicate) {
+                const n = createNote(info, false);
+                rightStaveNotes.push(n);
+                rightInfoMap.set(info.vexNoteId, info);
+            }
+        });
+
+        const leftStaveNotes: StaveNote[] = [];
+        const leftInfoMap = new Map<string, VexFlowNoteInfo>();
+        measure.leftHand.forEach(info => {
+            // Deduplication within left hand
+            const isDuplicateInternal = leftStaveNotes.some(n => {
+                const lhInfo = leftInfoMap.get(n.getAttribute('id'));
+                return lhInfo && Math.abs(lhInfo.timeMs - info.timeMs) < 1 && lhInfo.midiValue === info.midiValue;
+            });
+            
+            // Deduplication against right hand
+            const isDuplicateAcross = rightStaveNotes.some(n => {
+                const rhInfo = rightInfoMap.get(n.getAttribute('id'));
+                return rhInfo && Math.abs(rhInfo.timeMs - info.timeMs) < 1 && rhInfo.midiValue === info.midiValue;
+            });
+            
+            if (!isDuplicateInternal && !isDuplicateAcross) {
+                const n = createNote(info, true);
+                leftStaveNotes.push(n);
+                leftInfoMap.set(info.vexNoteId, info);
+            }
+        });
         
         const groupBeams = (notes: StaveNote[], timeSig: TimeSignatureInfo, tuplets: VexFlowTupletGroup[]) => {
             const beams: Beam[] = []; 
@@ -307,20 +361,37 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
             const applyStemDirectionToGroup = (group: StaveNote[]) => {
                 if (group.length === 0) return;
                 
-                // Calculate average line position
-                let totalLine = 0;
-                let noteCount = 0;
+                let maxDist = -1;
+                let farthestLine = 2;
+                let onOrAboveCount = 0;
+                let belowCount = 0;
+
                 group.forEach(n => {
                     const props = n.getKeyProps();
                     props.forEach(p => {
-                        totalLine += p.line;
-                        noteCount++;
+                        const dist = Math.abs(p.line - 2);
+                        if (dist > maxDist) {
+                            maxDist = dist;
+                            farthestLine = p.line;
+                        }
+                        // Middle Line Rule: on or above (line 2) is considered 'above' for down-stemming
+                        if (p.line <= 2) onOrAboveCount++;
+                        else belowCount++;
                     });
                 });
                 
-                const avgLine = totalLine / noteCount;
-                // Middle line is 3. If avgLine > 3 (higher), stems go DOWN. If avgLine < 3 (lower), stems go UP.
-                const direction = avgLine >= 3 ? StaveNote.STEM_DOWN : StaveNote.STEM_UP;
+                // Middle Line Rule for Beamed Groups: 
+                // 1. Majority Rule: follow the side with more notes.
+                // 2. Farthest Note Rule: if it's a tie, the note farthest from the middle line (line 2) dictates direction.
+                let direction: number;
+                if (onOrAboveCount > belowCount) {
+                    direction = StaveNote.STEM_UP;
+                } else if (belowCount > onOrAboveCount) {
+                    direction = StaveNote.STEM_DOWN;
+                } else {
+                    // Tie: use farthest note
+                    direction = farthestLine <= 2 ? StaveNote.STEM_UP : StaveNote.STEM_DOWN;
+                }
                 
                 group.forEach(n => n.setStemDirection(direction));
             };
@@ -423,8 +494,18 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
         
         if (voices.length) { 
             new Formatter().joinVoices(voices).format(voices, measure.width - 15); 
-            if (rightStaveNotes.length) voices[0].draw(ctx, treble); 
-            if (leftStaveNotes.length) (rightStaveNotes.length > 0 ? voices[1] : voices[0]).draw(ctx, isDrum ? treble : bass); 
+            
+            // Draw voices to their respective staves
+            if (rightStaveNotes.length) {
+                voices[0].draw(ctx, treble); 
+            }
+            
+            if (leftStaveNotes.length) {
+                // If both hands have notes, LH is the second voice in the array.
+                const lhVoice = rightStaveNotes.length > 0 ? voices[1] : voices[0];
+                lhVoice.draw(ctx, isDrum ? treble : (bass as Stave)); 
+            }
+            
             rightBeams.forEach(b => b.setContext(ctx).draw()); 
             leftBeams.forEach(b => b.setContext(ctx).draw()); 
             rhTupletObjs.forEach(t => t.setContext(ctx).draw());

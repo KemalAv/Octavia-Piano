@@ -1,5 +1,5 @@
 import { MidiNotePlaybackItem, AnalysisResult, ExtendedResult, AnalysisConfig } from './types';
-import { DRUM_PADS } from './constants';
+import { DRUM_PADS, DRUM_PRIMARY_MIDI_MAP } from './constants';
 
 export const DEFAULT_ANALYSIS_CONFIG: AnalysisConfig = {
 densityWindowMs: 1000,
@@ -724,9 +724,12 @@ export function analyzeMidi(
 ): ExtendedResult | null {
     let processedNotes = notes;
     if (instrumentMode === 'drum') {
-        const allowedMidiNotes = new Set<number>();
-        DRUM_PADS.forEach(pad => pad.midiNotes.forEach(note => allowedMidiNotes.add(note)));
-        processedNotes = notes.filter(n => allowedMidiNotes.has(n.midi));
+        processedNotes = notes
+            .filter(n => DRUM_PRIMARY_MIDI_MAP[n.midi] !== undefined)
+            .map(n => ({
+                ...n,
+                midi: DRUM_PRIMARY_MIDI_MAP[n.midi]
+            }));
     }
 
     // This is the main analysis for the given (potentially scaled) tempo

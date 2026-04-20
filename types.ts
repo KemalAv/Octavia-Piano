@@ -226,6 +226,8 @@ export interface GameSettings {
   backingTrack?: BackingTrackConfig; // NEW: Backing track configuration
   instrumentMode?: 'piano' | 'drum'; // NEW: Instrument mode
   zoomDirection?: 'normal' | 'reverse'; // NEW: Zoom direction
+  isCalibrationMode?: boolean; // NEW: Calibration mode for sync offset
+  drumTyperPadOpacity?: number; // NEW: Opacity for pads in Drum Typer mode (0-100)
 }
 
 export interface ThemeSettings {
@@ -235,6 +237,7 @@ export interface ThemeSettings {
   hitNoteColor: string; // NEW: Added hitNoteColor
   backgroundUrl?: string;
   backgroundOpacity?: number;
+  pianoTilesOpacity?: number;
 }
 
 export interface MetronomeAudioNode {

@@ -132,34 +132,14 @@ const DifficultyAnalysis: React.FC<DifficultyAnalysisProps> = ({ analysisResult,
               >&times;</button>
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+            <div className="grid grid-cols-1 gap-y-6">
                 <div>
-                    <h3 className="text-lg font-semibold text-slate-200 border-b border-slate-600 pb-1 mb-2">Core Components</h3>
-                    <StatItem label="Density / Speed" value={parameters.density?.toFixed(2)} />
-                    <StatItem label="Interval Complexity" value={parameters.intervalComplexity?.toFixed(2)} />
-                    <StatItem label="Physical Effort" value={parameters.physicalEffort?.toFixed(2)} />
-                    <StatItem label="Stamina Factor" value={parameters.staminaFactor?.toFixed(2)} />
-                </div>
-                <div>
-                    <h3 className="text-lg font-semibold text-slate-200 border-b border-slate-600 pb-1 mb-2">Technical Components</h3>
-                    <StatItem label="Chord Mobility" value={parameters.chordMobility?.toFixed(2)} />
-                    <StatItem label="Chord Movement Rate" value={parameters.chordMovementRate?.toFixed(2)} />
-                    <StatItem label="Arpeggio Virtuosity" value={parameters.arpeggioVirtuosity?.toFixed(2)} />
-                    <StatItem label="Trill / Tremolo Ratio" value={parameters.trillRatio?.toFixed(2)} />
-                </div>
-                {/* Full width row for meta stats */}
-                <div className="md:col-span-2">
                 <h3 className="text-lg font-semibold text-slate-200 border-b border-slate-600 pb-1 mb-2 mt-4">Meta Statistics</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-x-8 gap-y-1">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-1">
                     <StatItem label="Total Notes" value={meta.totalNotes} />
                     <StatItem label="Duration" value={meta.durationSec?.toFixed(1)} unit="s" />
                     <StatItem label="Note Range" value={noteRangeDisplay} />
                     <StatItem label="Avg Notes/Sec" value={parameters.totalNps?.toFixed(2)} unit="n/s" />
-                    <StatItem label="Peak Notes/Sec" value={meta.peakSpeedNps?.toFixed(2)} unit="n/s" />
-                    <StatItem label="Avg Polyphony" value={parameters.polyphony?.toFixed(2)} />
-                    <StatItem label="Chord NPS" value={parameters.chordNps?.toFixed(2)} />
-                    <StatItem label="Avg. Note Gap" value={meta.avgGapMs?.toFixed(0)} unit="ms" />
-                    <StatItem label="Arpeggio Rate" value={meta.arpeggioRate?.toFixed(2)} />
                 </div>
                 </div>
             </div>

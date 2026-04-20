@@ -2,21 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ActiveMidiNoteInfo, MidiNotePlaybackItem, DrumPadConfig, ThemeSettings, FreePlayLiveNote } from '../types';
 import { DRUM_KEYBOARD_MAP, DRUM_PADS } from '../constants';
 
-const MIDI_TO_PAD_MAP = new Map<number, DrumPadConfig>();
-DRUM_PADS.forEach(pad => {
-    pad.midiNotes.forEach(note => {
-        MIDI_TO_PAD_MAP.set(note, pad);
-    });
-});
-
-const PAD_TO_KEYS_MAP = new Map<string, string[]>();
-Object.entries(DRUM_KEYBOARD_MAP).forEach(([key, midi]) => {
-    const pad = MIDI_TO_PAD_MAP.get(midi);
-    if (pad) {
-        const existing = PAD_TO_KEYS_MAP.get(pad.id) || [];
-        PAD_TO_KEYS_MAP.set(pad.id, [...existing, key.toUpperCase()]);
-    }
-});
 
 interface DrumViewProps {
     currentTimeMs: number;
@@ -33,6 +18,7 @@ interface DrumViewProps {
     zoomScale?: number;
     isPaused?: boolean;
     onSeek?: (timeMs: number) => void;
+    drumTyperPadOpacity?: number;
 }
 
 export const DrumView: React.FC<DrumViewProps> = ({
@@ -49,8 +35,24 @@ export const DrumView: React.FC<DrumViewProps> = ({
     zoomDirection = 'normal',
     zoomScale = 1,
     isPaused = false,
-    onSeek
+    onSeek,
+    drumTyperPadOpacity = 100,
 }) => {
+    const MIDI_TO_PAD_MAP = new Map<number, DrumPadConfig>();
+    DRUM_PADS.forEach(pad => {
+        pad.midiNotes.forEach(note => {
+            MIDI_TO_PAD_MAP.set(note, pad);
+        });
+    });
+
+    const PAD_TO_KEYS_MAP = new Map<string, string[]>();
+    Object.entries(DRUM_KEYBOARD_MAP).forEach(([key, midi]) => {
+        const pad = MIDI_TO_PAD_MAP.get(midi);
+        if (pad) {
+            const existing = PAD_TO_KEYS_MAP.get(pad.id) || [];
+            PAD_TO_KEYS_MAP.set(pad.id, [...existing, key.toUpperCase()]);
+        }
+    });
 
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
@@ -102,8 +104,13 @@ export const DrumView: React.FC<DrumViewProps> = ({
         if (!canvas) return;
 
         const rect = canvas.getBoundingClientRect();
-        const x = (e.clientX - rect.left) / zoomScale;
-        const y = (e.clientY - rect.top) / zoomScale;
+        
+        // Account for CSS scaling (zoom or transform: scale)
+        const scaleX = rect.width / (canvas as HTMLElement).offsetWidth;
+        const scaleY = rect.height / (canvas as HTMLElement).offsetHeight;
+
+        const x = (e.clientX - rect.left) / scaleX;
+        const y = (e.clientY - rect.top) / scaleY;
 
         const layoutScale = 0.82;
         const centerX = dimensions.width / 2;
@@ -114,12 +121,8 @@ export const DrumView: React.FC<DrumViewProps> = ({
             const cx = centerX + (pad.x * dimensions.width - centerX) * layoutScale;
             const cy = centerY + (pad.y * dimensions.height - centerY) * layoutScale;
 
-            let r = pad.radius * dimensions.height;
-            if (pad.id === "bass") r *= 1.4;
-            if (pad.id === "snare") r *= 1.2;
-            if (["high_tom", "low_tom", "floor_tom"].includes(pad.id)) r *= 1.2;
-            if (["crash", "ride"].includes(pad.id)) r *= 1.1;
-            if (pad.id === "hihat") r *= 0.9;
+            const r = 0.11 * dimensions.height; // Uniform size for all pads in Drum Typer
+            // Overriding pad.radius to ensure all pads are exactly the same size
 
             const dx = x - cx;
             const dy = y - cy;
@@ -145,7 +148,13 @@ export const DrumView: React.FC<DrumViewProps> = ({
 
     const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
         if (dragRef.current && dragRef.current.isDragging && onSeek) {
-            const deltaX = e.clientX - dragRef.current.startX;
+            const canvas = canvasRef.current;
+            let scaleX = 1;
+            if (canvas) {
+                const rect = canvas.getBoundingClientRect();
+                scaleX = rect.width / (canvas as HTMLElement).offsetWidth;
+            }
+            const deltaX = (e.clientX - dragRef.current.startX) / scaleX;
             const pixelsPerMillisecond = 1000 / approachDurationMsRef.current;
             const deltaTime = -deltaX / (pixelsPerMillisecond || 0.5);
             onSeek(dragRef.current.startTime + deltaTime);
@@ -371,18 +380,31 @@ export const DrumView: React.FC<DrumViewProps> = ({
             const centerX = dimensions.width / 2;
             const centerY = dimensions.height / 2;
 
-            DRUM_PADS.forEach(pad => {
+            const padApproachingMaxProgress = new Map<string, number>();
+            const visibleNotes = currentPlaybackData.filter(note => {
+                const timeUntilHit = note.timeMs - currentMs;
+                const isVisible = timeUntilHit > 0 && timeUntilHit <= approachDurationMsRef.current;
+                
+                if (isVisible) {
+                    const pad = MIDI_TO_PAD_MAP.get(note.midi);
+                    if (pad) {
+                        const progress = 1 - (timeUntilHit / approachDurationMsRef.current);
+                        const currentMax = padApproachingMaxProgress.get(pad.id) || 0;
+                        padApproachingMaxProgress.set(pad.id, Math.max(currentMax, progress));
+                    }
+                }
+                return isVisible;
+            });
 
+            DRUM_PADS.forEach(pad => {
                 const cx = centerX + (pad.x * dimensions.width - centerX) * layoutScale;
                 const cy = centerY + (pad.y * dimensions.height - centerY) * layoutScale;
 
-                let r = pad.radius * dimensions.height;
-
-                if (pad.id === "bass") r *= 1.4;
-            if (pad.id === "snare") r *= 1.2;
-            if (["high_tom", "low_tom", "floor_tom"].includes(pad.id)) r *= 1.2;
-            if (["crash", "ride"].includes(pad.id)) r *= 1.1;
-            if (pad.id === "hihat") r *= 0.9;
+                const r = 0.11 * dimensions.height; // Uniform size for all pads in Drum Typer
+                
+                const approachingProgress = padApproachingMaxProgress.get(pad.id) || 0;
+                const baseOpacity = drumTyperPadOpacity / 100;
+                const finalPadOpacity = Math.max(baseOpacity, approachingProgress);
 
                 let isUserActive = false;
                 let isPlaybackActive = false;
@@ -405,6 +427,9 @@ export const DrumView: React.FC<DrumViewProps> = ({
 
                 const isActive = isUserActive || isPlaybackActive;
 
+                ctx.save();
+                ctx.globalAlpha = finalPadOpacity;
+
                 ctx.beginPath();
                 ctx.arc(cx, cy, r, 0, Math.PI * 2);
                 
@@ -420,16 +445,11 @@ export const DrumView: React.FC<DrumViewProps> = ({
                 ctx.stroke();
 
                 if (drumInputMode === 'non-midi') {
-
                     const keys = PAD_TO_KEYS_MAP.get(pad.id);
-
                     if (keys) {
-
                         ctx.fillStyle = isActive ? '#ffffff' : '#22d3ee';
                         ctx.font = 'bold 12px "JetBrains Mono", monospace';
-
                         ctx.fillText(`[${keys.join('/')}]`, cx, cy + r + 26);
-
                     }
                 }
 
@@ -437,9 +457,10 @@ export const DrumView: React.FC<DrumViewProps> = ({
                     ctx.beginPath();
                     ctx.arc(cx, cy, r, 0, Math.PI * 2);
                     ctx.fillStyle = isUserActive ? themeSettings.hitNoteColor : 'rgba(255,255,255,0.25)';
-                    ctx.globalAlpha = isUserActive ? 0.4 : 1.0;
+                    ctx.save();
+                    ctx.globalAlpha = (isUserActive ? 0.4 : 1.0) * finalPadOpacity;
                     ctx.fill();
-                    ctx.globalAlpha = 1.0;
+                    ctx.restore();
                 }
 
                 drawIcon(pad.id, cx, cy, r);
@@ -448,16 +469,10 @@ export const DrumView: React.FC<DrumViewProps> = ({
                 ctx.font = 'bold 10px "Exo 2", sans-serif';
                 ctx.textAlign = 'center';
                 ctx.fillText(pad.name, cx, cy + r + 12);
-
+                
+                ctx.restore();
             });
 
-            const visibleNotes = currentPlaybackData.filter(note => {
-
-                const timeUntilHit = note.timeMs - currentMs;
-
-                return timeUntilHit > 0 && timeUntilHit <= approachDurationMsRef.current;
-
-            });
             visibleNotes.forEach(note => {
 
                 const pad = MIDI_TO_PAD_MAP.get(note.midi);
@@ -488,13 +503,8 @@ export const DrumView: React.FC<DrumViewProps> = ({
                         }
                     }
 
-                    let maxR = pad.radius * dimensions.height / zoomScale;
-
-                    if (pad.id === "bass") maxR *= 1.4;
-                    if (pad.id === "snare") maxR *= 1.2;
-                    if (["high_tom", "low_tom", "floor_tom"].includes(pad.id)) maxR *= 1.2;
-                    if (["crash", "ride"].includes(pad.id)) maxR *= 1.1;
-                    if (pad.id === "hihat") maxR *= 0.9;
+                    // Uniform size for all pads in Drum Typer
+                    const maxR = (0.11 * dimensions.height) / zoomScale;
 
                     let currentR: number;
 
@@ -525,13 +535,7 @@ export const DrumView: React.FC<DrumViewProps> = ({
                     const cx = centerX + (pad.x * dimensions.width - centerX) * layoutScale;
                     const cy = centerY + (pad.y * dimensions.height - centerY) * layoutScale;
 
-                    let maxR = pad.radius * dimensions.height;
-                    // Apply same size adjustments as playback notes
-                    if (pad.id === "bass") maxR *= 1.4;
-                    if (pad.id === "snare") maxR *= 1.2;
-                    if (["high_tom", "low_tom", "floor_tom"].includes(pad.id)) maxR *= 1.2;
-                    if (["crash", "ride"].includes(pad.id)) maxR *= 1.1;
-                    if (pad.id === "hihat") maxR *= 0.9;
+                    const maxR = 0.11 * dimensions.height; // Uniform size for all pads in Drum Typer
 
                     ctx.beginPath();
                     ctx.arc(cx, cy, maxR, 0, Math.PI * 2);

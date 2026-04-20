@@ -235,6 +235,14 @@ export const Disclaimer: React.FC<InfoPageProps> = ({ onBack }) => (
 export const HowToConnect: React.FC<InfoPageProps> = ({ onBack }) => (
   <InfoLayout title="How to Connect" onBack={onBack}>
     <section>
+      <h3 className="text-xl font-bold text-white mb-2">Browser Compatibility</h3>
+      <p className="mb-4 text-slate-300 italic">
+        <strong>Important:</strong> Web MIDI is NOT supported on iOS (iPhone/iPad) or Safari.
+        For the best experience, please use <strong>Google Chrome</strong> or <strong>Edge</strong> on Windows, Mac, or Android.
+      </p>
+    </section>
+
+    <section>
       <h3 className="text-xl font-bold text-white mb-2">1. MIDI Cable</h3>
       <p className="mb-4 text-slate-300">
         The most reliable way to connect your digital piano or keyboard is using a standard MIDI cable.

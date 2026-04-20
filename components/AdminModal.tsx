@@ -147,7 +147,6 @@ const handleRecalculatePlayerScores = useCallback(async () => {
                   continue;
               }
 
-              // Hitung total_notes jika tidak valid
               const totalNotes = (entry.perfect_count || 0) + (entry.great_count || 0) + (entry.good_count || 0) + (entry.miss_count || 0);
               const effectiveTotal = (entry.total_notes || 0) > 0 ? entry.total_notes : totalNotes;
 
@@ -155,9 +154,8 @@ const handleRecalculatePlayerScores = useCallback(async () => {
               const score = ((entry.perfect_count || 0) * 1.0) + ((entry.great_count || 0) * 0.3333333333) + ((entry.good_count || 0) * 0.1666666667);
               const accuracy = effectiveTotal > 0 ? (score / effectiveTotal) * 100 : 100;
 
-              // If Base PS is fixed (>= 100), we must include speed in gameplayPS.
-              // If Base PS scales (< 100), speed is already in Base PS, so we use 100 for speedEff.
-              const speedEff = basePS >= 100 ? ((entry.tempo_multiplier || 1) * 100) : 100;
+              // Match App.tsx: caps speedEff at 100. Since we don't have duration/wait data, we assume no waiting.
+              const speedEff = 100; 
               const gameplayPS = (accuracy + speedEff) / 2;
 
               let rank = "D";
@@ -184,7 +182,7 @@ const handleRecalculatePlayerScores = useCallback(async () => {
 
               const calculatedFinalScore = basePS * multiplier;
 
-              const newFinalScore = parseFloat(calculatedFinalScore.toFixed(2));
+              const newFinalScore = Math.round(calculatedFinalScore);
 
               if (isNaN(newFinalScore)) {
                   addLog(` -> Score ${entry.id.substring(0,8)}: SKIPPED (Calculated score is NaN)`);
