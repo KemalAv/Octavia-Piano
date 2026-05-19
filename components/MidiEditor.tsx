@@ -3,6 +3,7 @@ import { Midi } from '@tonejs/midi';
 import { PIANO_KEYS_CONFIG, DRUM_KEYS_CONFIG, DRUM_SOUND_MAP, DRUM_PRIMARY_MIDI_MAP } from '../constants';
 import { TempoEvent, TimeSignatureInfo } from '../types';
 import { guessKeySignature } from '../midiParser';
+import { preloadAudioUrl } from '../utils';
 
 // Constants for editing
 const TICKS_PER_QUARTER = 480;
@@ -81,6 +82,8 @@ interface MidiEditorProps {
     onOpenSettings?: () => void;
     instrumentMode: 'piano' | 'drum';
     zoomScale?: number;
+    userAudioSyncOffset?: number;
+    onUserAudioSyncOffsetChange?: (offset: number) => void;
 }
 
 const useHistory = <T,>(initialState: T) => {
@@ -147,9 +150,11 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
     onClose, 
     onOpenSettings, 
     instrumentMode, 
-    zoomScale = 1
+    zoomScale = 1,
+    userAudioSyncOffset = 0,
+    onUserAudioSyncOffsetChange
 }) => {
-    const userAudioSyncOffset = 0; // MIDI Editor always uses 0ms offset as requested
+    const midiAudioStartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const [editorState, setEditorState, undo, redo, canUndo, canRedo] = useHistory<EditorState>({
         notes: [],
@@ -453,6 +458,10 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
     const stopPlayback = useCallback(async () => {
         if (playbackRequestRef.current) cancelAnimationFrame(playbackRequestRef.current);
         playbackRequestRef.current = null;
+        if (midiAudioStartTimeoutRef.current) {
+            clearTimeout(midiAudioStartTimeoutRef.current);
+            midiAudioStartTimeoutRef.current = null;
+        }
         nextNoteToScheduleIndexRef.current = 0;
         activeAudioSources.current.forEach(({ source, gain }) => {
             try {
@@ -895,23 +904,42 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
             lastProcessedEditorStateRef.current = editorState;
         }
 
+        if (midiAudioStartTimeoutRef.current) {
+            clearTimeout(midiAudioStartTimeoutRef.current);
+            midiAudioStartTimeoutRef.current = null;
+        }
+
         if (backingTrackUrl && (backingType === 'mp3' || backingType === 'online')) {
-            const offsetSeconds = backingTrackOffset / 1000;
-            const midiStartSeconds = ticksToMs(cursorTick) / 1000;
-            
-            // User reported: YouTube in editor needs +200ms to feel normal
-            const internalEditorOffsetSec = backingType === 'online' ? (200 / 1000) : 0;
-            const audioStartTime = (midiStartSeconds + offsetSeconds) + (userAudioSyncOffset / 1000) + internalEditorOffsetSec;
+            const defaultOffsetMs = backingTrackOffset;
+            const userOffsetMs = userAudioSyncOffset;
+            const totalOffsetMs = defaultOffsetMs + userOffsetMs;
+            const midiStartMs = ticksToMs(cursorTick);
+
+            let audioStartTime = 0;
+            let startDelayMs = 0;
+
+            if (totalOffsetMs < 0) {
+                const absDelayMs = Math.abs(totalOffsetMs);
+                if (midiStartMs < absDelayMs) {
+                    audioStartTime = 0;
+                    startDelayMs = (absDelayMs - midiStartMs);
+                } else {
+                    audioStartTime = (midiStartMs - absDelayMs) / 1000;
+                    startDelayMs = 0;
+                }
+            } else {
+                audioStartTime = (midiStartMs + totalOffsetMs) / 1000;
+                startDelayMs = 0;
+            }
 
             if (backingType === 'mp3' && backingTrackRef.current) {
                 const audio = backingTrackRef.current;
                 await safePauseBackingTrack();
                 audio.volume = backingTrackVolume;
-                if (audioStartTime >= 0) {
+                if (startDelayMs === 0) {
                     if (audio.readyState >= 1) {
                         audio.currentTime = audioStartTime;
                     } else {
-                        // If not ready, we'll have to wait or just play from start
                         const onMetadata = () => {
                             audio.currentTime = audioStartTime;
                             audio.removeEventListener('loadedmetadata', onMetadata);
@@ -920,19 +948,20 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                     }
                     await safePlayBackingTrack();
                 } else {
-                    setTimeout(async () => {
+                    audio.currentTime = 0;
+                    midiAudioStartTimeoutRef.current = setTimeout(async () => {
                         if (isPlayingRef.current) {
                             audio.currentTime = 0;
                             await safePlayBackingTrack();
                         }
-                    }, -audioStartTime * 1000);
+                    }, startDelayMs / playbackSpeed);
                 }
             } else if (backingType === 'online' && youtubePlayerRef.current) {
                 const videoId = getYoutubeId(backingTrackUrl);
                 const isYoutube = !!videoId;
                 if (isYoutube) {
                     safePauseYoutube();
-                    if (audioStartTime >= 0) {
+                    if (startDelayMs === 0) {
                         if (typeof youtubePlayerRef.current.seekTo === 'function') {
                             try {
                                 youtubePlayerRef.current.seekTo(audioStartTime, true);
@@ -940,7 +969,10 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                         }
                         safePlayYoutube();
                     } else {
-                        setTimeout(() => {
+                        try {
+                            youtubePlayerRef.current.seekTo(0, true);
+                        } catch (e) {}
+                        midiAudioStartTimeoutRef.current = setTimeout(() => {
                             if (isPlayingRef.current) {
                                 if (typeof youtubePlayerRef.current.seekTo === 'function') {
                                     try {
@@ -949,7 +981,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                                 }
                                 safePlayYoutube();
                             }
-                        }, -audioStartTime * 1000);
+                        }, startDelayMs / playbackSpeed);
                     }
                 } else {
                     // Fallback for non-youtube online links (using audio element)
@@ -958,7 +990,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                         await safePauseBackingTrack();
                         audio.src = backingTrackUrl;
                         audio.volume = backingTrackVolume;
-                        if (audioStartTime >= 0) {
+                        if (startDelayMs === 0) {
                             if (audio.readyState >= 1) {
                                 audio.currentTime = audioStartTime;
                             } else {
@@ -970,12 +1002,13 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                             }
                             await safePlayBackingTrack();
                         } else {
-                            setTimeout(async () => {
+                            audio.currentTime = 0;
+                            midiAudioStartTimeoutRef.current = setTimeout(async () => {
                                 if (isPlayingRef.current) {
                                     audio.currentTime = 0;
                                     await safePlayBackingTrack();
                                 }
-                            }, -audioStartTime * 1000);
+                            }, startDelayMs / playbackSpeed);
                         }
                     }
                 }
@@ -1310,9 +1343,18 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
 
         const handleMouseUp = async (e: MouseEvent) => {
             if (isDraggingRulerRef.current && (backingTrackUrl || backingTrackRef.current)) {
-                const offsetSeconds = backingTrackOffset / 1000;
-                const midiStartSeconds = ticksToMs(cursorTick) / 1000;
-                const audioStartTime = Math.max(0, midiStartSeconds + offsetSeconds);
+                const defaultOffsetMs = backingTrackOffset;
+                const userOffsetMs = userAudioSyncOffset;
+                const totalOffsetMs = defaultOffsetMs + userOffsetMs;
+                const midiStartMs = ticksToMs(cursorTick);
+
+                let audioStartTime = 0;
+                if (totalOffsetMs < 0) {
+                    const absDelayMs = Math.abs(totalOffsetMs);
+                    audioStartTime = Math.max(0, midiStartMs - absDelayMs) / 1000;
+                } else {
+                    audioStartTime = (midiStartMs + totalOffsetMs) / 1000;
+                }
 
                 if (backingType === 'mp3' && backingTrackRef.current) {
                     backingTrackRef.current.currentTime = audioStartTime;
@@ -1451,10 +1493,18 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
         }
     };
 
-    const handleOnlineUrlSubmit = (url: string) => {
+    const handleOnlineUrlSubmit = async (url: string) => {
         if (url) {
             if (backingTrackUrl && backingTrackUrl.startsWith('blob:')) URL.revokeObjectURL(backingTrackUrl);
-            setBackingTrackUrl(url);
+            
+            const isYoutube = url.includes('youtube.com') || url.includes('youtu.be');
+            if (!isYoutube) {
+                // Preload direct links for better sync in editor
+                const preloadedUrl = await preloadAudioUrl(url);
+                setBackingTrackUrl(preloadedUrl);
+            } else {
+                setBackingTrackUrl(url);
+            }
             setBackingType('online');
         }
     };
@@ -2183,6 +2233,34 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
 
                                 <div>
                                     <div className="flex justify-between mb-2">
+                                         <div className="mt-4 pt-4 border-t border-slate-800">
+                                             <div className="flex justify-between mb-2">
+                                                 <label className="text-xs text-slate-400">USER MS (Audio Sync)</label>
+                                                 <span className="text-sm font-mono text-indigo-400 font-bold bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/15">
+                                                     {userAudioSyncOffset > 0 ? `+${userAudioSyncOffset}` : userAudioSyncOffset}ms
+                                                 </span>
+                                             </div>
+                                             {onUserAudioSyncOffsetChange && (
+                                                 <div className="space-y-2">
+                                                     <div className="flex gap-1">
+                                                         <button onClick={() => onUserAudioSyncOffsetChange(userAudioSyncOffset - 100)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] py-1 rounded border border-slate-700 transition-colors">-100ms</button>
+                                                         <button onClick={() => onUserAudioSyncOffsetChange(userAudioSyncOffset - 10)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] py-1 rounded border border-slate-700 transition-colors">-10ms</button>
+                                                         <button onClick={() => onUserAudioSyncOffsetChange(userAudioSyncOffset + 10)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] py-1 rounded border border-slate-700 transition-colors">+10ms</button>
+                                                         <button onClick={() => onUserAudioSyncOffsetChange(userAudioSyncOffset + 100)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] py-1 rounded border border-slate-700 transition-colors">+100ms</button>
+                                                     </div>
+                                                     <input
+                                                         type="range"
+                                                         min="-500"
+                                                         max="500"
+                                                         step="5"
+                                                         value={Math.max(-500, Math.min(500, userAudioSyncOffset))}
+                                                         onChange={(e) => onUserAudioSyncOffsetChange(parseInt(e.target.value, 10))}
+                                                         className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer"
+                                                     />
+                                                 </div>
+                                             )}
+                                         </div>
+
                                         <label className="text-xs text-slate-400">Playback Speed</label>
                                         <span className="text-cyan-400 font-mono text-xs">{playbackSpeed}x</span>
                                     </div>

@@ -481,3 +481,45 @@ export const getRankColorClass = (rank: string) => {
       default: return 'text-slate-400';
     }
 };
+
+/**
+ * Preloads an audio URL by fetching it and returning a Blob URL.
+ * This ensures the audio is fully loaded in memory before playback,
+ * preventing synchronization issues and stalling.
+ * Now supports YouTube links by using a proxy service to get the direct audio.
+ * Adds a 15-second timeout to prevent blocking the game startup indefinitely.
+ * @param url The original audio URL.
+ * @returns A promise that resolves to a Blob URL or the original URL if preloading fails.
+ */
+export const preloadAudioUrl = async (url: string): Promise<string> => {
+  if (!url || url.startsWith('blob:') || url.startsWith('data:')) return url;
+  
+  let targetUrl = url;
+
+  // Extract YouTube ID if it's a YouTube link
+  const youtubeMatch = url.match(/(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
+  if (youtubeMatch && youtubeMatch[1]) {
+    const videoId = youtubeMatch[1];
+    // Use a common proxy for YouTube to MP3 conversion
+    targetUrl = `https://vid.m.mirp.moe/${videoId}`;
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+
+    const response = await fetch(targetUrl, { signal: controller.signal });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    const blob = await response.blob();
+    return URL.createObjectURL(blob);
+  } catch (e: any) {
+    if (e.name === 'AbortError') {
+      console.warn(`Preloading timed out for ${targetUrl}, skipping...`);
+    } else {
+      console.warn(`Failed to preload audio from ${targetUrl}, falling back to original URL:`, e);
+    }
+    return url;
+  }
+};

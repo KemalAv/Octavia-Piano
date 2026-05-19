@@ -379,6 +379,8 @@ export const Settings: React.FC<SettingsProps> = (props) => {
             if (!pad.midiNotes.includes(note)) {
               pad.midiNotes = [...pad.midiNotes, note];
               newMapping[padIndex] = pad;
+              // Trigger auto-save to App state
+              setTimeout(() => onDrumMappingChange(newMapping), 0);
             }
           }
           return newMapping;
@@ -405,6 +407,8 @@ export const Settings: React.FC<SettingsProps> = (props) => {
         const pad = { ...newMapping[padIndex] };
         pad.midiNotes = pad.midiNotes.filter(n => n !== note);
         newMapping[padIndex] = pad;
+        // Trigger auto-save to App state
+        setTimeout(() => onDrumMappingChange(newMapping), 0);
       }
       return newMapping;
     });
@@ -416,7 +420,9 @@ export const Settings: React.FC<SettingsProps> = (props) => {
   };
 
   const handleResetDrumMapping = () => {
-    setLocalDrumMapping(DRUM_PADS);
+    const newMapping = DRUM_PADS;
+    setLocalDrumMapping(newMapping);
+    onDrumMappingChange(newMapping);
   };
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -947,12 +953,10 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                     >
                       Reset
                     </button>
-                    <button 
-                      onClick={handleSaveDrumMapping}
-                      className={`${commonButtonStyles} bg-cyan-600 hover:bg-cyan-500 text-white shadow-lg shadow-cyan-900/20`}
-                    >
-                      Save Mapping
-                    </button>
+                    {/* Visual indicator that it's auto-saved */}
+                    <div className="flex items-center px-4 bg-emerald-900/30 text-emerald-400 rounded ring-1 ring-emerald-500/50 text-[10px] font-bold uppercase tracking-wider">
+                       Auto-Saved
+                    </div>
                   </div>
                 </div>
                 

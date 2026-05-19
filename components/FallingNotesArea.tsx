@@ -1,5 +1,6 @@
 
-import React from 'react';
+import React, { useState } from 'react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import { MidiNotePlaybackItem, KeyPosition, ActiveMidiNoteInfo, NoteLabelType, QwertyLayout, FreePlayLiveNote } from '../types';
 import { PLAY_LINE_THICKNESS_PX, USER_PLAY_COLOR, VISUAL_NOTE_CAP_MS, QWERTY_MINI_KEYBOARD_MAPPING, MIRP_KEYBOARD_MAPPING, KEY_CODES_TO_DISPLAY } from '../constants';
 import { darkenHex, lightenHex, formatKeySignatureForDisplay, SHARP_KEYS, FLAT_KEYS, NEUTRAL_KEYS, ENHARMONIC_MAP_TO_SHARP, ENHARMONIC_MAP_TO_FLAT } from '../utils';
@@ -62,6 +63,7 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
   mirpTranspose = 0,
   lowDetailMode = false,
 }) => {
+  const [statsVisible, setStatsVisible] = useState(true);
 
   const alphaMultiplier = pianoTilesOpacity / 100;
 
@@ -332,7 +334,7 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
                 
                 let baseColorValue = note.hand === 'left' ? leftHandColor : rightHandColor;
                 if (keyPos.type === 'black') {
-                  baseColorValue = lightenHex(baseColorValue, 20);
+                  baseColorValue = darkenHex(baseColorValue, 25);
                 }
 
                 if (bottomPx > actualHeight + 50) {
@@ -427,7 +429,7 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
                 
                 let baseColorStandard = note.hand === 'left' ? leftHandColor : rightHandColor;
                 if (keyPos.type === 'black') {
-                  baseColorStandard = lightenHex(baseColorStandard, 20);
+                  baseColorStandard = darkenHex(baseColorStandard, 25);
                 }
 
                 let borderStyle: React.CSSProperties = {};
@@ -497,12 +499,42 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
       )}
 
       <div
-        className="absolute bottom-2 left-2 text-white px-3 py-2 rounded-lg text-sm font-mono tabular-nums shadow-lg space-y-1 border border-white/10"
-        style={{ background: 'rgba(15, 23, 42, 0.8)', backdropFilter: lowDetailMode ? 'none' : 'blur(4px)', zIndex: 20 }}
+        className="absolute bottom-2 left-2 text-white px-2 py-1.5 rounded-lg text-sm font-mono tabular-nums shadow-xl border border-white/10 flex flex-col gap-1 transition-all duration-300"
+        style={{ 
+          background: 'rgba(15, 23, 42, 0.85)', 
+          backdropFilter: lowDetailMode ? 'none' : 'blur(8px)', 
+          zIndex: 30,
+          minWidth: statsVisible ? '120px' : '36px'
+        }}
         aria-hidden="true"
       >
-        <div className="flex justify-between gap-4"><span>Key:</span> <span className="text-cyan-400 font-bold">{formatKeySignatureForDisplay(activeKeySignature)}</span></div>
-        <div className="flex justify-between gap-4"><span>BPM:</span> <span className="text-yellow-400 font-bold">{Math.round(activeTempoBpm)}</span></div>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setStatsVisible(!statsVisible);
+          }}
+          className="flex items-center justify-center hover:bg-white/10 rounded transition-colors self-end w-full"
+          title={statsVisible ? "Hide details" : "Show details"}
+        >
+          {statsVisible ? <ChevronDown size={14} className="opacity-70" /> : <ChevronUp size={14} className="opacity-70" />}
+        </button>
+        
+        {statsVisible && (
+          <div className="space-y-1 px-1 pb-1">
+            <div className="flex justify-between gap-4 border-b border-white/5 pb-1">
+              <span className="opacity-60 text-[10px] uppercase font-sans tracking-tight">Key</span>
+              <span className="text-cyan-400 font-bold drop-shadow-[0_0_8px_rgba(34,211,238,0.4)]">
+                {formatKeySignatureForDisplay(activeKeySignature)}
+              </span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span className="opacity-60 text-[10px] uppercase font-sans tracking-tight">BPM</span>
+              <span className="text-yellow-400 font-bold drop-shadow-[0_0_8px_rgba(250,204,21,0.4)]">
+                {Math.round(activeTempoBpm)}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       <div
