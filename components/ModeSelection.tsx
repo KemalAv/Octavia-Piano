@@ -394,7 +394,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
                                     min="-500"
                                     max="500"
                                     step="5"
-                                    value={userAudioSyncOffset}
+                                    value={Math.max(-500, Math.min(500, userAudioSyncOffset))}
                                     onChange={(e) => onUserAudioSyncOffsetChange(parseInt(e.target.value, 10))}
                                     className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer"
                                 />

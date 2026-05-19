@@ -307,7 +307,7 @@ const ScrollingSheetNote: React.FC<{
                 <g transform={`translate(${xShift}, 0)`}>
                     {glow && !lowDetailMode && <ellipse cx={NOTE_HEAD_WIDTH / 2} cy={noteheadY} rx={NOTE_HEAD_WIDTH} ry={NOTE_HEAD_WIDTH * 0.8} fill={color} filter="url(#glow)" />}
                     {LedgerLines}
-                    {noteAccidental && <text x={ACCIDENTAL_OFFSET_X} y={noteheadY + ACCIDENTAL_FONT_SIZE / 3} fontSize={ACCIDENTAL_FONT_SIZE} fill="#000" fontWeight="bold">{noteAccidental}</text>}
+                    {noteAccidental && <text x={ACCIDENTAL_OFFSET_X} y={noteheadY} fontSize={ACCIDENTAL_FONT_SIZE} fill="#000" fontWeight="bold" dominantBaseline="central">{noteAccidental}</text>}
                     {isXNoteHead ? (
                         <g transform={`translate(${NOTE_HEAD_WIDTH/2 - 4}, ${noteheadY - 4})`}>
                             <line x1="0" y1="0" x2="8" y2="8" stroke={noteFillColor} strokeWidth="2" />

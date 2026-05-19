@@ -70,6 +70,7 @@ import {
   DRUM_KEYBOARD_MAP,
   DRUM_PADS,
   DRUM_MIDI_TO_NAME_MAP,
+  DRUM_PRIMARY_MIDI_MAP,
 } from "./constants";
 
 import PianoKeyboard from "./components/PianoKeyboard";
@@ -99,6 +100,7 @@ import {
   getBeatTimesInWindow,
   frequencyToMidi,
   midiToFrequency,
+  preloadAudioUrl,
 } from "./utils";
 import { AuthProvider, useAuth } from "./AuthContext";
 import { supabase } from "./supabaseClient";
@@ -354,6 +356,9 @@ const AppContent: React.FC = () => {
     setSelectedOnlineSongIdForNavigation,
   ] = useState<string | null>(null);
 
+  const [isRewinding, setIsRewinding] = useState(false);
+  const isRewindingRef = useRef(false);
+
   const [isSustainPedalActive, setIsSustainPedalActive] = useState(false);
   const [isHiHatFootPressed, setIsHiHatFootPressed] = useState(false);
   const isHiHatFootPressedRef = useRef(false);
@@ -432,8 +437,38 @@ const AppContent: React.FC = () => {
     };
 
     updateZoom();
+
+    // Staggered timeouts to ensure calculation is updated as layout stabilizes
+    const t1 = setTimeout(updateZoom, 100);
+    const t2 = setTimeout(updateZoom, 300);
+    const t3 = setTimeout(updateZoom, 500);
+    const t4 = setTimeout(updateZoom, 1000);
+    const t5 = setTimeout(updateZoom, 2000);
+
+    // ResizeObserver ensures updates when element size changes (e.g. iframe scaling)
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      resizeObserver = new ResizeObserver(() => {
+        updateZoom();
+      });
+      resizeObserver.observe(document.documentElement);
+    }
+
     window.addEventListener("resize", updateZoom);
-    return () => window.removeEventListener("resize", updateZoom);
+    window.addEventListener("load", updateZoom);
+
+    return () => {
+      window.removeEventListener("resize", updateZoom);
+      window.removeEventListener("load", updateZoom);
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      clearTimeout(t4);
+      clearTimeout(t5);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+    };
   }, [uiZoomAuto]);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -452,10 +487,139 @@ const AppContent: React.FC = () => {
   const [isBackingTrackOverlayDismissed, setIsBackingTrackOverlayDismissed] = useState(false);
 
   const getAudioStartTime = (baseTimeSec: number, backingType: string | undefined, offsetMs: number = 0) => {
-    const offsetSeconds = offsetMs / 1000;
-    const internalEditorOffsetSec = (backingType === "youtube" || backingType === "link") ? 0.2 : 0;
-    return baseTimeSec + offsetSeconds + (userAudioSyncOffsetRef.current / 1000) + internalEditorOffsetSec;
+    const hiddenOffsetMs = -INITIAL_PLAYBACK_DELAY_MS;
+    const userOffsetMs = userAudioSyncOffsetRef.current;
+    const defaultOffsetMs = offsetMs;
+
+    const totalOffsetMs = hiddenOffsetMs + defaultOffsetMs + userOffsetMs;
+    const clMs = baseTimeSec * 1000;
+
+    if (totalOffsetMs < 0) {
+      const absDelayMs = Math.abs(totalOffsetMs);
+      if (clMs < absDelayMs) {
+        return 0;
+      } else {
+        return (clMs - absDelayMs) / 1000;
+      }
+    } else {
+      return (clMs + totalOffsetMs) / 1000;
+    }
   };
+
+  const triggerBackingTrackPlay = useCallback((clMs: number) => {
+    const backing = gameSettingsRef.current?.backingTrack;
+    if (!backing || backing.type === "none") {
+      setBackingTrackStatus("playing");
+      hasAudioStartedThisStretchRef.current = true;
+      return;
+    }
+
+    const defaultOffset = backing.offsetMs || 0;
+    const userMs = userAudioSyncOffsetRef.current;
+    
+    // totalOffsetMs defines where 0s of audio is relative to clMs=0.
+    // Since notes have a +2000ms offset (INITIAL_PLAYBACK_DELAY_MS),
+    // an audio track with 0 offset should start when clMs reaches 2000ms.
+    const TOTAL_START_DELAY_MS = INITIAL_PLAYBACK_DELAY_MS; // 2000
+    const totalOffsetMs = -TOTAL_START_DELAY_MS + defaultOffset + userMs;
+    const currentMultiplier = Math.max(0.1, playbackTempoMultiplierRef.current);
+
+    const playDirect = (startPlayheadSec: number) => {
+      // Clear any pending timeout just in case (though we're moving away from it)
+      if (audioStartTimeoutRef.current) {
+        clearTimeout(audioStartTimeoutRef.current);
+        audioStartTimeoutRef.current = null;
+      }
+
+      hasAudioStartedThisStretchRef.current = true;
+      if ((backing.type === "mp3" || backing.type === "link") && audioRef.current) {
+        const audio = audioRef.current;
+        audio.volume = mp3VolumeRef.current;
+        audio.playbackRate = currentMultiplier;
+
+        const setTimeAndPlay = () => {
+          // Re-calculate the start playhead based on the latest estimated musical time
+          // to account for any delay in loading metadata or browser scheduling.
+          const currentRealTime = performance.now();
+          const realTimeElapsed = currentRealTime - performanceStartTimeRef.current;
+          const latestClMs = pausedMusicalTimeRef.current + realTimeElapsed * currentMultiplier;
+          
+          const TOTAL_START_DELAY_MS = INITIAL_PLAYBACK_DELAY_MS;
+          const dynamicTotalOffsetMs = -TOTAL_START_DELAY_MS + (gameSettingsRef.current?.backingTrack?.offsetMs || 0) + userAudioSyncOffsetRef.current;
+          
+          let dynamicStartPlayheadSec = 0;
+          if (dynamicTotalOffsetMs < 0) {
+            dynamicStartPlayheadSec = Math.max(0, latestClMs - Math.abs(dynamicTotalOffsetMs)) / 1000;
+          } else {
+            dynamicStartPlayheadSec = (latestClMs + dynamicTotalOffsetMs) / 1000;
+          }
+
+          audio.currentTime = Math.max(0, dynamicStartPlayheadSec);
+          audio.play().then(() => setBackingTrackStatus("playing")).catch((e) => {
+            console.error("Audio trigger play error:", e.name, e.message);
+            if (e.name !== 'AbortError') setBackingTrackStatus("error");
+          });
+        };
+
+        if (audio.readyState >= 2) { // HAVE_CURRENT_DATA or better
+          setTimeAndPlay();
+        } else {
+          const onCanPlay = () => {
+            setTimeAndPlay();
+            audio.removeEventListener('canplay', onCanPlay);
+          };
+          audio.addEventListener('canplay', onCanPlay);
+        }
+      } else if (backing.type === "youtube" && youtubePlayerRef.current) {
+        try {
+          if (typeof youtubePlayerRef.current.setVolume === "function") {
+            youtubePlayerRef.current.setVolume(mp3VolumeRef.current * 100);
+          }
+          if (typeof youtubePlayerRef.current.setPlaybackRate === "function") {
+            youtubePlayerRef.current.setPlaybackRate(currentMultiplier);
+          }
+          youtubePlayerRef.current.seekTo(Math.max(0, startPlayheadSec), true);
+          safePlayYoutube(true);
+          setBackingTrackStatus("playing");
+        } catch (e) {
+          console.error("YouTube trigger play error:", e);
+          setBackingTrackStatus("error");
+        }
+      }
+    };
+
+    if (totalOffsetMs < 0) {
+      const absDelayMs = Math.abs(totalOffsetMs);
+      if (clMs < absDelayMs) {
+        // High-precision approach: don't set a timeout.
+        // Let the playbackLoop call us every frame until clMs >= absDelayMs.
+        // This ensures audio starts exactly when the visual head reaches it.
+        setBackingTrackStatus("loading");
+        
+        // Reset player to start while waiting
+        if ((backing.type === "mp3" || backing.type === "link") && audioRef.current) {
+          if (audioRef.current.currentTime !== 0) audioRef.current.currentTime = 0;
+          if (!audioRef.current.paused) audioRef.current.pause();
+        } else if (backing.type === "youtube" && youtubePlayerRef.current) {
+          try {
+            // Only seek if not already at 0 to avoid constant API calls
+            if (youtubePlayerRef.current.getCurrentTime() > 0.1) youtubePlayerRef.current.seekTo(0, true);
+            safePauseYoutube();
+          } catch(e) {}
+        }
+        
+        // Don't set hasAudioStartedThisStretchRef = true here so we stay in the check-loop
+        return;
+      } else {
+        const startPlayheadSec = (clMs - absDelayMs) / 1000;
+        playDirect(startPlayheadSec);
+      }
+    } else {
+      const startPlayheadSec = (clMs + totalOffsetMs) / 1000;
+      playDirect(startPlayheadSec);
+    }
+  }, []); 
+
   const [backingTrackStatus, setBackingTrackStatus] = useState<"idle" | "loading" | "playing" | "stalled" | "error">("idle");
   const audioStartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -700,6 +864,21 @@ const AppContent: React.FC = () => {
   const totalSessionOffsetSumRef = useRef<number>(0);
   const totalSessionHitCountForOffsetRef = useRef<number>(0);
   const [viewMode, setViewMode] = useState<ViewMode>(DEFAULT_VIEW_MODE);
+  
+  // Sync falling notes color with view mode automatically
+  useEffect(() => {
+    const isSheetMode = viewMode === "sheet" || viewMode === "sheet-roll" || viewMode === "sheet-qwerty";
+    const targetColor = isSheetMode ? "#F0F6FF" : "#1C2636";
+    
+    setThemeSettings(prev => {
+      if (prev.fallingNotesBackgroundColor === targetColor) return prev;
+      return {
+        ...prev,
+        fallingNotesBackgroundColor: targetColor
+      };
+    });
+  }, [viewMode]);
+
   const [lastPianoViewMode, setLastPianoViewMode] = useState<ViewMode>(DEFAULT_VIEW_MODE);
   const [lastDrumViewMode, setLastDrumViewMode] = useState<ViewMode>("drum_mania");
 
@@ -1063,8 +1242,8 @@ const AppContent: React.FC = () => {
   const [zoomDirection, setZoomDirection] = useState<"normal" | "reverse">(
     DEFAULT_ZOOM_DIRECTION,
   );
-  const [drumTyperPadOpacity, setDrumTyperPadOpacity] = useState<number>(100);
-  const [antiDoubleTriggerEnabled, setAntiDoubleTriggerEnabled] = useState(false);
+  const [drumTyperPadOpacity, setDrumTyperPadOpacity] = useState<number>(25);
+  const [antiDoubleTriggerEnabled, setAntiDoubleTriggerEnabled] = useState(true);
   const [antiDoubleTriggerInterval, setAntiDoubleTriggerInterval] = useState(40);
   const [drumMapping, setDrumMapping] = useState<DrumPadConfig[]>(DRUM_PADS);
   const lastTriggerTimeRef = useRef<Map<number, number>>(new Map());
@@ -1117,6 +1296,7 @@ const AppContent: React.FC = () => {
         if (s.noteOffsetMs !== undefined) setNoteOffsetMs(s.noteOffsetMs);
         if (s.zoomDirection !== undefined) setZoomDirection(s.zoomDirection);
         if (s.drumTyperPadOpacity !== undefined) setDrumTyperPadOpacity(s.drumTyperPadOpacity);
+        if (s.drumInputMode !== undefined) setDrumInputMode(s.drumInputMode);
         if (s.antiDoubleTriggerEnabled !== undefined) setAntiDoubleTriggerEnabled(s.antiDoubleTriggerEnabled);
         if (s.antiDoubleTriggerInterval !== undefined) setAntiDoubleTriggerInterval(s.antiDoubleTriggerInterval);
         if (s.drumMapping !== undefined) setDrumMapping(s.drumMapping);
@@ -1157,6 +1337,7 @@ const AppContent: React.FC = () => {
       noteOffsetMs,
       zoomDirection,
       drumTyperPadOpacity,
+      drumInputMode,
       antiDoubleTriggerEnabled,
       antiDoubleTriggerInterval,
       drumMapping,
@@ -1190,6 +1371,8 @@ const AppContent: React.FC = () => {
     micThresholds,
     noteOffsetMs,
     zoomDirection,
+    drumTyperPadOpacity,
+    drumInputMode,
     antiDoubleTriggerEnabled,
     antiDoubleTriggerInterval,
     drumMapping,
@@ -1228,8 +1411,8 @@ const AppContent: React.FC = () => {
     });
     setNoteOffsetMs(0);
     setZoomDirection(DEFAULT_ZOOM_DIRECTION);
-    setDrumTyperPadOpacity(100);
-    setAntiDoubleTriggerEnabled(false);
+    setDrumTyperPadOpacity(25);
+    setAntiDoubleTriggerEnabled(true);
     setAntiDoubleTriggerInterval(40);
     setDrumMapping(DRUM_PADS);
     setUserAverageOffset(0);
@@ -1639,15 +1822,7 @@ const AppContent: React.FC = () => {
           if (isPlayingRef.current) {
             const backing = gameSettingsRef.current?.backingTrack;
             if (backing && backing.type === "youtube") {
-              const baseTimeSec = (currentTimeRef.current - INITIAL_PLAYBACK_DELAY_MS) / 1000;
-              const audioStartTime = getAudioStartTime(baseTimeSec, backing.type, backing.offsetMs || 0);
-              
-              if (audioStartTime >= 0) {
-                event.target.seekTo(audioStartTime, true);
-                safePlayYoutube();
-              } else {
-                event.target.seekTo(0, true);
-              }
+              triggerBackingTrackPlay(currentTimeRef.current);
             }
           }
         },
@@ -2039,56 +2214,8 @@ const AppContent: React.FC = () => {
       audioContextRef.current.resume().catch(() => {});
     }
     // Properly seek and resume backing track audio at the correct position
-    const backing = gameSettingsRef.current?.backingTrack;
-    if (backing && backing.type !== "none") {
-      const baseTimeSec = (completedBlockTimeMusical - INITIAL_PLAYBACK_DELAY_MS) / 1000;
-      const audioStartTime = getAudioStartTime(baseTimeSec, backing.type, backing.offsetMs || 0);
-
-      if (audioStartTimeoutRef.current) {
-        clearTimeout(audioStartTimeoutRef.current);
-        audioStartTimeoutRef.current = null;
-      }
-
-      if (
-        (backing.type === "mp3" || backing.type === "link") &&
-        audioRef.current
-      ) {
-        if (audioStartTime >= 0) {
-          audioRef.current.playbackRate = playbackTempoMultiplier;
-          const setTimeAndPlay = () => {
-             if (audioRef.current) audioRef.current.currentTime = audioStartTime;
-             if (isPlayingRef.current && !isWaitStateRef.current) safePlayAudio(true);
-          };
-          if (audioRef.current.readyState >= 1) {
-            setTimeAndPlay();
-          } else {
-            const onMetadata = () => {
-                setTimeAndPlay();
-                audioRef.current?.removeEventListener('loadedmetadata', onMetadata);
-            };
-            audioRef.current.addEventListener('loadedmetadata', onMetadata);
-          }
-        } else {
-          // Will be handled by playbackLoop sync
-          audioRef.current.currentTime = 0;
-          audioRef.current.pause();
-        }
-      } else if (backing.type === "youtube" && youtubePlayerRef.current) {
-        if (audioStartTime >= 0) {
-          try {
-            youtubePlayerRef.current.setPlaybackRate(playbackTempoMultiplier);
-          } catch (e) {}
-          youtubePlayerRef.current.seekTo(audioStartTime, true);
-          if (isPlayingRef.current && !isWaitStateRef.current) {
-            safePlayYoutube(true);
-          }
-        } else {
-          // Will be handled by playbackLoop sync
-          youtubePlayerRef.current.seekTo(0, true);
-          youtubePlayerRef.current.pauseVideo();
-        }
-      }
-    }
+    const currentWait = accumulatedWaitTimeRef.current;
+    triggerBackingTrackPlay(completedBlockTimeMusical);
   }, [
     updateNotesCurrentlyWaitingFor,
     playbackTempoMultiplier,
@@ -2103,7 +2230,7 @@ const AppContent: React.FC = () => {
   }, [gameSettings]);
 
   const handleStopPlayback = useCallback(
-    async (exitFreePlay: boolean = true) => {
+    async (exitFreePlay: boolean = true, shouldRewind: boolean = true) => {
       if (playtimeStartRef.current !== null) {
         sessionPlaytimeMs.current +=
           performance.now() - playtimeStartRef.current;
@@ -2130,6 +2257,29 @@ const AppContent: React.FC = () => {
       if (exitFreePlay) {
         setIsFreePlayMode(false); // Explicitly set to false here
         isFreePlayModeRef.current = false;
+      }
+
+      // If we should rewind, trigger rewind instead of instant reset
+      if (shouldRewind) {
+        setIsRewinding(true);
+        isRewindingRef.current = true;
+        
+        // Stop audio immediately even if we are rewinding visually
+        if (audioRef.current) {
+          await safePauseAudio();
+          audioRef.current.currentTime = 0;
+        }
+        if (youtubePlayerRef.current) {
+          await safePauseYoutube();
+          try {
+            youtubePlayerRef.current.seekTo(0, true);
+          } catch (e) {}
+        }
+        if (audioStartTimeoutRef.current) {
+          clearTimeout(audioStartTimeoutRef.current);
+          audioStartTimeoutRef.current = null;
+        }
+        return; // Exit early, the rewind logic will handle the rest
       }
 
       setFreePlayLiveNotes([]); // Reset Free Play notes
@@ -2183,6 +2333,7 @@ const AppContent: React.FC = () => {
       setMaxCombo(0);
       setLastJudgment(null);
       setLiveAccuracy(100);
+      setLiveAccuracyRef(100);
       setLiveSpeed(100);
       gameRealStartTimeRef.current = null;
       setTotalWaitTimeMs(0);
@@ -2215,6 +2366,52 @@ const AppContent: React.FC = () => {
       safePauseAudio,
     ],
   );
+
+  /**
+   * Effect to handle the visual rewind animation
+   * Triggered when handleStopPlayback sets isRewinding to true
+   */
+  useEffect(() => {
+    if (!isRewinding) return;
+
+    const startValue = currentTimeRef.current;
+    
+    // Target is behind 0 to create an "overshoot" effect
+    const overshootAmount = 1500; 
+    const targetValue = -overshootAmount;
+
+    // Proportional duration: faster for short distances, but with a minimum for the overshoot
+    const distance = Math.abs(startValue - targetValue);
+    const duration = Math.min(800, Math.max(400, distance / 15));
+    const startTime = performance.now();
+    let rafId: number;
+
+    const animateRewind = (now: number) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(1, elapsed / duration);
+
+      // Quadratic easing for a "fling" that slows down at the very end
+      const easedProgress = progress * (2 - progress);
+
+      const current = startValue + (targetValue - startValue) * easedProgress;
+
+      currentTimeRef.current = current;
+      setMusicalCurrentTimeMs(current);
+      setFreePlayElapsedTime(current); 
+
+      if (progress < 1) {
+        rafId = requestAnimationFrame(animateRewind);
+      } else {
+        setIsRewinding(false);
+        isRewindingRef.current = false;
+        // Final full reset to 0 once overshoot animation is complete
+        handleStopPlayback(false, false);
+      }
+    };
+
+    rafId = requestAnimationFrame(animateRewind);
+    return () => cancelAnimationFrame(rafId);
+  }, [isRewinding, handleStopPlayback]);
 
   const handleCloseGameOverModal = useCallback(() => {
     setIsGameOver(false);
@@ -2399,14 +2596,19 @@ const AppContent: React.FC = () => {
 
   const handleSeek = useCallback(
     async (t: number, skipPause: boolean = false) => {
+      setIsRewinding(false);
+      isRewindingRef.current = false;
+
       // User request: No automatic pause when seeking
       // if (isPlayingRef.current && !skipPause) {
       //   handlePause();
       // }
 
+      let targetTime = t;
+
       const currentPlaybackTempoMultiplier = playbackTempoMultiplierRef.current;
       if (waitMode === "retical") return;
-      const cl = Math.max(0, Math.min(t, totalDurationWithEndDelayMs));
+      const cl = Math.max(0, Math.min(targetTime, totalDurationWithEndDelayMs));
       const timeBeforeSeek = currentTimeRef.current;
       clearScheduledNotes();
       clearScheduledMetronomeSounds();
@@ -2528,70 +2730,26 @@ const AppContent: React.FC = () => {
       loopDelayStartTimeRef.current = null;
       const backing = gameSettingsRef.current?.backingTrack;
       if (backing && backing.type !== "none") {
-        const baseTimeSec = (cl - INITIAL_PLAYBACK_DELAY_MS) / 1000;
-        const audioStartTime = getAudioStartTime(baseTimeSec, backing.type, backing.offsetMs || 0);
-        
-        if (audioStartTimeoutRef.current) {
-            clearTimeout(audioStartTimeoutRef.current);
-            audioStartTimeoutRef.current = null;
-        }
-
         if (isPlayingRef.current) {
-          if (audioStartTime >= 0) {
-              if ((backing.type === "mp3" || backing.type === "link") && audioRef.current) {
-                  const audio = audioRef.current;
-                  audio.playbackRate = currentPlaybackTempoMultiplier;
-                  const setTimeAndPlay = () => {
-                     audio.currentTime = audioStartTime;
-                     audio.play().then(() => setBackingTrackStatus("playing")).catch(() => {});
-                  };
-                  if (audio.readyState >= 1) {
-                    setTimeAndPlay();
-                  } else {
-                    const onMetadata = () => {
-                        setTimeAndPlay();
-                        audio.removeEventListener('loadedmetadata', onMetadata);
-                    };
-                    audio.addEventListener('loadedmetadata', onMetadata);
-                  }
-              } else if (backing.type === "youtube" && youtubePlayerRef.current) {
-                  try { youtubePlayerRef.current.setPlaybackRate(currentPlaybackTempoMultiplier); } catch(e) {}
-                  youtubePlayerRef.current.seekTo(audioStartTime, true);
-                  safePlayYoutube();
-                  setBackingTrackStatus("playing");
-              }
-          } else {
-              // Lead-in: Wait
-              if ((backing.type === "mp3" || backing.type === "link") && audioRef.current) {
-                  audioRef.current.currentTime = 0;
-                  safePauseAudio();
-                  audioStartTimeoutRef.current = setTimeout(() => {
-                      if (isPlayingRef.current && audioRef.current) {
-                          audioRef.current.currentTime = 0;
-                          audioRef.current.play().then(() => setBackingTrackStatus("playing")).catch(() => {});
-                      }
-                  }, -audioStartTime * 1000 / currentPlaybackTempoMultiplier);
-              } else if (backing.type === "youtube" && youtubePlayerRef.current) {
-                  youtubePlayerRef.current.seekTo(0, true);
-                  safePauseYoutube();
-                  audioStartTimeoutRef.current = setTimeout(() => {
-                      if (isPlayingRef.current && youtubePlayerRef.current) {
-                          youtubePlayerRef.current.seekTo(0, true);
-                          safePlayYoutube();
-                          setBackingTrackStatus("playing");
-                      }
-                  }, -audioStartTime * 1000 / currentPlaybackTempoMultiplier);
-              }
-          }
+          triggerBackingTrackPlay(cl);
         } else {
           // Paused seeking
-          const clampedTime = Math.max(0, audioStartTime);
+          const defaultOffset = backing.offsetMs || 0;
+          const userMs = userAudioSyncOffsetRef.current;
+          const totalOffsetMs = -INITIAL_PLAYBACK_DELAY_MS + defaultOffset + userMs;
+          let clampedTime = 0;
+          if (totalOffsetMs < 0) {
+            const absDelayMs = Math.abs(totalOffsetMs);
+            clampedTime = Math.max(0, cl - absDelayMs) / 1000;
+          } else {
+            clampedTime = (cl + totalOffsetMs) / 1000;
+          }
           if ((backing.type === "mp3" || backing.type === "link") && audioRef.current) {
               if (audioRef.current.readyState >= 1) {
                   audioRef.current.currentTime = clampedTime;
               }
           } else if (backing.type === "youtube" && youtubePlayerRef.current) {
-              youtubePlayerRef.current.seekTo(clampedTime, true);
+              try { youtubePlayerRef.current.seekTo(clampedTime, true); } catch(e) {}
           }
         }
       }
@@ -2656,13 +2814,21 @@ const AppContent: React.FC = () => {
         let targetBarIndex;
         if (dir === "forward") {
           targetBarIndex = nextIdx !== -1 ? nextIdx : barLines.length - 1;
+          targetTime = barLines[targetBarIndex];
         } else {
           const hexIdx = nextIdx !== -1 ? nextIdx - 1 : barLines.length - 1;
-          if (hexIdx < 0) return;
-          targetBarIndex =
-            cur - barLines[hexIdx] < 100 ? Math.max(0, hexIdx - 1) : hexIdx;
+          if (hexIdx < 0) {
+            targetTime = 0;
+          } else {
+            targetBarIndex =
+              cur - barLines[hexIdx] < 100 ? Math.max(0, hexIdx - 1) : hexIdx;
+            if (hexIdx === 0 && cur - barLines[0] < 100) {
+              targetTime = 0;
+            } else {
+              targetTime = barLines[targetBarIndex];
+            }
+          }
         }
-        targetTime = barLines[targetBarIndex];
       } else {
         if (allBeatTimesRef.current.length === 0) return;
         const scaledCurrentTime = cur / playbackTempoMultiplier;
@@ -2697,9 +2863,14 @@ const AppContent: React.FC = () => {
       const backing = gameSettingsRef.current?.backingTrack;
       const isNoneBacking = !backing || backing.type === "none";
 
-      if (isNoneBacking && isPlayingRef.current && !hasAudioStartedThisStretchRef.current) {
-        hasAudioStartedThisStretchRef.current = true;
-        if (backingTrackStatus !== "playing") setBackingTrackStatus("playing");
+      if (isPlayingRef.current && !hasAudioStartedThisStretchRef.current) {
+        if (isNoneBacking) {
+           hasAudioStartedThisStretchRef.current = true;
+           if (backingTrackStatus !== "playing") setBackingTrackStatus("playing");
+        } else if (backing && !isWaitStateRef.current) {
+           const currentEstTime = pausedMusicalTimeRef.current + (performance.now() - performanceStartTimeRef.current) * currentPlaybackTempoMultiplier;
+           triggerBackingTrackPlay(currentEstTime);
+        }
       }
       
       const canWait =
@@ -2735,23 +2906,7 @@ const AppContent: React.FC = () => {
           pausedMusicalTimeRef.current = loopStartMsRef.current!;
           
           if (!isNoneBacking && backing) {
-            const baseTimeSec = (loopStartMsRef.current! - INITIAL_PLAYBACK_DELAY_MS) / 1000;
-            const audioStartTime = getAudioStartTime(baseTimeSec, backing.type, backing.offsetMs || 0);
-
-            if (audioStartTime >= 0) {
-              if ((backing.type === "mp3" || backing.type === "link") && audioRef.current) {
-                const audio = audioRef.current;
-                if (audio.readyState >= 1) {
-                  audio.currentTime = audioStartTime;
-                }
-                safePlayAudio();
-              } else if (backing.type === "youtube" && youtubePlayerRef.current) {
-                try {
-                  youtubePlayerRef.current.seekTo(audioStartTime, true);
-                  safePlayYoutube();
-                } catch (e) {}
-              }
-            }
+            triggerBackingTrackPlay(loopStartMsRef.current!);
           }
         }
       }
@@ -2780,6 +2935,47 @@ const AppContent: React.FC = () => {
         return;
       }
       
+      // Unified Backing Track Sync Check (Periodic Auto-Sync)
+      // Be more resilient: For MP3/Link, sync as long as it's not paused, even if the status is still 'loading'
+      const isAudioActuallyPlaying = (backing?.type === "mp3" || backing?.type === "link") 
+        ? (audioRef.current && !audioRef.current.paused)
+        : (backingTrackStatus === "playing");
+
+      if (isPlayingRef.current && !isInWaitState && backing && backing.type !== "none" && isAudioActuallyPlaying) {
+        let audioCurrentTimeSec = -1;
+        if ((backing.type === "mp3" || backing.type === "link") && audioRef.current) {
+          audioCurrentTimeSec = audioRef.current.currentTime;
+        } else if (backing.type === "youtube" && youtubePlayerRef.current) {
+          if (typeof youtubePlayerRef.current.getCurrentTime === "function") {
+            audioCurrentTimeSec = youtubePlayerRef.current.getCurrentTime();
+          }
+        }
+
+        if (audioCurrentTimeSec >= 0) {
+          const defaultOffset = backing.offsetMs || 0;
+          const userMs = userAudioSyncOffsetRef.current;
+          const totalOffsetMs = -INITIAL_PLAYBACK_DELAY_MS + defaultOffset + userMs;
+          
+          let expectedAudioTimeSec = 0;
+          if (totalOffsetMs < 0) {
+            expectedAudioTimeSec = Math.max(0, conceptualMusicalTime - Math.abs(totalOffsetMs)) / 1000;
+          } else {
+            expectedAudioTimeSec = (conceptualMusicalTime + totalOffsetMs) / 1000;
+          }
+
+          const driftSec = Math.abs(audioCurrentTimeSec - expectedAudioTimeSec);
+          // Apply auto-sync if drift exceeds 150ms (shorter threshold for better rhythm feel)
+          // Also force-sync if the audio is at 0 but we expect it to be much further along (typical startup glitch)
+          if (driftSec > 0.15 || (audioCurrentTimeSec < 0.1 && expectedAudioTimeSec > 0.5)) {
+            if ((backing.type === "mp3" || backing.type === "link") && audioRef.current) {
+               audioRef.current.currentTime = expectedAudioTimeSec;
+            } else if (backing.type === "youtube" && youtubePlayerRef.current) {
+               try { youtubePlayerRef.current.seekTo(expectedAudioTimeSec, true); } catch(e) {}
+            }
+          }
+        }
+      }
+
       // removed backing track sync logic and wait mode handle
 
       let actualMusicalTimeForGameLogic: number;
@@ -3442,14 +3638,42 @@ const AppContent: React.FC = () => {
     freePlayRequestRef.current = requestAnimationFrame(freePlayLoop);
   }, [freePlayBpm, freePlayMetronomeMode, freePlayTimeSignature]);
 
-  const handleStartGame = (settings: GameSettings) => {
+  const handleStartGame = async (settings: GameSettings) => {
     setIsFreePlayMode(false); // Explicitly set to false when starting a regular game
     setRenderedLayoutId(0);
-    const finalSettings = {
+
+    let finalSettings = {
       ...settings,
       zoomDirection,
       drumTyperPadOpacity,
     };
+
+    // Preload backing track if it's an online link or YouTube to ensure smooth playback
+    if (finalSettings.backingTrack?.url && 
+        (finalSettings.backingTrack.type === 'link' || finalSettings.backingTrack.type === 'mp3' || finalSettings.backingTrack.type === 'youtube')) {
+      const originalUrl = finalSettings.backingTrack.url;
+      if (!originalUrl.startsWith('blob:') && !originalUrl.startsWith('data:')) {
+        setIsPreloading(true);
+        setIsLoadingContent(true);
+        try {
+          const blobUrl = await preloadAudioUrl(originalUrl);
+          if (blobUrl !== originalUrl) {
+            // Success: Switch to 'mp3' type so it uses the Audio element instead of YouTube IFrame
+            // This fixes syncing issues as the Audio element is more reliable in this environment.
+            finalSettings.backingTrack = { 
+              ...finalSettings.backingTrack, 
+              url: blobUrl,
+              type: 'mp3' 
+            };
+          }
+        } catch (e) {
+          console.error("Backing track preload failed:", e);
+        } finally {
+          setIsPreloading(false);
+        }
+      }
+    }
+
     setGameSettings(finalSettings);
     gameSettingsRef.current = finalSettings;
     setPlaybackTempoMultiplier(finalSettings.playbackTempoMultiplier);
@@ -3509,6 +3733,9 @@ const AppContent: React.FC = () => {
     // Attempt to resume audio context, but don't hard-block the entire function
     // if it returns false (maybe it's still initializing).
     await initializeAudioContext();
+
+    setIsRewinding(false);
+    isRewindingRef.current = false;
 
     if (isFreePlayMode) {
       freePlayStartTimeRef.current = performance.now() - freePlayElapsedTime;
@@ -3571,71 +3798,7 @@ const AppContent: React.FC = () => {
       hasAudioStartedThisStretchRef.current = true;
       playbackTempoMultiplierRef.current = playbackTempoMultiplier;
     } else {
-      const baseTimeSec = (pausedMusicalTimeRef.current - INITIAL_PLAYBACK_DELAY_MS) / 1000;
-      const audioStartTime = getAudioStartTime(baseTimeSec, backing.type, backing.offsetMs || 0);
-      
-      setBackingTrackStatus("loading");
-
-      if ((backing.type === "mp3" || backing.type === "link") && audioRef.current) {
-          const audio = audioRef.current;
-          audio.volume = mp3VolumeRef.current;
-          audio.playbackRate = playbackTempoMultiplier;
-
-          if (audioStartTime >= 0) {
-              const setTimeAndPlay = () => {
-                  audio.currentTime = audioStartTime;
-                  audio.play().then(() => {
-                      setBackingTrackStatus("playing");
-                  }).catch(() => setBackingTrackStatus("error"));
-              };
-              if (audio.readyState >= 1) {
-                 setTimeAndPlay();
-              } else {
-                 const onMetadata = () => {
-                     setTimeAndPlay();
-                     audio.removeEventListener('loadedmetadata', onMetadata);
-                 };
-                 audio.addEventListener('loadedmetadata', onMetadata);
-              }
-          } else {
-              // MIDI Editor style: Delay play until Bar 0 (audioStartTime reaches 0)
-              audio.currentTime = 0;
-              if (audioStartTimeoutRef.current) clearTimeout(audioStartTimeoutRef.current);
-              audioStartTimeoutRef.current = setTimeout(() => {
-                  if (isPlayingRef.current && audioRef.current) {
-                      audioRef.current.currentTime = 0;
-                      audioRef.current.play().then(() => {
-                          setBackingTrackStatus("playing");
-                      }).catch(() => setBackingTrackStatus("error"));
-                  }
-              }, -audioStartTime * 1000 / playbackTempoMultiplier);
-          }
-      } else if (backing.type === "youtube" && youtubePlayerRef.current) {
-        try {
-          if (typeof youtubePlayerRef.current.setVolume === "function") youtubePlayerRef.current.setVolume(mp3VolumeRef.current * 100);
-          if (typeof youtubePlayerRef.current.setPlaybackRate === "function") youtubePlayerRef.current.setPlaybackRate(playbackTempoMultiplier);
-          
-          if (audioStartTime >= 0) {
-              youtubePlayerRef.current.seekTo(audioStartTime, true);
-              safePlayYoutube();
-              setBackingTrackStatus("playing");
-          } else {
-              // Lead-in delay
-              youtubePlayerRef.current.seekTo(0, true);
-              if (audioStartTimeoutRef.current) clearTimeout(audioStartTimeoutRef.current);
-              audioStartTimeoutRef.current = setTimeout(() => {
-                  if (isPlayingRef.current && youtubePlayerRef.current) {
-                      youtubePlayerRef.current.seekTo(0, true);
-                      safePlayYoutube();
-                      setBackingTrackStatus("playing");
-                  }
-              }, -audioStartTime * 1000 / playbackTempoMultiplier);
-          }
-        } catch (e) {
-          console.error("YouTube play error:", e);
-          setBackingTrackStatus("error");
-        }
-      }
+      triggerBackingTrackPlay(pausedMusicalTimeRef.current);
     }
 
     playbackRequestRef.current = requestAnimationFrame(playbackLoop);
@@ -3657,6 +3820,9 @@ const AppContent: React.FC = () => {
   }, [mp3Volume]);
 
   const handlePause = useCallback(async () => {
+    setIsRewinding(false);
+    isRewindingRef.current = false;
+
     if (isFreePlayMode) {
       setIsPlaying(false);
       isPlayingRef.current = false;
@@ -3798,11 +3964,6 @@ const AppContent: React.FC = () => {
               return false;
             if (hitNoteIdsRef.current.has(n.noteId)) return false;
 
-            // Hi-hat Strict Check in Wait Mode: Match specific sub-type
-            if (targetPadId === "hihat" && n.midi !== midi) {
-              return false;
-            }
-
             return true;
           });
         } else if (isAudioInputEnabledRef.current) {
@@ -3834,11 +3995,18 @@ const AppContent: React.FC = () => {
               firstInputRealTimeRef.current = performance.now();
             lastInputRealTimeRef.current = performance.now();
 
-            const newWaitingSet = new Set(notesCurrentlyWaitingForRef.current);
-            newWaitingSet.delete(m.midi);
-            updateNotesCurrentlyWaitingFor(newWaitingSet);
+            // Fixed: Use ID-based waiting set to handle multiple notes with same MIDI in a chord
+            const newWaitingIds = new Set(notesCurrentlyWaitingForIdsRef.current);
+            newWaitingIds.delete(m.noteId);
+            notesCurrentlyWaitingForIdsRef.current = newWaitingIds;
 
-            if (newWaitingSet.size === 0) resumePlaybackFromWait();
+            const remainingMidis = new Set<number>();
+            wn.forEach(n => {
+              if (newWaitingIds.has(n.noteId)) remainingMidis.add(n.midi);
+            });
+            updateNotesCurrentlyWaitingFor(remainingMidis);
+
+            if (newWaitingIds.size === 0) resumePlaybackFromWait();
           } else {
             // Ignore wrong notes to prevent locking/errors in strict mode
           }
@@ -3899,15 +4067,6 @@ const AppContent: React.FC = () => {
           }
 
           if (midiMatch && !presatisfiedNoteIdsRef.current.has(n.noteId)) {
-            // Hi-hat Lane Strict Check: User must match the sub-type (Open vs Closed) to count as a hit.
-            // This enforces the requirement: must hold pedal for Closed HH notes.
-            if (gameSettingsRef.current?.instrumentMode === "drum") {
-               const targetPadId = midiToDrumPadIdMap.get(n.midi);
-               if (targetPadId === "hihat" && n.midi !== midi) {
-                  continue; // Wrong hi-hat type
-               }
-            }
-
             // Rule: HIT if |inputTime - adjustedNoteTime| <= hitWindow (implied logic via closest search)
             const offset = adjustedNoteTime - inputTime; // positive if early, negative if late
             const d = Math.abs(offset);
@@ -4416,14 +4575,11 @@ const AppContent: React.FC = () => {
       if (instrumentMode === "drum") {
         hitPadId = midiToDrumPadIdMap.get(n);
         if (hitPadId) {
-          // HI-HAT SPECIAL LOGIC FOR MIDI INPUT:
-          // If the physical MIDI kit sends hit on any hi-hat note, 
-          // we use common hi-hat mapping based on pedal state 
-          // to align with virtual pad behavior and song charts.
-          if (hitPadId === "hihat") {
-            noteToProcess = isHiHatFootPressedRef.current ? 42 : 46;
+          // Preserve the user's exact MIDI input directly via DRUM_PRIMARY_MIDI_MAP mapping to keep Open, Closed, and Foot distinct
+          if (DRUM_PRIMARY_MIDI_MAP[n] !== undefined) {
+            noteToProcess = DRUM_PRIMARY_MIDI_MAP[n];
           } else {
-            // Use the first (primary) standard MIDI note for this pad to avoid logic duplication
+            // Fallback for custom drum mappings or other secondary notes
             const standardPad = DRUM_PADS.find((p) => p.id === hitPadId);
             if (standardPad && standardPad.midiNotes.length > 0) {
               noteToProcess = standardPad.midiNotes[0];
@@ -4624,7 +4780,7 @@ const AppContent: React.FC = () => {
 
       // Drum Mode Keyboard Mapping
       if (instrumentMode === "drum") {
-        const midi = DRUM_KEYBOARD_MAP[keyChar];
+        let midi = DRUM_KEYBOARD_MAP[keyChar];
         if (midi !== undefined) {
           // Anti Double Trigger for Keyboard
           if (antiDoubleTriggerEnabled) {
@@ -4640,6 +4796,12 @@ const AppContent: React.FC = () => {
             setIsHiHatFootPressed(true);
             isHiHatFootPressedRef.current = true;
           }
+
+          // Dynamically map hi-hat open/closed based on foot pedal keyboard state
+          if (midi === 42 || midi === 46) {
+            midi = isHiHatFootPressedRef.current ? 42 : 46;
+          }
+
           const key = midiNoteToKeyDefMap.get(midi);
           if (key) {
             qwertyActiveKeysRef.current.add(lower);
@@ -4728,9 +4890,16 @@ const AppContent: React.FC = () => {
             setIsHiHatFootPressed(false);
             isHiHatFootPressedRef.current = false;
           }
-          const key = midiNoteToKeyDefMap.get(midi);
-          if (key) {
-            handleUiKeyRelease(key.name, key.midiNote);
+          if (midi === 42 || midi === 46) {
+            const key42 = midiNoteToKeyDefMap.get(42);
+            if (key42) handleUiKeyRelease(key42.name, 42);
+            const key46 = midiNoteToKeyDefMap.get(46);
+            if (key46) handleUiKeyRelease(key46.name, 46);
+          } else {
+            const key = midiNoteToKeyDefMap.get(midi);
+            if (key) {
+              handleUiKeyRelease(key.name, key.midiNote);
+            }
           }
         }
         if (qwertyActiveKeysRef.current.has(lower))
@@ -5213,7 +5382,7 @@ const AppContent: React.FC = () => {
   }, [playbackNotes, handlePlay]);
   const handleExitGame = useCallback(() => {
     const wasInFreePlay = isFreePlayModeRef.current;
-    handleStopPlayback();
+    handleStopPlayback(true, false); // exitFreePlay: true, shouldRewind: false
 
     // Reset loop state
     setIsLooping(false);
@@ -6025,6 +6194,8 @@ const AppContent: React.FC = () => {
           }}
           instrumentMode={instrumentMode}
           zoomScale={zoomScale}
+          userAudioSyncOffset={userAudioSyncOffset}
+          onUserAudioSyncOffsetChange={setUserAudioSyncOffset}
         />
       )}
       {currentScreen === "inGame" && (
@@ -6073,10 +6244,10 @@ const AppContent: React.FC = () => {
                         backingTrackStatus === 'error' ? 'text-red-400' : 
                         (backingTrackStatus === 'stalled' || backingTrackStatus === 'loading') ? 'text-amber-400' : 'text-cyan-400'
                     }`}>
-                      Backing Track Warning
+                      BACKING TRACK LOADING
                     </span>
                     <span className="text-[7px] text-slate-500 font-bold uppercase tracking-tight">
-                      Try pausing and play again
+                      Try to pause or restart
                     </span>
                   </div>
                   {(
