@@ -482,44 +482,172 @@ export const getRankColorClass = (rank: string) => {
     }
 };
 
+const DB_NAME = 'AudioCacheDB';
+const STORE_NAME = 'audios';
+
+const getDB = (): Promise<IDBDatabase> => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+};
+
+export const normalizeYoutubeUrl = (url: string): string => {
+  try {
+    const urlObj = new URL(url);
+    if (urlObj.hostname.includes("youtube.com")) {
+      const v = urlObj.searchParams.get("v");
+      return `https://www.youtube.com/watch?v=${v}`;
+    }
+    if (urlObj.hostname === "youtu.be") {
+      return `https://youtu.be${urlObj.pathname}`;
+    }
+    return url;
+  } catch {
+    return url;
+  }
+};
+
+export const saveToAudioCache = async (url: string, blob: Blob): Promise<void> => {
+  const normalizedUrl = normalizeYoutubeUrl(url);
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.put(blob, normalizedUrl);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+};
+
+export const getFromAudioCache = async (url: string): Promise<Blob | null> => {
+  if (!url) return null;
+  const normalizedUrl = normalizeYoutubeUrl(url);
+  try {
+    const db = await getDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_NAME, 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.get(normalizedUrl);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
+    });
+  } catch (e) {
+    return null;
+  }
+};
+
+export const isAudioCached = async (url: string): Promise<boolean> => {
+  if (!url || url.startsWith('blob:') || url.startsWith('data:')) return true;
+  const normalizedUrl = normalizeYoutubeUrl(url);
+  try {
+    const db = await getDB();
+    return new Promise((resolve) => {
+      const transaction = db.transaction(STORE_NAME, 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.getKey(normalizedUrl);
+      request.onsuccess = () => resolve(request.result !== undefined);
+      request.onerror = () => resolve(false);
+    });
+  } catch (e) {
+    return false;
+  }
+};
+
+export const deleteFromAudioCache = async (url: string): Promise<void> => {
+  const normalizedUrl = normalizeYoutubeUrl(url);
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.delete(normalizedUrl);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+};
+
+export const downloadAndCacheAudio = async (url: string, onStatus?: (status: string) => void): Promise<string> => {
+  if (!url || url.startsWith('blob:') || url.startsWith('data:')) return url;
+
+  const cachedBlob = await getFromAudioCache(url);
+  if (cachedBlob) {
+    onStatus?.("Cached");
+    return URL.createObjectURL(cachedBlob);
+  }
+
+  onStatus?.("Downloading...");
+
+  const isYoutube = url.includes("youtube.com") || url.includes("youtu.be");
+  if (isYoutube) {
+    throw new Error("YouTube backing tracks stream directly and do not need to be downloaded.");
+  }
+
+  let blob: Blob | null = null;
+
+  // Direct link download fallback
+  try {
+    const response = await fetch(url);
+    if (response.ok) {
+      blob = await response.blob();
+    }
+  } catch (e) {
+    console.error("Direct audio download failed:", e);
+  }
+
+  if (blob) {
+    await saveToAudioCache(url, blob);
+    const sizeInMb = (blob.size / (1024 * 1024)).toFixed(2);
+    onStatus?.(`Downloaded (${sizeInMb} MB)`);
+    return URL.createObjectURL(blob);
+  } else {
+    throw new Error("Failed to download audio track.");
+  }
+};
+
 /**
  * Preloads an audio URL by fetching it and returning a Blob URL.
  * This ensures the audio is fully loaded in memory before playback,
  * preventing synchronization issues and stalling.
- * Now supports YouTube links by using a proxy service to get the direct audio.
- * Adds a 15-second timeout to prevent blocking the game startup indefinitely.
  * @param url The original audio URL.
  * @returns A promise that resolves to a Blob URL or the original URL if preloading fails.
  */
 export const preloadAudioUrl = async (url: string): Promise<string> => {
   if (!url || url.startsWith('blob:') || url.startsWith('data:')) return url;
-  
-  let targetUrl = url;
 
-  // Extract YouTube ID if it's a YouTube link
-  const youtubeMatch = url.match(/(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
-  if (youtubeMatch && youtubeMatch[1]) {
-    const videoId = youtubeMatch[1];
-    // Use a common proxy for YouTube to MP3 conversion
-    targetUrl = `https://vid.m.mirp.moe/${videoId}`;
+  // Check IndexedDB cache first
+  const cachedBlob = await getFromAudioCache(url);
+  if (cachedBlob) {
+    console.log("Found audio in IndexedDB cache for:", url);
+    return URL.createObjectURL(cachedBlob);
   }
 
+  // If not cached, we return the original URL.
+  return url;
+};
+
+export const getAudioMetadata = async (url: string): Promise<{ size: string | null, duration: number | null }> => {
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
-
-    const response = await fetch(targetUrl, { signal: controller.signal });
-    clearTimeout(timeoutId);
-
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-    const blob = await response.blob();
-    return URL.createObjectURL(blob);
-  } catch (e: any) {
-    if (e.name === 'AbortError') {
-      console.warn(`Preloading timed out for ${targetUrl}, skipping...`);
-    } else {
-      console.warn(`Failed to preload audio from ${targetUrl}, falling back to original URL:`, e);
+    if (url.includes("youtu")) {
+      return { size: null, duration: null };
     }
-    return url;
+    
+    // Fallback for size
+    const response = await fetch(url, { method: 'HEAD' });
+    if (response.ok) {
+      const contentLength = response.headers.get("content-length");
+      if (contentLength) {
+        return { size: (parseInt(contentLength) / (1024 * 1024)).toFixed(2), duration: null };
+      }
+    }
+  } catch (e) {
+    console.warn("Failed to get audio metadata:", e);
   }
+  return { size: null, duration: null };
 };

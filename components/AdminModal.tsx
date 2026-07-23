@@ -10,9 +10,10 @@ interface AdminModalProps {
   isOpen: boolean;
   onClose: () => void;
   lowDetailMode?: boolean;
+  onNavigateToCalibration?: () => void;
 }
 
-const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, lowDetailMode = false }) => {
+const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, lowDetailMode = false, onNavigateToCalibration }) => {
   const [isRendered, setIsRendered] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
@@ -230,6 +231,22 @@ const handleRecalculatePlayerScores = useCallback(async () => {
         </div>
         
         <div className="space-y-4 mb-6">
+            {onNavigateToCalibration && (
+              <div className="bg-slate-900/50 p-4 rounded-lg border border-yellow-500/30">
+                  <h3 className="text-lg font-bold text-yellow-400 mb-1">🎹 Calibration Workbench</h3>
+                  <p className="text-xs text-slate-400 mb-3">Fine-tune the complexity analysis weights, calculate real-time performance scores, and export calibration results.</p>
+                  <button 
+                    onClick={() => {
+                      onNavigateToCalibration();
+                    }} 
+                    disabled={isLoading} 
+                    className="w-full bg-yellow-600 hover:bg-yellow-700 text-slate-950 py-2 rounded font-bold transition disabled:opacity-50"
+                  >
+                    Open Calibration Panel
+                  </button>
+              </div>
+            )}
+
             <div className="bg-slate-900/50 p-4 rounded-lg border border-red-500/30">
                 <h3 className="text-lg font-bold text-red-400 mb-1">Step 1: Update Song Metadata (Piano & Drum)</h3>
                 <p className="text-xs text-slate-400 mb-3">Re-analyzes MIDI files for both Piano and Drum modes to set new base Performance Scores.</p>
