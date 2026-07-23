@@ -3,7 +3,7 @@ import { Midi } from '@tonejs/midi';
 import { PIANO_KEYS_CONFIG, DRUM_KEYS_CONFIG, DRUM_SOUND_MAP, DRUM_PRIMARY_MIDI_MAP } from '../constants';
 import { TempoEvent, TimeSignatureInfo } from '../types';
 import { guessKeySignature } from '../midiParser';
-import { preloadAudioUrl } from '../utils';
+import { preloadAudioUrl, isAudioCached, downloadAndCacheAudio, getFromAudioCache } from '../utils';
 
 // Constants for editing
 const TICKS_PER_QUARTER = 480;
@@ -218,8 +218,12 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
     const mp3InputRef = useRef<HTMLInputElement>(null);
     const audioPlayPromiseRef = useRef<Promise<void> | null>(null);
     const youtubePlayerRef = useRef<any>(null);
+    const youtubeContainerRef = useRef<HTMLDivElement>(null);
     const isYoutubeApiLoadedRef = useRef(false);
     const [backingTrackError, setBackingTrackError] = useState<string | null>(null);
+    const [isPreloadingTrack, setIsPreloadingTrack] = useState(false);
+    const [isTrackDownloaded, setIsTrackDownloaded] = useState(false);
+    const [trackDownloadStatus, setTrackDownloadStatus] = useState<string>('');
 
     const audioContextRef = useRef<AudioContext | null>(null);
     const masterGainRef = useRef<GainNode | null>(null);
@@ -237,6 +241,33 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
 
     useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
     useEffect(() => { playbackSpeedRef.current = playbackSpeed; }, [playbackSpeed]);
+
+    useEffect(() => {
+        let isCurrent = true;
+        if (backingTrackUrl && !backingTrackUrl.startsWith('blob:') && !backingTrackUrl.startsWith('data:')) {
+            isAudioCached(backingTrackUrl).then(cached => {
+                if (!isCurrent) return;
+                setIsTrackDownloaded(cached);
+                if (cached) {
+                    getFromAudioCache(backingTrackUrl).then(blob => {
+                        if (!isCurrent) return;
+                        if (blob) {
+                            const blobUrl = URL.createObjectURL(blob);
+                            setBackingTrackUrl(blobUrl);
+                            setBackingType('mp3');
+                        }
+                    });
+                }
+            });
+        } else if (backingTrackUrl && (backingTrackUrl.startsWith('blob:') || backingTrackUrl.startsWith('data:'))) {
+            setIsTrackDownloaded(true);
+        } else {
+            setIsTrackDownloaded(false);
+        }
+        return () => {
+            isCurrent = false;
+        };
+    }, [backingTrackUrl]);
 
     useEffect(() => {
         if (isSettingsOpen) {
@@ -365,7 +396,8 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
             return;
         }
 
-        if (backingType === 'none' || !backingTrackUrl) return;
+        const isReady = backingType === 'online' || isTrackDownloaded;
+        if (backingType === 'none' || !backingTrackUrl || !isReady) return;
 
         if (isAudioOnlyPlaying) {
             if (backingType === 'mp3' || (backingType === 'online' && !getYoutubeId(backingTrackUrl))) {
@@ -380,7 +412,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                 youtubePlayerRef.current.playVideo();
             }
         }
-    }, [isPlaying, isAudioOnlyPlaying, backingType, backingTrackUrl]);
+    }, [isPlaying, isAudioOnlyPlaying, backingType, backingTrackUrl, isTrackDownloaded]);
 
     const keysConfig = useMemo(() => instrumentMode === 'drum' ? DRUM_KEYS_CONFIG : PIANO_KEYS_CONFIG, [instrumentMode]);
 
@@ -629,17 +661,25 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
     // --- YouTube API Integration ---
     useEffect(() => {
         if (backingType === 'online' && backingTrackUrl && !youtubePlayerRef.current) {
-            if (!(window as any).onYouTubeIframeAPIReady) {
+            const hasYTApi = (window as any).YT && (window as any).YT.Player;
+            if (hasYTApi) {
+                initializeYoutubePlayer(backingTrackUrl!);
+            } else if (!(window as any).onYouTubeIframeAPIReady) {
                 (window as any).onYouTubeIframeAPIReady = () => {
-                    isYoutubeApiLoadedRef.current = true;
                     initializeYoutubePlayer(backingTrackUrl!);
                 };
                 const tag = document.createElement('script');
                 tag.src = "https://www.youtube.com/iframe_api";
                 const firstScriptTag = document.getElementsByTagName('script')[0];
                 firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
-            } else if (isYoutubeApiLoadedRef.current) {
-                initializeYoutubePlayer(backingTrackUrl!);
+            } else {
+                const originalOnReady = (window as any).onYouTubeIframeAPIReady;
+                (window as any).onYouTubeIframeAPIReady = () => {
+                    if (originalOnReady) {
+                        try { originalOnReady(); } catch (e) {}
+                    }
+                    initializeYoutubePlayer(backingTrackUrl!);
+                };
             }
         }
         return () => {
@@ -657,6 +697,9 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
     const initializeYoutubePlayer = (url: string) => {
         const videoId = getYoutubeId(url);
         if (!videoId) return;
+        if (youtubeContainerRef.current) {
+            youtubeContainerRef.current.innerHTML = '<div id="editor-youtube-player"></div>';
+        }
         youtubePlayerRef.current = new (window as any).YT.Player('editor-youtube-player', {
             height: '0', width: '0', videoId: videoId,
             playerVars: { autoplay: 0, controls: 0, disablekb: 1, fs: 0, modestbranding: 1, rel: 0, showinfo: 0 },
@@ -909,8 +952,10 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
             midiAudioStartTimeoutRef.current = null;
         }
 
-        if (backingTrackUrl && (backingType === 'mp3' || backingType === 'online')) {
-            const defaultOffsetMs = backingTrackOffset;
+        const isReady = backingType === 'online' || isTrackDownloaded;
+        if (backingTrackUrl && isReady && (backingType === 'mp3' || backingType === 'online')) {
+            // Apply a hidden +200ms offset for mp3 and ytmp3 in MIDI editor
+            const defaultOffsetMs = backingTrackOffset + 200;
             const userOffsetMs = userAudioSyncOffset;
             const totalOffsetMs = defaultOffsetMs + userOffsetMs;
             const midiStartMs = ticksToMs(cursorTick);
@@ -1026,7 +1071,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
             // Detect state change and re-sync index if needed
             if (currentEditorState !== lastProcessedEditorStateRef.current) {
                 const audioNow = audioContextRef.current.currentTime;
-                const currentPlaybackTimeMs = (audioNow - playbackStartAudioTime) * 1000 + playbackStartMs;
+                const currentPlaybackTimeMs = (audioNow - playbackStartAudioTime) * 1000 * playbackSpeedRef.current + playbackStartMs;
                 
                 // Recalculate index based on current time
                 let newIndex = 0;
@@ -1119,7 +1164,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
             }
 
             // Update visual metronome
-            const currentPlaybackTimeMs = (audioNow - playbackStartAudioTime) * 1000 + playbackStartMs;
+            const currentPlaybackTimeMs = (audioNow - playbackStartAudioTime) * 1000 * playbackSpeedRef.current + playbackStartMs;
             const activeBeat = [...allBeatTimesRef.current].reverse().find(b => b.timeMs <= currentPlaybackTimeMs);
             if (activeBeat && lastVisualBeatTimeRef.current !== activeBeat.timeMs) {
                 lastVisualBeatTimeRef.current = activeBeat.timeMs;
@@ -1343,7 +1388,8 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
 
         const handleMouseUp = async (e: MouseEvent) => {
             if (isDraggingRulerRef.current && (backingTrackUrl || backingTrackRef.current)) {
-                const defaultOffsetMs = backingTrackOffset;
+                // Apply a hidden +200ms offset for mp3 and ytmp3 in MIDI editor
+                const defaultOffsetMs = backingTrackOffset + 200;
                 const userOffsetMs = userAudioSyncOffset;
                 const totalOffsetMs = defaultOffsetMs + userOffsetMs;
                 const midiStartMs = ticksToMs(cursorTick);
@@ -1496,16 +1542,12 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
     const handleOnlineUrlSubmit = async (url: string) => {
         if (url) {
             if (backingTrackUrl && backingTrackUrl.startsWith('blob:')) URL.revokeObjectURL(backingTrackUrl);
+            setBackingTrackError(null);
             
-            const isYoutube = url.includes('youtube.com') || url.includes('youtu.be');
-            if (!isYoutube) {
-                // Preload direct links for better sync in editor
-                const preloadedUrl = await preloadAudioUrl(url);
-                setBackingTrackUrl(preloadedUrl);
-            } else {
-                setBackingTrackUrl(url);
-            }
+            // Online URLs (including YouTube) stream directly and are always ready
+            setBackingTrackUrl(url);
             setBackingType('online');
+            setIsTrackDownloaded(true);
         }
     };
 
@@ -1670,7 +1712,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
     return (
         <div className="fixed inset-0 bg-slate-950 z-50 flex flex-col text-slate-200 font-sans select-none overflow-hidden">
             {backingType === 'mp3' && backingTrackUrl && <audio ref={backingTrackRef} src={backingTrackUrl} />}
-            <div id="editor-youtube-player" style={{ position: 'absolute', width: 0, height: 0, pointerEvents: 'none', visibility: backingType === 'online' ? 'visible' : 'hidden' }} />
+            <div ref={youtubeContainerRef} style={{ position: 'absolute', width: 0, height: 0, pointerEvents: 'none', visibility: backingType === 'online' ? 'visible' : 'hidden' }} />
             {backingType === 'online' && backingTrackUrl && !getYoutubeId(backingTrackUrl) && <audio ref={backingTrackRef} src={backingTrackUrl} />}
 
             {/* HEADER */}
@@ -2084,27 +2126,6 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                                     </div>
                                 </div>
 
-                                <div className="bg-amber-500/10 border border-amber-500/30 p-2 rounded text-[10px] text-amber-200 leading-tight">
-                                    <p className="font-bold flex items-center gap-1 mb-1">
-                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-                                        IMPORTANT:
-                                    </p>
-                                    <div className="space-y-1">
-                                        <p>Warning: For YouTube backing tracks, please use the preset speeds (0.5x, 0.75x, 1x, etc.) to avoid audio sync issues. Custom speeds may cause drift.</p>
-                                        <p>Please refresh the browser if the YouTube/MP3 audio does not appear when switching between the Game and the Editor.</p>
-                                        <p>
-                                            If your MIDI controller feels delayed, consider adjusting the note offset in settings. Click the icon to go directly to the note offset settings, where you can calibrate it automatically by pressing a note in sync with the metronome beat.
-                                            {onOpenSettings && (
-                                                <button onClick={onOpenSettings} className="inline-flex items-center justify-center ml-1 text-cyan-400 hover:text-cyan-300 transition-colors" title="Open Settings">
-                                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                                                </button>
-                                            )}
-                                        </p>
-                                        <p>If the MP3 is still out of sync, try adjusting the USER MS (Audio Sync) by ±100 ms from the original offset; the goal is to match the backing track with the metronome.</p>
-                                        <p>If the MP3 feels out of sync, try pausing and playing it again, or stop and restart the track.</p>
-                                    </div>
-                                </div>
-
                                 {backingType === 'mp3' && (
                                     <div className="flex flex-col gap-2">
                                         <input type="file" ref={mp3InputRef} onChange={handleBackingTrackUpload} accept="audio/mpeg" className="hidden" />
@@ -2141,9 +2162,29 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
                                             </button>
                                         </div>
-                                        {backingTrackUrl && !backingTrackUrl.startsWith('blob:') && (
-                                            <div className="p-2 rounded bg-black/20 border border-white/5">
-                                                <p className="text-[10px] text-slate-500 truncate">{backingTrackUrl}</p>
+                                        {isPreloadingTrack ? (
+                                            <div className="flex flex-col gap-1 mt-1">
+                                                <div className="flex items-center gap-2 text-cyan-400 text-[10px] animate-pulse">
+                                                    <svg className="animate-spin h-3.5 w-3.5 text-cyan-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                    </svg>
+                                                    <span>{trackDownloadStatus || 'Downloading audio from YouTube...'}</span>
+                                                </div>
+                                            </div>
+                                        ) : backingTrackUrl && !backingTrackUrl.startsWith('blob:') && (
+                                            <div className="flex flex-col gap-2 mt-1">
+                                                <div className="p-2 rounded bg-black/20 border border-white/5">
+                                                    <p className="text-[10px] text-slate-500 truncate">{backingTrackUrl}</p>
+                                                </div>
+                                                <div className="p-2 bg-emerald-950/20 rounded border border-emerald-500/20 flex items-center gap-1.5">
+                                                    <svg className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                    </svg>
+                                                    <p className="text-[10px] text-emerald-400 font-bold">
+                                                        Streaming Ready (backingTrackUrl.includes('youtube.com') || backingTrackUrl.includes('youtu.be') ? 'YouTube Player' : 'Direct Link')
+                                                    </p>
+                                                </div>
                                             </div>
                                         )}
                                     </div>
@@ -2233,33 +2274,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
 
                                 <div>
                                     <div className="flex justify-between mb-2">
-                                         <div className="mt-4 pt-4 border-t border-slate-800">
-                                             <div className="flex justify-between mb-2">
-                                                 <label className="text-xs text-slate-400">USER MS (Audio Sync)</label>
-                                                 <span className="text-sm font-mono text-indigo-400 font-bold bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/15">
-                                                     {userAudioSyncOffset > 0 ? `+${userAudioSyncOffset}` : userAudioSyncOffset}ms
-                                                 </span>
-                                             </div>
-                                             {onUserAudioSyncOffsetChange && (
-                                                 <div className="space-y-2">
-                                                     <div className="flex gap-1">
-                                                         <button onClick={() => onUserAudioSyncOffsetChange(userAudioSyncOffset - 100)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] py-1 rounded border border-slate-700 transition-colors">-100ms</button>
-                                                         <button onClick={() => onUserAudioSyncOffsetChange(userAudioSyncOffset - 10)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] py-1 rounded border border-slate-700 transition-colors">-10ms</button>
-                                                         <button onClick={() => onUserAudioSyncOffsetChange(userAudioSyncOffset + 10)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] py-1 rounded border border-slate-700 transition-colors">+10ms</button>
-                                                         <button onClick={() => onUserAudioSyncOffsetChange(userAudioSyncOffset + 100)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] py-1 rounded border border-slate-700 transition-colors">+100ms</button>
-                                                     </div>
-                                                     <input
-                                                         type="range"
-                                                         min="-500"
-                                                         max="500"
-                                                         step="5"
-                                                         value={Math.max(-500, Math.min(500, userAudioSyncOffset))}
-                                                         onChange={(e) => onUserAudioSyncOffsetChange(parseInt(e.target.value, 10))}
-                                                         className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer"
-                                                     />
-                                                 </div>
-                                             )}
-                                         </div>
+        
 
                                         <label className="text-xs text-slate-400">Playback Speed</label>
                                         <span className="text-cyan-400 font-mono text-xs">{playbackSpeed}x</span>

@@ -81,16 +81,6 @@ export const AboutUs: React.FC<InfoPageProps> = ({ onBack }) => (
     </section>
 
     <section>
-      <h3 className="text-xl font-bold text-white mb-2">The Rhythmic Philosophy</h3>
-      <p className="mb-4">
-        At its core, Octavia focuses on "Internalized Rhythm." Many piano students struggle with consistent timing when practicing alone. By using our "Strict Wait Mode," the app forces the student to recognize and execute correct note choices and timing before the music proceeds. This creates a feedback loop that trains the ear and hands to work in perfect synchronization.
-      </p>
-      <p>
-        Whether you are a classical pianist working on the intricacies of Chopin or a hobbyist playing your favorite game soundtracks, Octavia's flexible engine provides the right balance of challenge and support.
-      </p>
-    </section>
-
-    <section>
       <h3 className="text-xl font-bold text-white mb-2">Continuous Innovation</h3>
       <p>
         Octavia is an evolving project dedicated to the intersection of music and technology. We are constantly expanding our features, from advanced pedagogical analysis of MIDI files to immersive game modes like <strong>Drum Mania</strong> and <strong>Piano Mode</strong>. Our goal is to create the ultimate digital companion for musicians of all skill levels.
@@ -182,12 +172,6 @@ export const PrivacyPolicy: React.FC<InfoPageProps> = ({ onBack }) => (
       </p>
     </section>
 
-    <section>
-      <h3 className="text-xl font-bold text-white mb-2">5. Data Security Measures</h3>
-      <p>
-        We implement industry-standard security protocols to protect your data from unauthorized access or disclosure. However, as no method of digital transmission is 100% secure, we encourage users to use strong, unique authentication methods.
-      </p>
-    </section>
   </InfoLayout>
 );
 

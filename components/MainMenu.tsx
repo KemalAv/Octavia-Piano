@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../AuthContext'; // Import useAuth hook
 import { Screen } from '../types';
+import { ADMIN_UUID } from '../constants';
 
 interface MainMenuProps {
   onPlay: () => void;
@@ -25,7 +26,7 @@ const MainMenu: React.FC<MainMenuProps> = ({
   instrumentMode,
   onInstrumentModeChange
 }) => {
-  const { session, loading } = useAuth(); // Use the auth hook
+  const { session, user, loading } = useAuth(); // Use the auth hook
   const [isRendered, setIsRendered] = useState(false);
 
   useEffect(() => {

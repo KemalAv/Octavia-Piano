@@ -71,6 +71,7 @@ import {
   DRUM_PADS,
   DRUM_MIDI_TO_NAME_MAP,
   DRUM_PRIMARY_MIDI_MAP,
+  ADMIN_UUID,
 } from "./constants";
 
 import PianoKeyboard from "./components/PianoKeyboard";
@@ -126,6 +127,7 @@ import {
   HowToConnect,
 } from "./components/InfoPages";
 import MidiEditor from "./components/MidiEditor"; // NEW
+import { FineTunePanel } from "./components/FineTunePanel";
 
 import { motion, AnimatePresence } from "motion/react";
 
@@ -322,6 +324,85 @@ const isCacheableMode = (
   return true;
 };
 
+const SCREEN_TO_HASH: Record<Screen, string> = {
+  mainMenu: "#/",
+  settings: "#/settings",
+  leaderboard: "#/leaderboard",
+  songSelection: "#/songs",
+  modeSelection: "#/mode",
+  midiEditor: "#/midi-editor",
+  inGame: "#/play",
+  finetune: "#/finetune",
+  about: "#/about",
+  contact: "#/contact",
+  privacy: "#/privacy",
+  disclaimer: "#/disclaimer",
+  howToConnect: "#/how-to-connect",
+};
+
+const HASH_TO_SCREEN: Record<string, Screen> = {
+  "": "mainMenu",
+  "#": "mainMenu",
+  "#/": "mainMenu",
+  "#/settings": "settings",
+  "#/leaderboard": "leaderboard",
+  "#/songs": "songSelection",
+  "#/mode": "modeSelection",
+  "#/midi-editor": "midiEditor",
+  "#/play": "inGame",
+  "#/finetune": "finetune",
+  "#/about": "about",
+  "#/contact": "contact",
+  "#/privacy": "privacy",
+  "#/disclaimer": "disclaimer",
+  "#/how-to-connect": "howToConnect",
+};
+
+const parseHash = (hash: string): { screen: Screen; songId: string | null } => {
+  const decodedHash = decodeURIComponent(hash);
+  const parts = decodedHash.split("?");
+  const path = parts[0] || "";
+  const queryStr = parts[1] || "";
+
+  // Extract UUID if present in the hash path
+  const uuidRegex = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+  const match = path.match(uuidRegex);
+  let songId: string | null = null;
+  let pathWithoutUuid = path;
+  
+  if (match) {
+    songId = match[0];
+    // Remove the UUID and collapse multi-slashes
+    pathWithoutUuid = path.replace(match[0], "").replace(/\/+/g, "/");
+    if (pathWithoutUuid.endsWith("/") && pathWithoutUuid.length > 2) {
+      pathWithoutUuid = pathWithoutUuid.slice(0, -1);
+    }
+  }
+
+  let screen: Screen = "mainMenu";
+  if (HASH_TO_SCREEN[pathWithoutUuid]) {
+    screen = HASH_TO_SCREEN[pathWithoutUuid];
+  } else {
+    // Sort routes by descending length so that more specific subdomains match before general ones
+    const sortedRoutes = Object.entries(HASH_TO_SCREEN).sort((a, b) => b[0].length - a[0].length);
+    for (const [route, scr] of sortedRoutes) {
+      if (route && route !== "#/" && route !== "#" && route !== "") {
+        if (pathWithoutUuid === route || pathWithoutUuid.startsWith(route + "/")) {
+          screen = scr;
+          break;
+        }
+      }
+    }
+  }
+
+  if (queryStr && !songId) {
+    const params = new URLSearchParams(queryStr);
+    songId = params.get("id") || params.get("songId") || params.get("song_id");
+  }
+
+  return { screen, songId };
+};
+
 const AppContent: React.FC = () => {
   const [currentScreen, setCurrentScreen] = useState<Screen>("mainMenu");
   const [instrumentMode, setInstrumentMode] = useState<"piano" | "drum">(
@@ -332,12 +413,13 @@ const AppContent: React.FC = () => {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
-  const { session } = useAuth();
+  const { session, user } = useAuth();
 
   const sessionPlaytimeMs = useRef<number>(0);
   const playtimeStartRef = useRef<number | null>(null);
   const sessionTotalPlaytimeMs = useRef<number>(0);
   const sessionTotalNotesHit = useRef<number>(0);
+  const audioCtxStartTimeRef = useRef<number>(0); // New ref
 
   const [isFreePlayMode, setIsFreePlayMode] = useState(false);
   const isFreePlayModeRef = useRef(false);
@@ -355,6 +437,46 @@ const AppContent: React.FC = () => {
     selectedOnlineSongIdForNavigation,
     setSelectedOnlineSongIdForNavigation,
   ] = useState<string | null>(null);
+
+  // Synchronize URL hash with application screens & menu routing (subdomains)
+  useEffect(() => {
+    const handleHashChange = () => {
+      const { screen, songId } = parseHash(window.location.hash);
+      
+      setCurrentScreen((prev) => {
+        if (prev !== screen) return screen;
+        return prev;
+      });
+
+      setSelectedOnlineSongIdForNavigation((prev) => {
+        if (prev !== songId) return songId;
+        return prev;
+      });
+    };
+
+    handleHashChange();
+    window.addEventListener("hashchange", handleHashChange);
+    return () => {
+      window.removeEventListener("hashchange", handleHashChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    const baseHash = SCREEN_TO_HASH[currentScreen] || "#/";
+    let targetHash = baseHash;
+    
+    if (selectedOnlineSongIdForNavigation && (currentScreen === "songSelection" || currentScreen === "modeSelection" || currentScreen === "inGame")) {
+      if (baseHash.endsWith("/")) {
+        targetHash = `${baseHash}${selectedOnlineSongIdForNavigation}`;
+      } else {
+        targetHash = `${baseHash}/${selectedOnlineSongIdForNavigation}`;
+      }
+    }
+    
+    if (window.location.hash !== targetHash) {
+      window.location.hash = targetHash;
+    }
+  }, [currentScreen, selectedOnlineSongIdForNavigation]);
 
   const [isRewinding, setIsRewinding] = useState(false);
   const isRewindingRef = useRef(false);
@@ -473,6 +595,7 @@ const AppContent: React.FC = () => {
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const youtubePlayerRef = useRef<any>(null); // NEW: Track YouTube player instance
+  const youtubeContainerRef = useRef<HTMLDivElement>(null);
   const lastYoutubeRateRef = useRef(1);
   const isYoutubeApiLoadedRef = useRef(false);
   const isWaitStateRef = useRef(false);
@@ -978,8 +1101,9 @@ const AppContent: React.FC = () => {
       }));
     }
     setAllBeatTimes(allBeats);
+    const currentRealTimeMs = currentTimeRef.current / playbackTempoMultiplier;
     const startIndex = allBeats.findIndex(
-      (b) => b.timeMs >= currentTimeRef.current,
+      (b) => b.timeMs >= currentRealTimeMs,
     );
     nextBeatToScheduleIndexRef.current =
       startIndex !== -1 ? startIndex : allBeats.length;
@@ -1771,17 +1895,27 @@ const AppContent: React.FC = () => {
       !youtubePlayerRef.current &&
       currentScreen === "inGame"
     ) {
-      if (!(window as any).onYouTubeIframeAPIReady) {
+      const hasYTApi = (window as any).YT && (window as any).YT.Player;
+      if (hasYTApi) {
+        initializeYoutubePlayer(backing.url!);
+      } else if (!(window as any).onYouTubeIframeAPIReady) {
         (window as any).onYouTubeIframeAPIReady = () => {
-          isYoutubeApiLoadedRef.current = true;
           initializeYoutubePlayer(backing.url!);
         };
         const tag = document.createElement("script");
         tag.src = "https://www.youtube.com/iframe_api";
         const firstScriptTag = document.getElementsByTagName("script")[0];
         firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
-      } else if (isYoutubeApiLoadedRef.current) {
-        initializeYoutubePlayer(backing.url!);
+      } else {
+        const originalOnReady = (window as any).onYouTubeIframeAPIReady;
+        (window as any).onYouTubeIframeAPIReady = () => {
+          if (originalOnReady) {
+            try {
+              originalOnReady();
+            } catch (e) {}
+          }
+          initializeYoutubePlayer(backing.url!);
+        };
       }
     }
     return () => {
@@ -1802,6 +1936,9 @@ const AppContent: React.FC = () => {
   const initializeYoutubePlayer = (url: string) => {
     const videoId = getYoutubeId(url);
     if (!videoId) return;
+    if (youtubeContainerRef.current) {
+      youtubeContainerRef.current.innerHTML = '<div id="youtube-player"></div>';
+    }
     youtubePlayerRef.current = new (window as any).YT.Player("youtube-player", {
       height: "0",
       width: "0",
@@ -2191,6 +2328,7 @@ const AppContent: React.FC = () => {
       resumeIndexRef.current = null;
     }
     performanceStartTimeRef.current = performance.now();
+    audioCtxStartTimeRef.current = audioContextRef.current ? audioContextRef.current.currentTime : (performance.now() / 1000);
     lastPlayerInputRealTimeRef.current = performance.now();
     waitingBlockTimeRef.current = null;
     hasAudioStartedThisStretchRef.current = false;
@@ -2616,8 +2754,9 @@ const AppContent: React.FC = () => {
       updateNotesCurrentlyWaitingFor(new Set<number>());
       notesCurrentlyWaitingForIdsRef.current = new Set<string>();
       waitingBlockTimeRef.current = null;
+      const scaledCl = cl / currentPlaybackTempoMultiplier;
       const startIndex = allBeatTimesRef.current.findIndex(
-        (b) => b.timeMs >= cl,
+        (b) => b.timeMs >= scaledCl,
       );
       nextBeatToScheduleIndexRef.current =
         startIndex !== -1 ? startIndex : allBeatTimesRef.current.length;
@@ -2724,6 +2863,7 @@ const AppContent: React.FC = () => {
       missedNoteIndexRef.current = ni;
       if (isPlayingRef.current) {
         performanceStartTimeRef.current = performance.now();
+        audioCtxStartTimeRef.current = audioContextRef.current ? audioContextRef.current.currentTime : (performance.now() / 1000);
         isUserPausedRef.current = false;
       }
       lastSeekTimeRef.current = performance.now();
@@ -2903,6 +3043,7 @@ const AppContent: React.FC = () => {
         } else {
           loopDelayStartTimeRef.current = null;
           performanceStartTimeRef.current = performance.now();
+          audioCtxStartTimeRef.current = audioContextRef.current ? audioContextRef.current.currentTime : (performance.now() / 1000);
           pausedMusicalTimeRef.current = loopStartMsRef.current!;
           
           if (!isNoneBacking && backing) {
@@ -2911,7 +3052,7 @@ const AppContent: React.FC = () => {
         }
       }
 
-      const realTimeElapsedSinceStartOrPause = currentRealTime - performanceStartTimeRef.current;
+      const realTimeElapsedSinceStartOrPause = ( (audioContextRef.current ? audioContextRef.current.currentTime : (performance.now() / 1000)) - audioCtxStartTimeRef.current ) * 1000;
       const conceptualMusicalTimeNoFreeze = pausedMusicalTimeRef.current + realTimeElapsedSinceStartOrPause * currentPlaybackTempoMultiplier;
       
       const conceptualMusicalTime = conceptualMusicalTimeNoFreeze;
@@ -3767,8 +3908,9 @@ const AppContent: React.FC = () => {
         performance.now() - pauseStartTimeRef.current;
       pauseStartTimeRef.current = null;
     }
+    const currentRealTimeMs = pausedMusicalTimeRef.current / playbackTempoMultiplier;
     const startIndex = allBeatTimesRef.current.findIndex(
-      (b) => b.timeMs >= pausedMusicalTimeRef.current,
+      (b) => b.timeMs >= currentRealTimeMs,
     );
     nextBeatToScheduleIndexRef.current =
       startIndex !== -1 ? startIndex : allBeatTimesRef.current.length;
@@ -3784,6 +3926,7 @@ const AppContent: React.FC = () => {
     isPlayingRef.current = true;
     isUserPausedRef.current = false;
     performanceStartTimeRef.current = performance.now();
+    audioCtxStartTimeRef.current = audioContextRef.current ? audioContextRef.current.currentTime : (performance.now() / 1000);
     setMusicalCurrentTimeMs(pausedMusicalTimeRef.current);
     currentTimeRef.current = pausedMusicalTimeRef.current;
     prevMusicalTimeRef.current = pausedMusicalTimeRef.current;
@@ -5695,12 +5838,7 @@ const AppContent: React.FC = () => {
             }}
           />
         )}
-      {gameSettings?.backingTrack?.type === "youtube" &&
-        gameSettings.backingTrack.url && (
-          <div className="hidden">
-            <div id="youtube-player"></div>
-          </div>
-        )}
+      <div ref={youtubeContainerRef} className="hidden" />
       {currentScreen === "settings" &&
         isSettingsPreviewActiveRef.current &&
         playbackNotes.length > 0 && (
@@ -6166,6 +6304,27 @@ const AppContent: React.FC = () => {
       )}
       {currentScreen === "about" && (
         <AboutUs onBack={() => setCurrentScreen("mainMenu")} />
+      )}
+      {currentScreen === "finetune" && (
+        user?.id === ADMIN_UUID ? (
+          <FineTunePanel 
+            onBack={() => setCurrentScreen("mainMenu")} 
+            instrumentMode={instrumentMode}
+          />
+        ) : (
+          <div className="fixed inset-0 bg-slate-950 flex flex-col items-center justify-center z-50 p-4">
+            <div className="bg-slate-900 p-8 rounded-2xl border border-red-500/30 text-center max-w-md w-full">
+              <h2 className="text-2xl font-bold text-red-500 mb-4">Access Denied</h2>
+              <p className="text-slate-400 mb-6">You must be logged in as an administrator to access the Calibration Workbench.</p>
+              <button 
+                onClick={() => setCurrentScreen("mainMenu")} 
+                className="bg-slate-800 hover:bg-slate-700 text-slate-200 py-2 px-6 rounded-lg font-bold border border-slate-600 transition-colors"
+              >
+                Return to Main Menu
+              </button>
+            </div>
+          </div>
+        )
       )}
       {currentScreen === "contact" && (
         <ContactPage onBack={() => setCurrentScreen("mainMenu")} />
@@ -6690,7 +6849,14 @@ const AppContent: React.FC = () => {
                       d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                     ></path>
                   </svg>
-                  <span>Loading Game...</span>
+                  <div className="flex flex-col">
+                    <span>{isPreloading ? "Downloading Backing Track..." : "Loading Game..."}</span>
+                    {isPreloading && (
+                      <span className="text-xs text-slate-400 font-normal mt-1 max-w-xs leading-relaxed">
+                        Downloading YouTube audio to browser memory for 100% latency-free offline gameplay. Please wait...
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -6727,6 +6893,10 @@ const AppContent: React.FC = () => {
       <AdminModal
         isOpen={isAdminModalOpen}
         onClose={() => setIsAdminModalOpen(false)}
+        onNavigateToCalibration={() => {
+          setIsAdminModalOpen(false);
+          setCurrentScreen("finetune");
+        }}
       />
     </div>
   );

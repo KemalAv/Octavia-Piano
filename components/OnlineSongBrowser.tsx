@@ -197,9 +197,19 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
 
       // Apply search query
       if (searchQuery) {
-        // Escape double quotes and wrap the search term in quotes to handle commas correctly in .or() filter.
-        const safeSearchQuery = searchQuery.replace(/"/g, '\\"');
-        query = query.or(`title.ilike."%${safeSearchQuery}%",artist.ilike."%${safeSearchQuery}%"`);
+        const trimmedQuery = searchQuery.trim();
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmedQuery);
+        if (isUuid) {
+          // Re-create the query cleanly to bypass other filters when directly searching for a specific MIDI ID
+          query = supabase
+            .from('songs')
+            .select('*, difficulty_level, performance_score, total_notes, duration_sec, total_nps, is_ranked, like_count, dislike_count, arranger, description, midi_link, midi_offset')
+            .eq('id', trimmedQuery);
+        } else {
+          // Escape double quotes and wrap the search term in quotes to handle commas correctly in .or() filter.
+          const safeSearchQuery = searchQuery.replace(/"/g, '\\"');
+          query = query.or(`title.ilike."%${safeSearchQuery}%",artist.ilike."%${safeSearchQuery}%"`);
+        }
       }
 
       // Apply sorting
@@ -819,7 +829,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
       <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
         <input
           type="text"
-          placeholder="Search MIDI or artist..."
+          placeholder="Search MIDI title, artist, or Supabase ID..."
           value={searchQuery}
           onChange={handleSearch}
           className="w-full sm:w-2/3 p-3 rounded-lg bg-slate-700 text-white border border-slate-600 focus:ring-violet-500 focus:border-violet-500"
@@ -963,6 +973,20 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                       Uploaded by {userUsernameCache.get(song.uploader_id) || song.uploader_id.substring(0, 8)} on {formatDate(song.created_at)}
                     </p>
                   )}
+
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigator.clipboard.writeText(song.id);
+                      const btn = e.currentTarget;
+                      const oldText = btn.innerHTML;
+                      btn.innerHTML = '<span class="text-green-400 font-bold">✓ Copied!</span>';
+                      setTimeout(() => btn.innerHTML = oldText, 2000);
+                    }}
+                    className="mt-2 inline-flex items-center gap-1 text-[10px] text-cyan-400/80 hover:text-cyan-300 font-medium bg-slate-800/60 hover:bg-slate-800 border border-slate-700/50 py-1 px-2.5 rounded transition-all"
+                  >
+                    Copy ID
+                  </button>
 
                   {personalBestScore && (
                     <div
