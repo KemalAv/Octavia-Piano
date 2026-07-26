@@ -954,8 +954,8 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
 
         const isReady = backingType === 'online' || isTrackDownloaded;
         if (backingTrackUrl && isReady && (backingType === 'mp3' || backingType === 'online')) {
-            // Apply a hidden +200ms offset for mp3 and ytmp3 in MIDI editor
-            const defaultOffsetMs = backingTrackOffset + 200;
+            // Apply a hidden +350ms offset for mp3 and ytmp3 in MIDI editor
+            const defaultOffsetMs = backingTrackOffset + 350;
             const userOffsetMs = userAudioSyncOffset;
             const totalOffsetMs = defaultOffsetMs + userOffsetMs;
             const midiStartMs = ticksToMs(cursorTick);
@@ -1388,8 +1388,8 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
 
         const handleMouseUp = async (e: MouseEvent) => {
             if (isDraggingRulerRef.current && (backingTrackUrl || backingTrackRef.current)) {
-                // Apply a hidden +200ms offset for mp3 and ytmp3 in MIDI editor
-                const defaultOffsetMs = backingTrackOffset + 200;
+                // Apply a hidden +350ms offset for mp3 and ytmp3 in MIDI editor
+                const defaultOffsetMs = backingTrackOffset + 350;
                 const userOffsetMs = userAudioSyncOffset;
                 const totalOffsetMs = defaultOffsetMs + userOffsetMs;
                 const midiStartMs = ticksToMs(cursorTick);
