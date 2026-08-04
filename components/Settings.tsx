@@ -56,6 +56,8 @@ interface SettingsProps {
   onCustomStartNoteChange: (note: string) => void;
   customEndNote: string;
   onCustomEndNoteChange: (note: string) => void;
+  gameplayStyle: 'piano' | 'computer';
+  onGameplayStyleChange: (style: 'piano' | 'computer') => void;
   // NEW: Keyboard Layout Props
   qwertyLayout: QwertyLayout;
   onQwertyLayoutChange: (layout: QwertyLayout) => void;
@@ -88,6 +90,8 @@ interface SettingsProps {
   onResetSettings: () => void;
   metronomeBuffers?: { strong?: AudioBuffer | null, weak?: AudioBuffer | null };
   audioContext?: AudioContext | null;
+  lowDetailMode?: boolean;
+  onLowDetailModeChange?: (lowDetail: boolean) => void;
 }
 
 const Section: React.FC<{ title: string; children: React.ReactNode; showInfoButton?: boolean; onInfoClick?: () => void }> = ({ title, children, showInfoButton, onInfoClick }) => (
@@ -337,6 +341,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
     customKeyLabelHeight, onCustomKeyLabelHeightChange,
     customMinWhiteKeyWidth, onCustomMinWhiteKeyWidthChange,
     pianoRangeMode, onPianoRangeModeChange, customStartNote, onCustomStartNoteChange, customEndNote, onCustomEndNoteChange,
+    gameplayStyle, onGameplayStyleChange,
     qwertyLayout, onQwertyLayoutChange,
     showPianoTilesBackground, onShowPianoTilesBackgroundChange,
     uiZoom, onUiZoomChange, uiZoomAuto, onUiZoomAutoChange,
@@ -348,7 +353,8 @@ export const Settings: React.FC<SettingsProps> = (props) => {
     antiDoubleTriggerInterval, onAntiDoubleTriggerIntervalChange,
     drumMapping, onDrumMappingChange,
     instrumentMode, onResetSettings, initialScrollTarget,
-    metronomeBuffers, audioContext
+    metronomeBuffers, audioContext,
+    lowDetailMode = false, onLowDetailModeChange
   } = props;
 
   const [isRendered, setIsRendered] = useState(false);
@@ -524,9 +530,8 @@ export const Settings: React.FC<SettingsProps> = (props) => {
      }
   }
 
-  const gameplayStyle = viewMode === 'sheet-qwerty' ? 'computer' : 'piano';
-
   const handleGameplayStyleChange = (style: 'piano' | 'computer') => {
+    onGameplayStyleChange(style);
     if (style === 'piano') {
       onViewModeChange('falling');
       if (noteLabelType === 'qwerty') {
@@ -537,7 +542,6 @@ export const Settings: React.FC<SettingsProps> = (props) => {
       onViewModeChange('sheet-qwerty');
       onNoteLabelTypeChange('qwerty');
       onShowQwertyShortcutsChange(true);
-      onShowOnlyMajorNotesChange(false);
     }
   };
 
@@ -639,7 +643,6 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                 </label>
               </div>
             </SettingRow>
-            
           </Section>
 
           {instrumentMode === 'piano' && (
@@ -772,12 +775,13 @@ export const Settings: React.FC<SettingsProps> = (props) => {
             {(instrumentMode === 'piano' || instrumentMode === 'drum') && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <SettingRow label="Game View" htmlFor="view-mode">
-                  <select id="view-mode" value={viewMode} onChange={e => onViewModeChange(e.target.value as ViewMode)} className={`${selectStyles} max-w-xs`} disabled={gameplayStyle === 'computer'}>
+                  <select id="view-mode" value={viewMode} onChange={e => onViewModeChange(e.target.value as ViewMode)} className={`${selectStyles} max-w-xs`}>
                     <option value="falling">{instrumentMode === 'drum' ? 'Drum Typer' : 'Falling Notes'}</option>
                     {(instrumentMode === 'drum' || drumInputMode === 'midi') && <option value="drum_mania">Drum Mania</option>}
+                    <option value="qwerty_mania">Qwerty Typer</option>
                     <option value="sheet">Sheet Music</option>
                     <option value="sheet-roll">Sheet Music Roll</option>
-                    {gameplayStyle !== 'piano' && <option value="sheet-qwerty">Sheet Music QWERTY</option>}
+                    <option value="sheet-qwerty">Sheet Music QWERTY</option>
                   </select>
                 </SettingRow>
                 <SettingRow label="Note Labels" htmlFor="note-label">
@@ -790,9 +794,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                 </SettingRow>
               </div>
             )}
-            {instrumentMode === 'piano' && (
-              <ToggleRow id="major-notes-only" label="Show Only Major Notes (Falling Notes)" checked={showOnlyMajorNotes} onChange={onShowOnlyMajorNotesChange} disabled={gameplayStyle === 'computer'}/>
-            )}
+            <ToggleRow id="major-notes-only" label="Show Only Major Notes" checked={instrumentMode === 'drum' ? true : showOnlyMajorNotes} onChange={onShowOnlyMajorNotesChange} disabled={instrumentMode === 'drum'}/>
             <ToggleRow id="show-piano-tiles" label="Show Piano Tiles Background" checked={showPianoTilesBackground} onChange={onShowPianoTilesBackgroundChange} />
             {showPianoTilesBackground && (
                 <SettingRow label={`Piano Tiles Opacity (${themeSettings.pianoTilesOpacity || 50}%)`} htmlFor="piano-tiles-opacity">
@@ -809,11 +811,11 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                 </SettingRow>
             )}
             
-            {instrumentMode === 'drum' && (
+            {(instrumentMode === 'drum' || viewMode === 'qwerty_mania' || viewMode === 'falling') && (
               <div className="bg-slate-900/50 p-4 rounded-lg mt-4 space-y-4 ring-1 ring-slate-700">
-                <h4 className="text-md font-semibold text-slate-200 border-b border-slate-700 pb-2">Drum Visual Settings</h4>
+                <h4 className="text-md font-semibold text-slate-200 border-b border-slate-700 pb-2">Typer & Circle Visual Settings</h4>
                 
-                <SettingRow label="Zoom Direction" htmlFor="zoom-direction">
+                <SettingRow label="Zoom Direction (AR)" htmlFor="zoom-direction">
                   <select 
                     id="zoom-direction" 
                     value={zoomDirection} 
@@ -824,6 +826,25 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                     <option value="reverse">Reverse (Inside to Outside)</option>
                   </select>
                 </SettingRow>
+
+                <SettingRow label="Appearing Keys Opacity" htmlFor="drum-typer-opacity">
+                  <div className="flex items-center gap-3 w-full">
+                    <span className="text-[10px] text-cyan-400 font-mono w-10 text-right">{drumTyperPadOpacity}%</span>
+                    <input 
+                      type="range" 
+                      id="drum-typer-opacity"
+                      min="0" 
+                      max="100" 
+                      step="1" 
+                      value={drumTyperPadOpacity} 
+                      onChange={e => onDrumTyperPadOpacityChange(parseInt(e.target.value))} 
+                      className={`${rangeSliderStyle} flex-grow focus:ring-cyan-500`} 
+                    />
+                  </div>
+                </SettingRow>
+                <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
+                  Controls the base visibility of keys/pads in Qwerty Typer & Drum Typer. 0% hides keys entirely until notes approach — perfect for that "OSU-style" challenge.
+                </p>
               </div>
             )}
 
@@ -917,28 +938,6 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                   </p>
                 </div>
               )}
-
-              {/* NEW: Drum Typer Pad Opacity */}
-              <div className="pt-4 border-t border-slate-700/50 mt-2">
-                <SettingRow label="Appearing Keys Opacity (Drum Typer)" htmlFor="drum-typer-opacity">
-                  <div className="flex items-center gap-3 w-full">
-                    <span className="text-[10px] text-cyan-400 font-mono w-10 text-right">{drumTyperPadOpacity}%</span>
-                    <input 
-                      type="range" 
-                      id="drum-typer-opacity"
-                      min="0" 
-                      max="100" 
-                      step="1" 
-                      value={drumTyperPadOpacity} 
-                      onChange={e => onDrumTyperPadOpacityChange(parseInt(e.target.value))} 
-                      className={`${rangeSliderStyle} flex-grow focus:ring-cyan-500`} 
-                    />
-                  </div>
-                </SettingRow>
-                <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
-                  Controls the base visibility of drum pads. 0% hides pads entirely until notes approach — perfect for that "OSU-style" challenge.
-                </p>
-              </div>
             </div>
 
             {/* Drum Input Mapping */}

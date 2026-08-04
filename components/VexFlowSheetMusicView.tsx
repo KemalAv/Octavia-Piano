@@ -36,7 +36,7 @@ import {
 import { getVexFlowRenderData } from '../vexflow-helper';
 import { SYSTEM_PLAY_COLOR, USER_PLAY_COLOR } from '../constants'; 
 
-const HORIZONTAL_PADDING = 0; // Set to 0 to remove initial padding
+const HORIZONTAL_PADDING = 30; // Set to 30 to match HorizontalNotesView
 const SIDEBAR_WIDTH = 200; // Increased from 140
 
 interface HighlightInfo {
@@ -89,21 +89,25 @@ interface StickySignaturePanelProps {
 }
 
 const StickySignaturePanel: React.FC<StickySignaturePanelProps> = React.memo(({ vexFlowData, currentTimeMs, height, backgroundColor, lowDetailMode = false }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const currentMeasure = useMemo(() => {
     return vexFlowData.measures.find(m => currentTimeMs >= m.startTimeMs && currentTimeMs < m.endTimeMs) || vexFlowData.measures[0];
   }, [vexFlowData, currentTimeMs]);
 
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container || !vexFlowData || !currentMeasure) return;
-    while (container.firstChild) container.removeChild(container.firstChild);
+    const canvas = canvasRef.current;
+    if (!canvas || !vexFlowData || !currentMeasure) return;
+    const ctx = canvas.getContext('2d');
+    if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    const renderer = new Renderer(container, Renderer.Backends.SVG);
+    const renderer = new Renderer(canvas, Renderer.Backends.CANVAS);
     renderer.resize(SIDEBAR_WIDTH, height);
-    const ctx = renderer.getContext();
+    const vexCtx = renderer.getContext();
+    (vexCtx as any).setFillStyle = function(style: string) { this.fillStyle = style; };
 
-    const { topStaveYOffset, keySignature, timeSignature, verticalSpacing, instrumentMode } = vexFlowData;
+    const topStaveYOffset = Math.floor(vexFlowData.topStaveYOffset);
+    const verticalSpacing = Math.floor(vexFlowData.verticalSpacing);
+    const { keySignature, timeSignature, instrumentMode } = vexFlowData;
     const isDrum = instrumentMode === 'drum';
 
     if (isDrum) {
@@ -111,7 +115,7 @@ const StickySignaturePanel: React.FC<StickySignaturePanelProps> = React.memo(({ 
         const activeTime = currentMeasure.effectiveTimeSignature || timeSignature;
         drumStave.addClef('percussion');
         drumStave.addTimeSignature(`${activeTime.numerator}/${activeTime.denominator}`);
-        drumStave.setContext(ctx).draw();
+        drumStave.setContext(vexCtx).draw();
     } else {
         const treble = new Stave(0, topStaveYOffset, SIDEBAR_WIDTH - 5);
         const bass = new Stave(0, topStaveYOffset + verticalSpacing, SIDEBAR_WIDTH - 5);
@@ -127,26 +131,28 @@ const StickySignaturePanel: React.FC<StickySignaturePanelProps> = React.memo(({ 
         bass.addKeySignature(activeKey);
         bass.addTimeSignature(`${activeTime.numerator}/${activeTime.denominator}`);
 
-        treble.setContext(ctx).draw();
-        bass.setContext(ctx).draw();
-        new StaveConnector(treble, bass).setType(StaveConnector.type.BRACE).setContext(ctx).draw();
-        new StaveConnector(treble, bass).setType(StaveConnector.type.SINGLE_LEFT).setContext(ctx).draw();
+        treble.setContext(vexCtx).draw();
+        bass.setContext(vexCtx).draw();
+        new StaveConnector(treble, bass).setType(StaveConnector.type.BRACE).setContext(vexCtx).draw();
+        new StaveConnector(treble, bass).setType(StaveConnector.type.SINGLE_LEFT).setContext(vexCtx).draw();
     }
   }, [vexFlowData, currentMeasure, height]);
 
   return (
     <div 
-      className="absolute top-0 left-0 h-full z-30 pointer-events-none"
+      className="absolute top-0 left-0 z-30 pointer-events-none"
       style={{ 
+        width: `${SIDEBAR_WIDTH}px`,
+        height: `${height}px`,
         backgroundColor: backgroundColor === 'transparent' 
             ? (lowDetailMode ? 'rgba(247, 245, 237, 0.8)' : 'rgba(247, 245, 237, 0.95)')
-            : 'rgba(247, 245, 237, 1)',
+            : (backgroundColor === 'transparent' ? '#f7f5ed' : backgroundColor),
         backdropFilter: lowDetailMode ? 'none' : 'blur(4px)',
         borderRight: '1px solid rgba(0,0,0,0.1)',
         boxShadow: '4px 0 12px rgba(0,0,0,0.08)'
       }}
     >
-      <div ref={containerRef} style={{ width: `${SIDEBAR_WIDTH}px` }}/>
+      <canvas ref={canvasRef} style={{ width: `${SIDEBAR_WIDTH}px`, height: `${height}px` }}/>
     </div>
   );
 });
@@ -179,7 +185,7 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const cursorRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const vexFlowRenderRef = useRef<HTMLDivElement>(null); 
+  const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]); 
   const scrollOffsetRef = useRef(0);
 
   const [highlights, setHighlights] = useState<HighlightInfo[]>([]);
@@ -207,330 +213,375 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
 
   const PLAY_LINE_X = SIDEBAR_WIDTH + (width > SIDEBAR_WIDTH ? (width - SIDEBAR_WIDTH) * 0.1 : 0);
 
+  const chunks = useMemo(() => {
+    if (!vexFlowData) return [];
+    const CHUNK_SIZE = 16;
+    const result: { chunkIndex: number; measures: VexFlowMeasureData[]; startX: number; width: number; globalStartIndex: number }[] = [];
+    let currentChunkMeasures: VexFlowMeasureData[] = [];
+    let currentChunkWidth = 0;
+    let currentStartX = 0;
+    let globalStartIndex = 0;
+
+    vexFlowData.measures.forEach((m, idx) => {
+      if (currentChunkMeasures.length === 0) {
+        globalStartIndex = idx;
+      }
+      currentChunkMeasures.push(m);
+      currentChunkWidth += m.width;
+
+      const isLast = idx === vexFlowData.measures.length - 1;
+
+      if (currentChunkMeasures.length >= CHUNK_SIZE || isLast) {
+        const chunkIndex = result.length;
+        const isFirst = chunkIndex === 0;
+        const paddingLeft = isFirst ? HORIZONTAL_PADDING : 0;
+        const paddingRight = isLast ? HORIZONTAL_PADDING : 0;
+        const chunkWidth = currentChunkWidth + paddingLeft + paddingRight;
+
+        result.push({
+          chunkIndex,
+          measures: currentChunkMeasures,
+          startX: currentStartX,
+          width: chunkWidth,
+          globalStartIndex
+        });
+        currentStartX += chunkWidth;
+        currentChunkMeasures = [];
+        currentChunkWidth = 0;
+      }
+    });
+    return result;
+  }, [vexFlowData]);
+
   const totalMusicWidth = useMemo(() => {
     if (!vexFlowData) return width;
-    return vexFlowData.measures.reduce((sum, m) => sum + m.width, 0) + (HORIZONTAL_PADDING * 2);
-  }, [vexFlowData, width]);
+    return chunks.reduce((sum, c) => sum + c.width, 0);
+  }, [vexFlowData, chunks, width]);
 
   useLayoutEffect(() => {
-    const renderContainer = vexFlowRenderRef.current;
-    if (!renderContainer || !vexFlowData || width <= 0 || height <= 0) { 
-        if(renderContainer) while(renderContainer.lastChild) renderContainer.removeChild(renderContainer.lastChild);
-        notePositionsRef.current.clear();
-        // Even if we don't render, signal that we are "done" to avoid hanging loading screens if data is invalid
-        setRenderedLayoutId(prev => { onLayoutRendered(prev + 1); return prev + 1; });
-        return; 
-    }
-    while(renderContainer.lastChild) renderContainer.removeChild(renderContainer.lastChild);
-    const newNotePositions = new Map<string, BoundingBox>();
-    
-    try {
-      const { topStaveYOffset, verticalSpacing, instrumentMode } = vexFlowData;
-      const isDrum = instrumentMode === 'drum';
-      const measuresToRender = vexFlowData.measures;
-      const renderer = new Renderer(renderContainer, Renderer.Backends.SVG);
-      renderer.resize(totalMusicWidth, height);
-      const ctx = renderer.getContext();
-      let currentX = HORIZONTAL_PADDING;
-
-      const DRUM_MIDI_MAPPING: { [key: number]: { key: string, noteHead?: string } } = {
-        35: { key: 'f/4' }, // Bass Drum 2
-        36: { key: 'f/4' }, // Bass Drum 1
-        38: { key: 'c/5' }, // Snare Drum 1
-        40: { key: 'c/5' }, // Snare Drum 2
-        41: { key: 'a/4' }, // Low Floor Tom
-        43: { key: 'a/4' }, // High Floor Tom
-        45: { key: 'b/4' }, // Low Tom
-        47: { key: 'b/4' }, // Low-Mid Tom
-        48: { key: 'd/5' }, // Hi-Mid Tom
-        50: { key: 'd/5' }, // High Tom
-        42: { key: 'g/5', noteHead: 'x' }, // Closed Hi-Hat
-        46: { key: 'g/5', noteHead: 'x' }, // Open Hi-Hat
-        44: { key: 'd/4', noteHead: 'x' }, // Pedal Hi-Hat
-        49: { key: 'a/5', noteHead: 'x' }, // Crash Cymbal 1
-        57: { key: 'a/5', noteHead: 'x' }, // Crash Cymbal 2
-        51: { key: 'f/5', noteHead: 'x' }, // Ride Cymbal 1
-        59: { key: 'f/5', noteHead: 'x' }, // Ride Cymbal 2
-        53: { key: 'f/5', noteHead: 'x' }, // Ride Bell
-        55: { key: 'a/5', noteHead: 'x' }, // Splash Cymbal
-        52: { key: 'a/5', noteHead: 'x' }, // Chinese Cymbal
-      };
-
-      measuresToRender.forEach((measure, i) => {
-        const treble = new Stave(currentX, topStaveYOffset, measure.width);
-        const bass = isDrum ? null : new Stave(currentX, topStaveYOffset + verticalSpacing, measure.width);
-        
-        treble.setMeasure(i + 1);
-
-        if (measure.startsRepeat) { 
-            treble.setBegBarType(Barline.type.REPEAT_BEGIN); 
-            if (bass) bass.setBegBarType(Barline.type.REPEAT_BEGIN); 
+    if (!vexFlowData || width <= 0 || height <= 0) {
+      canvasRefs.current.forEach(canvas => {
+        if (canvas) {
+          const ctx = canvas.getContext('2d');
+          if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
         }
-        if (measure.endsRepeat) {
-            treble.setEndBarType(Barline.type.REPEAT_END);
-            if (bass) bass.setEndBarType(Barline.type.REPEAT_END);
-        } else if (measure.endTimeMs >= totalDurationMs) { 
-            treble.setEndBarType(Barline.type.END); 
-            if (bass) bass.setEndBarType(Barline.type.END); 
-        }
-        
-        treble.setContext(ctx).draw(); 
-        if (bass) bass.setContext(ctx).draw();
-        
-        if (bass) new StaveConnector(treble, bass).setType(StaveConnector.type.SINGLE_RIGHT).setContext(ctx).draw();
-        
-        const createNote = (info: VexFlowNoteInfo, isLeftHand: boolean) => { 
-            const n = new StaveNote({ ...info.vexNote }); 
-            if (info.vexNote.dots) { for (let i = 0; i < info.vexNote.dots; i++) n.addModifier(new Dot()); } 
-            if (info.accidentals) info.accidentals.forEach(acc => n.addModifier(new Accidental(acc.type), acc.index)); 
-            
-            n.setAttribute('id', info.vexNoteId); 
-            
-            // Middle line rule for single notes: Notes on or above middle line (line 2) go DOWN, below go UP.
-            const props = n.getKeyProps();
-            let onOrAboveCount = 0;
-            let belowCount = 0;
-            let maxDist = -1;
-            let farthestLine = 2;
-
-            props.forEach(p => {
-                const dist = Math.abs(p.line - 2);
-                if (dist > maxDist) {
-                    maxDist = dist;
-                    farthestLine = p.line;
-                }
-                if (p.line <= 2) onOrAboveCount++;
-                else belowCount++;
-            });
-
-            let direction: number;
-            if (onOrAboveCount > belowCount) {
-                direction = StaveNote.STEM_UP;
-            } else if (belowCount > onOrAboveCount) {
-                direction = StaveNote.STEM_DOWN;
-            } else {
-                // Tie: use the note farthest from the middle line.
-                direction = farthestLine <= 2 ? StaveNote.STEM_UP : StaveNote.STEM_DOWN;
-            }
-            
-            n.setStemDirection(direction);
-            return n; 
-        };
-        const rightStaveNotes: StaveNote[] = [];
-        const rightInfoMap = new Map<string, VexFlowNoteInfo>();
-        measure.rightHand.forEach(info => {
-            // Deduplication within right hand
-            const isDuplicate = rightStaveNotes.some(n => {
-                const rhInfo = rightInfoMap.get(n.getAttribute('id'));
-                return rhInfo && Math.abs(rhInfo.timeMs - info.timeMs) < 1 && rhInfo.midiValue === info.midiValue;
-            });
-            if (!isDuplicate) {
-                const n = createNote(info, false);
-                rightStaveNotes.push(n);
-                rightInfoMap.set(info.vexNoteId, info);
-            }
-        });
-
-        const leftStaveNotes: StaveNote[] = [];
-        const leftInfoMap = new Map<string, VexFlowNoteInfo>();
-        measure.leftHand.forEach(info => {
-            // Deduplication within left hand
-            const isDuplicateInternal = leftStaveNotes.some(n => {
-                const lhInfo = leftInfoMap.get(n.getAttribute('id'));
-                return lhInfo && Math.abs(lhInfo.timeMs - info.timeMs) < 1 && lhInfo.midiValue === info.midiValue;
-            });
-            
-            // Deduplication against right hand
-            const isDuplicateAcross = rightStaveNotes.some(n => {
-                const rhInfo = rightInfoMap.get(n.getAttribute('id'));
-                return rhInfo && Math.abs(rhInfo.timeMs - info.timeMs) < 1 && rhInfo.midiValue === info.midiValue;
-            });
-            
-            if (!isDuplicateInternal && !isDuplicateAcross) {
-                const n = createNote(info, true);
-                leftStaveNotes.push(n);
-                leftInfoMap.set(info.vexNoteId, info);
-            }
-        });
-        
-        const groupBeams = (notes: StaveNote[], timeSig: TimeSignatureInfo, tuplets: VexFlowTupletGroup[]) => {
-            const beams: Beam[] = []; 
-            let current: StaveNote[] = [];
-            const { numerator, denominator } = timeSig;
-
-            const applyStemDirectionToGroup = (group: StaveNote[]) => {
-                if (group.length === 0) return;
-                
-                let maxDist = -1;
-                let farthestLine = 2;
-                let onOrAboveCount = 0;
-                let belowCount = 0;
-
-                group.forEach(n => {
-                    const props = n.getKeyProps();
-                    props.forEach(p => {
-                        const dist = Math.abs(p.line - 2);
-                        if (dist > maxDist) {
-                            maxDist = dist;
-                            farthestLine = p.line;
-                        }
-                        // Middle Line Rule: on or above (line 2) is considered 'above' for down-stemming
-                        if (p.line <= 2) onOrAboveCount++;
-                        else belowCount++;
-                    });
-                });
-                
-                // Middle Line Rule for Beamed Groups: 
-                // 1. Majority Rule: follow the side with more notes.
-                // 2. Farthest Note Rule: if it's a tie, the note farthest from the middle line (line 2) dictates direction.
-                let direction: number;
-                if (onOrAboveCount > belowCount) {
-                    direction = StaveNote.STEM_UP;
-                } else if (belowCount > onOrAboveCount) {
-                    direction = StaveNote.STEM_DOWN;
-                } else {
-                    // Tie: use farthest note
-                    direction = farthestLine <= 2 ? StaveNote.STEM_UP : StaveNote.STEM_DOWN;
-                }
-                
-                group.forEach(n => n.setStemDirection(direction));
-            };
-
-            // Identify indices that are part of tuplets
-            const tupletIndices = new Set<number>();
-            tuplets.forEach(t => t.indices.forEach(idx => tupletIndices.add(idx)));
-
-            const isQuadOrCut = (numerator === 4 && denominator === 4) || (numerator === 2 && denominator === 2);
-            const isTripleOrCompound = (numerator === 3 && denominator === 4) ||
-                                       (numerator === 6 && denominator === 8) ||
-                                       (numerator === 12 && denominator === 8) ||
-                                       (numerator === 3 && denominator === 8);
-
-            for (let i = 0; i < notes.length; i++) {
-                const note = notes[i];
-                const duration = note.getDuration();
-                const isBeamableDuration = ['8', '16', '32', '64'].some(d => duration.includes(d)); 
-                const isRest = note.isRest();
-                const isInTuplet = tupletIndices.has(i);
-
-                if (!isRest && isBeamableDuration && !isInTuplet) {
-                    current.push(note);
-                    const hasDotted = current.some(n => n.getModifiers().some(m => m instanceof Dot));
-                    let limit = 4; 
-                    if (isQuadOrCut) { limit = hasDotted ? 3 : 4; } else if (isTripleOrCompound) { limit = hasDotted ? 4 : 3; }
-                    
-                    const nextNote = notes[i + 1];
-                    const nextDuration = nextNote ? nextNote.getDuration() : '';
-                    const nextIsBeamable = nextNote && !nextNote.isRest() && ['8', '16', '32', '64'].some(d => nextDuration.includes(d));
-                    const nextIsInTuplet = nextNote && tupletIndices.has(i + 1);
-
-                    if (current.length >= limit || !nextIsBeamable || nextIsInTuplet) {
-                        if (current.length > 1) {
-                            applyStemDirectionToGroup(current);
-                            beams.push(new Beam(current));
-                        }
-                        current = [];
-                    }
-                } else {
-                    if (current.length > 1) {
-                        applyStemDirectionToGroup(current);
-                        beams.push(new Beam(current));
-                    }
-                    current = [];
-                }
-            }
-            if (current.length > 1) {
-                applyStemDirectionToGroup(current);
-                beams.push(new Beam(current));
-            }
-
-            // Explicitly add beams for tuplets to ensure they are separated per group
-            tuplets.forEach(t => {
-                const tupletNotes = t.indices.map(idx => notes[idx]);
-                const beamableTupletNotes = tupletNotes.filter(n => !n.isRest());
-                
-                if (beamableTupletNotes.length > 1) {
-                    const allNotesBeamable = beamableTupletNotes.every(n => {
-                        const dur = n.getDuration();
-                        return ['8', '16', '32', '64'].some(d => dur.includes(d));
-                    });
-                    
-                    if (allNotesBeamable) {
-                        applyStemDirectionToGroup(beamableTupletNotes);
-                        beams.push(new Beam(beamableTupletNotes));
-                    }
-                }
-            });
-
-            return beams;
-        };
-
-        const rightBeams = groupBeams(rightStaveNotes, measure.effectiveTimeSignature, measure.rightHandTuplets);
-        const leftBeams = groupBeams(leftStaveNotes, measure.effectiveTimeSignature, measure.leftHandTuplets);
-        
-        // --- TUPLET RENDERING ---
-        const rhTupletObjs = measure.rightHandTuplets.map(g => {
-            const tupletNotes = g.indices.map(idx => rightStaveNotes[idx]);
-            const tuplet = new Tuplet(tupletNotes);
-            if (tupletNotes.length > 0) {
-                const direction = tupletNotes[0].getStemDirection();
-                tuplet.setTupletLocation(direction === StaveNote.STEM_UP ? Tuplet.LOCATION_TOP : Tuplet.LOCATION_BOTTOM);
-            }
-            return tuplet;
-        });
-        const lhTupletObjs = measure.leftHandTuplets.map(g => {
-            const tupletNotes = g.indices.map(idx => leftStaveNotes[idx]);
-            const tuplet = new Tuplet(tupletNotes);
-            if (tupletNotes.length > 0) {
-                const direction = tupletNotes[0].getStemDirection();
-                tuplet.setTupletLocation(direction === StaveNote.STEM_UP ? Tuplet.LOCATION_TOP : Tuplet.LOCATION_BOTTOM);
-            }
-            return tuplet;
-        });
-
-        const voices: Voice[] = [];
-        if (rightStaveNotes.length) voices.push(new Voice({ num_beats: measure.effectiveTimeSignature.numerator, beat_value: measure.effectiveTimeSignature.denominator }).setStrict(false).addTickables(rightStaveNotes));
-        if (leftStaveNotes.length) voices.push(new Voice({ num_beats: measure.effectiveTimeSignature.numerator, beat_value: measure.effectiveTimeSignature.denominator }).setStrict(false).addTickables(leftStaveNotes));
-        
-        if (voices.length) { 
-            new Formatter().joinVoices(voices).format(voices, measure.width - 15); 
-            
-            // Draw voices to their respective staves
-            if (rightStaveNotes.length) {
-                voices[0].draw(ctx, treble); 
-            }
-            
-            if (leftStaveNotes.length) {
-                // If both hands have notes, LH is the second voice in the array.
-                const lhVoice = rightStaveNotes.length > 0 ? voices[1] : voices[0];
-                lhVoice.draw(ctx, isDrum ? treble : (bass as Stave)); 
-            }
-            
-            rightBeams.forEach(b => b.setContext(ctx).draw()); 
-            leftBeams.forEach(b => b.setContext(ctx).draw()); 
-            rhTupletObjs.forEach(t => t.setContext(ctx).draw());
-            lhTupletObjs.forEach(t => t.setContext(ctx).draw());
-        }
-
-        const capture = (notes: StaveNote[], map: Map<string, VexFlowNoteInfo>) => notes.forEach(sn => { if (sn.isRest()) return; const info = map.get(sn.getAttribute('id')); if (info?.fragmentMapping) sn.noteHeads.forEach((nh, hi) => { const m = info.fragmentMapping!.find(x => x.keyIndex === hi); if (m) { const bb = nh.getBoundingBox(); if (bb) newNotePositions.set(m.fragmentId, bb); } }); });
-        capture(rightStaveNotes, rightInfoMap); capture(leftStaveNotes, leftInfoMap); currentX += measure.width;
       });
+      notePositionsRef.current.clear();
+      setRenderedLayoutId(prev => { onLayoutRendered(prev + 1); return prev + 1; });
+      return;
+    }
 
-      vexFlowData.tempoMarkings.forEach(mark => {
-        ctx.setFont('Arial', 14, 'bold').fillText(`♩ = ${mark.bpm}`, mark.x, mark.y);
+    canvasRefs.current.forEach(canvas => {
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+    });
+
+    const newNotePositions = new Map<string, BoundingBox>();
+
+    try {
+      const topStaveYOffset = Math.floor(vexFlowData.topStaveYOffset);
+      const verticalSpacing = Math.floor(vexFlowData.verticalSpacing);
+      const { instrumentMode } = vexFlowData;
+      const isDrum = instrumentMode === 'drum';
+
+      chunks.forEach((chunk, chunkIdx) => {
+        const canvas = canvasRefs.current[chunkIdx];
+        if (!canvas) return;
+
+        const renderer = new Renderer(canvas, Renderer.Backends.CANVAS);
+        renderer.resize(chunk.width, height);
+        const ctx = renderer.getContext();
+        (ctx as any).setFillStyle = function(style: string) { this.fillStyle = style; };
+
+        let currentX = chunk.chunkIndex === 0 ? HORIZONTAL_PADDING : 0;
+
+        chunk.measures.forEach((measure, mIdx) => {
+          const globalMeasureIdx = chunk.globalStartIndex + mIdx;
+          const treble = new Stave(currentX, topStaveYOffset, measure.width);
+          const bass = isDrum ? null : new Stave(currentX, topStaveYOffset + verticalSpacing, measure.width);
+          
+          treble.setMeasure(globalMeasureIdx + 1);
+
+          if (measure.startsRepeat) { 
+              treble.setBegBarType(Barline.type.REPEAT_BEGIN); 
+              if (bass) bass.setBegBarType(Barline.type.REPEAT_BEGIN); 
+          }
+          if (measure.endsRepeat) {
+              treble.setEndBarType(Barline.type.REPEAT_END);
+              if (bass) bass.setEndBarType(Barline.type.REPEAT_END);
+          } else if (measure.endTimeMs >= totalDurationMs) { 
+              treble.setEndBarType(Barline.type.END); 
+              if (bass) bass.setEndBarType(Barline.type.END); 
+          }
+          
+          treble.setContext(ctx).draw(); 
+          if (bass) bass.setContext(ctx).draw();
+          
+          if (bass) new StaveConnector(treble, bass).setType(StaveConnector.type.SINGLE_RIGHT).setContext(ctx).draw();
+          
+          const createNote = (info: VexFlowNoteInfo, isLeftHand: boolean) => { 
+              const n = new StaveNote({ ...info.vexNote }); 
+              if (info.vexNote.dots) { for (let i = 0; i < info.vexNote.dots; i++) n.addModifier(new Dot()); } 
+              if (info.accidentals) info.accidentals.forEach(acc => n.addModifier(new Accidental(acc.type), acc.index)); 
+              
+              n.setAttribute('id', info.vexNoteId); 
+              
+              const props = n.getKeyProps();
+              let onOrAboveCount = 0;
+              let belowCount = 0;
+              let maxDist = -1;
+              let farthestLine = 2;
+
+              props.forEach(p => {
+                  const dist = Math.abs(p.line - 2);
+                  if (dist > maxDist) {
+                      maxDist = dist;
+                      farthestLine = p.line;
+                  }
+                  if (p.line <= 2) onOrAboveCount++;
+                  else belowCount++;
+              });
+
+              let direction: number;
+              if (onOrAboveCount > belowCount) {
+                  direction = StaveNote.STEM_UP;
+              } else if (belowCount > onOrAboveCount) {
+                  direction = StaveNote.STEM_DOWN;
+              } else {
+                  direction = farthestLine <= 2 ? StaveNote.STEM_UP : StaveNote.STEM_DOWN;
+              }
+              
+              n.setStemDirection(direction);
+              return n; 
+          };
+          const rightStaveNotes: StaveNote[] = [];
+          const rightInfoMap = new Map<string, VexFlowNoteInfo>();
+          measure.rightHand.forEach(info => {
+              const isDuplicate = rightStaveNotes.some(n => {
+                  const rhInfo = rightInfoMap.get(n.getAttribute('id'));
+                  return rhInfo && Math.abs(rhInfo.timeMs - info.timeMs) < 1 && rhInfo.midiValue === info.midiValue;
+              });
+              if (!isDuplicate) {
+                  const n = createNote(info, false);
+                  rightStaveNotes.push(n);
+                  rightInfoMap.set(info.vexNoteId, info);
+              }
+          });
+
+          const leftStaveNotes: StaveNote[] = [];
+          const leftInfoMap = new Map<string, VexFlowNoteInfo>();
+          measure.leftHand.forEach(info => {
+              const isDuplicateInternal = leftStaveNotes.some(n => {
+                  const lhInfo = leftInfoMap.get(n.getAttribute('id'));
+                  return lhInfo && Math.abs(lhInfo.timeMs - info.timeMs) < 1 && lhInfo.midiValue === info.midiValue;
+              });
+              
+              const isDuplicateAcross = rightStaveNotes.some(n => {
+                  const rhInfo = rightInfoMap.get(n.getAttribute('id'));
+                  return rhInfo && Math.abs(rhInfo.timeMs - info.timeMs) < 1 && rhInfo.midiValue === info.midiValue;
+              });
+              
+              if (!isDuplicateInternal && !isDuplicateAcross) {
+                  const n = createNote(info, true);
+                  leftStaveNotes.push(n);
+                  leftInfoMap.set(info.vexNoteId, info);
+              }
+          });
+          
+          const groupBeams = (notes: StaveNote[], timeSig: TimeSignatureInfo, tuplets: VexFlowTupletGroup[]) => {
+              const beams: Beam[] = []; 
+              let current: StaveNote[] = [];
+              const { numerator, denominator } = timeSig;
+
+              const applyStemDirectionToGroup = (group: StaveNote[]) => {
+                  if (group.length === 0) return;
+                  
+                  let maxDist = -1;
+                  let farthestLine = 2;
+                  let onOrAboveCount = 0;
+                  let belowCount = 0;
+
+                  group.forEach(n => {
+                      const props = n.getKeyProps();
+                      props.forEach(p => {
+                          const dist = Math.abs(p.line - 2);
+                          if (dist > maxDist) {
+                              maxDist = dist;
+                              farthestLine = p.line;
+                          }
+                          if (p.line <= 2) onOrAboveCount++;
+                          else belowCount++;
+                      });
+                  });
+                  
+                  let direction: number;
+                  if (onOrAboveCount > belowCount) {
+                      direction = StaveNote.STEM_UP;
+                  } else if (belowCount > onOrAboveCount) {
+                      direction = StaveNote.STEM_DOWN;
+                  } else {
+                      direction = farthestLine <= 2 ? StaveNote.STEM_UP : StaveNote.STEM_DOWN;
+                  }
+                  
+                  group.forEach(n => n.setStemDirection(direction));
+              };
+
+              const tupletIndices = new Set<number>();
+              tuplets.forEach(t => t.indices.forEach(idx => tupletIndices.add(idx)));
+
+              const isQuadOrCut = (numerator === 4 && denominator === 4) || (numerator === 2 && denominator === 2);
+              const isTripleOrCompound = (numerator === 3 && denominator === 4) ||
+                                         (numerator === 6 && denominator === 8) ||
+                                         (numerator === 12 && denominator === 8) ||
+                                         (numerator === 3 && denominator === 8);
+
+              for (let i = 0; i < notes.length; i++) {
+                  const note = notes[i];
+                  const duration = note.getDuration();
+                  const isBeamableDuration = ['8', '16', '32', '64'].some(d => duration.includes(d)); 
+                  const isRest = note.isRest();
+                  const isInTuplet = tupletIndices.has(i);
+
+                  if (!isRest && isBeamableDuration && !isInTuplet) {
+                      current.push(note);
+                      const hasDotted = current.some(n => n.getModifiers().some(m => m instanceof Dot));
+                      let limit = 4; 
+                      if (isQuadOrCut) { limit = hasDotted ? 3 : 4; } else if (isTripleOrCompound) { limit = hasDotted ? 4 : 3; }
+                      
+                      const nextNote = notes[i + 1];
+                      const nextDuration = nextNote ? nextNote.getDuration() : '';
+                      const nextIsBeamable = nextNote && !nextNote.isRest() && ['8', '16', '32', '64'].some(d => nextDuration.includes(d));
+                      const nextIsInTuplet = nextNote && tupletIndices.has(i + 1);
+
+                      if (current.length >= limit || !nextIsBeamable || nextIsInTuplet) {
+                          if (current.length > 1) {
+                              applyStemDirectionToGroup(current);
+                              beams.push(new Beam(current));
+                          }
+                          current = [];
+                      }
+                  } else {
+                      if (current.length > 1) {
+                          applyStemDirectionToGroup(current);
+                          beams.push(new Beam(current));
+                      }
+                      current = [];
+                  }
+              }
+              if (current.length > 1) {
+                  applyStemDirectionToGroup(current);
+                  beams.push(new Beam(current));
+              }
+
+              tuplets.forEach(t => {
+                  const tupletNotes = t.indices.map(idx => notes[idx]);
+                  const beamableTupletNotes = tupletNotes.filter(n => !n.isRest());
+                  
+                  if (beamableTupletNotes.length > 1) {
+                      const allNotesBeamable = beamableTupletNotes.every(n => {
+                          const dur = n.getDuration();
+                          return ['8', '16', '32', '64'].some(d => dur.includes(d));
+                      });
+                      
+                      if (allNotesBeamable) {
+                          applyStemDirectionToGroup(beamableTupletNotes);
+                          beams.push(new Beam(beamableTupletNotes));
+                      }
+                  }
+              });
+
+              return beams;
+          };
+
+          const rightBeams = groupBeams(rightStaveNotes, measure.effectiveTimeSignature, measure.rightHandTuplets);
+          const leftBeams = groupBeams(leftStaveNotes, measure.effectiveTimeSignature, measure.leftHandTuplets);
+          
+          const rhTupletObjs = measure.rightHandTuplets.map(g => {
+              const tupletNotes = g.indices.map(idx => rightStaveNotes[idx]);
+              const tuplet = new Tuplet(tupletNotes);
+              if (tupletNotes.length > 0) {
+                  const direction = tupletNotes[0].getStemDirection();
+                  tuplet.setTupletLocation(direction === StaveNote.STEM_UP ? Tuplet.LOCATION_TOP : Tuplet.LOCATION_BOTTOM);
+              }
+              return tuplet;
+          });
+          const lhTupletObjs = measure.leftHandTuplets.map(g => {
+              const tupletNotes = g.indices.map(idx => leftStaveNotes[idx]);
+              const tuplet = new Tuplet(tupletNotes);
+              if (tupletNotes.length > 0) {
+                  const direction = tupletNotes[0].getStemDirection();
+                  tuplet.setTupletLocation(direction === StaveNote.STEM_UP ? Tuplet.LOCATION_TOP : Tuplet.LOCATION_BOTTOM);
+              }
+              return tuplet;
+          });
+
+          const voices: Voice[] = [];
+          if (rightStaveNotes.length) voices.push(new Voice({ num_beats: measure.effectiveTimeSignature.numerator, beat_value: measure.effectiveTimeSignature.denominator }).setStrict(false).addTickables(rightStaveNotes));
+          if (leftStaveNotes.length) voices.push(new Voice({ num_beats: measure.effectiveTimeSignature.numerator, beat_value: measure.effectiveTimeSignature.denominator }).setStrict(false).addTickables(leftStaveNotes));
+          
+          if (voices.length) { 
+              new Formatter().joinVoices(voices).format(voices, measure.width - 15); 
+              
+              if (rightStaveNotes.length) {
+                  voices[0].draw(ctx, treble); 
+              }
+              
+              if (leftStaveNotes.length) {
+                  const lhVoice = rightStaveNotes.length > 0 ? voices[1] : voices[0];
+                  lhVoice.draw(ctx, isDrum ? treble : (bass as Stave)); 
+              }
+              
+              rightBeams.forEach(b => b.setContext(ctx).draw()); 
+              leftBeams.forEach(b => b.setContext(ctx).draw()); 
+              rhTupletObjs.forEach(t => t.setContext(ctx).draw());
+              lhTupletObjs.forEach(t => t.setContext(ctx).draw());
+          }
+
+          const capture = (notes: StaveNote[], map: Map<string, VexFlowNoteInfo>) => notes.forEach(sn => { 
+              if (sn.isRest()) return; 
+              const info = map.get(sn.getAttribute('id')); 
+              if (info?.fragmentMapping) {
+                  sn.noteHeads.forEach((nh, hi) => { 
+                      const m = info.fragmentMapping!.find(x => x.keyIndex === hi); 
+                      if (m) { 
+                          const bb = nh.getBoundingBox(); 
+                          if (bb) {
+                              const absoluteX = chunk.startX + bb.getX();
+                              const adjustedBox = {
+                                  getX: () => absoluteX,
+                                  getY: () => bb.getY(),
+                                  getW: () => bb.getW(),
+                                  getH: () => bb.getH(),
+                              };
+                              newNotePositions.set(m.fragmentId, adjustedBox as BoundingBox); 
+                          }
+                      } 
+                  }); 
+              }
+          });
+          capture(rightStaveNotes, rightInfoMap); 
+          capture(leftStaveNotes, leftInfoMap);
+
+          currentX += measure.width;
+        });
       });
 
       notePositionsRef.current = newNotePositions; 
       setRenderedLayoutId(prev => prev + 1);
     } catch (e) { 
         console.error("VexFlow Rendering Error:", e);
-        if(renderContainer) while (renderContainer.lastChild) renderContainer.removeChild(renderContainer.lastChild); 
+        canvasRefs.current.forEach(canvas => {
+            if (canvas) {
+                const ctx = canvas.getContext('2d');
+                if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+        });
         notePositionsRef.current.clear();
-        // IMPORTANT: Signal that rendering "finished" (even if failed) so loading spinner stops
         setRenderedLayoutId(prev => prev + 1);
     }
-    return () => { if (renderContainer) while (renderContainer.lastChild) renderContainer.removeChild(renderContainer.lastChild); notePositionsRef.current.clear(); };
-  }, [vexFlowData, width, height, keySignature, timeSignature, totalDurationMs, onLayoutRendered]);
+  }, [vexFlowData, chunks, width, height, keySignature, timeSignature, totalDurationMs, onLayoutRendered]);
 
   useEffect(() => {
     if (!vexFlowData) { setHighlights([]); return; }
@@ -540,7 +591,7 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
       if (color) {
         vexFlowData.noteIdToFragmentsMap.get(activeInfo.noteId)?.forEach(fragment => {
           const position = notePositionsRef.current.get(fragment.fragmentId);
-          if (position) newHighlights.push({ key: fragment.fragmentId, x: position.getX(), y: position.getY(), w: position.getW(), h: position.getH(), color: color });
+          if (position) newHighlights.push({ key: fragment.fragmentId, x: position.getX() | 0, y: position.getY() | 0, w: position.getW() | 0, h: position.getH() | 0, color: color });
         });
       }
     });
@@ -697,7 +748,19 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
         style={{ left: `${SIDEBAR_WIDTH}px`, width: `calc(100% - ${SIDEBAR_WIDTH}px)`}}
       >
         <div ref={scrollContainerRef} style={{ position: 'relative', width: totalMusicWidth, height, willChange: 'transform' }}>
-          <div ref={vexFlowRenderRef} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }} />
+          {chunks.map((chunk, chunkIdx) => (
+            <canvas
+              key={`chunk-${chunkIdx}`}
+              ref={el => { canvasRefs.current[chunkIdx] = el; }}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: `${chunk.startX - (chunk.chunkIndex === 0 ? 0 : 0)}px`,
+                width: `${chunk.width}px`,
+                height: `${height}px`
+              }}
+            />
+          ))}
           <svg style={{ position: 'absolute', top: 0, left: 0, width: totalMusicWidth, height: '100%', pointerEvents: 'none', zIndex: 15 }}>
             {vexFlowData?.octaveLines.map((line, index) => {
               const y = line.startY;
@@ -714,8 +777,11 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
                   </g>
               );
             })}
+            {vexFlowData?.tempoMarkings.map((mark, index) => (
+              <text key={`tempo-${index}`} x={mark.x} y={mark.y} fontSize="14" fontWeight="bold" fill="#000">♩ = {mark.bpm}</text>
+            ))}
           </svg>
-          {highlights.map(h => <div key={h.key} style={{ position: 'absolute', left: `${h.x}px`, top: `${h.y}px`, width: `${h.w}px`, height: `${h.h}px`, backgroundColor: h.color, borderRadius: '50%', opacity: lowDetailMode ? 0.7 : 0.5, pointerEvents: 'none', zIndex: 5 }}/>)}
+          {highlights.map(h => <div key={h.key} style={{ position: 'absolute', left: `${h.x | 0}px`, top: `${h.y | 0}px`, width: `${h.w | 0}px`, height: `${h.h | 0}px`, backgroundColor: h.color, borderRadius: '50%', opacity: lowDetailMode ? 0.7 : 0.5, pointerEvents: 'none', zIndex: 5 }}/>)}
         </div>
       </div>
       <div ref={cursorRef} className="cursor-line" style={{ left: `${PLAY_LINE_X}px` }} />

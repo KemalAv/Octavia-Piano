@@ -168,7 +168,16 @@ export async function parseMidiData(
         let currentTick = 0;
         let tsIndex = 0;
 
-        while (currentTick < midi.durationTicks) {
+        let maxTick = midi.durationTicks;
+        midi.tracks.forEach(track => {
+            track.notes.forEach(note => {
+                if (note.ticks + note.durationTicks > maxTick) {
+                    maxTick = note.ticks + note.durationTicks;
+                }
+            });
+        });
+
+        while (currentTick <= maxTick) {
             barLinesMs.push(Math.round(midi.header.ticksToSeconds(currentTick) * 1000) + INITIAL_PLAYBACK_DELAY_MS);
             while (tsIndex < timeSignatures.length - 1 && timeSignatures[tsIndex + 1].ticks <= currentTick) {
                 tsIndex++;
@@ -323,6 +332,7 @@ export async function parseMusicXmlData(
         let cursorMs = 0;
         let divisions = 1;
         let currentTempoBpm = DEFAULT_MUSICXML_TEMPO_BPM;
+        let currentTsig = { numerator: 4, denominator: 4 };
         const partId = part.getAttribute('id') || `P${partIndex + 1}`;
 
         let repeatStartTick = 0;
@@ -336,6 +346,15 @@ export async function parseMusicXmlData(
             if (partIndex === 0) {
                 barLineTimeSet.add(cursorMs);
             }
+
+            const measureStartMs = cursorMs;
+            const measureStartTicks = cursorTicks;
+            let maxVoiceMs = 0;
+            let maxVoiceTicks = 0;
+            const voiceOffsetsMs = new Map<string, number>();
+            const voiceOffsetsTicks = new Map<string, number>();
+            let currentVoice = '1';
+
             const elements = Array.from(measure.children);
             elements.forEach(element => {
                 if (element.tagName === 'attributes') {
@@ -348,6 +367,7 @@ export async function parseMusicXmlData(
                         const beatType = timeEl.getElementsByTagName('beat-type')[0]?.textContent;
                         if (beats && beatType) {
                             const newTimeSig = { numerator: parseInt(beats, 10), denominator: parseInt(beatType, 10) };
+                            currentTsig = newTimeSig;
                             if (initialTimeSignature === null) {
                                 initialTimeSignature = newTimeSig;
                             }
@@ -381,8 +401,8 @@ export async function parseMusicXmlData(
                         if (direction === 'forward') {
                             isInsideRepeat = true;
                             notesInRepeatSection = [];
-                            repeatStartTick = cursorTicks;
-                            repeatStartMs = cursorMs;
+                            repeatStartTick = measureStartTicks;
+                            repeatStartMs = measureStartMs;
                             repeatStartIndexInRawNotes = rawNotes.length;
                         } else if (direction === 'backward') {
                             if (isInsideRepeat && notesInRepeatSection.length > 0) {
@@ -407,23 +427,30 @@ export async function parseMusicXmlData(
                         }
                     }
                 } else if (element.tagName === 'note') {
+                    const voiceEl = element.getElementsByTagName('voice')[0];
+                    if (voiceEl && voiceEl.textContent) {
+                        currentVoice = voiceEl.textContent;
+                    }
+                    const vMs = voiceOffsetsMs.get(currentVoice) || 0;
+                    const vTicks = voiceOffsetsTicks.get(currentVoice) || 0;
+
                     const isRest = element.getElementsByTagName('rest').length > 0;
                     const durationEl = element.getElementsByTagName('duration')[0];
                     const durationTicks = durationEl ? parseInt(durationEl.textContent || '0', 10) : 0;
                     const isChord = element.getElementsByTagName('chord').length > 0;
 
-                    // Removed duration filter (durationTicks * 32 < divisions)
-                    // to ensure all notes, including very short drum notes, are parsed.
                     if (durationTicks < 0) {
                         if (!isChord) {
                             const durationMs = musicXmlDurationToMs(durationTicks, divisions, currentTempoBpm);
-                            cursorTicks += durationTicks;
-                            cursorMs += durationMs;
+                            voiceOffsetsMs.set(currentVoice, vMs + durationMs);
+                            voiceOffsetsTicks.set(currentVoice, vTicks + durationTicks);
                         }
-                        return; // continue to next element in forEach
+                        return;
                     }
 
                     const durationMs = musicXmlDurationToMs(durationTicks, divisions, currentTempoBpm);
+                    const noteStartTimeMs = measureStartMs + vMs;
+                    const noteStartTicks = measureStartTicks + vTicks;
 
                     if (!isRest) {
                         const pitchEl = element.getElementsByTagName('pitch')[0];
@@ -436,8 +463,6 @@ export async function parseMusicXmlData(
                             const noteName = midiNoteToNameMap.get(midiNote);
 
                             if (noteName) {
-                                const startTimeMs = cursorMs;
-
                                 let hand: 'left' | 'right';
                                 if (parts.length > 1) {
                                     hand = (partIndex === 0) ? 'right' : 'left';
@@ -447,14 +472,14 @@ export async function parseMusicXmlData(
 
                                 const newNote = {
                                     midi: midiNote,
-                                    timeMs: startTimeMs,
+                                    timeMs: noteStartTimeMs,
                                     durationMs: durationMs,
                                     name: noteName,
                                     pitchClass: step + (alter === 1 ? '#' : alter === -1 ? 'b' : ''),
                                     velocity: 0.75,
                                     hand: hand,
                                     originalTrackSourceInfo: `musicxml_part_${partId}`,
-                                    ticks: cursorTicks,
+                                    ticks: noteStartTicks,
                                     durationTicks: durationTicks
                                 };
                                 rawNotes.push(newNote);
@@ -469,22 +494,45 @@ export async function parseMusicXmlData(
                     }
 
                     if (!isChord) {
-                        cursorTicks += durationTicks;
-                        cursorMs += durationMs;
+                        const nextVMs = vMs + durationMs;
+                        const nextVTicks = vTicks + durationTicks;
+                        voiceOffsetsMs.set(currentVoice, nextVMs);
+                        voiceOffsetsTicks.set(currentVoice, nextVTicks);
+                        maxVoiceMs = Math.max(maxVoiceMs, nextVMs);
+                        maxVoiceTicks = Math.max(maxVoiceTicks, nextVTicks);
                     }
                 } else if (element.tagName === 'backup') {
                     const durationTicks = parseInt(element.getElementsByTagName('duration')[0]?.textContent || '0', 10);
                     const durationMs = musicXmlDurationToMs(durationTicks, divisions, currentTempoBpm);
-                    cursorTicks -= durationTicks;
-                    cursorMs -= durationMs;
+                    const vMs = voiceOffsetsMs.get(currentVoice) || 0;
+                    const vTicks = voiceOffsetsTicks.get(currentVoice) || 0;
+                    voiceOffsetsMs.set(currentVoice, Math.max(0, vMs - durationMs));
+                    voiceOffsetsTicks.set(currentVoice, Math.max(0, vTicks - durationTicks));
                 } else if (element.tagName === 'forward') {
                     const durationTicks = parseInt(element.getElementsByTagName('duration')[0]?.textContent || '0', 10);
                     const durationMs = musicXmlDurationToMs(durationTicks, divisions, currentTempoBpm);
-                    cursorTicks += durationTicks;
-                    cursorMs += durationMs;
+                    const vMs = voiceOffsetsMs.get(currentVoice) || 0;
+                    const vTicks = voiceOffsetsTicks.get(currentVoice) || 0;
+                    const nextVMs = vMs + durationMs;
+                    const nextVTicks = vTicks + durationTicks;
+                    voiceOffsetsMs.set(currentVoice, nextVMs);
+                    voiceOffsetsTicks.set(currentVoice, nextVTicks);
+                    maxVoiceMs = Math.max(maxVoiceMs, nextVMs);
+                    maxVoiceTicks = Math.max(maxVoiceTicks, nextVTicks);
                 }
             });
+
+            const measureDurationTicks = currentTsig.numerator * (4 / currentTsig.denominator) * divisions;
+            const measureDurationMs = musicXmlDurationToMs(measureDurationTicks, divisions, currentTempoBpm);
+            const actualMeasureDurationMs = Math.max(measureDurationMs, maxVoiceMs);
+            const actualMeasureDurationTicks = Math.max(measureDurationTicks, maxVoiceTicks);
+
+            cursorMs = measureStartMs + actualMeasureDurationMs;
+            cursorTicks = measureStartTicks + actualMeasureDurationTicks;
         });
+        if (partIndex === 0) {
+            barLineTimeSet.add(cursorMs);
+        }
     });
 
     const uniqueNotesMap = new Map<string, Omit<MidiNotePlaybackItem, 'noteId'>>();

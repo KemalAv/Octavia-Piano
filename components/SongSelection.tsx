@@ -1,5 +1,5 @@
 
-import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useRef, useState, useEffect, useCallback, useMemo, memo } from 'react';
 import { ExtendedResult, OnlineSong } from '../types';
 import DifficultyAnalysis from './DifficultyAnalysis';
 import OnlineSongBrowser from './OnlineSongBrowser';
@@ -21,7 +21,7 @@ interface SongSelectionProps {
   instrumentMode: 'piano' | 'drum';
 }
 
-const SongSelection: React.FC<SongSelectionProps> = ({
+const SongSelection: React.FC<SongSelectionProps> = memo(({
   onFileLoaded,
   onSongSelected,
   onBack,
@@ -170,25 +170,25 @@ const SongSelection: React.FC<SongSelectionProps> = ({
     onFileLoaded(file, null, null, null, null);
   };
 
-  const buttonBaseStyle = "w-full font-bold py-3 px-6 rounded-lg text-lg transition-all duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-opacity-50 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100 shadow-lg";
-  const primaryButtonStyle = "bg-cyan-600 hover:bg-cyan-500 text-white shadow-cyan-500/20";
+  const buttonBaseStyle = "w-full font-bold py-3 px-6 rounded-lg text-lg transition-all duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-opacity-50 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100 shadow-md";
+  const primaryButtonStyle = "bg-cyan-600 hover:bg-cyan-500 text-white";
   
   const tabStyle = "flex-1 py-4 text-center font-bold text-lg cursor-pointer transition-all duration-200 border-b-4 relative overflow-hidden";
-  const activeTabStyle = "border-cyan-500 text-white bg-slate-800/50 shadow-[inset_0_-10px_20px_rgba(6,182,212,0.1)]";
+  const activeTabStyle = "border-cyan-500 text-white bg-slate-800/50";
   const inactiveTabStyle = "border-transparent text-slate-500 hover:text-slate-300 hover:bg-slate-800/30";
 
   const showLoading = isLoading || isOnlineLoading;
 
   return (
-    <div className={`fixed inset-0 bg-slate-950/60 flex flex-col items-center justify-center z-40 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'opacity-100' : 'opacity-0'}`}>
+    <div className={`fixed inset-0 bg-slate-950/40 flex flex-col items-center justify-center z-40 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'opacity-100' : 'opacity-0'}`}>
        
        <div className="absolute top-4 left-4" style={{ zIndex: 9999 }}>
-            <button onClick={onBack} className={`flex items-center gap-2 text-slate-400 hover:text-white transition-colors px-4 py-2 rounded-full border border-white/10 hover:border-white/30 bg-slate-800/80`}>
+            <button onClick={onBack} className={`flex items-center gap-2 text-slate-400 hover:text-white transition-colors px-4 py-2 rounded-full border border-white/10 bg-slate-800/80`}>
                 <span>&larr;</span> <span>Back</span>
             </button>
        </div>
 
-      <div className={`border border-white/10 rounded-2xl shadow-2xl text-center max-w-5xl w-full max-h-[90vh] flex flex-col overflow-hidden transform transition-transform duration-300 ease-in-out bg-slate-900/80 ${isRendered ? 'scale-100' : 'scale-95'}`}>
+      <div className={`border border-white/10 rounded-2xl shadow-xl text-center max-w-5xl w-full max-h-[90vh] flex flex-col overflow-hidden transform transition-transform duration-300 ease-in-out bg-slate-900/90 ${isRendered ? 'scale-100' : 'scale-95'}`}>
         
         <div className="flex border-b border-white/5 bg-black/20">
             <div 
@@ -243,7 +243,7 @@ const SongSelection: React.FC<SongSelectionProps> = ({
                         <div className="mt-6 flex gap-4 justify-center">
                             <button 
                                 onClick={onSongSelected}
-                                className={`${buttonBaseStyle} ${primaryButtonStyle} max-w-sm animate-bounce-slight shadow-[0_0_20px_rgba(6,182,212,0.4)] hover:shadow-[0_0_30px_rgba(6,182,212,0.6)]`}
+                                className={`${buttonBaseStyle} ${primaryButtonStyle} max-w-sm`}
                             >
                                 START GAME
                             </button>
@@ -533,6 +533,6 @@ const SongSelection: React.FC<SongSelectionProps> = ({
       )}
     </div>
   );
-};
+});
 
 export default SongSelection;

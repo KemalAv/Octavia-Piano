@@ -16,6 +16,8 @@ export class AcousticPianoService {
   private hpsOrder: number = 4; // Number of harmonic downsamplings
   private bufferLength: number;
   private frequencyDataBuffers: Float32Array[];
+  private combinedHpsBuffer: Float32Array;
+  private hpsBuffers: Float32Array[];
   
   // Debouncing / Smoothing
   private noteOnThreshold: number = 4; // Increased for better stability (PDF suggests 7 frames window)
@@ -33,6 +35,8 @@ export class AcousticPianoService {
     this.fftSize = this.analysers[0].fftSize;
     this.bufferLength = this.analysers[0].frequencyBinCount;
     this.frequencyDataBuffers = this.analysers.map(() => new Float32Array(this.bufferLength));
+    this.combinedHpsBuffer = new Float32Array(this.bufferLength);
+    this.hpsBuffers = this.analysers.map(() => new Float32Array(this.bufferLength));
   }
 
   /**
@@ -42,14 +46,13 @@ export class AcousticPianoService {
    */
   public detectPitch(thresholds: MicThresholds): PitchDetectionResult[] {
     this.detectedNotesThisFrame.clear();
-    
-    const combinedHpsBuffer = new Float32Array(this.bufferLength);
+    this.combinedHpsBuffer.fill(0);
     
     // Process each channel
     for (let ch = 0; ch < this.analysers.length; ch++) {
       this.analysers[ch].getFloatFrequencyData(this.frequencyDataBuffers[ch] as any);
       
-      const hpsBuffer = new Float32Array(this.bufferLength);
+      const hpsBuffer = this.hpsBuffers[ch];
       for (let i = 0; i < this.bufferLength; i++) {
         hpsBuffer[i] = this.frequencyDataBuffers[ch][i];
       }
@@ -78,7 +81,7 @@ export class AcousticPianoService {
       
       // Accumulate into combined buffer
       for (let i = 0; i < this.bufferLength; i++) {
-        combinedHpsBuffer[i] += hpsBuffer[i] / this.analysers.length;
+        this.combinedHpsBuffer[i] += hpsBuffer[i] / this.analysers.length;
       }
     }
 
@@ -111,14 +114,14 @@ export class AcousticPianoService {
     const rangeAdjustment = midi >= 60 ? 10 : 0; 
     const hpsThreshold = (threshold + rangeAdjustment) * effectiveHpsOrder;
 
-    if (combinedHpsBuffer[i] > hpsThreshold && 
-        combinedHpsBuffer[i] > combinedHpsBuffer[i - 1] && 
-        combinedHpsBuffer[i] > combinedHpsBuffer[i + 1]) {
+    if (this.combinedHpsBuffer[i] > hpsThreshold && 
+        this.combinedHpsBuffer[i] > this.combinedHpsBuffer[i - 1] && 
+        this.combinedHpsBuffer[i] > this.combinedHpsBuffer[i + 1]) {
         
         // Quadratic interpolation for better frequency accuracy
-        const alpha = combinedHpsBuffer[i - 1];
-        const beta = combinedHpsBuffer[i];
-        const gamma = combinedHpsBuffer[i + 1];
+        const alpha = this.combinedHpsBuffer[i - 1];
+        const beta = this.combinedHpsBuffer[i];
+        const gamma = this.combinedHpsBuffer[i + 1];
         const p = 0.5 * (alpha - gamma) / (alpha - 2 * beta + gamma);
         
         const interpolatedFreq = (isFinite(p) && !isNaN(p))

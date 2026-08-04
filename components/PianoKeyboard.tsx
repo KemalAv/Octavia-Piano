@@ -1,8 +1,7 @@
-
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useRef, useEffect, useMemo, memo, useState } from 'react';
 import { PianoKeyDefinition, KeyPosition, ActiveMidiNoteInfo, LayoutDimensions, QwertyLayout } from '../types';
 import { PIANO_KEYS_CONFIG, QWERTY_MINI_KEYBOARD_MAPPING, MIRP_KEYBOARD_MAPPING, KEY_CODES_TO_DISPLAY } from '../constants';
-import PianoKey from './PianoKey';
+import { hexToRgba, lightenHex } from '../utils';
 
 interface PianoKeyboardProps {
   keyPositions: KeyPosition[];
@@ -17,66 +16,178 @@ interface PianoKeyboardProps {
   showQwertyShortcuts: boolean;
   qwertyCurrentOctaveShift: number;
   width: number;
-  layoutConfig: LayoutDimensions; // New Prop for dynamic sizing
-  qwertyLayout?: QwertyLayout; // NEW: Optional prop for layout type
-  mirpTranspose?: number; // NEW: Optional prop for MIRP transpose
+  layoutConfig: LayoutDimensions; // Prop for dynamic sizing
+  qwertyLayout?: QwertyLayout; // Optional prop for layout type
+  mirpTranspose?: number; // Optional prop for MIRP transpose
   isInteractive?: boolean;
   lowDetailMode?: boolean;
+  gameplayStyle?: 'piano' | 'computer'; // Optional prop to determine gameplay mode
 }
 
-const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ 
-  keyPositions, 
+const PianoKeyboard: React.FC<PianoKeyboardProps> = memo(({
+  keyPositions,
   userSustainedKeys,
-  userActiveKeys, 
-  activeMidiNotesInfo, 
+  userActiveKeys,
+  activeMidiNotesInfo,
   onUiKeyPress,
   onUiKeyRelease,
   rightHandColor,
   leftHandColor,
   hitNoteColor,
   showQwertyShortcuts,
-  qwertyCurrentOctaveShift,
+  qwertyCurrentOctaveShift = 0,
   width,
   layoutConfig,
   qwertyLayout = 'default',
   mirpTranspose = 0,
   isInteractive = true,
   lowDetailMode = false,
+  gameplayStyle = 'piano',
 }) => {
-  const keyDefMap = React.useMemo(() => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [backgroundCanvas, setBackgroundCanvas] = useState<HTMLCanvasElement | null>(null);
+
+  const keyDefMap = useMemo(() => {
     const map = new Map<string, PianoKeyDefinition>();
     PIANO_KEYS_CONFIG.forEach(key => map.set(key.name, key));
     return map;
   }, []);
 
-  const activeTouches = useRef<Map<number, string>>(new Map()); // <touch identifier, keyName>
-  
+  const activePointers = useRef<Map<number, string>>(new Map()); // <pointerId, keyName>
   const isMouseDownRef = useRef(false);
   const activeMouseKeyRef = useRef<string | null>(null);
 
-  const whiteKeysPos = React.useMemo(() => keyPositions.filter(kp => kp.type === 'white'), [keyPositions]);
-  const blackKeysPos = React.useMemo(() => keyPositions.filter(kp => kp.type === 'black'), [keyPositions]);
+  const whiteKeysPos = useMemo(() => keyPositions.filter(kp => kp.type === 'white'), [keyPositions]);
+  const blackKeysPos = useMemo(() => keyPositions.filter(kp => kp.type === 'black'), [keyPositions]);
 
+  const totalHeight = layoutConfig.whiteKeyHeight + layoutConfig.keyLabelHeight;
+
+  // Unified helper to compute QWERTY key label for a key, shared across rendering loops
+  const getQwertyShortcut = useCallback((keyDef: PianoKeyDefinition): string => {
+    const shouldShow = showQwertyShortcuts || gameplayStyle === 'computer';
+    if (!shouldShow) return '';
+    if (qwertyLayout === 'mirp') {
+      const targetBaseMidi = keyDef.midiNote - mirpTranspose;
+      const matching = MIRP_KEYBOARD_MAPPING.filter(m => m.midi === targetBaseMidi);
+      if (matching.length > 0) return matching[0].label;
+    } else {
+      const shiftVal = typeof qwertyCurrentOctaveShift === 'number' && !isNaN(qwertyCurrentOctaveShift) ? qwertyCurrentOctaveShift : 0;
+      const matching = QWERTY_MINI_KEYBOARD_MAPPING.filter(m => {
+        const mappedMidi = m.midiBase + (shiftVal * 12);
+        return Number(mappedMidi) === Number(keyDef.midiNote);
+      });
+      if (matching.length > 0) {
+        return matching.map(m => {
+          const keyLookup = m.qwertyKey.toLowerCase();
+          return KEY_CODES_TO_DISPLAY[keyLookup] || keyLookup.replace('key', '').toUpperCase();
+        }).join(' | ');
+      }
+    }
+    return '';
+  }, [showQwertyShortcuts, gameplayStyle, qwertyLayout, mirpTranspose, qwertyCurrentOctaveShift]);
+
+  // Background Caching Effect
+  useEffect(() => {
+    if (width <= 0 || totalHeight <= 0) return;
+    
+    const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+    const bgCanvas = document.createElement('canvas');
+    bgCanvas.width = Math.floor(width * dpr);
+    bgCanvas.height = Math.floor(totalHeight * dpr);
+    const bgCtx = bgCanvas.getContext('2d');
+    if (!bgCtx) return;
+    
+    bgCtx.scale(dpr, dpr);
+    
+    const { whiteKeyHeight, blackKeyHeight, keyLabelHeight: labelHeight } = layoutConfig;
+    const strokeWidth = 1;
+
+    // 1. Draw Static White Keys
+    whiteKeysPos.forEach((kp) => {
+      const keyDef = keyDefMap.get(kp.name);
+      if (!keyDef) return;
+
+      bgCtx.fillStyle = '#ffffff';
+      bgCtx.fillRect(kp.x, 0, kp.width, whiteKeyHeight);
+
+      bgCtx.strokeStyle = '#cbd5e1';
+      bgCtx.lineWidth = strokeWidth;
+      bgCtx.strokeRect(kp.x + 0.5, 0.5, kp.width - 1, whiteKeyHeight - 0.5);
+
+      const qwertyText = getQwertyShortcut(keyDef);
+      if (qwertyText) {
+        bgCtx.fillStyle = '#64748b';
+        bgCtx.font = 'bold 10px sans-serif';
+        bgCtx.textAlign = 'center';
+        bgCtx.textBaseline = 'bottom';
+        bgCtx.fillText(qwertyText, kp.x + kp.width / 2, whiteKeyHeight - 8);
+      }
+    });
+
+    // 2. Draw Static Black Keys
+    blackKeysPos.forEach((kp) => {
+      const keyDef = keyDefMap.get(kp.name);
+      if (!keyDef) return;
+
+      bgCtx.fillStyle = '#0f172a';
+      bgCtx.fillRect(kp.x, 0, kp.width, blackKeyHeight);
+
+      bgCtx.strokeStyle = '#000000';
+      bgCtx.lineWidth = strokeWidth;
+      bgCtx.strokeRect(kp.x + 0.5, 0.5, kp.width - 1, blackKeyHeight - 0.5);
+
+      const qwertyText = getQwertyShortcut(keyDef);
+      if (qwertyText) {
+        bgCtx.fillStyle = '#94a3b8';
+        bgCtx.font = 'bold 9px sans-serif';
+        bgCtx.textAlign = 'center';
+        bgCtx.textBaseline = 'bottom';
+        bgCtx.fillText(qwertyText, kp.x + kp.width / 2, blackKeyHeight - 6);
+      }
+    });
+
+    // 3. Draw Key Label Bar at bottom
+    bgCtx.fillStyle = '#f1f5f9';
+    bgCtx.fillRect(0, whiteKeyHeight, width, labelHeight);
+
+    bgCtx.strokeStyle = '#cbd5e1';
+    bgCtx.lineWidth = 1;
+    bgCtx.beginPath();
+    bgCtx.moveTo(0, whiteKeyHeight + 0.5);
+    bgCtx.lineTo(width, whiteKeyHeight + 0.5);
+    bgCtx.stroke();
+
+    whiteKeysPos.forEach((kp) => {
+      const keyDef = keyDefMap.get(kp.name);
+      if (keyDef?.name === 'C4') {
+        bgCtx.fillStyle = '#0f172a';
+        bgCtx.font = 'bold 11px sans-serif';
+        bgCtx.textAlign = 'center';
+        bgCtx.textBaseline = 'middle';
+        bgCtx.fillText(keyDef.name, kp.x + kp.width / 2, whiteKeyHeight + labelHeight / 2);
+      }
+    });
+
+    setBackgroundCanvas(bgCanvas);
+  }, [width, totalHeight, layoutConfig, keyPositions, whiteKeysPos, blackKeysPos, keyDefMap, getQwertyShortcut]);
+
+  // Coordinate lookup for keys
   const getKeyFromClientCoords = useCallback((clientX: number, clientY: number): PianoKeyDefinition | null => {
-    if (!keyPositions.length) return null;
-    
-    // Get the bounding rect of the keyboard container to calculate relative X
-    const container = document.querySelector('[aria-label="Interactive Piano Keyboard"]');
-    if (!container) return null;
-    
-    const rect = container.getBoundingClientRect();
-    
-    // Account for CSS scaling (zoom or transform: scale)
-    const scaleX = rect.width / (container as HTMLElement).offsetWidth;
-    const scaleY = rect.height / (container as HTMLElement).offsetHeight;
-    
-    const relativeX = (clientX - rect.left) / scaleX;
-    const relativeY = (clientY - rect.top) / scaleY;
+    const canvas = canvasRef.current;
+    if (!canvas || !keyPositions.length) return null;
 
-    // Check if within vertical bounds of the keyboard area (excluding labels)
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+
+    const scaleX = width / rect.width;
+    const scaleY = totalHeight / rect.height;
+
+    const relativeX = (clientX - rect.left) * scaleX;
+    const relativeY = (clientY - rect.top) * scaleY;
+
     if (relativeY < 0 || relativeY > layoutConfig.whiteKeyHeight) return null;
 
-    // Check black keys first (they are on top)
+    // Check black keys first (they overlap white keys on top)
     for (const kp of blackKeysPos) {
       if (relativeX >= kp.x && relativeX <= kp.x + kp.width && relativeY <= layoutConfig.blackKeyHeight) {
         return keyDefMap.get(kp.name) || null;
@@ -91,206 +202,261 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = ({
     }
 
     return null;
-  }, [whiteKeysPos, blackKeysPos, keyDefMap, layoutConfig]);
+  }, [keyPositions, blackKeysPos, whiteKeysPos, keyDefMap, width, totalHeight, layoutConfig]);
 
-  const handleTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    for (const touch of Array.from(e.changedTouches) as Touch[]) { 
-      const keyDef = getKeyFromClientCoords(touch.clientX, touch.clientY);
-      if (keyDef && !activeTouches.current.has(touch.identifier)) {
-        onUiKeyPress(keyDef.name, keyDef.midiNote);
-        activeTouches.current.set(touch.identifier, keyDef.name);
-      }
+  // Main Canvas 2D Render Loop
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || width <= 0 || totalHeight <= 0) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.floor(width * dpr);
+    canvas.height = Math.floor(totalHeight * dpr);
+
+    ctx.save();
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, width, totalHeight);
+
+    // Use Cached Background
+    if (backgroundCanvas) {
+      ctx.drawImage(backgroundCanvas, 0, 0, width, totalHeight);
     }
-  }, [getKeyFromClientCoords, onUiKeyPress]);
 
-  const handleTouchMove = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    for (const touch of Array.from(e.changedTouches) as Touch[]) { 
-        const newKeyDef = getKeyFromClientCoords(touch.clientX, touch.clientY);
-        const oldKeyName = activeTouches.current.get(touch.identifier);
-        const newKeyName = newKeyDef ? newKeyDef.name : null;
+    const { whiteKeyHeight, blackKeyHeight } = layoutConfig;
+    const strokeWidth = 1;
 
-        if (oldKeyName !== newKeyName) {
-            if (oldKeyName) {
-                const oldKeyDef = keyDefMap.get(oldKeyName);
-                if (oldKeyDef) {
-                    onUiKeyRelease(oldKeyDef.name, oldKeyDef.midiNote);
-                }
-            }
-            if (newKeyDef) {
-                onUiKeyPress(newKeyDef.name, newKeyDef.midiNote);
-                activeTouches.current.set(touch.identifier, newKeyDef.name);
-            } else {
-                activeTouches.current.delete(touch.identifier);
-            }
+    // 1. Draw ONLY Active White Keys
+    whiteKeysPos.forEach((kp) => {
+      const keyDef = keyDefMap.get(kp.name);
+      if (!keyDef) return;
+
+      const activeSystemNoteInfo = activeMidiNotesInfo.get(keyDef.name) || null;
+      const isUserPlaying = userSustainedKeys.has(keyDef.name) || userActiveKeys.has(keyDef.name);
+
+      if (!isUserPlaying && !activeSystemNoteInfo) return; // Skip static keys
+
+      let fillColor = '#f8fafc';
+      let borderColor = '#cbd5e1';
+      let hasGlow = false;
+      let glowColor = '';
+
+      if (isUserPlaying) {
+        fillColor = hitNoteColor;
+        borderColor = '#ffffff';
+        hasGlow = !lowDetailMode;
+        glowColor = hitNoteColor;
+      } else if (activeSystemNoteInfo) {
+        const { status, hand } = activeSystemNoteInfo;
+        const baseColor = hand === 'left' ? leftHandColor : rightHandColor;
+
+        if (status === 'waiting') {
+          fillColor = lightenHex(baseColor, 60);
+          borderColor = baseColor;
+          hasGlow = !lowDetailMode;
+          glowColor = hexToRgba(baseColor, 0.8);
+        } else if (status === 'playing' || status === 'user_played') {
+          fillColor = lightenHex(baseColor, 40);
+          borderColor = '#ffffff';
+          hasGlow = !lowDetailMode;
+          glowColor = hexToRgba(baseColor, 0.9);
         }
-    }
-  }, [getKeyFromClientCoords, onUiKeyPress, onUiKeyRelease, keyDefMap]);
+      }
 
-  const handleTouchEnd = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    for (const touch of Array.from(e.changedTouches) as Touch[]) { 
-      const keyName = activeTouches.current.get(touch.identifier);
-      if (keyName) {
-        const keyDef = keyDefMap.get(keyName);
-        if (keyDef) {
-          onUiKeyRelease(keyDef.name, keyDef.midiNote);
+      ctx.save();
+      if (hasGlow) {
+        ctx.shadowColor = glowColor;
+        ctx.shadowBlur = 4;
+      }
+
+      ctx.fillStyle = fillColor;
+      ctx.fillRect(kp.x, 0, kp.width, whiteKeyHeight);
+
+      ctx.strokeStyle = borderColor;
+      ctx.lineWidth = strokeWidth;
+      ctx.strokeRect(kp.x + 0.5, 0.5, kp.width - 1, whiteKeyHeight - 0.5);
+
+      ctx.restore();
+
+      const qwertyText = getQwertyShortcut(keyDef);
+      if (qwertyText) {
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(qwertyText, kp.x + kp.width / 2, whiteKeyHeight - 8);
+      }
+
+      // Redraw C4 label if active
+      if (keyDef.name === 'C4') {
+        ctx.fillStyle = '#0f172a';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(keyDef.name, kp.x + kp.width / 2, whiteKeyHeight + layoutConfig.keyLabelHeight / 2);
+      }
+    });
+
+    // 2. Draw ALL Black Keys (to ensure they stay on top of active white keys)
+    blackKeysPos.forEach((kp) => {
+      const keyDef = keyDefMap.get(kp.name);
+      if (!keyDef) return;
+
+      const activeSystemNoteInfo = activeMidiNotesInfo.get(keyDef.name) || null;
+      const isUserPlaying = userSustainedKeys.has(keyDef.name) || userActiveKeys.has(keyDef.name);
+
+      let fillColor = '#0f172a';
+      let borderColor = '#000000';
+      let qwertyColor = '#94a3b8';
+      let hasGlow = false;
+      let glowColor = '';
+
+      if (isUserPlaying) {
+        fillColor = hitNoteColor;
+        borderColor = '#ffffff';
+        qwertyColor = '#ffffff';
+        hasGlow = !lowDetailMode;
+        glowColor = hitNoteColor;
+      } else if (activeSystemNoteInfo) {
+        const { status, hand } = activeSystemNoteInfo;
+        const baseColor = hand === 'left' ? leftHandColor : rightHandColor;
+        qwertyColor = '#ffffff';
+
+        if (status === 'waiting') {
+          fillColor = baseColor;
+          borderColor = baseColor;
+          hasGlow = !lowDetailMode;
+          glowColor = hexToRgba(baseColor, 0.8);
+        } else if (status === 'playing' || status === 'user_played') {
+          fillColor = baseColor;
+          borderColor = '#ffffff';
+          hasGlow = !lowDetailMode;
+          glowColor = hexToRgba(baseColor, 0.9);
         }
-        activeTouches.current.delete(touch.identifier);
       }
-    }
-  }, [onUiKeyRelease, keyDefMap]);
-  
-  const handleMouseUpGlobal = useCallback(() => {
-    isMouseDownRef.current = false;
-    const keyName = activeMouseKeyRef.current;
-    if (keyName) {
-      const keyDef = keyDefMap.get(keyName);
-      if (keyDef) {
-        onUiKeyRelease(keyDef.name, keyDef.midiNote);
-      }
-      activeMouseKeyRef.current = null;
-    }
-    window.removeEventListener('mouseup', handleMouseUpGlobal);
-    window.removeEventListener('mousemove', handleMouseMoveGlobal);
-  }, [onUiKeyRelease, keyDefMap]);
 
-  const handleMouseMoveGlobal = useCallback((e: MouseEvent) => {
-    if (!isMouseDownRef.current) return;
-    
+      ctx.save();
+      if (hasGlow) {
+        ctx.shadowColor = glowColor;
+        ctx.shadowBlur = 4;
+      }
+
+      ctx.fillStyle = fillColor;
+      ctx.fillRect(kp.x, 0, kp.width, blackKeyHeight);
+
+      ctx.strokeStyle = borderColor;
+      ctx.lineWidth = strokeWidth;
+      ctx.strokeRect(kp.x + 0.5, 0.5, kp.width - 1, blackKeyHeight - 0.5);
+
+      ctx.restore();
+
+      const qwertyText = getQwertyShortcut(keyDef);
+      if (qwertyText) {
+        ctx.fillStyle = qwertyColor;
+        ctx.font = 'bold 9px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(qwertyText, kp.x + kp.width / 2, blackKeyHeight - 6);
+      }
+    });
+
+    ctx.restore();
+  }, [
+    keyPositions,
+    whiteKeysPos,
+    blackKeysPos,
+    keyDefMap,
+    userSustainedKeys,
+    userActiveKeys,
+    activeMidiNotesInfo,
+    getQwertyShortcut,
+    width,
+    totalHeight,
+    layoutConfig,
+    rightHandColor,
+    leftHandColor,
+    hitNoteColor,
+    lowDetailMode,
+    backgroundCanvas
+  ]);
+
+  // Pointer Interaction Handlers
+  const handlePointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isInteractive) return;
+    e.preventDefault();
+    const keyDef = getKeyFromClientCoords(e.clientX, e.clientY);
+    if (keyDef) {
+      activePointers.current.set(e.pointerId, keyDef.name);
+      onUiKeyPress(keyDef.name, keyDef.midiNote);
+    }
+  }, [isInteractive, getKeyFromClientCoords, onUiKeyPress]);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isInteractive) return;
+    const oldKeyName = activePointers.current.get(e.pointerId);
+    if (!oldKeyName) return;
+
     e.preventDefault();
     const newKeyDef = getKeyFromClientCoords(e.clientX, e.clientY);
-    const oldKeyName = activeMouseKeyRef.current;
     const newKeyName = newKeyDef ? newKeyDef.name : null;
 
     if (oldKeyName !== newKeyName) {
       if (oldKeyName) {
         const oldKeyDef = keyDefMap.get(oldKeyName);
-        if (oldKeyDef) {
-          onUiKeyRelease(oldKeyDef.name, oldKeyDef.midiNote);
-        }
+        if (oldKeyDef) onUiKeyRelease(oldKeyDef.name, oldKeyDef.midiNote);
       }
       if (newKeyDef) {
         onUiKeyPress(newKeyDef.name, newKeyDef.midiNote);
-        activeMouseKeyRef.current = newKeyDef.name;
+        activePointers.current.set(e.pointerId, newKeyDef.name);
       } else {
-        activeMouseKeyRef.current = null;
+        activePointers.current.delete(e.pointerId);
       }
     }
-  }, [getKeyFromClientCoords, onUiKeyPress, onUiKeyRelease, keyDefMap]);
+  }, [isInteractive, getKeyFromClientCoords, keyDefMap, onUiKeyPress, onUiKeyRelease]);
 
-  const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+  const handlePointerUp = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isInteractive) return;
     e.preventDefault();
-    isMouseDownRef.current = true;
-    const keyDef = getKeyFromClientCoords(e.clientX, e.clientY);
-    if (keyDef) {
-      onUiKeyPress(keyDef.name, keyDef.midiNote);
-      activeMouseKeyRef.current = keyDef.name;
+    const keyName = activePointers.current.get(e.pointerId);
+    if (keyName) {
+      const keyDef = keyDefMap.get(keyName);
+      if (keyDef) onUiKeyRelease(keyDef.name, keyDef.midiNote);
+      activePointers.current.delete(e.pointerId);
     }
-    window.addEventListener('mouseup', handleMouseUpGlobal);
-    window.addEventListener('mousemove', handleMouseMoveGlobal);
-  }, [getKeyFromClientCoords, onUiKeyPress, handleMouseUpGlobal, handleMouseMoveGlobal]);
+  }, [isInteractive, keyDefMap, onUiKeyRelease]);
 
-
-  const pianoDisplayWidth = width;
-  const totalHeight = layoutConfig.whiteKeyHeight + layoutConfig.keyLabelHeight;
-
-  if (keyPositions.length === 0 || pianoDisplayWidth === 0) {
-    return null; 
+  if (keyPositions.length === 0 || width === 0) {
+    return null;
   }
 
-  const renderPianoKey = (keyPos: KeyPosition) => {
-    const keyDef = keyDefMap.get(keyPos.name);
-    if (!keyDef) return null;
-    const activeSystemNoteInfo = activeMidiNotesInfo.get(keyDef.name) || null;
-    const isUserPlaying = userSustainedKeys.has(keyDef.name) || userActiveKeys.has(keyDef.name);
-    
-    let qwertyKeyForDisplay = '';
-
-    if (showQwertyShortcuts) {
-        if (qwertyLayout === 'mirp') {
-            const targetBaseMidi = keyDef.midiNote - mirpTranspose;
-            const matchingEntries = MIRP_KEYBOARD_MAPPING.filter(m => m.midi === targetBaseMidi);
-            if (matchingEntries.length > 0) {
-                qwertyKeyForDisplay = matchingEntries[0].label;
-            }
-        } else {
-            const matchingMappings = QWERTY_MINI_KEYBOARD_MAPPING.filter(m => {
-              const mappedMidi = m.midiBase + (qwertyCurrentOctaveShift * 12);
-              return mappedMidi === keyDef.midiNote;
-            });
-
-            if (matchingMappings.length > 0) {
-                qwertyKeyForDisplay = matchingMappings.map(m => KEY_CODES_TO_DISPLAY[m.qwertyKey] || m.qwertyKey.replace('key', '').toUpperCase()).join(' | ');
-            }
-        }
-    }
-
-    return (
-      <PianoKey
-        key={keyDef.name}
-        keyDef={keyDef}
-        activeSystemNoteInfo={activeSystemNoteInfo}
-        isUserPlaying={isUserPlaying}
-        xPosition={keyPos.x}
-        width={keyPos.width}
-        height={keyDef.type === 'white' ? layoutConfig.whiteKeyHeight : layoutConfig.blackKeyHeight}
-        rightHandColor={rightHandColor}
-        leftHandColor={leftHandColor}
-        hitNoteColor={hitNoteColor}
-        showQwertyShortcut={showQwertyShortcuts}
-        qwertyKey={qwertyKeyForDisplay}
-        lowDetailMode={lowDetailMode}
-      />
-    );
-  };
-
   return (
-    <div 
-      className="relative bg-slate-800 shadow-lg no-select" 
-      style={{ 
-        width: `${pianoDisplayWidth}px`, 
+    <div
+      className="relative shadow-md no-select bg-slate-800"
+      style={{
+        width: `${width}px`,
         height: `${totalHeight}px`,
       }}
-      onTouchStart={isInteractive ? handleTouchStart : undefined}
-      onTouchMove={isInteractive ? handleTouchMove : undefined}
-      onTouchEnd={isInteractive ? handleTouchEnd : undefined}
-      onTouchCancel={isInteractive ? handleTouchEnd : undefined}
-      onMouseDown={isInteractive ? handleMouseDown : undefined}
       role="application"
       aria-label="Interactive Piano Keyboard"
     >
-      <div className="relative" style={{ width: `${pianoDisplayWidth}px`, height: `${layoutConfig.whiteKeyHeight}px`}}>
-        {whiteKeysPos.map(renderPianoKey)}
-        {blackKeysPos.map(renderPianoKey)}
-      </div>
-
-      <div 
-        className="absolute bottom-0 left-0 w-full bg-gray-100 border-t border-gray-300"
-        style={{ height: `${layoutConfig.keyLabelHeight}px` }}
-      >
-        {whiteKeysPos.map((keyPos) => {
-          const keyDef = keyDefMap.get(keyPos.name);
-          if (!keyDef) return null;
-          return (
-            <div
-              key={`label-${keyPos.name}`}
-              className="absolute text-black text-xs font-medium flex items-center justify-center select-none overflow-hidden"
-              style={{
-                left: `${keyPos.x}px`,
-                width: `${keyPos.width}px`, 
-                height: `${layoutConfig.keyLabelHeight}px`,
-                bottom: `0px`, 
-              }}
-            >
-              {keyDef.name === 'C4' ? keyDef.name : ''}
-            </div>
-          );
-        })}
-      </div>
+      <canvas
+        ref={canvasRef}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        onPointerLeave={handlePointerUp}
+        style={{
+          width: `${width}px`,
+          height: `${totalHeight}px`,
+          display: 'block',
+          touchAction: 'none',
+        }}
+      />
     </div>
   );
-};
+});
 
-export default PianoKeyboard;
+export default React.memo(PianoKeyboard);

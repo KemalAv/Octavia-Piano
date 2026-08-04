@@ -12,6 +12,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.47.1",
     "@tonejs/midi": "^2.0.28",
+    "jsdom": "^30.0.1",
     "jszip": "3.10.1",
     "lucide-react": "^1.6.0",
     "motion": "^12.38.0",

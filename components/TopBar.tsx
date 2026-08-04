@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, memo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ViewMode, WaitMode, MetronomeMode, ExtendedResult, TimeSignatureInfo } from '../types';
 import VisualMetronome from './VisualMetronome';
@@ -107,7 +107,7 @@ const OffsetMeter = ({ offset, perfectWindow, greatWindow, goodWindow }: { offse
         
         {/* White line indicator */}
         <div 
-          className="absolute w-1.5 h-6 bg-white rounded-full top-1/2 -translate-y-1/2 -translate-x-1/2 transition-all duration-75 z-10 border border-slate-900 shadow-sm"
+          className="absolute w-1.5 h-6 bg-white rounded-full top-1/2 -translate-y-1/2 -translate-x-1/2 transition-all duration-75 z-10 border border-slate-900"
           style={{ left: `${indicatorPercentage}%` }}
         ></div>
       </div>
@@ -122,7 +122,7 @@ const OffsetMeter = ({ offset, perfectWindow, greatWindow, goodWindow }: { offse
   );
 };
 
-const TopBar: React.FC<TopBarProps> = (props) => {
+const TopBar: React.FC<TopBarProps> = memo((props) => {
   const {
     onPlay, onPause, onStop, onExit, isPlaying, isFileLoaded, fileName,
     waitMode, metronomeMode, onCycleMetronomeMode, isMetronomeAvailable,
@@ -152,12 +152,12 @@ const TopBar: React.FC<TopBarProps> = (props) => {
     }
   }, [lastJudgment, combo]); // Also trigger on combo change to refresh the animation for same judgments
 
-  const hudContainerStyle = `text-white p-1 shadow-[0_4px_20px_rgba(0,0,0,0.5)] border-b border-white/10 min-h-[52px] flex flex-wrap items-center justify-between gap-2 no-select relative z-50 bg-slate-900 transition-all duration-300 ease-in-out`;
+  const hudContainerStyle = `text-white p-1 shadow-md border-b border-white/10 min-h-[52px] flex flex-wrap items-center justify-between gap-2 no-select relative z-50 bg-slate-900 transition-all duration-300 ease-in-out`;
   const iconButtonStyles = "p-2 rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed active:scale-95";
-  const primaryButtonStyles = "bg-cyan-600 hover:bg-cyan-500 text-white shadow-[0_0_10px_rgba(6,182,212,0.5)]";
+  const primaryButtonStyles = "bg-cyan-600 hover:bg-cyan-500 text-white";
   const secondaryButtonStyles = "bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 hover:border-slate-500";
-  const activeToggleButtonStyles = "bg-violet-600 hover:bg-violet-500 text-white shadow-[0_0_10px_rgba(124,58,237,0.5)] border border-violet-400"; 
-  const recordingActiveButtonStyle = "bg-rose-600 hover:bg-rose-500 text-white shadow-[0_0_15px_rgba(225,29,72,0.6)] animate-pulse";
+  const activeToggleButtonStyles = "bg-violet-600 hover:bg-violet-500 text-white border border-violet-400"; 
+  const recordingActiveButtonStyle = "bg-rose-600 hover:bg-rose-500 text-white animate-pulse";
   
   const formatTime = (ms: number | null) => {
     if (ms === null || isNaN(ms) || ms < 0) return '00:00';
@@ -446,20 +446,20 @@ const TopBar: React.FC<TopBarProps> = (props) => {
   const isPracticeMode = waitMode === 'strict' || waitMode === 'rhythm';
 
   const ZoomControls = () => {
-    const isSpeedControl = viewMode === 'falling' || viewMode === 'sheet-roll' || (instrumentMode === 'drum' && viewMode !== 'sheet');
+    const isSpeedControl = viewMode === 'falling' || viewMode === 'sheet-roll' || viewMode === 'qwerty_mania' || viewMode === 'sheet-qwerty' || (instrumentMode === 'drum' && viewMode !== 'sheet');
     const value = isSpeedControl ? noteSpeedMultiplier : sheetMusicZoom;
-    const titleText = isPlaying ? "Pause to adjust zoom" : (isSpeedControl ? "Adjust Note Speed" : "Adjust Sheet Zoom");
+    const titleText = isSpeedControl ? "Adjust Note Speed / AR" : "Adjust Sheet Zoom";
 
     return (
         <div className="flex items-center gap-1 bg-slate-800/50 rounded-lg p-1 border border-slate-700" title={titleText}>
-            <button onClick={() => adjustZoom(isSpeedControl, false)} disabled={!isFileLoaded || isPlaying} className={`${iconButtonStyles} w-7 h-7 bg-transparent hover:bg-slate-700 text-slate-400 hover:text-white`} aria-label="Decrease zoom">−</button>
+            <button onClick={() => adjustZoom(isSpeedControl, false)} disabled={!isFileLoaded} className={`${iconButtonStyles} w-7 h-7 bg-transparent hover:bg-slate-700 text-slate-400 hover:text-white disabled:opacity-30`} aria-label="Decrease zoom">−</button>
             <div className="flex flex-col items-center justify-center w-12">
                 <span className="text-[9px] font-bold uppercase text-slate-400 leading-tight">ZOOM</span>
                 <span className="text-xs font-bold tabular-nums text-slate-200 leading-tight">
                     {isSpeedControl ? (instrumentMode === 'drum' ? value.toFixed(1) : `${Math.round(value * 100)}%`) : `${Math.round(value * 100)}%`}
                 </span>
             </div>
-            <button onClick={() => adjustZoom(isSpeedControl, true)} disabled={!isFileLoaded || isPlaying} className={`${iconButtonStyles} w-7 h-7 bg-transparent hover:bg-slate-700 text-slate-400 hover:text-white`} aria-label="Increase zoom">+</button>
+            <button onClick={() => adjustZoom(isSpeedControl, true)} disabled={!isFileLoaded} className={`${iconButtonStyles} w-7 h-7 bg-transparent hover:bg-slate-700 text-slate-400 hover:text-white disabled:opacity-30`} aria-label="Increase zoom">+</button>
         </div>
     );
   };
@@ -467,7 +467,7 @@ const TopBar: React.FC<TopBarProps> = (props) => {
   const StatBox: React.FC<{ label: string; value: string | number; color: string; subValue?: string }> = ({ label, value, color, subValue }) => (
     <div className="flex flex-col items-center justify-center min-w-[44px]">
         <div className="text-[8px] font-bold text-slate-500 uppercase tracking-widest leading-none mb-0.5">{label}</div>
-        <div className={`text-sm font-black leading-none tabular-nums ${color} drop-shadow-md`}>{value}</div>
+        <div className={`text-sm font-black leading-none tabular-nums ${color}`}>{value}</div>
         {subValue && <div className="text-[8px] font-mono text-slate-400 mt-0">{subValue}</div>}
     </div>
   );
@@ -482,7 +482,7 @@ const TopBar: React.FC<TopBarProps> = (props) => {
           transition={{ type: "spring", stiffness: 600, damping: 10 }}
           className="absolute inset-0 flex items-center justify-center"
         >
-          <span className={`text-xl font-black italic uppercase tracking-tighter drop-shadow-[0_0_8px_rgba(0,0,0,0.8)] ${
+          <span className={`text-xl font-black italic uppercase tracking-tighter ${
             displayJudgment.type === 'perfect' ? 'text-yellow-400' :
             displayJudgment.type === 'great' ? 'text-emerald-400' :
             displayJudgment.type === 'good' ? 'text-blue-400' :
@@ -635,6 +635,6 @@ const TopBar: React.FC<TopBarProps> = (props) => {
       </div>
     </div>
   );
-};
+});
 
 export default TopBar;
