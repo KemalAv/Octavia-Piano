@@ -297,58 +297,114 @@ DRUM_PADS.forEach(pad => {
 });
 
 
+// --- Full Keyboard Mania Constants ---
+export const FULL_KEYBOARD_LAYOUT = [
+    ['Backquote', 'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0', 'Minus', 'Equal', 'Backspace'],
+    ['Tab', 'KeyQ', 'KeyW', 'KeyE', 'KeyR', 'KeyT', 'KeyY', 'KeyU', 'KeyI', 'KeyO', 'KeyP', 'BracketLeft', 'BracketRight', 'Backslash'],
+    ['CapsLock', 'KeyA', 'KeyS', 'KeyD', 'KeyF', 'KeyG', 'KeyH', 'KeyJ', 'KeyK', 'KeyL', 'Semicolon', 'Quote', 'Enter'],
+    ['ShiftLeft', 'KeyZ', 'KeyX', 'KeyC', 'KeyV', 'KeyB', 'KeyN', 'KeyM', 'Comma', 'Period', 'Slash', 'ShiftRight']
+];
+
+// Map each key to a unique MIDI note for Qwerty Mania
+// Row 3: 36-47
+// Row 2: 48-60
+// Row 1: 61-74
+// Row 0: 75-88
+export const FULL_KEYBOARD_MAPPING: Record<string, number> = {
+    // Upper row (C4 - C6)
+    'Digit1': 61,
+    'KeyQ': 62,
+    'Digit2': 63,
+    'KeyW': 64,
+    'KeyE': 65,
+    'Digit4': 66,
+    'KeyR': 67,
+    'Digit5': 68,
+    'KeyT': 69,
+    'Digit6': 70,
+    'KeyY': 71,
+    'KeyU': 72,
+    'Digit8': 73,
+    'KeyI': 74,
+    'Digit9': 75,
+    'KeyO': 76,
+    'KeyP': 77,
+    'Minus': 78,
+    'BracketLeft': 79,
+    'Equal': 80,
+    'BracketRight': 81,
+    'Backslash': 83,
+
+    // Lower row (C3 - G4)
+    'KeyA': 49,
+    'KeyZ': 50,
+    'KeyS': 51,
+    'KeyX': 52,
+    'KeyC': 53,
+    'KeyF': 54,
+    'KeyV': 55,
+    'KeyG': 56,
+    'KeyB': 57,
+    'KeyH': 58,
+    'KeyN': 59,
+    'KeyM': 60,
+    'KeyK': 61,
+    'Comma': 62,
+    'KeyL': 63,
+    'Period': 64,
+    'Slash': 65,
+    'Quote': 66,
+};
+
+export const FULL_KEYBOARD_MIDI_TO_CODE: Record<number, string> = {};
+Object.entries(FULL_KEYBOARD_MAPPING).forEach(([code, midi]) => {
+    FULL_KEYBOARD_MIDI_TO_CODE[midi] = code;
+});
+// --- End Full Keyboard Mania Constants ---
+
 // --- QWERTY Mini Keyboard Constants ---
 // This mapping uses `event.code.toLowerCase()` to be independent of keyboard language layouts.
-// It combines two user-requested mappings into a single functional layout.
 export const QWERTY_MINI_KEYBOARD_MAPPING: QwertyKeyMapEntry[] = [
-  // --- Mapping 1 (Lower keyboard, C3-G4 range) ---
-  { qwertyKey: 'shiftleft', midiBase: 48 },   // C3
-  { qwertyKey: 'keya', midiBase: 49 },        // C#3
-  { qwertyKey: 'keyz', midiBase: 50 },        // D3
-  { qwertyKey: 'keys', midiBase: 51 },        // D#3
-  { qwertyKey: 'keyx', midiBase: 52 },        // E3
-  { qwertyKey: 'keyc', midiBase: 53 },        // F3
-  { qwertyKey: 'keyf', midiBase: 54 },        // F#3
-  { qwertyKey: 'keyv', midiBase: 55 },        // G3
-  { qwertyKey: 'keyg', midiBase: 56 },        // G#3
-  { qwertyKey: 'keyb', midiBase: 57 },        // A3
-  { qwertyKey: 'keyh', midiBase: 58 },        // A#3
-  { qwertyKey: 'keyn', midiBase: 59 },        // B3
-  { qwertyKey: 'keym', midiBase: 60 },        // C4
-  { qwertyKey: 'keyk', midiBase: 61 },        // C#4
-  { qwertyKey: 'comma', midiBase: 62 },       // D4
-  { qwertyKey: 'keyl', midiBase: 63 },        // D#4
-  { qwertyKey: 'period', midiBase: 64 },      // E4
-  { qwertyKey: 'slash', midiBase: 65 },       // F4
-  { qwertyKey: 'quote', midiBase: 66 },       // F#4
-  { qwertyKey: 'shiftright', midiBase: 67 },  // G4
+  // --- Lower keyboard (C3 - B3) ---
+  { qwertyKey: 'keyz', midiBase: 48 },        // C3
+  { qwertyKey: 'keys', midiBase: 49 },        // C#3
+  { qwertyKey: 'keyx', midiBase: 50 },        // D3
+  { qwertyKey: 'keyd', midiBase: 51 },        // D#3
+  { qwertyKey: 'keyc', midiBase: 52 },        // E3
+  { qwertyKey: 'keyv', midiBase: 53 },        // F3
+  { qwertyKey: 'keyg', midiBase: 54 },        // F#3
+  { qwertyKey: 'keyb', midiBase: 55 },        // G3
+  { qwertyKey: 'keyh', midiBase: 56 },        // G#3
+  { qwertyKey: 'keyn', midiBase: 57 },        // A3
+  { qwertyKey: 'keyj', midiBase: 58 },        // A#3
+  { qwertyKey: 'keym', midiBase: 59 },        // B3
 
-  // --- Mapping 2 (Upper keyboard, C4-C6 range) ---
-  { qwertyKey: 'tab', midiBase: 60 },         // C4
-  { qwertyKey: 'digit1', midiBase: 61 },      // C#4
-  { qwertyKey: 'keyq', midiBase: 62 },        // D4
-  { qwertyKey: 'digit2', midiBase: 63 },      // D#4
-  { qwertyKey: 'keyw', midiBase: 64 },        // E4
-  { qwertyKey: 'keye', midiBase: 65 },        // F4
-  { qwertyKey: 'digit4', midiBase: 66 },      // F#4
-  { qwertyKey: 'keyr', midiBase: 67 },        // G4
-  { qwertyKey: 'digit5', midiBase: 68 },      // G#4
-  { qwertyKey: 'keyt', midiBase: 69 },        // A4
-  { qwertyKey: 'digit6', midiBase: 70 },      // A#4
-  { qwertyKey: 'keyy', midiBase: 71 },        // B4
-  { qwertyKey: 'keyu', midiBase: 72 },        // C5
-  { qwertyKey: 'digit8', midiBase: 73 },      // C#5
-  { qwertyKey: 'keyi', midiBase: 74 },        // D5
-  { qwertyKey: 'digit9', midiBase: 75 },      // D#5
-  { qwertyKey: 'keyo', midiBase: 76 },        // E5
-  { qwertyKey: 'keyp', midiBase: 77 },        // F5
-  { qwertyKey: 'minus', midiBase: 78 },       // F#5
-  { qwertyKey: 'bracketleft', midiBase: 79 }, // G5
-  { qwertyKey: 'equal', midiBase: 80 },       // G#5
-  { qwertyKey: 'bracketright', midiBase: 81 },// A5
-  { qwertyKey: 'backspace', midiBase: 82 },   // A#5
-  { qwertyKey: 'backslash', midiBase: 83 },   // B5
-  { qwertyKey: 'enter', midiBase: 84 },       // C6
+  // --- Upper keyboard (C4 - C6) ---
+  { qwertyKey: 'keyq', midiBase: 60 },         // C4
+  { qwertyKey: 'digit2', midiBase: 61 },      // C#4
+  { qwertyKey: 'keyw', midiBase: 62 },        // D4
+  { qwertyKey: 'digit3', midiBase: 63 },      // D#4
+  { qwertyKey: 'keye', midiBase: 64 },        // E4
+  { qwertyKey: 'keyr', midiBase: 65 },        // F4
+  { qwertyKey: 'digit5', midiBase: 66 },      // F#4
+  { qwertyKey: 'keyt', midiBase: 67 },        // G4
+  { qwertyKey: 'digit6', midiBase: 68 },      // G#4
+  { qwertyKey: 'keyy', midiBase: 69 },        // A4
+  { qwertyKey: 'digit7', midiBase: 70 },      // A#4
+  { qwertyKey: 'keyu', midiBase: 71 },        // B4
+  { qwertyKey: 'keyi', midiBase: 72 },        // C5
+  { qwertyKey: 'digit9', midiBase: 73 },      // C#5
+  { qwertyKey: 'keyo', midiBase: 74 },        // D5
+  { qwertyKey: 'digit0', midiBase: 75 },      // D#5
+  { qwertyKey: 'keyp', midiBase: 76 },        // E5
+  { qwertyKey: 'bracketleft', midiBase: 77 }, // F5
+  { qwertyKey: 'equal', midiBase: 78 },       // F#5
+  { qwertyKey: 'bracketright', midiBase: 79 },// G5
+  { qwertyKey: 'backslash', midiBase: 80 },   // G#5
+  { qwertyKey: 'semicolon', midiBase: 81 },   // A5
+  { qwertyKey: 'quote', midiBase: 82 },       // A#5
+  { qwertyKey: 'period', midiBase: 83 },      // B5
+  { qwertyKey: 'slash', midiBase: 84 },       // C6
 ];
 
 // NEW: MIRP QWERTY Layout Mapping (C2 - C7)

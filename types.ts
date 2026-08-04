@@ -183,7 +183,7 @@ export type WaitMode = 'off' | 'strict' | 'rhythm' | 'retical';
 export type JudgmentCategory = 'perfect' | 'great' | 'good' | 'miss';
 export type AccuracyLevel = 3 | 4 | 5 | 6 | 7;
 
-export type ViewMode = 'falling' | 'sheet' | 'sheet-roll' | 'sheet-qwerty' | 'drum_mania';
+export type ViewMode = 'falling' | 'sheet' | 'sheet-roll' | 'sheet-qwerty' | 'drum_mania' | 'qwerty_mania';
 export type Screen =
   | 'mainMenu'
   | 'songSelection'

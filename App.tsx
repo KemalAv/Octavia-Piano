@@ -46,6 +46,7 @@ import {
   BASE_PIXELS_PER_MILLISECOND,
   QWERTY_MINI_KEYBOARD_MAPPING,
   MIRP_KEYBOARD_MAPPING,
+  FULL_KEYBOARD_MAPPING,
   OCTAVE_DOWN_KEYS,
   OCTAVE_UP_KEYS,
   INTERACTIVE_NOTE_DURATION_MS,
@@ -92,6 +93,7 @@ import PerformanceSummaryModal from "./components/PerformanceSummaryModal";
 import { FallingNotesArea } from "./components/FallingNotesArea";
 import { DrumView } from "./components/DrumView"; // NEW
 import { DrumManiaView } from "./components/DrumManiaView";
+import { QwertyManiaView } from "./components/QwertyManiaView";
 import { AcousticPianoService } from "./AcousticPianoService";
 import {
   getActiveKeySignature,
@@ -173,89 +175,7 @@ const generateKeyPositions = (
   return positions;
 };
 
-const BackgroundDisplay: React.FC<{
-  themeSettings: ThemeSettings;
-  viewMode: ViewMode;
-  isFreePlayMode: boolean;
-  instrumentMode?: "piano" | "drum";
-  songBackgroundUrl?: string | null;
-}> = ({
-  themeSettings,
-  viewMode,
-  isFreePlayMode,
-  instrumentMode,
-  songBackgroundUrl,
-}) => {
-  const { backgroundUrl: globalBackgroundUrl, backgroundOpacity } =
-    themeSettings;
-  const backgroundUrl = songBackgroundUrl || globalBackgroundUrl;
-
-  const isSheetMode =
-    viewMode === "sheet" ||
-    viewMode === "sheet-roll" ||
-    viewMode === "sheet-qwerty";
-  const backingLayerClass =
-    viewMode === "falling" ||
-    isFreePlayMode ||
-    (instrumentMode === "drum" && !isSheetMode)
-      ? "bg-black"
-      : "bg-white";
-
-  // Aligned with Piano Mode: Respect fallingNotesBackgroundColor if media is clear
-  const customBgColor = themeSettings.fallingNotesBackgroundColor;
-  const backingLayerStyle: React.CSSProperties = {
-    position: "absolute",
-    inset: 0,
-    backgroundColor: customBgColor || (backingLayerClass === "bg-black" ? "#000000" : "#ffffff"),
-  };
-
-  if (!backgroundUrl) {
-    return <div style={backingLayerStyle} />;
-  }
-
-  const isVideo = useMemo(
-    () =>
-      backgroundUrl.startsWith("data:video/") ||
-      backgroundUrl.toLowerCase().endsWith(".mp4") ||
-      backgroundUrl.toLowerCase().endsWith(".webm"),
-    [backgroundUrl],
-  );
-  const opacity = backgroundOpacity ?? 0.25;
-  const commonStyle: React.CSSProperties = {
-    position: "absolute",
-    inset: 0,
-    width: "100%",
-    height: "100%",
-    opacity: opacity,
-    transition: "opacity 300ms ease-in-out",
-  };
-
-  return (
-    <>
-      <div style={backingLayerStyle} />
-      {isVideo ? (
-        <video
-          key={backgroundUrl}
-          autoPlay
-          loop
-          muted
-          playsInline
-          style={{ ...commonStyle, objectFit: "cover" }}
-          src={backgroundUrl}
-        />
-      ) : (
-        <div
-          style={{
-            ...commonStyle,
-            backgroundImage: `url(${backgroundUrl})`,
-            backgroundSize: "cover",
-            backgroundPosition: "center",
-          }}
-        />
-      )}
-    </>
-  );
-};
+import { BackgroundDisplay } from "./components/BackgroundDisplay";
 
 interface MetronomeAudioNode {
   oscillator?: OscillatorNode;
@@ -1004,9 +924,13 @@ const AppContent: React.FC = () => {
 
   const [lastPianoViewMode, setLastPianoViewMode] = useState<ViewMode>(DEFAULT_VIEW_MODE);
   const [lastDrumViewMode, setLastDrumViewMode] = useState<ViewMode>("drum_mania");
+  const [gameplayStyle, setGameplayStyle] = useState<"piano" | "computer">("piano");
 
   const handleViewModeChange = (newMode: ViewMode) => {
     setViewMode(newMode);
+    if (newMode === "sheet-qwerty" || newMode === "qwerty_mania") {
+      setGameplayStyle("computer");
+    }
     if (instrumentMode === "piano") {
       setLastPianoViewMode(newMode);
     } else {
@@ -1363,6 +1287,7 @@ const AppContent: React.FC = () => {
   );
   const [showPianoTilesBackground, setShowPianoTilesBackground] =
     useState<boolean>(DEFAULT_SHOW_PIANO_TILES_BACKGROUND);
+  const [lowDetailMode, setLowDetailMode] = useState<boolean>(true);
   const [zoomDirection, setZoomDirection] = useState<"normal" | "reverse">(
     DEFAULT_ZOOM_DIRECTION,
   );
@@ -1428,6 +1353,7 @@ const AppContent: React.FC = () => {
         if (s.instrumentMode !== undefined) setInstrumentMode(s.instrumentMode);
         if (s.lastPianoViewMode !== undefined) setLastPianoViewMode(s.lastPianoViewMode);
         if (s.lastDrumViewMode !== undefined) setLastDrumViewMode(s.lastDrumViewMode);
+        if (s.gameplayStyle !== undefined) setGameplayStyle(s.gameplayStyle);
       } catch (e) {
         console.error("Failed to load settings", e);
       }
@@ -1455,6 +1381,7 @@ const AppContent: React.FC = () => {
       customEndNote,
       qwertyLayout,
       showPianoTilesBackground,
+      lowDetailMode,
       uiZoom,
       uiZoomAuto,
       micThresholds,
@@ -1469,6 +1396,7 @@ const AppContent: React.FC = () => {
       instrumentMode,
       lastPianoViewMode,
       lastDrumViewMode,
+      gameplayStyle,
     };
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   }, [
@@ -1504,6 +1432,7 @@ const AppContent: React.FC = () => {
     instrumentMode,
     lastPianoViewMode,
     lastDrumViewMode,
+    gameplayStyle,
   ]);
 
   const resetSettings = useCallback(() => {
@@ -1681,15 +1610,19 @@ const AppContent: React.FC = () => {
     return generateKeyPositions(visiblePianoKeys, adjustedContainerWidth);
   }, [containerWidth, layoutConfig, visiblePianoKeys, numWhiteKeys]);
 
+  const keyPositionsArray = useMemo(() => {
+    return Array.from(keyPositionsMap.values());
+  }, [keyPositionsMap]);
+
   const baseCalculatedPianoWidth = useMemo(() => {
-    if (!keyPositionsMap || keyPositionsMap.size === 0) return containerWidth;
-    return Array.from(keyPositionsMap.values())
+    if (!keyPositionsArray || keyPositionsArray.length === 0) return containerWidth;
+    return keyPositionsArray
       .filter((kp: KeyPosition) => kp.type === "white")
       .reduce(
         (max: number, kp: KeyPosition) => Math.max(max, kp.x + kp.width),
         0,
       );
-  }, [keyPositionsMap, containerWidth]);
+  }, [keyPositionsArray, containerWidth]);
 
   const waitMode: WaitMode = isFreePlayMode
     ? "off"
@@ -2126,6 +2059,12 @@ const AppContent: React.FC = () => {
       source.connect(gainNode);
       gainNode.connect(masterGainRef.current);
       source.start(now);
+      source.onended = () => {
+        try {
+          source.disconnect();
+          gainNode.disconnect();
+        } catch (e) {}
+      };
       if (isDrumMode) {
         // Drum sounds play to completion without premature stop
         return;
@@ -2233,6 +2172,12 @@ const AppContent: React.FC = () => {
         gainNode.gain.setValueAtTime(gainNode.gain.value, now);
         gainNode.gain.exponentialRampToValueAtTime(0.0001, now + releaseTime);
         source.stop(now + releaseTime + 0.1);
+        source.onended = () => {
+          try {
+            source.disconnect();
+            gainNode.disconnect();
+          } catch (e) {}
+        };
       }
       activeAudioNodesRef.current.delete(keyName);
     },
@@ -2992,6 +2937,10 @@ const AppContent: React.FC = () => {
     [notesForGame.length, barLines, handleSeek, waitMode, metronomeMode],
   );
 
+  const lastLiveSpeedUpdateRef = useRef<number>(0);
+  const lastTotalWaitTimeUpdateRef = useRef<number>(0);
+  const lastMusicalTimeUpdateRef = useRef<number>(0);
+
   const playbackLoop = useCallback(async () => {
     try {
       const currentPlaybackTempoMultiplier = Math.max(0.1, playbackTempoMultiplierRef.current);
@@ -3136,13 +3085,22 @@ const AppContent: React.FC = () => {
             } catch (e) {}
           }
         }
-        setTotalWaitTimeMs(
-          accumulatedWaitTimeRef.current +
-            (performance.now() - waitStartTimeRef.current),
-        );
+        
+        if (currentRealTime - lastTotalWaitTimeUpdateRef.current > 100) {
+          setTotalWaitTimeMs(
+            accumulatedWaitTimeRef.current +
+              (currentRealTime - waitStartTimeRef.current),
+          );
+          lastTotalWaitTimeUpdateRef.current = currentRealTime;
+        }
       } else {
         actualMusicalTimeForGameLogic = conceptualMusicalTime;
-        setMusicalCurrentTimeMs(conceptualMusicalTime);
+        // Animation time update - cap at ~60fps even on high refresh screens to save CPU
+        if (currentRealTime - lastMusicalTimeUpdateRef.current > 16) {
+          setMusicalCurrentTimeMs(conceptualMusicalTime);
+          lastMusicalTimeUpdateRef.current = currentRealTime;
+        }
+        
         if (lastPushedTotalWaitTimeMsRef.current !== accumulatedWaitTimeRef.current) {
           setTotalWaitTimeMs(accumulatedWaitTimeRef.current);
           lastPushedTotalWaitTimeMsRef.current = accumulatedWaitTimeRef.current;
@@ -3174,7 +3132,11 @@ const AppContent: React.FC = () => {
           actualDurationSoFar > 500 && idealTimeElapsedSoFar > 0
             ? Math.min(100, (idealTimeElapsedSoFar / actualDurationSoFar) * 100)
             : 100;
-        setLiveSpeed(calculatedLiveSpeed);
+            
+        if (currentRealTime - lastLiveSpeedUpdateRef.current > 250) {
+          setLiveSpeed(calculatedLiveSpeed);
+          lastLiveSpeedUpdateRef.current = currentRealTime;
+        }
       }
       if (
         isPlayingRef.current &&
@@ -3600,7 +3562,7 @@ const AppContent: React.FC = () => {
                 : "Keyboard/Touchscreen";
           } else {
             gameplayStyle =
-              viewMode === "sheet-qwerty" ? "Computer Keyboard" : "Piano";
+              (viewMode === "sheet-qwerty" || viewMode === "qwerty_mania") ? "Computer Keyboard" : "Piano";
           }
           setPerformanceSummary({
             accuracy: +stats.acc.toFixed(2),
@@ -3856,8 +3818,16 @@ const AppContent: React.FC = () => {
       drumTyperPadOpacity,
     });
 
-    // Force view mode based on instrument
-    setViewMode("falling");
+    // Force view mode based on instrument and previous style
+    if (instrumentMode === "drum") {
+      setViewMode("falling");
+    } else {
+      if (viewMode === "sheet-qwerty" || viewMode === "qwerty_mania") {
+        setViewMode("qwerty_mania");
+      } else {
+        setViewMode("falling");
+      }
+    }
 
     setCurrentScreen("inGame");
     await initializeAudioContext();
@@ -4680,8 +4650,7 @@ const AppContent: React.FC = () => {
 
   const handleMidiMessage = useCallback(
     (e: MIDIMessageEvent) => {
-      const gameplayStyle = viewMode === "sheet-qwerty" ? "computer" : "piano";
-      if (gameplayStyle === "computer") return;
+      if (viewMode === "qwerty_mania") return;
 
       // Drum Mode MIDI restriction: If in drum mode and input mode is non-midi, ignore MIDI
       if (instrumentMode === "drum" && drumInputMode === "non-midi") return;
@@ -4911,11 +4880,9 @@ const AppContent: React.FC = () => {
         return;
       }
 
-      // Drum Mode Non-MIDI restriction: If in drum mode and input mode is midi, ignore keyboard
+      // If in piano mode but not using computer mapping, we use the note-based mapping
+      // But we must check if we should return early for drum mode
       if (instrumentMode === "drum" && drumInputMode === "midi") return;
-
-      const gameplayStyle = viewMode === "sheet-qwerty" ? "computer" : "piano";
-      if (gameplayStyle === "piano" && instrumentMode !== "drum") return;
 
       if (e.repeat) return;
       const lower = e.code.toLowerCase();
@@ -5006,6 +4973,7 @@ const AppContent: React.FC = () => {
       midiNoteToKeyDefMap,
       handleUiKeyPress,
       viewMode,
+      gameplayStyle,
       stopSustainedSound,
       instrumentMode,
       drumInputMode,
@@ -5018,9 +4986,6 @@ const AppContent: React.FC = () => {
     (e: KeyboardEvent) => {
       // Drum Mode Non-MIDI restriction: If in drum mode and input mode is midi, ignore keyboard
       if (instrumentMode === "drum" && drumInputMode === "midi") return;
-
-      const gameplayStyle = viewMode === "sheet-qwerty" ? "computer" : "piano";
-      if (gameplayStyle === "piano" && instrumentMode !== "drum") return;
 
       const lower = e.code.toLowerCase();
       const keyChar = e.key.toLowerCase();
@@ -5078,6 +5043,7 @@ const AppContent: React.FC = () => {
       midiNoteToKeyDefMap,
       handleUiKeyRelease,
       viewMode,
+      gameplayStyle,
       instrumentMode,
       drumInputMode,
     ],
@@ -5988,6 +5954,30 @@ const AppContent: React.FC = () => {
                         isPaused={!isPlaying}
                         onSeek={handleSeek}
                       />
+                    ) : viewMode === "qwerty_mania" ? (
+                      <QwertyManiaView
+                        currentTimeMs={musicalCurrentTimeMs}
+                        playbackData={notesForGame}
+                        activePlaybackNotes={activePlaybackNotesInfo}
+                        userActiveKeys={userActiveMidiNotes}
+                        noteSpeedMultiplier={noteSpeedMultiplier}
+                        themeSettings={themeSettings}
+                        zoomScale={zoomScale}
+                        zoomDirection={zoomDirection}
+                        drumTyperPadOpacity={drumTyperPadOpacity}
+                        isPaused={!isPlaying}
+                        onSeek={handleSeek}
+                        qwertyLayout={qwertyLayout}
+                        qwertyCurrentOctaveShift={qwertyCurrentOctaveShift}
+                        mirpTranspose={mirpTranspose}
+                        activeKeySignature={getActiveKeySignature(
+                          musicalCurrentTimeMs,
+                          signatureEvents,
+                          initialKeySignature,
+                        )}
+                        activeBpm={activeBpmForDisplay}
+                        showOnlyMajorNotes={showOnlyMajorNotes}
+                      />
                     ) : viewMode === "falling" ? (
                       <FallingNotesArea
                         key={`falling-${viewMode}`}
@@ -6013,6 +6003,7 @@ const AppContent: React.FC = () => {
                         )}
                         activeTempoBpm={activeBpmForDisplay}
                         showOnlyMajorNotes={showOnlyMajorNotes}
+                        instrumentMode={instrumentMode}
                         showPianoTilesBackground={showPianoTilesBackground}
                         pianoTilesOpacity={themeSettings.pianoTilesOpacity}
                         qwertyLayout={qwertyLayout}
@@ -6056,6 +6047,7 @@ const AppContent: React.FC = () => {
                         mirpTranspose={mirpTranspose}
                         isQwertyView={viewMode === "sheet-qwerty"}
                         instrumentMode={instrumentMode}
+                        lowDetailMode={lowDetailMode}
                       />
                     ) : viewMode === "sheet" && vexFlowData ? (
                       <VexFlowSheetMusicView
@@ -6099,7 +6091,7 @@ const AppContent: React.FC = () => {
                     }}
                   >
                     <PianoKeyboard
-                      keyPositions={Array.from(keyPositionsMap.values())}
+                      keyPositions={keyPositionsArray}
                       userSustainedKeys={userSustainedKeys}
                       userActiveKeys={userActiveKeys}
                       activeMidiNotesInfo={activeMidiNotesInfoForKeyboard}
@@ -6118,6 +6110,7 @@ const AppContent: React.FC = () => {
                       mirpTranspose={mirpTranspose}
                       isInteractive={viewMode !== "sheet-qwerty"}
                       lowDetailMode={true}
+                      gameplayStyle={gameplayStyle}
                     />
                     {isSustainPedalActive && (
                       <div
@@ -6243,6 +6236,8 @@ const AppContent: React.FC = () => {
             onMicThresholdsChange={setMicThresholds}
             viewMode={viewMode}
             onViewModeChange={handleViewModeChange}
+            gameplayStyle={gameplayStyle}
+            onGameplayStyleChange={setGameplayStyle}
             noteLabelType={noteLabelType}
             onNoteLabelTypeChange={setNoteLabelType}
             showOnlyMajorNotes={showOnlyMajorNotes}
@@ -6287,6 +6282,8 @@ const AppContent: React.FC = () => {
             onDrumTyperPadOpacityChange={setDrumTyperPadOpacity}
             drumInputMode={drumInputMode}
             onDrumInputModeChange={setDrumInputMode}
+            lowDetailMode={lowDetailMode}
+            onLowDetailModeChange={setLowDetailMode}
             instrumentMode={instrumentMode}
             onResetSettings={resetSettings}
             zoomDirection={zoomDirection}
@@ -6607,6 +6604,28 @@ const AppContent: React.FC = () => {
                       onSeek={() => {}}
                       drumTyperPadOpacity={drumTyperPadOpacity}
                     />
+                  ) : isFreePlayMode && viewMode === "qwerty_mania" ? (
+                    <QwertyManiaView
+                      key="freeplay-qwerty-mania"
+                      currentTimeMs={freePlayElapsedTime}
+                      playbackData={recordedNotes}
+                      liveNotes={freePlayLiveNotes}
+                      activePlaybackNotes={activePlaybackNotesInfo}
+                      userActiveKeys={userActiveMidiNotes}
+                      noteSpeedMultiplier={noteSpeedMultiplier}
+                      themeSettings={themeSettings}
+                      zoomScale={zoomScale}
+                      zoomDirection={zoomDirection}
+                      drumTyperPadOpacity={drumTyperPadOpacity}
+                      isPaused={!isFreePlayMode}
+                      onSeek={() => {}}
+                      qwertyLayout={qwertyLayout}
+                      qwertyCurrentOctaveShift={qwertyCurrentOctaveShift}
+                      mirpTranspose={mirpTranspose}
+                      activeKeySignature={initialKeySignature}
+                      activeBpm={currentTempoBpm || 120}
+                      showOnlyMajorNotes={showOnlyMajorNotes}
+                    />
                   ) : isFreePlayMode && viewMode === "falling" ? (
                     <div
                       className="relative w-full h-full"
@@ -6641,6 +6660,7 @@ const AppContent: React.FC = () => {
                         qwertyLayout={qwertyLayout}
                         qwertyCurrentOctaveShift={qwertyCurrentOctaveShift}
                         mirpTranspose={mirpTranspose}
+                        lowDetailMode={lowDetailMode}
                       />
                     </div>
                   ) : instrumentMode === "drum" && viewMode === "drum_mania" ? (
@@ -6685,6 +6705,32 @@ const AppContent: React.FC = () => {
                       onSeek={handleSeek}
                       drumTyperPadOpacity={drumTyperPadOpacity}
                     />
+                  ) : viewMode === "qwerty_mania" ? (
+                    <QwertyManiaView
+                      key="game-qwerty-mania"
+                      currentTimeMs={musicalCurrentTimeMs}
+                      playbackData={notesForGame}
+                      liveNotes={gameLiveNotes}
+                      activePlaybackNotes={activePlaybackNotesInfo}
+                      userActiveKeys={userActiveMidiNotes}
+                      noteSpeedMultiplier={noteSpeedMultiplier}
+                      themeSettings={themeSettings}
+                      zoomScale={zoomScale}
+                      zoomDirection={zoomDirection}
+                      drumTyperPadOpacity={drumTyperPadOpacity}
+                      isPaused={!isPlaying}
+                      onSeek={handleSeek}
+                      qwertyLayout={qwertyLayout}
+                      qwertyCurrentOctaveShift={qwertyCurrentOctaveShift}
+                      mirpTranspose={mirpTranspose}
+                      activeKeySignature={getActiveKeySignature(
+                        musicalCurrentTimeMs,
+                        signatureEvents,
+                        initialKeySignature,
+                      )}
+                      activeBpm={activeBpmForDisplay}
+                      showOnlyMajorNotes={showOnlyMajorNotes}
+                    />
                   ) : viewMode === "falling" ? (
                     <FallingNotesArea
                       key={`falling-freeplay-${viewMode}`}
@@ -6710,6 +6756,7 @@ const AppContent: React.FC = () => {
                       )}
                       activeTempoBpm={activeBpmForDisplay}
                       showOnlyMajorNotes={showOnlyMajorNotes}
+                      instrumentMode={instrumentMode}
                       showPianoTilesBackground={showPianoTilesBackground}
                       pianoTilesOpacity={themeSettings.pianoTilesOpacity}
                       qwertyLayout={qwertyLayout}
@@ -6717,6 +6764,7 @@ const AppContent: React.FC = () => {
                       mirpTranspose={mirpTranspose}
                       isPaused={!isPlaying}
                       onSeek={handleSeek}
+                      lowDetailMode={lowDetailMode}
                     />
                   ) : (viewMode === "sheet-roll" ||
                       viewMode === "sheet-qwerty") &&
@@ -6776,6 +6824,7 @@ const AppContent: React.FC = () => {
                       playbackTempoMultiplier={playbackTempoMultiplier}
                       backgroundColor={sheetMusicBackgroundColor}
                       instrumentMode={instrumentMode}
+                      lowDetailMode={lowDetailMode}
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center bg-slate-900">
@@ -6794,7 +6843,7 @@ const AppContent: React.FC = () => {
                   }}
                 >
                   <PianoKeyboard
-                    keyPositions={Array.from(keyPositionsMap.values())}
+                    keyPositions={keyPositionsArray}
                     userSustainedKeys={userSustainedKeys}
                     userActiveKeys={userActiveKeys}
                     activeMidiNotesInfo={activeMidiNotesInfoForKeyboard}
@@ -6812,7 +6861,8 @@ const AppContent: React.FC = () => {
                     qwertyLayout={qwertyLayout}
                     mirpTranspose={mirpTranspose}
                     isInteractive={viewMode !== "sheet-qwerty"}
-                    lowDetailMode={true}
+                    lowDetailMode={lowDetailMode}
+                    gameplayStyle={gameplayStyle}
                   />
                   {isSustainPedalActive && (
                     <div

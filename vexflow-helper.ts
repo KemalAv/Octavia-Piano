@@ -57,17 +57,17 @@ const DRUM_MIDI_MAPPING: { [key: number]: { key: string, noteHead?: string } } =
     45: { key: 'b/4' }, // Low Tom
     47: { key: 'b/4' }, // Low-Mid Tom
     48: { key: 'd/5' }, // Hi-Mid Tom
-    50: { key: 'd/5' }, // High Tom
-    42: { key: 'g/5', noteHead: 'x' }, // Closed Hi-Hat
-    46: { key: 'g/5', noteHead: 'X3' }, // Open Hi-Hat
-    44: { key: 'd/4', noteHead: 'x' }, // Pedal Hi-Hat
-    49: { key: 'a/5', noteHead: 'x' }, // Crash Cymbal 1
-    57: { key: 'a/5', noteHead: 'x' }, // Crash Cymbal 2
-    51: { key: 'f/5', noteHead: 'x' }, // Ride Cymbal 1
-    59: { key: 'f/5', noteHead: 'x' }, // Ride Cymbal 2
-    53: { key: 'f/5', noteHead: 'x' }, // Ride Bell
-    55: { key: 'a/5', noteHead: 'x' }, // Splash Cymbal
-    52: { key: 'a/5', noteHead: 'x' }, // Chinese Cymbal
+    50: { key: 'e/5' }, // High Tom
+    42: { key: 'g/5', noteHead: 'x' },  // Closed Hi-Hat (x)
+    46: { key: 'g/5', noteHead: 'x2' }, // Open Hi-Hat (circle-x)
+    44: { key: 'd/4', noteHead: 'x' },  // Pedal Hi-Hat (x)
+    49: { key: 'a/5', noteHead: 'x' },  // Crash Cymbal 1 (x)
+    57: { key: 'a/5', noteHead: 'x' },  // Crash Cymbal 2 (x)
+    51: { key: 'f/5', noteHead: 'x' },  // Ride Cymbal 1 (x)
+    59: { key: 'f/5', noteHead: 'x' },  // Ride Cymbal 2 (x)
+    53: { key: 'f/5', noteHead: 'x' },  // Ride Bell (x)
+    55: { key: 'a/5', noteHead: 'x' },  // Splash Cymbal (x)
+    52: { key: 'a/5', noteHead: 'x' },  // Chinese Cymbal (x)
 };
 
 const COMMON_VEXFLOW_DURATIONS_SET = new Set(Object.keys(DURATION_TO_VEXFLOW).map(Number));

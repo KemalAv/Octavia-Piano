@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, memo } from 'react';
 import { motion } from 'motion/react';
 import { ExtendedResult, WaitMode, GameSettings, PracticeHand } from '../types';
 import DifficultyAnalysis from './DifficultyAnalysis';
@@ -42,7 +42,7 @@ const tutorials = [
     { title: 'Computer Keyboard', url: 'https://youtu.be/LM-aAcYtKg4?si=OPPsWYQvFbTYt3ww' },
 ];
 
-const ModeSelection: React.FC<ModeSelectionProps> = ({
+const ModeSelection: React.FC<ModeSelectionProps> = memo(({
     onStartGame,
     onBack,
     onOpenSettings,
@@ -99,7 +99,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
         }
     }, [isTutorialModalOpen]);
 
-    const buttonBaseStyle = "w-full font-bold py-3 px-6 rounded-lg text-lg transition-all duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-opacity-50 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100 shadow-lg";
+    const buttonBaseStyle = "w-full font-bold py-3 px-6 rounded-lg text-lg transition-all duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-opacity-50 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100 shadow-md";
     const primaryButtonStyle = "bg-cyan-500 hover:bg-cyan-600 text-white focus:ring-cyan-400";
     const tertiaryButtonStyle = "bg-slate-600 hover:bg-slate-700 text-slate-200 focus:ring-slate-500";
 
@@ -217,14 +217,14 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
 
     return (
         <>
-            <div className={`fixed inset-0 bg-slate-900/60 flex flex-col items-center justify-center z-40 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'opacity-100' : 'opacity-0'}`}>
+            <div className={`fixed inset-0 bg-slate-900/40 flex flex-col items-center justify-center z-40 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'opacity-100' : 'opacity-0'}`}>
                 <div className="absolute top-4 left-4" style={{ zIndex: 9999 }}>
-                    <button onClick={onBack} className={`${tertiaryButtonStyle} py-2 px-4 text-base shadow-md inline-flex items-center gap-2`}>
+                    <button onClick={onBack} className={`${tertiaryButtonStyle} py-2 px-4 text-base shadow-sm inline-flex items-center gap-2`}>
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
                         Back
                     </button>
                 </div>
-                <div className={`bg-slate-800/50 backdrop-blur-sm p-8 md:p-12 rounded-xl shadow-2xl max-w-5xl w-full ring-1 ring-slate-700 max-h-[90vh] overflow-y-auto custom-scrollbar transform transition-transform duration-300 ease-in-out ${isRendered ? 'scale-100' : 'scale-95'}`}>
+                <div className={`bg-slate-800/90 p-8 md:p-12 rounded-xl shadow-xl max-w-5xl w-full ring-1 ring-slate-700 max-h-[90vh] overflow-y-auto custom-scrollbar transform transition-transform duration-300 ease-in-out ${isRendered ? 'scale-100' : 'scale-95'}`}>
                     <div className="text-center mb-6">
                         <h2 className="text-4xl font-bold text-cyan-400 mb-2">Game Mode</h2>
                         {fileName && <p className="text-lg text-slate-300 truncate">{fileName}</p>}
@@ -234,7 +234,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                         <div
                             onClick={() => handleModeSelect('practice_lenient')}
-                            className={`${modeButtonBase} ${selectedMode === 'practice_lenient' ? 'bg-emerald-600/80 border-emerald-400 shadow-lg scale-105 ring-2 ring-emerald-400' : modeButtonUnselected}`}
+                            className={`${modeButtonBase} ${selectedMode === 'practice_lenient' ? 'bg-emerald-600/80 border-emerald-400 shadow-md scale-105' : modeButtonUnselected}`}
                         >
                             <h3 className="font-bold text-xl mb-1 text-emerald-300">Lenient Practice</h3>
                             <p className="text-sm text-slate-300 flex-grow">The song plays continuously, but will pause if you don't play a key.</p>
@@ -242,7 +242,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
 
                         <div
                             onClick={() => handleModeSelect('practice_strict')}
-                            className={`${modeButtonBase} ${selectedMode === 'practice_strict' ? 'bg-rose-600/80 border-rose-400 shadow-lg scale-105 ring-2 ring-rose-400' : modeButtonUnselected}`}
+                            className={`${modeButtonBase} ${selectedMode === 'practice_strict' ? 'bg-rose-600/80 border-rose-400 shadow-md scale-105' : modeButtonUnselected}`}
                         >
                             <h3 className="font-bold text-xl mb-1 text-rose-300">Strict Practice</h3>
                             <p className="text-sm text-slate-300 flex-grow">The song pauses and waits for you to play the correct notes.</p>
@@ -250,7 +250,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
 
                         <div
                             onClick={() => handleModeSelect('autoplay')}
-                            className={`${modeButtonBase} ${selectedMode === 'autoplay' ? 'bg-sky-600/80 border-sky-400 shadow-lg scale-105 ring-2 ring-sky-400' : modeButtonUnselected}`}
+                            className={`${modeButtonBase} ${selectedMode === 'autoplay' ? 'bg-sky-600/80 border-sky-400 shadow-md scale-105' : modeButtonUnselected}`}
                         >
                             <h3 className="font-bold text-xl mb-1 text-sky-300">Autoplay</h3>
                             <p className="text-sm text-slate-300 flex-grow">Sit back and listen. The song will play itself automatically.</p>
@@ -261,7 +261,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
                             className={`${modeButtonBase} ${isAudioInputEnabled
                                 ? 'opacity-50 cursor-not-allowed bg-slate-800 border-slate-700'
                                 : selectedMode === 'retical'
-                                    ? 'bg-amber-600/80 border-amber-400 shadow-lg scale-105 ring-2 ring-amber-400'
+                                    ? 'bg-amber-600/80 border-amber-400 shadow-md scale-105'
                                     : modeButtonUnselected
                                 }`}
                         >
@@ -596,6 +596,6 @@ const ModeSelection: React.FC<ModeSelectionProps> = ({
             )}
         </>
     );
-};
+});
 
 export default ModeSelection;

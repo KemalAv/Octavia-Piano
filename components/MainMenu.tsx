@@ -1,6 +1,6 @@
 
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, memo } from 'react';
 import { useAuth } from '../AuthContext'; // Import useAuth hook
 import { Screen } from '../types';
 import { ADMIN_UUID } from '../constants';
@@ -16,7 +16,7 @@ interface MainMenuProps {
   onInstrumentModeChange: (mode: 'piano' | 'drum') => void;
 }
 
-const MainMenu: React.FC<MainMenuProps> = ({ 
+const MainMenu: React.FC<MainMenuProps> = memo(({ 
   onPlay, 
   onSettings, 
   onSocial, 
@@ -37,12 +37,12 @@ const MainMenu: React.FC<MainMenuProps> = ({
     }
   }, [loading]);
 
-  const buttonBaseStyle = "w-full font-bold py-4 px-6 rounded-xl text-xl transition-all duration-200 ease-in-out transform hover:scale-[1.02] focus:outline-none focus:ring-4 focus:ring-opacity-50 shadow-lg border-2 border-transparent relative overflow-hidden group";
+  const buttonBaseStyle = "w-full font-bold py-4 px-6 rounded-xl text-xl transition-all duration-200 ease-in-out transform hover:scale-[1.02] focus:outline-none focus:ring-4 focus:ring-opacity-50 shadow-md border-2 border-transparent relative overflow-hidden group";
   
-  const primaryButtonStyle = "bg-cyan-600 hover:bg-cyan-500 text-white border-cyan-400/30 shadow-cyan-500/20";
-  const secondaryButtonStyle = "bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-600 hover:border-slate-500 shadow-black/30";
-  const leaderboardButtonStyle = "bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-400/30 shadow-emerald-500/20";
-  const accountButtonStyle = "bg-orange-600 hover:bg-orange-500 text-white border-orange-400/30 shadow-orange-500/20"; 
+  const primaryButtonStyle = "bg-cyan-600 hover:bg-cyan-500 text-white border-cyan-400/30";
+  const secondaryButtonStyle = "bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-600 hover:border-slate-500";
+  const leaderboardButtonStyle = "bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-400/30";
+  const accountButtonStyle = "bg-orange-600 hover:bg-orange-500 text-white border-orange-400/30"; 
   
 
   const handleAccountClick = () => {
@@ -68,22 +68,18 @@ const MainMenu: React.FC<MainMenuProps> = ({
   }
 
   return (
-    <div className={`fixed inset-0 bg-slate-950/60 flex flex-col items-center justify-center z-50 p-4 transition-opacity duration-500 ease-in-out ${isRendered ? 'opacity-100' : 'opacity-0'}`}>
+    <div className={`fixed inset-0 bg-slate-950/40 flex flex-col items-center justify-center z-50 p-4 transition-opacity duration-500 ease-in-out ${isRendered ? 'opacity-100' : 'opacity-0'}`}>
       
       <div 
-        className={`relative z-10 p-8 md:p-12 rounded-2xl shadow-2xl text-center max-w-md w-full border border-white/10 max-h-[85vh] overflow-y-auto custom-scrollbar transform transition-all duration-500 ease-in-out bg-slate-900/80 ${isRendered ? 'scale-100 translate-y-0' : 'scale-95 translate-y-4'}`}
-        style={{
-          boxShadow: '0 0 50px rgba(0,0,0,0.8), inset 0 0 0 1px rgba(255,255,255,0.05)'
-        }}
+        className={`relative z-10 p-8 md:p-12 rounded-2xl shadow-xl text-center max-w-md w-full border border-white/10 max-h-[85vh] overflow-y-auto custom-scrollbar transform transition-all duration-500 ease-in-out bg-slate-900/90 ${isRendered ? 'scale-100 translate-y-0' : 'scale-95 translate-y-4'}`}
       >
         <div className="mb-10 relative">
-            <div className="absolute -inset-4 bg-cyan-500/20 blur-xl rounded-full opacity-50 animate-pulse"></div>
             <img 
             src="/octavia.png" 
             alt="Octavia" 
-            className="relative mx-auto h-40 w-auto object-contain mb-6 drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]" 
+            className="relative mx-auto h-40 w-auto object-contain mb-6" 
             />
-            <h1 className="text-6xl font-black text-cyan-400 mb-2 tracking-tighter filter drop-shadow-lg">
+            <h1 className="text-6xl font-black text-cyan-400 mb-2 tracking-tighter">
             OCTAVIA
             </h1>
             <p className="text-slate-400 text-sm tracking-widest uppercase font-semibold">
@@ -141,6 +137,6 @@ const MainMenu: React.FC<MainMenuProps> = ({
       </div>
     </div>
   );
-};
+});
 
 export default MainMenu;

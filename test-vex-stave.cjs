@@ -1,0 +1,13 @@
+const { Renderer, Stave, Barline } = require('vexflow');
+const { JSDOM } = require('jsdom');
+const dom = new JSDOM('<!DOCTYPE html><html><body><div id="boo"></div></body></html>');
+global.document = dom.window.document;
+const div = document.getElementById("boo");
+const renderer = new Renderer(div, Renderer.Backends.SVG);
+renderer.resize(500, 500);
+const ctx = renderer.getContext();
+const stave = new Stave(10, 50, 400);
+stave.setEndBarType(Barline.type.NONE);
+stave.setBegBarType(Barline.type.NONE);
+stave.setContext(ctx).draw();
+console.log(div.innerHTML);

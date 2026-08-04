@@ -36,6 +36,29 @@ interface DrumManiaViewProps {
     pianoTilesOpacity?: number;
 }
 
+// Binary search helper to find starting note index in O(log N) time
+function findNoteStartIndex<T extends { timeMs: number; durationMs?: number }>(
+    noteList: T[],
+    targetMinTimeMs: number
+): number {
+    let low = 0;
+    let high = noteList.length - 1;
+    let result = 0;
+
+    while (low <= high) {
+        const mid = (low + high) >> 1;
+        const note = noteList[mid];
+        const duration = note.durationMs || 0;
+        if (note.timeMs + duration >= targetMinTimeMs) {
+            result = mid;
+            high = mid - 1;
+        } else {
+            low = mid + 1;
+        }
+    }
+    return result;
+}
+
 export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
     currentTimeMs,
     playbackData,
@@ -363,14 +386,19 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
                     ctx.beginPath();
                     ctx.moveTo(0, y);
                     ctx.lineTo(dimensions.width, y);
-                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-                    ctx.lineWidth = 2;
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)'; // Fainter bar lines
+                    ctx.lineWidth = 1;
                     ctx.stroke();
-                    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-                    ctx.font = '12px monospace';
-                    ctx.fillText(`Bar ${index + 1}`, 20, y - 5);
                 }
             });
+
+            // Draw horizontal hit line across the entire width
+            ctx.beginPath();
+            ctx.moveTo(0, hitLineY);
+            ctx.lineTo(dimensions.width, hitLineY);
+            ctx.strokeStyle = themeSettings.hitNoteColor;
+            ctx.lineWidth = 2;
+            ctx.stroke();
 
             // Draw pads
             pads.forEach(pad => {
@@ -419,14 +447,16 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
                 // Draw indicator at hitLineY (optional, like the image)
                 ctx.beginPath();
                 ctx.arc(pad.cx, hitLineY, pad.r * 0.7, 0, Math.PI * 2);
-                ctx.strokeStyle = isActive ? 'rgba(34, 211, 238, 0.8)' : 'rgba(255, 255, 255, 0.2)';
+                ctx.strokeStyle = isActive ? themeSettings.hitNoteColor : 'rgba(255, 255, 255, 0.2)';
                 ctx.lineWidth = 2;
                 ctx.stroke();
 
                 if (isActive) {
                     ctx.beginPath();
                     ctx.arc(pad.cx, hitLineY, pad.r * 0.7, 0, Math.PI * 2);
-                    ctx.fillStyle = 'rgba(34, 211, 238, 0.3)';
+                    // Match theme hit color
+                    const hc = themeSettings.hitNoteColor;
+                    ctx.fillStyle = hc.length === 7 ? hc + '4d' : hc;
                     ctx.fill();
                 }
 
@@ -449,16 +479,12 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
             });
 
             // Draw falling notes
-            // Efficiently find visible notes using the sorted property of playbackData
+            // Efficiently find visible notes using binary search
             const viewDurationMs = dimensions.height / pixelsPerMillisecond;
             const minNoteTime = currentMs - 5000; // Stay visible for 5s after passing to ensure they fall off screen
             const maxNoteTime = currentMs + viewDurationMs + 100;
 
-            // Simple linear search for the start index (could be binary search for even more speed, but linear is fine for most songs)
-            let startIndex = 0;
-            while (startIndex < currentPlaybackData.length && currentPlaybackData[startIndex].timeMs < minNoteTime) {
-                startIndex++;
-            }
+            const startIndex = currentPlaybackData.length > 0 ? findNoteStartIndex(currentPlaybackData, minNoteTime) : 0;
 
             const visibleNotes: MidiNotePlaybackItem[] = [];
             for (let i = startIndex; i < currentPlaybackData.length; i++) {
