@@ -32,6 +32,7 @@ interface FallingNotesAreaProps {
   qwertyCurrentOctaveShift?: number;
   mirpTranspose?: number;
   lowDetailMode?: boolean;
+  resolutionScale?: number;
 }
 
 // Binary search helper to find starting note index in O(log N) time
@@ -85,6 +86,7 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
   qwertyCurrentOctaveShift = 0,
   mirpTranspose = 0,
   lowDetailMode = false,
+  resolutionScale = 1.0,
 }) => {
   const [statsVisible, setStatsVisible] = useState(true);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -118,33 +120,11 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
   const thirtySecondNoteMs = (60000 / bpm) / 8;
   const noteCap = isDrum ? thirtySecondNoteMs : VISUAL_NOTE_CAP_MS;
 
-  const visibleNotes = useMemo(() => {
-    if (actualHeight <= 0 || pixelsPerMillisecond <= 0 || notes.length === 0) return [];
-
-    const minTime = currentTimeMs - 5000;
-    const maxTime = currentTimeMs + VIEWABLE_DURATION_MS + 100;
-    const startIdx = findNoteStartIndex(notes, minTime);
-
-    const result: MidiNotePlaybackItem[] = [];
-    for (let i = startIdx; i < notes.length; i++) {
-      const note = notes[i];
-      if (note.timeMs > maxTime) break;
-
-      const duration = effectiveShowOnlyMajorNotes ? Math.min(note.durationMs, noteCap) : note.durationMs;
-      const noteEndTime = note.timeMs + duration;
-
-      if (noteEndTime >= minTime) {
-        result.push(note);
-      }
-    }
-    return result;
-  }, [notes, actualHeight, pixelsPerMillisecond, currentTimeMs, VIEWABLE_DURATION_MS, effectiveShowOnlyMajorNotes, noteCap]);
-
   // Background Caching Effect
   useEffect(() => {
     if (width <= 0 || actualHeight <= 0) return;
     
-    const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+    const dpr = (typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1) * (resolutionScale || 1.0);
     const bgCanvas = document.createElement('canvas');
     bgCanvas.width = Math.floor(width * dpr);
     bgCanvas.height = Math.floor(actualHeight * dpr);
@@ -212,7 +192,7 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
     }
     
     backgroundCanvasRef.current = bgCanvas;
-  }, [width, actualHeight, backgroundColor, showPianoTilesBackground, keyPositions, isLightBackground, alphaMultiplier]);
+  }, [width, actualHeight, backgroundColor, showPianoTilesBackground, keyPositions, isLightBackground, alphaMultiplier, resolutionScale]);
 
   // Main Canvas Render Effect
   useEffect(() => {
@@ -222,7 +202,7 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+    const dpr = (typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1) * (resolutionScale || 1.0);
 
     if (canvas.width !== Math.floor(width * dpr) || canvas.height !== Math.floor(actualHeight * dpr)) {
       canvas.width = Math.floor(width * dpr);
@@ -372,7 +352,7 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
         }
       }
     } else {
-      const minVisibleTime = currentTimeMs - 5000;
+      const minVisibleTime = currentTimeMs - (pixelsPerMillisecond > 0 ? 300 / pixelsPerMillisecond : 1000);
       const startIdx = findNoteStartIndex(notes, minVisibleTime);
       for (let i = startIdx; i < notes.length; i++) {
         const note = notes[i];
@@ -408,20 +388,7 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
         ctx.fillStyle = baseColorStandard;
         ctx.fillRect(x, y, w, h);
 
-        let strokeColor: string | null = null;
-        if (currentStatus === 'user_played') {
-          strokeColor = hitNoteColor;
-        } else if (currentStatus === 'playing') {
-          strokeColor = 'rgba(255, 255, 255, 0.9)';
-        } else if (currentStatus === 'waiting') {
-          strokeColor = '#FFFFFF';
-        }
-
-        if (strokeColor) {
-          ctx.strokeStyle = strokeColor;
-          ctx.lineWidth = 2;
-          ctx.strokeRect(x, y, w, h);
-        }
+        // No highlight stroke on falling notes as requested by user
 
         const displayedLabel = getNoteLabel(note.midi, note.pitchClass, note.finger);
         if (displayedLabel) {
@@ -578,7 +545,7 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
       <canvas
         ref={canvasRef}
         className="absolute inset-0 pointer-events-none"
-        style={{ width: `${width}px`, height: `${actualHeight}px` }}
+        style={{ width: `${width}px`, height: `${actualHeight}px`, imageRendering: 'pixelated' }}
       />
 
       <div

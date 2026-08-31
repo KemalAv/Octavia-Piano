@@ -22,6 +22,8 @@ interface PianoKeyboardProps {
   isInteractive?: boolean;
   lowDetailMode?: boolean;
   gameplayStyle?: 'piano' | 'computer'; // Optional prop to determine gameplay mode
+  waitMode?: string;
+  resolutionScale?: number;
 }
 
 const PianoKeyboard: React.FC<PianoKeyboardProps> = memo(({
@@ -43,6 +45,8 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = memo(({
   isInteractive = true,
   lowDetailMode = false,
   gameplayStyle = 'piano',
+  waitMode = 'strict',
+  resolutionScale = 1.0,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [backgroundCanvas, setBackgroundCanvas] = useState<HTMLCanvasElement | null>(null);
@@ -90,7 +94,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = memo(({
   useEffect(() => {
     if (width <= 0 || totalHeight <= 0) return;
     
-    const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+    const dpr = (typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1) * (resolutionScale || 1.0);
     const bgCanvas = document.createElement('canvas');
     bgCanvas.width = Math.floor(width * dpr);
     bgCanvas.height = Math.floor(totalHeight * dpr);
@@ -169,7 +173,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = memo(({
     });
 
     setBackgroundCanvas(bgCanvas);
-  }, [width, totalHeight, layoutConfig, keyPositions, whiteKeysPos, blackKeysPos, keyDefMap, getQwertyShortcut]);
+  }, [width, totalHeight, layoutConfig, keyPositions, whiteKeysPos, blackKeysPos, keyDefMap, getQwertyShortcut, resolutionScale]);
 
   // Coordinate lookup for keys
   const getKeyFromClientCoords = useCallback((clientX: number, clientY: number): PianoKeyDefinition | null => {
@@ -212,7 +216,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = memo(({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = (window.devicePixelRatio || 1) * (resolutionScale || 1.0);
     canvas.width = Math.floor(width * dpr);
     canvas.height = Math.floor(totalHeight * dpr);
 
@@ -233,7 +237,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = memo(({
       const keyDef = keyDefMap.get(kp.name);
       if (!keyDef) return;
 
-      const activeSystemNoteInfo = activeMidiNotesInfo.get(keyDef.name) || null;
+      const activeSystemNoteInfo = (waitMode === 'off') ? (activeMidiNotesInfo.get(keyDef.name) || null) : null;
       const isUserPlaying = userSustainedKeys.has(keyDef.name) || userActiveKeys.has(keyDef.name);
 
       if (!isUserPlaying && !activeSystemNoteInfo) return; // Skip static keys
@@ -249,8 +253,8 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = memo(({
         hasGlow = !lowDetailMode;
         glowColor = hitNoteColor;
       } else if (activeSystemNoteInfo) {
-        const { status, hand } = activeSystemNoteInfo;
-        const baseColor = hand === 'left' ? leftHandColor : rightHandColor;
+        const { status } = activeSystemNoteInfo;
+        const baseColor = hitNoteColor;
 
         if (status === 'waiting') {
           fillColor = lightenHex(baseColor, 60);
@@ -258,10 +262,10 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = memo(({
           hasGlow = !lowDetailMode;
           glowColor = hexToRgba(baseColor, 0.8);
         } else if (status === 'playing' || status === 'user_played') {
-          fillColor = lightenHex(baseColor, 40);
+          fillColor = baseColor;
           borderColor = '#ffffff';
           hasGlow = !lowDetailMode;
-          glowColor = hexToRgba(baseColor, 0.9);
+          glowColor = baseColor;
         }
       }
 
@@ -304,7 +308,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = memo(({
       const keyDef = keyDefMap.get(kp.name);
       if (!keyDef) return;
 
-      const activeSystemNoteInfo = activeMidiNotesInfo.get(keyDef.name) || null;
+      const activeSystemNoteInfo = (waitMode === 'off') ? (activeMidiNotesInfo.get(keyDef.name) || null) : null;
       const isUserPlaying = userSustainedKeys.has(keyDef.name) || userActiveKeys.has(keyDef.name);
 
       let fillColor = '#0f172a';
@@ -320,8 +324,8 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = memo(({
         hasGlow = !lowDetailMode;
         glowColor = hitNoteColor;
       } else if (activeSystemNoteInfo) {
-        const { status, hand } = activeSystemNoteInfo;
-        const baseColor = hand === 'left' ? leftHandColor : rightHandColor;
+        const { status } = activeSystemNoteInfo;
+        const baseColor = hitNoteColor;
         qwertyColor = '#ffffff';
 
         if (status === 'waiting') {
@@ -333,7 +337,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = memo(({
           fillColor = baseColor;
           borderColor = '#ffffff';
           hasGlow = !lowDetailMode;
-          glowColor = hexToRgba(baseColor, 0.9);
+          glowColor = baseColor;
         }
       }
 
@@ -379,7 +383,8 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = memo(({
     leftHandColor,
     hitNoteColor,
     lowDetailMode,
-    backgroundCanvas
+    backgroundCanvas,
+    waitMode
   ]);
 
   // Pointer Interaction Handlers
@@ -453,6 +458,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = memo(({
           height: `${totalHeight}px`,
           display: 'block',
           touchAction: 'none',
+          imageRendering: 'pixelated',
         }}
       />
     </div>

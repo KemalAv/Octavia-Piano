@@ -22,6 +22,7 @@ interface QwertyManiaViewProps {
     activeKeySignature?: string;
     activeBpm?: number;
     showOnlyMajorNotes?: boolean;
+    resolutionScale?: number;
 }
 
 // Helper for drawing rounded rectangle shapes matching keyboard keys
@@ -89,6 +90,7 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
     activeKeySignature = 'C',
     activeBpm = 120,
     showOnlyMajorNotes = false,
+    resolutionScale = 1.0,
 }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
@@ -269,7 +271,7 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
-        const dpr = window.devicePixelRatio || 1;
+        const dpr = (window.devicePixelRatio || 1) * (resolutionScale || 1.0);
         canvas.width = dimensions.width * dpr;
         canvas.height = dimensions.height * dpr;
         ctx.scale(dpr, dpr);
@@ -356,7 +358,7 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
 
             const visibleNotes: MidiNotePlaybackItem[] = [];
             if (currentPlaybackData.length > 0) {
-                const approachStartIdx = findNoteStartIndex(currentPlaybackData, currentMs - 200);
+                const approachStartIdx = findNoteStartIndex(currentPlaybackData, currentMs - VISUAL_NOTE_CAP_MS);
                 for (let i = approachStartIdx; i < currentPlaybackData.length; i++) {
                     const note = currentPlaybackData[i];
                     if (note.timeMs - currentMs > approachMs + 100) break;
@@ -516,7 +518,7 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
                 onPointerUp={handlePointerUp}
                 onPointerLeave={handlePointerUp}
                 onWheel={handleWheel}
-                style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none' }}
+                style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none', imageRendering: 'pixelated' }}
             />
 
             {/* FLOATING HUD */}

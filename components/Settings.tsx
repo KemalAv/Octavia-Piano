@@ -92,6 +92,11 @@ interface SettingsProps {
   audioContext?: AudioContext | null;
   lowDetailMode?: boolean;
   onLowDetailModeChange?: (lowDetail: boolean) => void;
+  resolutionScale?: number;
+  onResolutionScaleChange?: (scale: number) => void;
+  showPerfectJudgment: boolean;
+  onShowPerfectJudgmentChange: (value: boolean) => void;
+  onStartCalibration?: () => void;
 }
 
 const Section: React.FC<{ title: string; children: React.ReactNode; showInfoButton?: boolean; onInfoClick?: () => void }> = ({ title, children, showInfoButton, onInfoClick }) => (
@@ -129,198 +134,7 @@ const ToggleRow: React.FC<{ label: string; id: string; checked: boolean; onChang
   );
 };
 
-const CalibrationModal: React.FC<{
-  isOpen: boolean;
-  onClose: () => void;
-  onCalibrate: (offset: number) => void;
-  midiInputs: Map<string, MIDIInput>;
-  selectedMidiInputId: string | null;
-  metronomeBuffers?: { strong?: AudioBuffer | null, weak?: AudioBuffer | null };
-  audioContext?: AudioContext | null;
-}> = ({ isOpen, onClose, onCalibrate, midiInputs, selectedMidiInputId, metronomeBuffers, audioContext }) => {
-  const [isRendered, setIsRendered] = useState(false);
-  const [clicks, setClicks] = useState<number[]>([]);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const isExternalContextRef = useRef<boolean>(false);
-  const nextNoteTimeRef = useRef<number>(0);
-  const timerIDRef = useRef<number | null>(null);
-  const beatCountRef = useRef<number>(0);
-  const metronomeBuffersRef = useRef<{ strong: AudioBuffer | null, weak: AudioBuffer | null }>({ strong: null, weak: null });
-  const lookahead = 25.0; // ms
-  const scheduleAheadTime = 0.1; // s
-  const tempo = 120; // bpm
-  const secondsPerBeat = 60.0 / tempo;
 
-  const scheduleNote = (time: number) => {
-    if (!audioCtxRef.current) return;
-    
-    const isStrongBeat = beatCountRef.current % 4 === 0;
-    // Use passed-in buffers if available, otherwise use internal ones (which we'll try to load as fallback)
-    const buffer = isStrongBeat 
-      ? (metronomeBuffers?.strong || metronomeBuffersRef.current.strong) 
-      : (metronomeBuffers?.weak || metronomeBuffersRef.current.weak);
-
-    if (buffer) {
-      const source = audioCtxRef.current.createBufferSource();
-      source.buffer = buffer;
-      source.connect(audioCtxRef.current.destination);
-      source.start(time);
-    } else {
-      // Fallback
-      const osc = audioCtxRef.current.createOscillator();
-      const envelope = audioCtxRef.current.createGain();
-      osc.frequency.value = isStrongBeat ? 880.0 : 440.0;
-      envelope.gain.value = 1;
-      envelope.gain.setValueAtTime(1, time);
-      envelope.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
-      osc.connect(envelope);
-      envelope.connect(audioCtxRef.current.destination);
-      osc.start(time);
-      osc.stop(time + 0.05);
-    }
-    beatCountRef.current++;
-  };
-
-  const isOpenRef = useRef(isOpen);
-  useEffect(() => {
-    isOpenRef.current = isOpen;
-  }, [isOpen]);
-
-  const scheduler = () => {
-    if (!isOpenRef.current || !audioCtxRef.current) return;
-    while (nextNoteTimeRef.current < audioCtxRef.current.currentTime + scheduleAheadTime) {
-      scheduleNote(nextNoteTimeRef.current);
-      nextNoteTimeRef.current += secondsPerBeat;
-    }
-    timerIDRef.current = window.setTimeout(scheduler, lookahead);
-  };
-
-  useEffect(() => {
-    if (isOpen) {
-      setIsRendered(true);
-      setClicks([]);
-      beatCountRef.current = 0;
-      
-      if (audioContext) {
-        audioCtxRef.current = audioContext;
-        isExternalContextRef.current = true;
-      } else {
-        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-        audioCtxRef.current = new AudioContextClass();
-        isExternalContextRef.current = false;
-      }
-      
-      // Load metronome sounds if not provided
-      const loadSounds = async () => {
-        if (!audioCtxRef.current || (metronomeBuffers?.strong && metronomeBuffers?.weak)) return;
-        try {
-          const [strongRes, weakRes] = await Promise.all([
-            fetch('/sounds/metronome/strong_beat.mp3'),
-            fetch('/sounds/metronome/weak_beat.mp3')
-          ]);
-          const strongArrayBuffer = await strongRes.arrayBuffer();
-          const weakArrayBuffer = await weakRes.arrayBuffer();
-          const strongBuffer = await audioCtxRef.current.decodeAudioData(strongArrayBuffer);
-          const weakBuffer = await audioCtxRef.current.decodeAudioData(weakArrayBuffer);
-          metronomeBuffersRef.current = { strong: strongBuffer, weak: weakBuffer };
-        } catch (e) {
-          console.warn("Failed to load metronome sounds for calibration", e);
-        }
-      };
-      loadSounds();
-
-      nextNoteTimeRef.current = audioCtxRef.current.currentTime + 0.5;
-      scheduler();
-    } else {
-      setClicks([]); // Clear clicks when closing to prevent stale state
-      setTimeout(() => setIsRendered(false), 300);
-      if (timerIDRef.current) {
-        clearTimeout(timerIDRef.current);
-        timerIDRef.current = undefined;
-      }
-      if (!isExternalContextRef.current && audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
-        audioCtxRef.current.close().catch(e => console.error(e));
-      }
-    }
-    return () => {
-      if (timerIDRef.current) {
-        clearTimeout(timerIDRef.current);
-        timerIDRef.current = undefined;
-      }
-      if (!isExternalContextRef.current && audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
-        audioCtxRef.current.close().catch(e => console.error(e));
-      }
-    };
-  }, [isOpen, audioContext, metronomeBuffers]);
-
-  const handleInput = () => {
-    if (!isOpenRef.current || !audioCtxRef.current) return;
-    const now = audioCtxRef.current.currentTime;
-    const prevBeat = nextNoteTimeRef.current - secondsPerBeat;
-    const nextBeat = nextNoteTimeRef.current;
-    const closestBeat = (now - prevBeat < nextBeat - now) ? prevBeat : nextBeat;
-    
-    const diff = closestBeat - now; // positive if early, negative if late
-    const offset = diff * 1000; // in ms
-    
-    setClicks(prev => {
-      if (prev.length >= 8) return prev;
-      return [...prev, offset];
-    });
-  };
-
-  useEffect(() => {
-    if (!isOpen) return;
-    if (clicks.length >= 8) {
-      const avg = Math.round(clicks.reduce((a, b) => a + b, 0) / clicks.length);
-      onCalibrate(avg); // Remove hidden +80ms offset
-      onClose();
-    }
-  }, [clicks, onCalibrate, onClose, isOpen]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleMidiMessage = (e: any) => {
-      const [status, data1, data2] = e.data;
-      const cmd = status >> 4;
-      if (cmd === 9 && data2 > 0) { // Note on
-        handleInput();
-      }
-    };
-
-    const input = selectedMidiInputId ? midiInputs.get(selectedMidiInputId) : null;
-    if (input) {
-      input.addEventListener('midimessage', handleMidiMessage);
-    }
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!e.repeat) handleInput();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-
-    return () => {
-      if (input) input.removeEventListener('midimessage', handleMidiMessage);
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen, selectedMidiInputId, midiInputs]);
-
-  if (!isOpen && !isRendered) return null;
-
-  return (
-    <div className={`fixed inset-0 bg-slate-900/80 flex items-center justify-center z-[10000] p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'opacity-100' : 'opacity-0'}`}>
-      <div className={`bg-slate-800 p-8 rounded-xl shadow-2xl max-w-md w-full text-center transform transition-transform duration-300 ease-in-out ${isRendered ? 'scale-100' : 'scale-95'}`}>
-        <h3 className="text-2xl font-bold text-cyan-400 mb-4">Calibrate Note Offset</h3>
-        <p className="text-slate-300 mb-6">Listen to the metronome and press any key (MIDI or keyboard) exactly on the beat.</p>
-        <div className="flex justify-center gap-2 mb-8">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className={`w-4 h-4 rounded-full ${i < clicks.length ? 'bg-cyan-400 shadow-[0_0_10px_#22d3ee]' : 'bg-slate-600'}`} />
-          ))}
-        </div>
-        <button onClick={onClose} className="px-6 py-2 bg-slate-600 hover:bg-slate-700 text-white rounded-lg font-medium transition-colors">Cancel</button>
-      </div>
-    </div>
-  );
-};
 
 export const Settings: React.FC<SettingsProps> = (props) => {
   const {
@@ -354,13 +168,15 @@ export const Settings: React.FC<SettingsProps> = (props) => {
     drumMapping, onDrumMappingChange,
     instrumentMode, onResetSettings, initialScrollTarget,
     metronomeBuffers, audioContext,
-    lowDetailMode = false, onLowDetailModeChange
+    lowDetailMode = false, onLowDetailModeChange,
+    resolutionScale = 1.0, onResolutionScaleChange,
+    showPerfectJudgment, onShowPerfectJudgmentChange,
+    onStartCalibration
   } = props;
 
   const [isRendered, setIsRendered] = useState(false);
   const [isInfoModalOpen, setIsInfoModalOpen] = useState(false); // NEW state for info modal
   const [isInfoModalRendered, setIsInfoModalRendered] = useState(false); // For info modal animations
-  const [isCalibratingOffset, setIsCalibratingOffset] = useState(false);
   const [mappingPadId, setMappingPadId] = useState<string | null>(null);
   const [localDrumMapping, setLocalDrumMapping] = useState<DrumPadConfig[]>(drumMapping || DRUM_PADS);
 
@@ -432,21 +248,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
   };
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Automatically mute piano and metronome volume during calibration
-  useEffect(() => {
-    if (isCalibratingOffset) {
-      const originalVolume = masterVolume;
-      const originalMetronomeVolume = metronomeVolume;
-      onMasterVolumeChange(0);
-      onMetronomeVolumeChange(0);
-      
-      return () => {
-        // Restore volume when calibration ends or component unmounts
-        onMasterVolumeChange(originalVolume);
-        onMetronomeVolumeChange(originalMetronomeVolume);
-      };
-    }
-  }, [isCalibratingOffset, onMasterVolumeChange, onMetronomeVolumeChange]);
+
 
 
   useEffect(() => {
@@ -810,8 +612,26 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                     />
                 </SettingRow>
             )}
+            <ToggleRow id="show-perfect-judgment" label="Show PERFECT Rating Text" checked={showPerfectJudgment} onChange={onShowPerfectJudgmentChange} />
+            {onResolutionScaleChange && (
+              <SettingRow label="In-Game View Resolution" htmlFor="resolution-scale">
+                <select
+                  id="resolution-scale"
+                  value={resolutionScale}
+                  onChange={e => onResolutionScaleChange(parseFloat(e.target.value))}
+                  className={`${selectStyles} max-w-xs`}
+                >
+                  <option value={1.0}>100% (Normal)</option>
+                  <option value={0.75}>75% (Medium)</option>
+                  <option value={0.5}>50% (Low - Half Resolution)</option>
+                  <option value={0.25}>25% (Very Low - Quarter Resolution)</option>
+                  <option value={0.125}>12.5% (Ultra Low - Eighth Resolution)</option>
+                  <option value={0.0625}>6.25% (Extreme Low - Sixteenth Resolution)</option>
+                </select>
+              </SettingRow>
+            )}
             
-            {(instrumentMode === 'drum' || viewMode === 'qwerty_mania' || viewMode === 'falling') && (
+            {(viewMode === 'qwerty_mania' || (viewMode === 'falling' && instrumentMode === 'drum')) && (
               <div className="bg-slate-900/50 p-4 rounded-lg mt-4 space-y-4 ring-1 ring-slate-700">
                 <h4 className="text-md font-semibold text-slate-200 border-b border-slate-700 pb-2">Typer & Circle Visual Settings</h4>
                 
@@ -903,7 +723,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                     onChange={e => onMetronomeOffsetChange(parseInt(e.target.value, 10))} 
                     className={`${rangeSliderStyle} flex-grow max-w-xs`} 
                   />
-                  <button onClick={() => setIsCalibratingOffset(true)} className={`${commonButtonStyles} ${secondaryButtonStyles}`}>Calibrate</button>
+                  <button onClick={onStartCalibration} className={`${commonButtonStyles} ${secondaryButtonStyles}`}>Calibrate</button>
                 </div>
               </SettingRow>
               <p className="text-xs text-slate-500 mt-1">
@@ -912,33 +732,35 @@ export const Settings: React.FC<SettingsProps> = (props) => {
             </div>
 
             {/* Anti Double Trigger */}
-            <div id="anti-double-trigger-section" className="bg-slate-900/50 p-4 rounded-lg mt-4 space-y-4 ring-1 ring-slate-700">
-              <ToggleRow 
-                id="anti-double-trigger-enabled" 
-                label="Anti Double Trigger" 
-                checked={antiDoubleTriggerEnabled} 
-                onChange={onAntiDoubleTriggerEnabledChange} 
-              />
-              {antiDoubleTriggerEnabled && (
-                <div className="space-y-2">
-                  <SettingRow label={`Minimum Interval (${antiDoubleTriggerInterval.toFixed(2)}ms)`} htmlFor="anti-double-trigger-interval">
-                    <input 
-                      id="anti-double-trigger-interval" 
-                      type="range" 
-                      min="5" 
-                      max="200" 
-                      step="1" 
-                      value={antiDoubleTriggerInterval} 
-                      onChange={e => onAntiDoubleTriggerIntervalChange(parseFloat(e.target.value))} 
-                      className={`${rangeSliderStyle} max-w-xs focus:ring-cyan-500`} 
-                    />
-                  </SettingRow>
-                  <p className="text-[10px] text-slate-400">
-                    Prevents a single hit from triggering multiple inputs due to vibration. Range: 5ms - 200ms.
-                  </p>
-                </div>
-              )}
-            </div>
+            {instrumentMode === 'drum' && (
+              <div id="anti-double-trigger-section" className="bg-slate-900/50 p-4 rounded-lg mt-4 space-y-4 ring-1 ring-slate-700">
+                <ToggleRow 
+                  id="anti-double-trigger-enabled" 
+                  label="Anti Double Trigger" 
+                  checked={antiDoubleTriggerEnabled} 
+                  onChange={onAntiDoubleTriggerEnabledChange} 
+                />
+                {antiDoubleTriggerEnabled && (
+                  <div className="space-y-2">
+                    <SettingRow label={`Minimum Interval (${antiDoubleTriggerInterval.toFixed(2)}ms)`} htmlFor="anti-double-trigger-interval">
+                      <input 
+                        id="anti-double-trigger-interval" 
+                        type="range" 
+                        min="5" 
+                        max="200" 
+                        step="1" 
+                        value={antiDoubleTriggerInterval} 
+                        onChange={e => onAntiDoubleTriggerIntervalChange(parseFloat(e.target.value))} 
+                        className={`${rangeSliderStyle} max-w-xs focus:ring-cyan-500`} 
+                      />
+                    </SettingRow>
+                    <p className="text-[10px] text-slate-400">
+                      Prevents a single hit from triggering multiple inputs due to vibration. Range: 5ms - 200ms.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Drum Input Mapping */}
             {instrumentMode === 'drum' && (
@@ -1107,15 +929,6 @@ export const Settings: React.FC<SettingsProps> = (props) => {
           </div>
         </div>
       )}
-      <CalibrationModal
-        isOpen={isCalibratingOffset}
-        onClose={() => setIsCalibratingOffset(false)}
-        onCalibrate={onMetronomeOffsetChange}
-        midiInputs={midiInputs}
-        selectedMidiInputId={selectedMidiInputId}
-        metronomeBuffers={metronomeBuffers}
-        audioContext={audioContext}
-      />
     </>
   );
 };

@@ -152,12 +152,12 @@ const StickySignaturePanel: React.FC<StickySignaturePanelProps> = React.memo(({ 
         boxShadow: '4px 0 12px rgba(0,0,0,0.08)'
       }}
     >
-      <canvas ref={canvasRef} style={{ width: `${SIDEBAR_WIDTH}px`, height: `${height}px` }}/>
+      <canvas ref={canvasRef} style={{ width: `${SIDEBAR_WIDTH}px`, height: `${height}px`, imageRendering: 'pixelated' }}/>
     </div>
   );
 });
 
-const VexFlowSheetMusicView: React.FC<Props> = ({
+const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
   notes,
   timeSignature,
   keySignature,
@@ -584,19 +584,8 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
   }, [vexFlowData, chunks, width, height, keySignature, timeSignature, totalDurationMs, onLayoutRendered]);
 
   useEffect(() => {
-    if (!vexFlowData) { setHighlights([]); return; }
-    const newHighlights: HighlightInfo[] = [];
-    activePlaybackNotesInfo.forEach(activeInfo => {
-      let color: string | null = activeInfo.status === 'user_played' ? hitNoteColor : (['playing', 'waiting'].includes(activeInfo.status) ? (instrumentMode === 'drum' ? leftHandColor : (activeInfo.hand === 'left' ? leftHandColor : (activeInfo.hand === 'right' ? rightHandColor : SYSTEM_PLAY_COLOR))) : null);
-      if (color) {
-        vexFlowData.noteIdToFragmentsMap.get(activeInfo.noteId)?.forEach(fragment => {
-          const position = notePositionsRef.current.get(fragment.fragmentId);
-          if (position) newHighlights.push({ key: fragment.fragmentId, x: position.getX() | 0, y: position.getY() | 0, w: position.getW() | 0, h: position.getH() | 0, color: color });
-        });
-      }
-    });
-    setHighlights(newHighlights);
-  }, [activePlaybackNotesInfo, vexFlowData, renderedLayoutId, leftHandColor, rightHandColor]);
+    setHighlights([]);
+  }, [vexFlowData]);
 
   useEffect(() => {
     if (!vexFlowData || !scrollContainerRef.current || width <= 0) return;
@@ -757,11 +746,33 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
                 top: 0,
                 left: `${chunk.startX - (chunk.chunkIndex === 0 ? 0 : 0)}px`,
                 width: `${chunk.width}px`,
-                height: `${height}px`
+                height: `${height}px`,
+                imageRendering: 'pixelated'
               }}
             />
           ))}
           <svg style={{ position: 'absolute', top: 0, left: 0, width: totalMusicWidth, height: '100%', pointerEvents: 'none', zIndex: 15 }}>
+            {/* Active hit notehead highlights */}
+            {Array.from(activePlaybackNotesInfo.entries()).map(([noteId, info]) => {
+              if (info.status !== 'user_played') return null;
+              const pos = notePositionsRef.current.get(`${noteId}-0`);
+              if (!pos) return null;
+              const x = pos.getX();
+              const y = pos.getY();
+              const w = pos.getW();
+              const h = pos.getH();
+              return (
+                <ellipse
+                  key={`highlight-${noteId}`}
+                  cx={x + w / 2}
+                  cy={y + h / 2}
+                  rx={w * 0.85}
+                  ry={h * 1.25}
+                  fill={hitNoteColor || '#10b981'}
+                  opacity={0.5}
+                />
+              );
+            })}
             {vexFlowData?.octaveLines.map((line, index) => {
               const y = line.startY;
               const text = line.type;
@@ -781,13 +792,12 @@ const VexFlowSheetMusicView: React.FC<Props> = ({
               <text key={`tempo-${index}`} x={mark.x} y={mark.y} fontSize="14" fontWeight="bold" fill="#000">♩ = {mark.bpm}</text>
             ))}
           </svg>
-          {highlights.map(h => <div key={h.key} style={{ position: 'absolute', left: `${h.x | 0}px`, top: `${h.y | 0}px`, width: `${h.w | 0}px`, height: `${h.h | 0}px`, backgroundColor: h.color, borderRadius: '50%', opacity: lowDetailMode ? 0.7 : 0.5, pointerEvents: 'none', zIndex: 5 }}/>)}
         </div>
       </div>
       <div ref={cursorRef} className="cursor-line" style={{ left: `${PLAY_LINE_X}px` }} />
       {!vexFlowData && notes.length > 0 && <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-20"><p className="text-slate-600 font-medium animate-pulse">Rendering Sheet Music...</p></div>}
     </div>
   );
-};
+});
 
 export default VexFlowSheetMusicView;

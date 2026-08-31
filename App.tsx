@@ -323,7 +323,93 @@ const parseHash = (hash: string): { screen: Screen; songId: string | null } => {
   return { screen, songId };
 };
 
+const OffsetMeterInApp = ({
+  offset,
+  perfectWindow,
+  greatWindow,
+  goodWindow,
+}: {
+  offset: number;
+  perfectWindow: number;
+  greatWindow: number;
+  goodWindow: number;
+}) => {
+  const maxDisplayOffset = 500;
+  const clampedOffset = Math.max(-maxDisplayOffset, Math.min(maxDisplayOffset, offset));
+  const indicatorPercentage = 50 - (clampedOffset / maxDisplayOffset) * 50;
+
+  const pW = (perfectWindow / maxDisplayOffset) * 50;
+  const grW = ((greatWindow - perfectWindow) / maxDisplayOffset) * 50;
+  const goW = ((goodWindow - greatWindow) / maxDisplayOffset) * 50;
+  const miW = 50 - (goodWindow / maxDisplayOffset) * 50;
+
+  return (
+    <div className="absolute bottom-1 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center justify-center min-w-[200px] bg-slate-950/85 border border-slate-700/50 backdrop-blur-md px-3 py-1.5 rounded-lg shadow-2xl pointer-events-none">
+      <div className="relative w-full h-2 flex items-center rounded-full overflow-hidden bg-slate-900">
+        {/* Left Miss zone */}
+        <div className="h-full bg-rose-600" style={{ width: `${miW}%` }}></div>
+        {/* Left Good zone */}
+        <div className="h-full bg-blue-500" style={{ width: `${goW}%` }}></div>
+        {/* Left Great zone */}
+        <div className="h-full bg-emerald-500" style={{ width: `${grW}%` }}></div>
+        
+        {/* Center Perfect zone */}
+        <div className="h-full bg-yellow-400" style={{ width: `${pW * 2}%` }}></div>
+        
+        {/* Right Great zone */}
+        <div className="h-full bg-emerald-500" style={{ width: `${grW}%` }}></div>
+        {/* Right Good zone */}
+        <div className="h-full bg-blue-500" style={{ width: `${goW}%` }}></div>
+        {/* Right Miss zone */}
+        <div className="h-full bg-rose-600" style={{ width: `${miW}%` }}></div>
+        
+        {/* White line indicator */}
+        <div 
+          className="absolute w-1.5 h-4 bg-white rounded-full top-1/2 -translate-y-1/2 -translate-x-1/2 transition-all duration-75 z-10 border border-slate-950"
+          style={{ left: `${indicatorPercentage}%` }}
+        ></div>
+      </div>
+      
+      {/* Labels */}
+      <div className="w-full flex justify-between text-[7px] font-black tracking-widest text-slate-400 mt-1 uppercase">
+        <span>+{maxDisplayOffset}ms</span>
+        <span className="text-slate-200">0ms</span>
+        <span>-{maxDisplayOffset}ms</span>
+      </div>
+    </div>
+  );
+};
+
 const AppContent: React.FC = () => {
+  const activeEndGameSfxRef = useRef<HTMLAudioElement | null>(null);
+
+  const playSoundEffect = useCallback((src: string) => {
+    try {
+      if (activeEndGameSfxRef.current) {
+        try {
+          activeEndGameSfxRef.current.pause();
+          activeEndGameSfxRef.current.currentTime = 0;
+        } catch (e) {}
+      }
+      const sfx = new Audio(src);
+      sfx.volume = 0.5;
+      activeEndGameSfxRef.current = sfx;
+      sfx.play().catch(err => console.log("Failed to play sound effect:", err));
+    } catch (e) {
+      console.error("Audio playback error:", e);
+    }
+  }, []);
+
+  const stopEndGameSfx = useCallback(() => {
+    if (activeEndGameSfxRef.current) {
+      try {
+        activeEndGameSfxRef.current.pause();
+        activeEndGameSfxRef.current.currentTime = 0;
+      } catch (e) {}
+      activeEndGameSfxRef.current = null;
+    }
+  }, []);
+
   const [currentScreen, setCurrentScreen] = useState<Screen>("mainMenu");
   const [instrumentMode, setInstrumentMode] = useState<"piano" | "drum">(
     "piano",
@@ -343,6 +429,9 @@ const AppContent: React.FC = () => {
 
   const [isFreePlayMode, setIsFreePlayMode] = useState(false);
   const isFreePlayModeRef = useRef(false);
+  const [isCalibrating, setIsCalibrating] = useState<boolean>(false);
+  const isCalibratingRef = useRef<boolean>(false);
+  const [showCalibrationTutorial, setShowCalibrationTutorial] = useState<boolean>(false);
   const previousViewModeRef = useRef<ViewMode>("falling");
   const fileRef = useRef<File | null>(null);
   const [freePlayBpm, setFreePlayBpm] = useState(120);
@@ -575,6 +664,7 @@ const AppContent: React.FC = () => {
       }
 
       hasAudioStartedThisStretchRef.current = true;
+      lastAudioSyncTimeRef.current = performance.now(); // Give 2 seconds breathing room after startup
       if ((backing.type === "mp3" || backing.type === "link") && audioRef.current) {
         const audio = audioRef.current;
         audio.volume = mp3VolumeRef.current;
@@ -598,6 +688,7 @@ const AppContent: React.FC = () => {
           }
 
           audio.currentTime = Math.max(0, dynamicStartPlayheadSec);
+          lastAudioSyncTimeRef.current = performance.now(); // Reset sync timer on seek
           audio.play().then(() => setBackingTrackStatus("playing")).catch((e) => {
             console.error("Audio trigger play error:", e.name, e.message);
             if (e.name !== 'AbortError') setBackingTrackStatus("error");
@@ -639,10 +730,11 @@ const AppContent: React.FC = () => {
         // This ensures audio starts exactly when the visual head reaches it.
         setBackingTrackStatus("loading");
         
-        // Reset player to start while waiting
+        // Reset player to start while waiting (only if not already reset)
         if ((backing.type === "mp3" || backing.type === "link") && audioRef.current) {
-          if (audioRef.current.currentTime !== 0) audioRef.current.currentTime = 0;
-          if (!audioRef.current.paused) audioRef.current.pause();
+          const audio = audioRef.current;
+          if (Math.abs(audio.currentTime) > 0.05) audio.currentTime = 0;
+          if (!audio.paused) audio.pause();
         } else if (backing.type === "youtube" && youtubePlayerRef.current) {
           try {
             // Only seek if not already at 0 to avoid constant API calls
@@ -669,6 +761,7 @@ const AppContent: React.FC = () => {
   );
   const audioPlayPromiseRef = useRef<Promise<void> | null>(null); // NEW: Track audio play promise
   const hasAudioStartedThisStretchRef = useRef(false);
+  const lastAudioSyncTimeRef = useRef<number>(0);
   const [mp3Volume, setMp3Volume] = useState(DEFAULT_MP3_VOLUME);
   const mp3VolumeRef = useRef(mp3Volume);
   useEffect(() => { mp3VolumeRef.current = mp3Volume; }, [mp3Volume]);
@@ -804,6 +897,7 @@ const AppContent: React.FC = () => {
   const [signatureEvents, setSignatureEvents] = useState<SignatureEvent[]>([]);
 
   const [metronomeMode, setMetronomeMode] = useState<MetronomeMode>("beat");
+  const previousMetronomeModeRef = useRef<MetronomeMode | null>(null);
   const [playbackTempoMultiplier, setPlaybackTempoMultiplier] =
     useState<number>(1);
   const playbackTempoMultiplierRef = useRef(playbackTempoMultiplier);
@@ -1064,6 +1158,12 @@ const AppContent: React.FC = () => {
     isFreePlayMode,
   ]);
 
+  useEffect(() => {
+    if (currentScreen === "settings") {
+      setMetronomeMode("off");
+    }
+  }, [currentScreen]);
+
   const [currentOnlineSongId, setCurrentOnlineSongId] = useState<string | null>(
     null,
   );
@@ -1209,6 +1309,12 @@ const AppContent: React.FC = () => {
     missCountRef.current = missCount;
   }, [missCount]);
 
+  const [hp, setHp] = useState<number>(100);
+  const hpRef = useRef<number>(100);
+  useEffect(() => {
+    hpRef.current = hp;
+  }, [hp]);
+
   const [combo, setCombo] = useState<number>(0);
   const comboRef = useRef<number>(0);
   useEffect(() => {
@@ -1230,6 +1336,15 @@ const AppContent: React.FC = () => {
   useEffect(() => {
     lastJudgmentRef.current = lastJudgment;
   }, [lastJudgment]);
+
+  const [displayJudgment, setDisplayJudgment] = useState<{ id: number; type: 'perfect' | 'great' | 'good' | 'miss' } | null>(null);
+  useEffect(() => {
+    if (lastJudgment) {
+      setDisplayJudgment({ id: Date.now(), type: lastJudgment });
+      const timer = setTimeout(() => setDisplayJudgment(null), 800);
+      return () => clearTimeout(timer);
+    }
+  }, [lastJudgment, combo]);
 
   const [errorCount, setErrorCount] = useState<number>(0);
   const errorCountRef = useRef<number>(0);
@@ -1287,7 +1402,9 @@ const AppContent: React.FC = () => {
   );
   const [showPianoTilesBackground, setShowPianoTilesBackground] =
     useState<boolean>(DEFAULT_SHOW_PIANO_TILES_BACKGROUND);
+  const [showPerfectJudgment, setShowPerfectJudgment] = useState<boolean>(false);
   const [lowDetailMode, setLowDetailMode] = useState<boolean>(true);
+  const [resolutionScale, setResolutionScale] = useState<number>(1.0);
   const [zoomDirection, setZoomDirection] = useState<"normal" | "reverse">(
     DEFAULT_ZOOM_DIRECTION,
   );
@@ -1339,6 +1456,8 @@ const AppContent: React.FC = () => {
         if (s.qwertyLayout !== undefined) setQwertyLayout(s.qwertyLayout);
         if (s.showPianoTilesBackground !== undefined)
           setShowPianoTilesBackground(s.showPianoTilesBackground);
+        if (s.showPerfectJudgment !== undefined)
+          setShowPerfectJudgment(s.showPerfectJudgment);
         if (s.uiZoom !== undefined) setUiZoom(s.uiZoom);
         if (s.uiZoomAuto !== undefined) setUiZoomAuto(s.uiZoomAuto);
         if (s.micThresholds !== undefined) setMicThresholds(s.micThresholds);
@@ -1354,6 +1473,11 @@ const AppContent: React.FC = () => {
         if (s.lastPianoViewMode !== undefined) setLastPianoViewMode(s.lastPianoViewMode);
         if (s.lastDrumViewMode !== undefined) setLastDrumViewMode(s.lastDrumViewMode);
         if (s.gameplayStyle !== undefined) setGameplayStyle(s.gameplayStyle);
+        if (s.resolutionScale !== undefined) {
+          setResolutionScale(s.resolutionScale);
+        } else if (s.lowResolutionMode !== undefined) {
+          setResolutionScale(s.lowResolutionMode ? 0.5 : 1.0);
+        }
       } catch (e) {
         console.error("Failed to load settings", e);
       }
@@ -1381,6 +1505,7 @@ const AppContent: React.FC = () => {
       customEndNote,
       qwertyLayout,
       showPianoTilesBackground,
+      showPerfectJudgment,
       lowDetailMode,
       uiZoom,
       uiZoomAuto,
@@ -1397,6 +1522,7 @@ const AppContent: React.FC = () => {
       lastPianoViewMode,
       lastDrumViewMode,
       gameplayStyle,
+      resolutionScale,
     };
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   }, [
@@ -1418,6 +1544,7 @@ const AppContent: React.FC = () => {
     customEndNote,
     qwertyLayout,
     showPianoTilesBackground,
+    showPerfectJudgment,
     uiZoom,
     uiZoomAuto,
     micThresholds,
@@ -1433,6 +1560,7 @@ const AppContent: React.FC = () => {
     lastPianoViewMode,
     lastDrumViewMode,
     gameplayStyle,
+    resolutionScale,
   ]);
 
   const resetSettings = useCallback(() => {
@@ -1454,6 +1582,7 @@ const AppContent: React.FC = () => {
     setCustomEndNote("C5");
     setQwertyLayout("mirp");
     setShowPianoTilesBackground(DEFAULT_SHOW_PIANO_TILES_BACKGROUND);
+    setShowPerfectJudgment(false);
     setUiZoomAuto(true);
     setMicThresholds({
       subBass: -70,
@@ -1471,6 +1600,7 @@ const AppContent: React.FC = () => {
     setUserAverageOffset(0);
     setLastPianoViewMode(DEFAULT_VIEW_MODE);
     setLastDrumViewMode("drum_mania");
+    setResolutionScale(1.0);
     localStorage.removeItem(SETTINGS_KEY);
   }, []);
 
@@ -1479,6 +1609,43 @@ const AppContent: React.FC = () => {
   const [gameOverReason, setGameOverReason] = useState("");
   const badStretchStartTimeRef = useRef<number | null>(null);
   const lastChunkCheckedRef = useRef<number>(-1);
+
+  const changeHp = useCallback((amount: number) => {
+    if (isFreePlayModeRef.current) return;
+    if (gameSettingsRef.current?.isHpEnabled === false) return;
+    
+    const currentHp = hpRef.current;
+    const nextHp = Math.min(100, Math.max(0, currentHp + amount));
+    hpRef.current = nextHp;
+    setHp(nextHp);
+
+    if (nextHp <= 0) {
+      setIsPlaying(false);
+      isPlayingRef.current = false;
+      if (playbackRequestRef.current) {
+        cancelAnimationFrame(playbackRequestRef.current);
+        playbackRequestRef.current = null;
+      }
+      setGameOverReason("Game Over: Darah Anda habis (0 HP)!");
+      setIsGameOver(true);
+
+      // Stop background backing track automatically
+      if (audioRef.current) {
+        try {
+          audioRef.current.pause();
+        } catch (e) {}
+      }
+      if (youtubePlayerRef.current) {
+        try {
+          youtubePlayerRef.current.pauseVideo();
+        } catch (e) {}
+      }
+
+      if (currentHp > 0) {
+        playSoundEffect("/kalah.mp3");
+      }
+    }
+  }, []);
 
   // --- Auto-Offset and Mic/MIDI Volume Logic ---
   const prevMidiInputIdRef = useRef<string | null>(null);
@@ -1581,7 +1748,8 @@ const AppContent: React.FC = () => {
 
   const userActiveMidiNotes = useMemo(() => {
     const midiNotes = new Set<number>();
-    userActiveKeys.forEach((name) => {
+    const allActiveNames = new Set([...userActiveKeys, ...userSustainedKeys]);
+    allActiveNames.forEach((name) => {
       const def = noteNameToKeyDefMap.get(name);
       if (def) {
         midiNotes.add(def.midiNote);
@@ -1594,7 +1762,7 @@ const AppContent: React.FC = () => {
       }
     });
     return midiNotes;
-  }, [userActiveKeys, noteNameToKeyDefMap]);
+  }, [userActiveKeys, userSustainedKeys, noteNameToKeyDefMap, drumMapping]);
 
   const numWhiteKeys = useMemo(
     () => visiblePianoKeys.filter((key) => key.type === "white").length,
@@ -1723,10 +1891,10 @@ const AppContent: React.FC = () => {
           return;
         }
         const totalAvailableContentHeight = contentAreaDiv.clientHeight;
+        const subtractHeight = instrumentMode === "drum" ? 0 : (layoutConfig.whiteKeyHeight + layoutConfig.keyLabelHeight);
         const actualHeightForDynamicView = Math.max(
           0,
-          totalAvailableContentHeight -
-            (layoutConfig.whiteKeyHeight + layoutConfig.keyLabelHeight),
+          totalAvailableContentHeight - subtractHeight,
         );
         setContentAreaHeight(actualHeightForDynamicView);
       });
@@ -1742,7 +1910,7 @@ const AppContent: React.FC = () => {
       if (contentAreaRef.current)
         contentAreaObserver.unobserve(contentAreaRef.current);
     };
-  }, [notesForGame.length, currentScreen, layoutConfig, isFreePlayMode]);
+  }, [notesForGame.length, currentScreen, layoutConfig, isFreePlayMode, instrumentMode]);
 
   useEffect(() => {
     isFreePlayModeRef.current = isFreePlayMode;
@@ -1756,7 +1924,9 @@ const AppContent: React.FC = () => {
           const AudioContextConstructor =
             window.AudioContext || (window as any).webkitAudioContext;
           if (!AudioContextConstructor) return false;
-          context = new (AudioContextConstructor as { new (): AudioContext })();
+          context = new (AudioContextConstructor as { new (options?: AudioContextOptions): AudioContext })({
+            latencyHint: "interactive",
+          });
           audioContextRef.current = context;
           masterGainRef.current = context.createGain();
           masterGainRef.current.connect(context.destination);
@@ -2417,6 +2587,8 @@ const AppContent: React.FC = () => {
       setLastJudgment(null);
       setLiveAccuracy(100);
       setLiveAccuracyRef(100);
+      hpRef.current = 100;
+      setHp(100);
       setLiveSpeed(100);
       gameRealStartTimeRef.current = null;
       setTotalWaitTimeMs(0);
@@ -2500,7 +2672,8 @@ const AppContent: React.FC = () => {
     setIsGameOver(false);
     setGameOverReason("");
     handleStopPlayback();
-  }, [handleStopPlayback]);
+    stopEndGameSfx();
+  }, [handleStopPlayback, stopEndGameSfx]);
 
   const satisfyUpcomingNote = useCallback(
     (noteDef: MidiNotePlaybackItem) => {
@@ -2706,7 +2879,7 @@ const AppContent: React.FC = () => {
       nextBeatToScheduleIndexRef.current =
         startIndex !== -1 ? startIndex : allBeatTimesRef.current.length;
       prevConceptualTimeRef.current = cl;
-      if (waitMode === "off") {
+      if (waitMode === "off" && !isCalibratingRef.current) {
         const b = notesForGame.filter((n) => n.timeMs < cl);
         hitNoteIdsRef.current = new Set(b.map((n) => n.noteId));
         const count = hitNoteIdsRef.current.size;
@@ -3001,7 +3174,7 @@ const AppContent: React.FC = () => {
         }
       }
 
-      const realTimeElapsedSinceStartOrPause = ( (audioContextRef.current ? audioContextRef.current.currentTime : (performance.now() / 1000)) - audioCtxStartTimeRef.current ) * 1000;
+      const realTimeElapsedSinceStartOrPause = performance.now() - performanceStartTimeRef.current;
       const conceptualMusicalTimeNoFreeze = pausedMusicalTimeRef.current + realTimeElapsedSinceStartOrPause * currentPlaybackTempoMultiplier;
       
       const conceptualMusicalTime = conceptualMusicalTimeNoFreeze;
@@ -3027,11 +3200,15 @@ const AppContent: React.FC = () => {
       
       // Unified Backing Track Sync Check (Periodic Auto-Sync)
       // Be more resilient: For MP3/Link, sync as long as it's not paused, even if the status is still 'loading'
+      const isSeeking = (backing?.type === "mp3" || backing?.type === "link")
+        ? (audioRef.current && audioRef.current.seeking)
+        : false;
+
       const isAudioActuallyPlaying = (backing?.type === "mp3" || backing?.type === "link") 
-        ? (audioRef.current && !audioRef.current.paused)
+        ? (audioRef.current && !audioRef.current.paused && !audioRef.current.seeking)
         : (backingTrackStatus === "playing");
 
-      if (isPlayingRef.current && !isInWaitState && backing && backing.type !== "none" && isAudioActuallyPlaying) {
+      if (isPlayingRef.current && !isInWaitState && backing && backing.type !== "none" && isAudioActuallyPlaying && !isSeeking) {
         let audioCurrentTimeSec = -1;
         if ((backing.type === "mp3" || backing.type === "link") && audioRef.current) {
           audioCurrentTimeSec = audioRef.current.currentTime;
@@ -3054,9 +3231,13 @@ const AppContent: React.FC = () => {
           }
 
           const driftSec = Math.abs(audioCurrentTimeSec - expectedAudioTimeSec);
-          // Apply auto-sync if drift exceeds 150ms (shorter threshold for better rhythm feel)
+          const nowTime = performance.now();
+          const isStuckAtZero = audioCurrentTimeSec < 0.1 && expectedAudioTimeSec > 0.5;
+          
+          // Apply auto-sync if drift exceeds 150ms and we haven't synced in the last 2 seconds (to avoid seek-loops)
           // Also force-sync if the audio is at 0 but we expect it to be much further along (typical startup glitch)
-          if (driftSec > 0.15 || (audioCurrentTimeSec < 0.1 && expectedAudioTimeSec > 0.5)) {
+          if (isStuckAtZero || (driftSec > 0.15 && nowTime - lastAudioSyncTimeRef.current > 2000)) {
+            lastAudioSyncTimeRef.current = nowTime;
             if ((backing.type === "mp3" || backing.type === "link") && audioRef.current) {
                audioRef.current.currentTime = expectedAudioTimeSec;
             } else if (backing.type === "youtube" && youtubePlayerRef.current) {
@@ -3243,13 +3424,14 @@ const AppContent: React.FC = () => {
               playSound(note.midi, note.durationMs, soundVelocity);
               activeNoteInstancesRef.current.set(noteId, note);
 
-              if (!hitNoteIdsRef.current.has(noteId)) {
+              if (!hitNoteIdsRef.current.has(noteId) && !isCalibratingRef.current) {
                 // In Autoplay (waitMode === 'off'), notes are automatically hit as "Perfect"
                 setPerfectCount((prev) => prev + 1);
                 perfectCountRef.current += 1;
                 setHitCount((prev) => prev + 1);
                 hitCountRef.current += 1;
                 hitNoteIdsRef.current.add(noteId);
+                changeHp(4.0);
 
                 setCombo((prev) => {
                   const next = prev + 1;
@@ -3271,7 +3453,7 @@ const AppContent: React.FC = () => {
                   hand: note.hand,
                   midi: note.midi,
                   pitchClass: note.pitchClass,
-                  status: "playing",
+                  status: "user_played",
                   finger: note.finger,
                 }),
               );
@@ -3367,6 +3549,7 @@ const AppContent: React.FC = () => {
                 lastJudgmentRef.current = "miss";
                 hitNoteIdsRef.current.add(note.noteId);
                 noteJudgmentsRef.current.set(note.noteId, "miss");
+                changeHp(-10.0);
               }
               mi++;
             } else {
@@ -3395,7 +3578,7 @@ const AppContent: React.FC = () => {
           calculatedLiveAccuracy =
             totalAttempts > 0 ? (currentHits / totalAttempts) * 100 : 100;
         }
-        if (waitMode === "off") {
+        if (waitMode === "off" && !isCalibratingRef.current) {
           calculatedLiveAccuracy = 100;
           calculatedLiveSpeed = 100;
         }
@@ -3403,38 +3586,7 @@ const AppContent: React.FC = () => {
         setLiveSpeed(calculatedLiveSpeed);
       }
 
-      // 5-second chunk / 2.5s bad performance check for Retical mode
-      if (waitMode === "retical" && isPlayingRef.current) {
-        const currentAcc = calculatedLiveAccuracy;
-        const currentSpd = calculatedLiveSpeed;
-        
-        // If either accuracy or speed efficiency is below 50%
-        if (currentAcc < 50 || currentSpd < 50) {
-          if (badStretchStartTimeRef.current === null) {
-            badStretchStartTimeRef.current = performance.now();
-          } else {
-            const badDuration = performance.now() - badStretchStartTimeRef.current;
-            // If the failure lasts for more than 2.5 seconds
-            if (badDuration >= 2500) {
-              setIsPlaying(false);
-              isPlayingRef.current = false;
-              if (playbackRequestRef.current) {
-                cancelAnimationFrame(playbackRequestRef.current);
-                playbackRequestRef.current = null;
-              }
-              setGameOverReason(
-                `Game Over: Your ${currentAcc < 50 ? "accuracy" : "speed efficiency"} was below 50% for 2.5 seconds.`
-              );
-              setIsGameOver(true);
-              badStretchStartTimeRef.current = null; // Reset
-              return;
-            }
-          }
-        } else {
-          // Performance recovered, reset the timer
-          badStretchStartTimeRef.current = null;
-        }
-      }
+      // 5-second chunk check removed so players only fail based on HP
 
       if (
         actualMusicalTimeForGameLogic >= totalDurationWithEndDelayMs &&
@@ -3442,6 +3594,47 @@ const AppContent: React.FC = () => {
       ) {
         if (isSettingsPreviewActiveRef.current) {
           handleSeek(0);
+        } else if (isCalibratingRef.current) {
+          if (playtimeStartRef.current !== null) {
+            sessionPlaytimeMs.current +=
+              performance.now() - playtimeStartRef.current;
+            playtimeStartRef.current = null;
+          }
+          setIsPlaying(false);
+          isPlayingRef.current = false;
+          isUserPausedRef.current = false;
+          if (playbackRequestRef.current)
+            cancelAnimationFrame(playbackRequestRef.current);
+          
+          const avg = Math.round(totalSessionHitCountForOffsetRef.current > 0 
+            ? (totalSessionOffsetSumRef.current / totalSessionHitCountForOffsetRef.current) 
+            : 0);
+          
+          setNoteOffsetMs(avg);
+          localStorage.setItem("game_note_offset_ms", avg.toString());
+          
+          isCalibratingRef.current = false;
+          setIsCalibrating(false);
+          
+          // Restore previous metronome mode
+          if (previousMetronomeModeRef.current !== null) {
+            setMetronomeMode(previousMetronomeModeRef.current);
+            previousMetronomeModeRef.current = null;
+          }
+          
+          // Clean up the loaded calibration song and MIDI states
+          setPlaybackNotes([]);
+          setCurrentFileName(null);
+          setAnalysisResult(null);
+          setInitialTimeSignature(DEFAULT_TIME_SIGNATURE);
+          setInitialKeySignature(DEFAULT_KEY_SIGNATURE);
+          setCurrentTempoBpm(null);
+          setTempoEvents([]);
+          setSignatureEvents([]);
+          
+          alert(`Calibration Finished! Note Offset has been configured to: ${avg > 0 ? '+' : ''}${avg}ms based on your average input latency.`);
+          setCurrentScreen("settings");
+          return;
         } else {
           if (playtimeStartRef.current !== null) {
             sessionPlaytimeMs.current +=
@@ -3453,6 +3646,22 @@ const AppContent: React.FC = () => {
           isUserPausedRef.current = false;
           if (playbackRequestRef.current)
             cancelAnimationFrame(playbackRequestRef.current);
+
+          // Stop background backing track automatically
+          if (audioRef.current) {
+            try {
+              audioRef.current.pause();
+            } catch (e) {}
+          }
+          if (youtubePlayerRef.current) {
+            try {
+              youtubePlayerRef.current.pauseVideo();
+            } catch (e) {}
+          }
+
+          // Play menang.mp3 when finished
+          playSoundEffect("/menang.mp3");
+
           const finalHitCount = hitCountRef.current,
             finalErrorCount = errorCountRef.current,
             totalNotes = notesForGame.length;
@@ -3462,7 +3671,7 @@ const AppContent: React.FC = () => {
           let finalMissCount =
             totalNotes - (finalPerfectCount + finalGreatCount + finalGoodCount);
 
-          let isAutoPlay = waitMode === "off";
+          let isAutoPlay = waitMode === "off" && !isCalibratingRef.current;
 
           if (isAutoPlay) {
             finalPerfectCount = totalNotes;
@@ -3585,7 +3794,7 @@ const AppContent: React.FC = () => {
             instrumentMode,
             isMicEnabled: isAudioInputEnabledRef.current,
             isNonStop,
-            isAutoplay: waitMode === "off",
+            isAutoplay: waitMode === "off" && !isCalibratingRef.current,
           });
           clearScheduledNotes();
           clearScheduledMetronomeSounds();
@@ -3781,6 +3990,10 @@ const AppContent: React.FC = () => {
     gameSettingsRef.current = finalSettings;
     setPlaybackTempoMultiplier(finalSettings.playbackTempoMultiplier);
     playbackTempoMultiplierRef.current = finalSettings.playbackTempoMultiplier;
+    
+    // Default metronome mode to "beat" when starting standard in-game play
+    setMetronomeMode("beat");
+    
     setCurrentScreen("inGame");
     initializeAudioContext();
     setPlaybackTempoMultiplierForPreview(1);
@@ -4050,7 +4263,7 @@ const AppContent: React.FC = () => {
 
   const processKeyPress = useCallback(
     (midi: number) => {
-      if (waitMode === "off") return;
+      if (waitMode === "off" && !isCalibratingRef.current) return;
       
       const inputTime = getPreciseMusicalTime();
       if (isPlayingRef.current)
@@ -4102,6 +4315,7 @@ const AppContent: React.FC = () => {
             setHitCount((p) => p + 1);
             hitCountRef.current += 1;
             hitNoteIdsRef.current.add(m.noteId);
+            changeHp(4.0);
             visuallySatisfyNote(m);
             playerInputTimesRef.current.push(performance.now());
             if (firstInputRealTimeRef.current === null)
@@ -4130,6 +4344,7 @@ const AppContent: React.FC = () => {
             setHitCount((p) => p + 1);
             hitCountRef.current += 1;
             hitNoteIdsRef.current.add(m.noteId);
+            changeHp(4.0);
             visuallySatisfyNote(m);
             playerInputTimesRef.current.push(performance.now());
             if (firstInputRealTimeRef.current === null)
@@ -4200,6 +4415,7 @@ const AppContent: React.FC = () => {
                 perfectCountRef.current += 1;
                 setHitCount((p) => p + 1);
                 hitCountRef.current += 1;
+                changeHp(4.0);
                 setCombo((p) => {
                   const next = p + 1;
                   if (next > maxComboRef.current) {
@@ -4216,6 +4432,7 @@ const AppContent: React.FC = () => {
                 greatCountRef.current += 1;
                 setErrorCount((p) => p + 1);
                 errorCountRef.current += 1;
+                changeHp(2.0);
                 setCombo((p) => {
                   const next = p + 1;
                   if (next > maxComboRef.current) {
@@ -4230,6 +4447,7 @@ const AppContent: React.FC = () => {
               } else {
                 setGoodCount((p) => p + 1);
                 goodCountRef.current += 1;
+                changeHp(1.0);
                 setCombo((p) => {
                   const next = p + 1;
                   if (next > maxComboRef.current) {
@@ -4259,6 +4477,7 @@ const AppContent: React.FC = () => {
               if (!hitNoteIdsRef.current.has(best.noteId)) {
                 setMissCount((p) => p + 1);
                 missCountRef.current += 1;
+                changeHp(-10.0);
                 setLastHitOffset(bestOffset);
                 
                 // NEW: Update session average offset (even for misses that were within 500ms)
@@ -4585,6 +4804,60 @@ const AppContent: React.FC = () => {
     },
     [handleStopPlayback, preloadSamplesForSong, midiNoteToNameMap],
   );
+
+  const executeCalibrationStart = useCallback(async () => {
+    try {
+      setIsLoadingFile(true);
+      isCalibratingRef.current = true;
+      setIsCalibrating(true);
+      
+      // Save current metronome mode to restore later
+      previousMetronomeModeRef.current = metronomeMode;
+      setMetronomeMode("beat");
+      
+      // Automatically reset note offset to 0ms for accurate calibration results
+      setNoteOffsetMs(0);
+      noteOffsetMsRef.current = 0;
+      
+      const response = await fetch("/sounds/offset.mid");
+      if (!response.ok) {
+        throw new Error("Failed to load /sounds/offset.mid");
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      const file = new File([arrayBuffer], "offset.mid", { type: "audio/midi" });
+      
+      // Load the file so playbackNotes are set
+      await loadFile(file, "calibration_offset_song", false, null, 0, null, 5);
+      
+      // Start the game with calibration settings
+      await handleStartGame({
+        waitMode: "off",
+        playbackTempoMultiplier: 1,
+        practiceHand: "both",
+        noteToleranceMs: 150,
+        accuracyLevel: 5,
+        isNonStop: true,
+        isHpEnabled: false,
+        instrumentMode: instrumentMode,
+      });
+    } catch (e) {
+      console.error("Calibration load error:", e);
+      alert("Error starting calibration. Please make sure public/sounds/offset.mid is accessible.");
+      isCalibratingRef.current = false;
+      setIsCalibrating(false);
+      // Restore previous metronome mode on error
+      if (previousMetronomeModeRef.current !== null) {
+        setMetronomeMode(previousMetronomeModeRef.current);
+        previousMetronomeModeRef.current = null;
+      }
+    } finally {
+      setIsLoadingFile(false);
+    }
+  }, [loadFile, instrumentMode, metronomeMode]);
+
+  const handleStartCalibration = useCallback(() => {
+    setShowCalibrationTutorial(true);
+  }, []);
 
   useEffect(() => {
     if (fileRef.current) {
@@ -5507,6 +5780,30 @@ const AppContent: React.FC = () => {
       };
     });
 
+    if (isCalibratingRef.current) {
+      isCalibratingRef.current = false;
+      setIsCalibrating(false);
+      
+      // Restore previous metronome mode
+      if (previousMetronomeModeRef.current !== null) {
+        setMetronomeMode(previousMetronomeModeRef.current);
+        previousMetronomeModeRef.current = null;
+      }
+      
+      // Clean up the loaded calibration song and MIDI states
+      setPlaybackNotes([]);
+      setCurrentFileName(null);
+      setAnalysisResult(null);
+      setInitialTimeSignature(DEFAULT_TIME_SIGNATURE);
+      setInitialKeySignature(DEFAULT_KEY_SIGNATURE);
+      setCurrentTempoBpm(null);
+      setTempoEvents([]);
+      setSignatureEvents([]);
+      
+      setCurrentScreen("settings");
+      return;
+    }
+
     if (wasInFreePlay) {
       sessionStorage.setItem("songSelectionInitialTab", "local");
       setCurrentScreen("songSelection");
@@ -5622,7 +5919,9 @@ const AppContent: React.FC = () => {
         audioStreamRef.current = stream;
         const AudioContext =
           window.AudioContext || (window as any).webkitAudioContext;
-        const context = new AudioContext({ sampleRate: 44100 });
+        const context = new AudioContext({
+          latencyHint: "interactive",
+        });
         audioContextForInputRef.current = context;
         const source = context.createMediaStreamSource(stream);
         audioSourceRef.current = source;
@@ -5847,11 +6146,12 @@ const AppContent: React.FC = () => {
                       fileName={currentFileName}
                       waitMode={waitMode}
                       metronomeMode={metronomeMode}
-                      onCycleMetronomeMode={() =>
+                      onCycleMetronomeMode={() => {
+                        if (isCalibrating) return; // Cannot cycle metronome mode during calibration
                         setMetronomeMode((p) =>
                           p === "off" ? "beat" : p === "beat" ? "bar" : "off",
-                        )
-                      }
+                        );
+                      }}
                       isMetronomeAvailable={isMetronomeAvailable}
                       liveAccuracy={liveAccuracy}
                       liveSpeed={liveSpeed}
@@ -5904,6 +6204,7 @@ const AppContent: React.FC = () => {
                       onUserAudioSyncOffsetChange={setUserAudioSyncOffset}
                       isCalibrationMode={gameSettings?.isCalibrationMode}
                       userAverageOffset={userAverageOffset}
+                      hp={hp}
                     />
                   );
                 })()}
@@ -5914,12 +6215,34 @@ const AppContent: React.FC = () => {
                 className="w-full h-full flex flex-col justify-end items-center relative overflow-hidden"
               >
                 <div
-                  className="flex flex-col justify-end"
+                  className="flex flex-col justify-end relative"
                   style={{
                     width: `${baseCalculatedPianoWidth}px`,
                     height: "100%",
                   }}
                 >
+                  <AnimatePresence>
+                    {displayJudgment && (displayJudgment.type !== 'perfect' || showPerfectJudgment) && (
+                      <motion.div
+                        key={displayJudgment.id}
+                        initial={{ scale: 0.8, opacity: 0, y: 5 }}
+                        animate={{ scale: 1.0, opacity: 1, y: 0 }}
+                        exit={{ scale: 0.9, opacity: 0, y: -5 }}
+                        transition={{ type: "spring", stiffness: 400, damping: 20 }}
+                        className="absolute left-0 right-0 z-[70] pointer-events-none text-center select-none"
+                        style={{ top: "68px" }}
+                      >
+                        <span className={`text-2xl md:text-3xl font-extrabold italic uppercase tracking-wider drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)] filter ${
+                          displayJudgment.type === 'perfect' ? 'text-yellow-400 font-black' :
+                          displayJudgment.type === 'great' ? 'text-emerald-400 font-black' :
+                          displayJudgment.type === 'good' ? 'text-blue-400 font-black' :
+                          'text-rose-500 font-black'
+                        }`}>
+                          {displayJudgment.type}
+                        </span>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                   <div className="relative flex-grow w-full">
                     {instrumentMode === "drum" && viewMode === "falling" ? (
                       <DrumView
@@ -5929,12 +6252,16 @@ const AppContent: React.FC = () => {
                         userActiveKeys={userActiveMidiNotes}
                         noteSpeedMultiplier={noteSpeedMultiplier}
                         drumInputMode={drumInputMode}
+                        onPadDown={handleDrumPadDown}
+                        onPadUp={handleDrumPadUp}
                         themeSettings={themeSettings}
                         zoomDirection={zoomDirection}
                         zoomScale={zoomScale}
                         isPaused={!isPlaying}
                         onSeek={handleSeek}
                         drumTyperPadOpacity={drumTyperPadOpacity}
+                        waitMode={waitMode}
+                        resolutionScale={resolutionScale}
                       />
                     ) : instrumentMode === "drum" &&
                       viewMode === "drum_mania" ? (
@@ -5945,6 +6272,8 @@ const AppContent: React.FC = () => {
                         userActiveKeys={userActiveMidiNotes}
                         noteSpeedMultiplier={noteSpeedMultiplier}
                         drumInputMode={drumInputMode}
+                        onPadDown={handleDrumPadDown}
+                        onPadUp={handleDrumPadUp}
                         themeSettings={themeSettings}
                         zoomScale={zoomScale}
                         barLines={barLines}
@@ -5953,6 +6282,8 @@ const AppContent: React.FC = () => {
                         }
                         isPaused={!isPlaying}
                         onSeek={handleSeek}
+                        waitMode={waitMode}
+                        resolutionScale={resolutionScale}
                       />
                     ) : viewMode === "qwerty_mania" ? (
                       <QwertyManiaView
@@ -5977,6 +6308,7 @@ const AppContent: React.FC = () => {
                         )}
                         activeBpm={activeBpmForDisplay}
                         showOnlyMajorNotes={showOnlyMajorNotes}
+                        resolutionScale={resolutionScale}
                       />
                     ) : viewMode === "falling" ? (
                       <FallingNotesArea
@@ -6011,6 +6343,7 @@ const AppContent: React.FC = () => {
                         mirpTranspose={mirpTranspose}
                         isPaused={!isPlaying}
                         onSeek={handleSeek}
+                        resolutionScale={resolutionScale}
                       />
                     ) : (viewMode === "sheet-roll" ||
                         viewMode === "sheet-qwerty") &&
@@ -6048,6 +6381,7 @@ const AppContent: React.FC = () => {
                         isQwertyView={viewMode === "sheet-qwerty"}
                         instrumentMode={instrumentMode}
                         lowDetailMode={lowDetailMode}
+                        resolutionScale={resolutionScale}
                       />
                     ) : viewMode === "sheet" && vexFlowData ? (
                       <VexFlowSheetMusicView
@@ -6082,46 +6416,66 @@ const AppContent: React.FC = () => {
                       </div>
                     )}
                   </div>
-                  <div
-                    className="relative flex-shrink-0"
-                    style={{
-                      width: "100%",
-                      height: `${layoutConfig.whiteKeyHeight + layoutConfig.keyLabelHeight}px`,
-                      display: instrumentMode === "drum" ? "none" : "block",
-                    }}
-                  >
-                    <PianoKeyboard
-                      keyPositions={keyPositionsArray}
-                      userSustainedKeys={userSustainedKeys}
-                      userActiveKeys={userActiveKeys}
-                      activeMidiNotesInfo={activeMidiNotesInfoForKeyboard}
-                      onUiKeyPress={handleUiKeyPress}
-                      onUiKeyRelease={handleUiKeyRelease}
-                      rightHandColor={themeSettings.rightHandColor}
-                      leftHandColor={themeSettings.leftHandColor}
-                      hitNoteColor={themeSettings.hitNoteColor}
-                      showQwertyShortcuts={showQwertyShortcuts}
-                      qwertyCurrentOctaveShift={
-                        qwertyLayout === "mirp" ? 0 : qwertyCurrentOctaveShift
-                      }
-                      width={baseCalculatedPianoWidth}
-                      layoutConfig={layoutConfig}
-                      qwertyLayout={qwertyLayout}
-                      mirpTranspose={mirpTranspose}
-                      isInteractive={viewMode !== "sheet-qwerty"}
-                      lowDetailMode={true}
-                      gameplayStyle={gameplayStyle}
-                    />
-                    {isSustainPedalActive && (
-                      <div
-                        className="absolute bottom-2 right-2 px-3 py-1 bg-yellow-400 text-black text-xs font-bold rounded shadow-lg animate-pulse"
-                        style={{ zIndex: 30 }}
-                        aria-live="polite"
-                      >
-                        SUSTAIN
+                  {instrumentMode !== "drum" ? (
+                    <div
+                      className="relative flex-shrink-0"
+                      style={{
+                        width: "100%",
+                        height: `${layoutConfig.whiteKeyHeight + layoutConfig.keyLabelHeight}px`,
+                      }}
+                    >
+                      <PianoKeyboard
+                        keyPositions={keyPositionsArray}
+                        userSustainedKeys={userSustainedKeys}
+                        userActiveKeys={userActiveKeys}
+                        activeMidiNotesInfo={activeMidiNotesInfoForKeyboard}
+                        onUiKeyPress={handleUiKeyPress}
+                        onUiKeyRelease={handleUiKeyRelease}
+                        rightHandColor={themeSettings.rightHandColor}
+                        leftHandColor={themeSettings.leftHandColor}
+                        hitNoteColor={themeSettings.hitNoteColor}
+                        showQwertyShortcuts={showQwertyShortcuts}
+                        qwertyCurrentOctaveShift={
+                          qwertyLayout === "mirp" ? 0 : qwertyCurrentOctaveShift
+                        }
+                        width={baseCalculatedPianoWidth}
+                        layoutConfig={layoutConfig}
+                        qwertyLayout={qwertyLayout}
+                        mirpTranspose={mirpTranspose}
+                        isInteractive={viewMode !== "sheet-qwerty"}
+                        lowDetailMode={true}
+                        gameplayStyle={gameplayStyle}
+                        waitMode={waitMode}
+                        resolutionScale={resolutionScale}
+                      />
+                      <OffsetMeterInApp
+                        offset={lastHitOffset}
+                        perfectWindow={100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20}
+                        greatWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 1.5}
+                        goodWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 2}
+                      />
+                      {isSustainPedalActive && (
+                        <div
+                          className="absolute bottom-2 right-2 px-3 py-1 bg-yellow-400 text-black text-xs font-bold rounded shadow-lg animate-pulse"
+                          style={{ zIndex: 30 }}
+                          aria-live="polite"
+                        >
+                          SUSTAIN
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="absolute bottom-0 left-0 right-0 h-0 z-50 pointer-events-none">
+                      <div className="absolute bottom-4 left-0 right-0 w-full flex justify-center">
+                        <OffsetMeterInApp
+                          offset={lastHitOffset}
+                          perfectWindow={100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20}
+                          greatWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 1.5}
+                          goodWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 2}
+                        />
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -6217,6 +6571,7 @@ const AppContent: React.FC = () => {
         >
           <Settings
             onBack={() => setCurrentScreen("mainMenu")}
+            onStartCalibration={handleStartCalibration}
             initialScrollTarget={settingsScrollTarget}
             midiAccessStatus={midiAccessStatus}
             midiInputs={midiInputs}
@@ -6272,6 +6627,8 @@ const AppContent: React.FC = () => {
             onQwertyLayoutChange={setQwertyLayout}
             showPianoTilesBackground={showPianoTilesBackground}
             onShowPianoTilesBackgroundChange={setShowPianoTilesBackground}
+            showPerfectJudgment={showPerfectJudgment}
+            onShowPerfectJudgmentChange={setShowPerfectJudgment}
             uiZoom={uiZoom}
             onUiZoomChange={setUiZoom}
             uiZoomAuto={uiZoomAuto}
@@ -6284,6 +6641,8 @@ const AppContent: React.FC = () => {
             onDrumInputModeChange={setDrumInputMode}
             lowDetailMode={lowDetailMode}
             onLowDetailModeChange={setLowDetailMode}
+            resolutionScale={resolutionScale}
+            onResolutionScaleChange={setResolutionScale}
             instrumentMode={instrumentMode}
             onResetSettings={resetSettings}
             zoomDirection={zoomDirection}
@@ -6445,6 +6804,7 @@ const AppContent: React.FC = () => {
                     isFreePlayMode ? freePlayMetronomeMode : metronomeMode
                   }
                   onCycleMetronomeMode={() => {
+                    if (isCalibrating) return; // Cannot cycle metronome mode during calibration
                     if (isFreePlayMode)
                       setFreePlayMetronomeMode((p) =>
                         p === "off" ? "beat" : p === "beat" ? "bar" : "off",
@@ -6515,6 +6875,7 @@ const AppContent: React.FC = () => {
                   onUserAudioSyncOffsetChange={handleUserAudioSyncOffsetChange}
                   isCalibrationMode={gameSettings?.isCalibrationMode}
                   userAverageOffset={userAverageOffset}
+                  hp={hp}
                 />
               );
             })()}
@@ -6551,12 +6912,34 @@ const AppContent: React.FC = () => {
             {/* TopBar overlay trigger removed, now handled by TopBar component internally */}
             <>
               <div
-                className="flex flex-col justify-end"
+                className="flex flex-col justify-end relative"
                 style={{
                   width: `${baseCalculatedPianoWidth}px`,
                   height: "100%",
                 }}
               >
+                <AnimatePresence>
+                  {displayJudgment && (displayJudgment.type !== 'perfect' || showPerfectJudgment) && (
+                    <motion.div
+                      key={displayJudgment.id}
+                      initial={{ scale: 0.8, opacity: 0, y: 5 }}
+                      animate={{ scale: 1.0, opacity: 1, y: 0 }}
+                      exit={{ scale: 0.9, opacity: 0, y: -5 }}
+                      transition={{ type: "spring", stiffness: 400, damping: 20 }}
+                      className="absolute left-0 right-0 z-[70] pointer-events-none text-center select-none"
+                      style={{ top: "68px" }}
+                    >
+                      <span className={`text-2xl md:text-3xl font-extrabold italic uppercase tracking-wider drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)] filter ${
+                        displayJudgment.type === 'perfect' ? 'text-yellow-400 font-black' :
+                        displayJudgment.type === 'great' ? 'text-emerald-400 font-black' :
+                        displayJudgment.type === 'good' ? 'text-blue-400 font-black' :
+                        'text-rose-500 font-black'
+                      }`}>
+                        {displayJudgment.type}
+                      </span>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
                 <div className="relative flex-grow w-full">
                   {isFreePlayMode &&
                   instrumentMode === "drum" &&
@@ -6582,6 +6965,8 @@ const AppContent: React.FC = () => {
                         onSeek={() => {}}
                         showPianoTilesBackground={showPianoTilesBackground}
                         pianoTilesOpacity={themeSettings.pianoTilesOpacity}
+                        waitMode={waitMode}
+                        resolutionScale={resolutionScale}
                       />
                   ) : isFreePlayMode &&
                     instrumentMode === "drum" &&
@@ -6603,6 +6988,8 @@ const AppContent: React.FC = () => {
                       isPaused={!isFreePlayMode}
                       onSeek={() => {}}
                       drumTyperPadOpacity={drumTyperPadOpacity}
+                      waitMode={waitMode}
+                      resolutionScale={resolutionScale}
                     />
                   ) : isFreePlayMode && viewMode === "qwerty_mania" ? (
                     <QwertyManiaView
@@ -6625,6 +7012,7 @@ const AppContent: React.FC = () => {
                       activeKeySignature={initialKeySignature}
                       activeBpm={currentTempoBpm || 120}
                       showOnlyMajorNotes={showOnlyMajorNotes}
+                      resolutionScale={resolutionScale}
                     />
                   ) : isFreePlayMode && viewMode === "falling" ? (
                     <div
@@ -6661,6 +7049,7 @@ const AppContent: React.FC = () => {
                         qwertyCurrentOctaveShift={qwertyCurrentOctaveShift}
                         mirpTranspose={mirpTranspose}
                         lowDetailMode={lowDetailMode}
+                        resolutionScale={resolutionScale}
                       />
                     </div>
                   ) : instrumentMode === "drum" && viewMode === "drum_mania" ? (
@@ -6685,6 +7074,8 @@ const AppContent: React.FC = () => {
                       onSeek={handleSeek}
                       showPianoTilesBackground={showPianoTilesBackground}
                       pianoTilesOpacity={themeSettings.pianoTilesOpacity}
+                      waitMode={waitMode}
+                      resolutionScale={resolutionScale}
                     />
                   ) : instrumentMode === "drum" && viewMode === "falling" ? (
                     <DrumView
@@ -6704,6 +7095,8 @@ const AppContent: React.FC = () => {
                       isPaused={!isPlaying}
                       onSeek={handleSeek}
                       drumTyperPadOpacity={drumTyperPadOpacity}
+                      waitMode={waitMode}
+                      resolutionScale={resolutionScale}
                     />
                   ) : viewMode === "qwerty_mania" ? (
                     <QwertyManiaView
@@ -6730,6 +7123,7 @@ const AppContent: React.FC = () => {
                       )}
                       activeBpm={activeBpmForDisplay}
                       showOnlyMajorNotes={showOnlyMajorNotes}
+                      resolutionScale={resolutionScale}
                     />
                   ) : viewMode === "falling" ? (
                     <FallingNotesArea
@@ -6765,6 +7159,7 @@ const AppContent: React.FC = () => {
                       isPaused={!isPlaying}
                       onSeek={handleSeek}
                       lowDetailMode={lowDetailMode}
+                      resolutionScale={resolutionScale}
                     />
                   ) : (viewMode === "sheet-roll" ||
                       viewMode === "sheet-qwerty") &&
@@ -6799,6 +7194,7 @@ const AppContent: React.FC = () => {
                       mirpTranspose={mirpTranspose}
                       isQwertyView={viewMode === "sheet-qwerty"}
                       instrumentMode={instrumentMode}
+                      resolutionScale={resolutionScale}
                     />
                   ) : viewMode === "sheet" && vexFlowData ? (
                     <VexFlowSheetMusicView
@@ -6834,46 +7230,66 @@ const AppContent: React.FC = () => {
                     </div>
                   )}
                 </div>
-                <div
-                  className="relative flex-shrink-0"
-                  style={{
-                    width: "100%",
-                    height: `${layoutConfig.whiteKeyHeight + layoutConfig.keyLabelHeight}px`,
-                    display: instrumentMode === "drum" ? "none" : "block",
-                  }}
-                >
-                  <PianoKeyboard
-                    keyPositions={keyPositionsArray}
-                    userSustainedKeys={userSustainedKeys}
-                    userActiveKeys={userActiveKeys}
-                    activeMidiNotesInfo={activeMidiNotesInfoForKeyboard}
-                    onUiKeyPress={handleUiKeyPress}
-                    onUiKeyRelease={handleUiKeyRelease}
-                    rightHandColor={themeSettings.rightHandColor}
-                    leftHandColor={themeSettings.leftHandColor}
-                    hitNoteColor={themeSettings.hitNoteColor}
-                    showQwertyShortcuts={showQwertyShortcuts}
-                    qwertyCurrentOctaveShift={
-                      qwertyLayout === "mirp" ? 0 : qwertyCurrentOctaveShift
-                    }
-                    width={baseCalculatedPianoWidth}
-                    layoutConfig={layoutConfig}
-                    qwertyLayout={qwertyLayout}
-                    mirpTranspose={mirpTranspose}
-                    isInteractive={viewMode !== "sheet-qwerty"}
-                    lowDetailMode={lowDetailMode}
-                    gameplayStyle={gameplayStyle}
-                  />
-                  {isSustainPedalActive && (
+                  {instrumentMode !== "drum" ? (
                     <div
-                      className="absolute bottom-2 right-2 px-3 py-1 bg-yellow-400 text-black text-xs font-bold rounded shadow-lg animate-pulse"
-                      style={{ zIndex: 30 }}
-                      aria-live="polite"
+                      className="relative flex-shrink-0"
+                      style={{
+                        width: "100%",
+                        height: `${layoutConfig.whiteKeyHeight + layoutConfig.keyLabelHeight}px`,
+                      }}
                     >
-                      SUSTAIN
+                      <PianoKeyboard
+                        keyPositions={keyPositionsArray}
+                        userSustainedKeys={userSustainedKeys}
+                        userActiveKeys={userActiveKeys}
+                        activeMidiNotesInfo={activeMidiNotesInfoForKeyboard}
+                        onUiKeyPress={handleUiKeyPress}
+                        onUiKeyRelease={handleUiKeyRelease}
+                        rightHandColor={themeSettings.rightHandColor}
+                        leftHandColor={themeSettings.leftHandColor}
+                        hitNoteColor={themeSettings.hitNoteColor}
+                        showQwertyShortcuts={showQwertyShortcuts}
+                        qwertyCurrentOctaveShift={
+                          qwertyLayout === "mirp" ? 0 : qwertyCurrentOctaveShift
+                        }
+                        width={baseCalculatedPianoWidth}
+                        layoutConfig={layoutConfig}
+                        qwertyLayout={qwertyLayout}
+                        mirpTranspose={mirpTranspose}
+                        isInteractive={viewMode !== "sheet-qwerty"}
+                        lowDetailMode={lowDetailMode}
+                        gameplayStyle={gameplayStyle}
+                        waitMode={waitMode}
+                        resolutionScale={resolutionScale}
+                      />
+                      <OffsetMeterInApp
+                        offset={lastHitOffset}
+                        perfectWindow={100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20}
+                        greatWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 1.5}
+                        goodWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 2}
+                      />
+                      {isSustainPedalActive && (
+                        <div
+                          className="absolute bottom-2 right-2 px-3 py-1 bg-yellow-400 text-black text-xs font-bold rounded shadow-lg animate-pulse"
+                          style={{ zIndex: 30 }}
+                          aria-live="polite"
+                        >
+                          SUSTAIN
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="absolute bottom-0 left-0 right-0 h-0 z-50 pointer-events-none">
+                      <div className="absolute bottom-4 left-0 right-0 w-full flex justify-center">
+                        <OffsetMeterInApp
+                          offset={lastHitOffset}
+                          perfectWindow={100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20}
+                          greatWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 1.5}
+                          goodWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 2}
+                        />
+                      </div>
                     </div>
                   )}
-                </div>
               </div>
             </>
             {isLoadingContent && (
@@ -6918,6 +7334,7 @@ const AppContent: React.FC = () => {
               handleStopPlayback();
               uploadSessionStats();
               setPerformanceSummary(null);
+              stopEndGameSfx();
             }}
           />
           <GameOverModal
@@ -6948,6 +7365,58 @@ const AppContent: React.FC = () => {
           setCurrentScreen("finetune");
         }}
       />
+      {showCalibrationTutorial && (
+        <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-750 rounded-xl p-6 max-w-md w-full shadow-2xl space-y-5 text-slate-100">
+            <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
+              <div className="p-2 bg-amber-500/10 text-amber-400 rounded-lg">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-info"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+              </div>
+              <h3 className="text-lg font-bold tracking-tight">Latency Calibration Guide</h3>
+            </div>
+            
+            <div className="space-y-4 text-sm text-slate-300 leading-relaxed">
+              <p>
+                To get a highly precise and accurate calibration result:
+              </p>
+              <ul className="list-disc list-inside space-y-2 text-slate-300 pl-1">
+                <li>
+                  You must consistently <strong className="text-amber-400 font-semibold">click or press the piano keys in sync with the metronome ticks</strong>.
+                </li>
+                <li>
+                  The beat adjustment value (*note offset*) will be automatically reset to <strong className="text-emerald-400 font-semibold">0ms</strong> when calibration begins.
+                </li>
+                <li>
+                  The HP (*Health Points*) mechanic is <strong className="text-emerald-400 font-semibold">disabled</strong> during calibration so you can adjust your latency calmly without worrying about failing mid-song.
+                </li>
+              </ul>
+              <p className="text-slate-400 text-xs italic">
+                After the song finishes, your average input offset will be saved automatically for all subsequent plays.
+              </p>
+            </div>
+            
+            <div className="flex gap-3 pt-2">
+              <button
+                id="cancel-calibration-tutorial"
+                onClick={() => setShowCalibrationTutorial(false)}
+                className="flex-1 py-2 px-4 bg-slate-800 hover:bg-slate-755 text-slate-300 rounded-lg font-medium transition text-sm cursor-pointer border border-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                id="start-calibration-button"
+                onClick={() => {
+                  setShowCalibrationTutorial(false);
+                  executeCalibrationStart();
+                }}
+                className="flex-1 py-2 px-4 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg font-semibold transition text-sm cursor-pointer shadow-lg shadow-amber-500/10"
+              >
+                Start Calibration
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

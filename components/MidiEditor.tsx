@@ -555,7 +555,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
         const initAudio = () => {
             const AudioContextConstructor = window.AudioContext || (window as any).webkitAudioContext;
             if (!audioContextRef.current && AudioContextConstructor) {
-                audioContextRef.current = new AudioContextConstructor();
+                audioContextRef.current = new AudioContextConstructor({ latencyHint: 'interactive' });
                 masterGainRef.current = audioContextRef.current.createGain();
                 masterGainRef.current.connect(audioContextRef.current.destination);
                 masterGainRef.current.gain.value = pianoVolume;

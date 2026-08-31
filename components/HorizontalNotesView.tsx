@@ -1,6 +1,6 @@
 
 import React, { useMemo, useEffect, useRef, useCallback, memo } from 'react';
-import { Renderer, Stave, StaveConnector } from 'vexflow';
+import { Renderer, Stave, StaveConnector, Glyph, Accidental } from 'vexflow';
 import { ActiveMidiNoteInfo, VexFlowRenderData, VexFlowNoteInfo, NoteFragment, NoteLabelType, QwertyLayout } from '../types';
 import { USER_PLAY_COLOR, PLAY_LINE_THICKNESS_PX, VISUAL_NOTE_CAP_MS, QWERTY_MINI_KEYBOARD_MAPPING, MIRP_KEYBOARD_MAPPING, KEY_CODES_TO_DISPLAY } from '../constants';
 import { SHARP_KEYS, FLAT_KEYS, NEUTRAL_KEYS, ENHARMONIC_MAP_TO_SHARP, ENHARMONIC_MAP_TO_FLAT, formatKeySignatureForDisplay, darkenHex } from '../utils';
@@ -38,6 +38,30 @@ interface HorizontalNotesViewProps {
   instrumentMode?: 'piano' | 'drum';
   isPaused?: boolean;
   onSeek?: (timeMs: number) => void;
+  resolutionScale?: number;
+}
+
+// Binary search helper to find the starting fragment index in O(log N) time
+function findFragmentStartIndex(
+  fragments: NoteFragment[],
+  targetMinTimeMs: number
+): number {
+  let low = 0;
+  let high = fragments.length - 1;
+  let result = 0;
+
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    const frag = fragments[mid];
+    const duration = frag.durationMs || 0;
+    if (frag.timeMs + duration >= targetMinTimeMs) {
+      result = mid;
+      high = mid - 1;
+    } else {
+      low = mid + 1;
+    }
+  }
+  return result;
 }
 
 function getStaffLineForNote(
@@ -89,6 +113,7 @@ interface SidebarSignaturePanelProps {
   lowDetailMode?: boolean;
   isQwertyView?: boolean;
   isMixedHandView?: boolean;
+  resolutionScale?: number;
 }
 
 const SidebarSignaturePanel: React.FC<SidebarSignaturePanelProps> = React.memo(({
@@ -101,7 +126,8 @@ const SidebarSignaturePanel: React.FC<SidebarSignaturePanelProps> = React.memo((
   backgroundColor,
   lowDetailMode = false,
   isQwertyView = false,
-  isMixedHandView = false
+  isMixedHandView = false,
+  resolutionScale = 1.0
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -122,7 +148,7 @@ const SidebarSignaturePanel: React.FC<SidebarSignaturePanelProps> = React.memo((
     const verticalSpacing = Math.floor(vexFlowData.verticalSpacing);
     const effectiveStaffLineSpacing = (isQwertyView || isMixedHandView) ? 14 : STAFF_LINE_SPACING;
 
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = (window.devicePixelRatio || 1) * (resolutionScale || 1.0);
     canvas.width = Math.floor(SIDEBAR_WIDTH * dpr);
     canvas.height = Math.floor(height * dpr);
 
@@ -191,7 +217,8 @@ const SidebarSignaturePanel: React.FC<SidebarSignaturePanelProps> = React.memo((
         backgroundColor: backgroundColor === 'transparent' ? 'transparent' : backgroundColor,
         backdropFilter: (backgroundColor === 'transparent' || lowDetailMode) ? 'none' : 'blur(4px)',
         borderRight: '1px solid rgba(0,0,0,0.1)',
-        boxShadow: backgroundColor === 'transparent' ? 'none' : '4px 0 12px rgba(0,0,0,0.08)'
+        boxShadow: backgroundColor === 'transparent' ? 'none' : '4px 0 12px rgba(0,0,0,0.08)',
+        imageRendering: 'pixelated'
       }}
     />
   );
@@ -220,7 +247,8 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
   lowDetailMode = false,
   instrumentMode = 'piano',
   isPaused = false,
-  onSeek
+  onSeek,
+  resolutionScale = 1.0
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const backgroundCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -230,7 +258,7 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
   useEffect(() => {
     if (width <= 0 || height <= 0 || !vexFlowData) return;
     
-    const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+    const dpr = (typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1) * (resolutionScale || 1.0);
     const bgCanvas = document.createElement('canvas');
     bgCanvas.width = Math.floor(width * dpr);
     bgCanvas.height = Math.floor(height * dpr);
@@ -246,7 +274,7 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
     }
     
     backgroundCanvasRef.current = bgCanvas;
-  }, [width, height, backgroundColor, !!vexFlowData]);
+  }, [width, height, backgroundColor, !!vexFlowData, resolutionScale]);
 
   const PLAY_LINE_X = SIDEBAR_WIDTH + (width > SIDEBAR_WIDTH ? (width - SIDEBAR_WIDTH) * 0.1 : 0);
 
@@ -278,10 +306,18 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
     const endPx = startPx + width + 200;
 
     const fragments = vexFlowData.fragments;
+    
+    // Using binary search to find starting index of visible fragments
+    const targetMinTimeMs = currentTimeMs - (PLAY_LINE_X + 100) / pixelsPerMillisecond;
+    const startIdx = findFragmentStartIndex(fragments, targetMinTimeMs);
+    const maxTimeMs = currentTimeMs + (width - PLAY_LINE_X + 100) / pixelsPerMillisecond;
+
     const result: NoteFragment[] = [];
 
-    for (let i = 0; i < fragments.length; i++) {
+    for (let i = startIdx; i < fragments.length; i++) {
       const n = fragments[i];
+      if (n.timeMs > maxTimeMs) break;
+
       const sp = (n.timeMs - firstMeasureStartTime) * pixelsPerMillisecond;
       const duration = effectiveShowOnlyMajorNotes ? Math.min(n.durationMs, noteCap) : n.durationMs;
       const ep = sp + (duration * pixelsPerMillisecond);
@@ -312,7 +348,7 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = (window.devicePixelRatio || 1) * (resolutionScale || 1.0);
     canvas.width = Math.floor(width * dpr);
     canvas.height = Math.floor(height * dpr);
 
@@ -559,19 +595,48 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
           }
 
           // 2. Accidentals
-          let accText = null;
           if (!isDrum) {
             if (vn && idx !== -1 && vn.accidentals) {
               const accData = vn.accidentals.find(acc => acc.index === idx);
-              if (accData) accText = accData.type === '#' ? '♯' : accData.type === 'b' ? '♭' : accData.type === 'n' ? '♮' : null;
-            }
-
-            if (accText) {
-              ctx.fillStyle = '#0f172a';
-              ctx.font = '24px sans-serif';
-              ctx.textAlign = 'right';
-              ctx.textBaseline = 'middle';
-              ctx.fillText(accText, (xPos - 8) | 0, yPos);
+              if (accData) {
+                const glyphCode = accData.type === '#' ? 'accidentalSharp' : accData.type === 'b' ? 'accidentalFlat' : 'accidentalNatural';
+                ctx.fillStyle = '#0f172a';
+                ctx.strokeStyle = '#0f172a';
+                try {
+                  if (Glyph && typeof (Glyph as any).renderGlyph === 'function') {
+                    const canvasCtx = ctx as any;
+                    const originalFill = canvasCtx.fill;
+                    canvasCtx.fill = function() {
+                      canvasCtx.strokeStyle = '#ffffff';
+                      canvasCtx.lineWidth = 2.5;
+                      canvasCtx.stroke();
+                      canvasCtx.fillStyle = '#0f172a';
+                      originalFill.apply(this, arguments);
+                    };
+                    // Standard Bravura musical font symbols align their vertical origin perfectly with the center of the note head (yPos).
+                    (Glyph as any).renderGlyph(ctx, (xPos - 12) | 0, yPos | 0, 38, glyphCode);
+                    canvasCtx.fill = originalFill;
+                  } else {
+                    const txt = accData.type === '#' ? '♯' : accData.type === 'b' ? '♭' : '♮';
+                    ctx.font = '32px sans-serif';
+                    ctx.textAlign = 'right';
+                    ctx.textBaseline = 'middle';
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 4;
+                    ctx.strokeText(txt, (xPos - 10) | 0, yPos);
+                    ctx.fillText(txt, (xPos - 10) | 0, yPos);
+                  }
+                } catch (e) {
+                  const txt = accData.type === '#' ? '♯' : accData.type === 'b' ? '♭' : '♮';
+                  ctx.font = '32px sans-serif';
+                  ctx.textAlign = 'right';
+                  ctx.textBaseline = 'middle';
+                  ctx.strokeStyle = '#ffffff';
+                  ctx.lineWidth = 4;
+                  ctx.strokeText(txt, (xPos - 10) | 0, yPos);
+                  ctx.fillText(txt, (xPos - 10) | 0, yPos);
+                }
+              }
             }
           }
 
@@ -605,7 +670,7 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
             ctx.roundRect(xPos, barY, noteWidth, barHeight, 4);
             ctx.fill();
 
-            ctx.strokeStyle = status === 'user_played' ? '#ffffff' : (isBlackKey(note.midi) ? '#020617' : '#0f172a');
+            ctx.strokeStyle = (isBlackKey(note.midi) ? '#020617' : '#0f172a');
             ctx.lineWidth = 1.2;
             ctx.stroke();
           }
@@ -871,6 +936,7 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
           width: `${width}px`,
           height: `${height}px`,
           display: 'block',
+          imageRendering: 'pixelated',
         }}
       />
       {!isQwertyView && (
@@ -885,6 +951,7 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
           lowDetailMode={lowDetailMode}
           isQwertyView={isQwertyView}
           isMixedHandView={isMixedHandView}
+          resolutionScale={resolutionScale}
         />
       )}
     </div>

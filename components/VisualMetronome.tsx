@@ -8,7 +8,7 @@ interface VisualMetronomeProps {
   metronomeMode: MetronomeMode; // New prop
 }
 
-const VisualMetronome: React.FC<VisualMetronomeProps> = ({ beatState, metronomeMode }) => {
+const VisualMetronome: React.FC<VisualMetronomeProps> = React.memo(({ beatState, metronomeMode }) => {
   const [animationClass, setAnimationClass] = useState('');
 
   useEffect(() => {
@@ -38,6 +38,6 @@ const VisualMetronome: React.FC<VisualMetronomeProps> = ({ beatState, metronomeM
       <span className="text-xs font-medium text-slate-200 hidden sm:inline">Metronome: {getModeDisplayName(metronomeMode)}</span>
     </div>
   );
-};
+});
 
 export default VisualMetronome;
