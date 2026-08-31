@@ -20,6 +20,7 @@ interface PianoKeyProps {
   showQwertyShortcut: boolean;
   qwertyKey: string | undefined;
   lowDetailMode?: boolean;
+  waitMode?: string;
 }
 
 const PianoKey: React.FC<PianoKeyProps> = ({ 
@@ -35,16 +36,19 @@ const PianoKey: React.FC<PianoKeyProps> = ({
   showQwertyShortcut,
   qwertyKey,
   lowDetailMode = false,
+  waitMode = 'strict',
 }) => {
   const isWhiteKey = keyDef.type === 'white';
   let dynamicStyle: React.CSSProperties = {};
   let keyClass = '';
 
   const baseWhiteStyle = `border-l border-b border-r border-slate-300 rounded-b-md absolute top-0 transition-all duration-50 ease-out no-select cursor-pointer ${!lowDetailMode && 'shadow-[0_2px_5px_rgba(0,0,0,0.3)]'} z-0`;
-  const baseBlackStyle = `bg-slate-900 border-l border-b border-r border-black rounded-b-md absolute top-0 z-10 transition-all duration-50 ease-out no-select cursor-pointer ${!lowDetailMode && 'shadow-[0_4px_8px_rgba(0,0,0,0.6)]'}`;
+  const baseBlackStyle = `border-l border-b border-r border-black rounded-b-md absolute top-0 z-10 transition-all duration-50 ease-out no-select cursor-pointer ${!lowDetailMode && 'shadow-[0_4px_8px_rgba(0,0,0,0.6)]'}`;
   
   const inactiveWhiteStyle = `bg-slate-100 hover:bg-white ${!lowDetailMode && 'active:scale-y-95'} origin-top`;
   const inactiveBlackStyle = `bg-black hover:bg-slate-900 ${!lowDetailMode && 'active:scale-y-95'} origin-top`;
+
+  const activeSystemNote = (waitMode === 'off') ? activeSystemNoteInfo : null;
 
   if (isUserPlaying) { 
     const baseUserPlayColor = hitNoteColor;
@@ -56,9 +60,9 @@ const PianoKey: React.FC<PianoKeyProps> = ({
       zIndex: isWhiteKey ? 5 : 20, 
       borderColor: '#fff',
     };
-  } else if (activeSystemNoteInfo) {
-    const { status, hand } = activeSystemNoteInfo;
-    const baseColor = hand === 'left' ? leftHandColor : rightHandColor;
+  } else if (activeSystemNote) {
+    const { status } = activeSystemNote;
+    const baseColor = hitNoteColor;
 
     if (status === 'waiting') {
         const waitingGlow = lowDetailMode ? 'none' : `0 0 15px ${hexToRgba(baseColor, 0.8)}`;
@@ -69,12 +73,11 @@ const PianoKey: React.FC<PianoKeyProps> = ({
             zIndex: isWhiteKey ? 5 : 20,
         };
     } else if (status === 'playing' || status === 'user_played') {
-        const bgColor = isWhiteKey ? lightenHex(baseColor, 40) : baseColor;
-        const glow = lowDetailMode ? 'none' : `0 0 20px ${hexToRgba(baseColor, 0.9)}`;
+        const baseUserPlayColor = hitNoteColor;
         dynamicStyle = { 
-            backgroundColor: bgColor, 
-            boxShadow: glow,
-            transform: lowDetailMode ? 'none' : 'scaleY(0.98)',
+            backgroundColor: baseUserPlayColor, 
+            boxShadow: lowDetailMode ? 'none' : `0 0 20px ${baseUserPlayColor}, 0 0 40px ${baseUserPlayColor}`,
+            transform: lowDetailMode ? 'none' : 'scaleY(0.96)',
             transformOrigin: 'top',
             zIndex: isWhiteKey ? 5 : 20,
             borderColor: '#fff'
@@ -110,7 +113,7 @@ const PianoKey: React.FC<PianoKeyProps> = ({
                       ${isWhiteKey ? 'bottom-2 text-slate-500' : 'bottom-2 text-slate-400'}`}
           style={{ 
               textShadow: isWhiteKey || lowDetailMode ? 'none' : '0 1px 2px rgba(0,0,0,0.8)',
-              color: isUserPlaying || activeSystemNoteInfo ? 'white' : undefined 
+              color: isUserPlaying || activeSystemNote ? 'white' : undefined 
           }}
         >
           {qwertyKey}

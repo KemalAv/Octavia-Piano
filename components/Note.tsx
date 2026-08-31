@@ -48,9 +48,7 @@ const Note: React.FC<NoteProps> = ({
   };
 
   if (status === 'playing') {
-    borderStyle = {
-      border: '2px solid rgba(255, 255, 255, 0.9)',
-    };
+    borderStyle = {};
   } else if (status === 'user_played') {
     borderStyle = {
       border: `2px solid ${USER_PLAY_COLOR}`

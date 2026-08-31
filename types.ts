@@ -223,6 +223,7 @@ export interface GameSettings {
   noteToleranceMs?: number;
   accuracyLevel?: AccuracyLevel; // NEW: Accuracy Level (3-7)
   isNonStop?: boolean;
+  isHpEnabled?: boolean; // NEW: Enable or disable HP fail/mechanics in practice mode
   backingTrack?: BackingTrackConfig; // NEW: Backing track configuration
   instrumentMode?: 'piano' | 'drum'; // NEW: Instrument mode
   zoomDirection?: 'normal' | 'reverse'; // NEW: Zoom direction

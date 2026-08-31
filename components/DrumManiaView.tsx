@@ -34,6 +34,8 @@ interface DrumManiaViewProps {
     onSeek?: (timeMs: number) => void;
     showPianoTilesBackground?: boolean;
     pianoTilesOpacity?: number;
+    waitMode?: string;
+    resolutionScale?: number;
 }
 
 // Binary search helper to find starting note index in O(log N) time
@@ -59,7 +61,7 @@ function findNoteStartIndex<T extends { timeMs: number; durationMs?: number }>(
     return result;
 }
 
-export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
+export const DrumManiaView: React.FC<DrumManiaViewProps> = React.memo(({
     currentTimeMs,
     playbackData,
     liveNotes = [],
@@ -77,6 +79,8 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
     onSeek,
     showPianoTilesBackground = true,
     pianoTilesOpacity = 50,
+    waitMode = 'strict',
+    resolutionScale = 1.0,
 }) => {
     const MIDI_TO_PAD_MAP = new Map<number, DrumPadConfig>();
     DRUM_PADS.forEach(pad => {
@@ -241,7 +245,7 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
-        const dpr = window.devicePixelRatio || 1;
+        const dpr = (window.devicePixelRatio || 1) * (resolutionScale || 1.0);
         canvas.width = dimensions.width * dpr;
         canvas.height = dimensions.height * dpr;
         ctx.scale(dpr, dpr);
@@ -412,7 +416,8 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
                     }
                 }
 
-                if (!isUserActive) {
+                const isAutoMode = waitMode === 'off';
+                if (!isUserActive && isAutoMode) {
                     for (const info of currentActiveNotes.values()) {
                         if (pad.midiNotes.includes(info.midi)) {
                             isPlaybackActive = true;
@@ -426,10 +431,8 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
                 ctx.beginPath();
                 ctx.arc(pad.cx, pad.cy, pad.r, 0, Math.PI * 2);
 
-                if (isUserActive) {
+                if (isActive) {
                     ctx.strokeStyle = themeSettings.hitNoteColor;
-                } else if (isPlaybackActive) {
-                    ctx.strokeStyle = '#ffffff';
                 } else {
                     ctx.strokeStyle = '#8b5cf6';
                 }
@@ -440,8 +443,11 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
                 if (isActive) {
                     ctx.beginPath();
                     ctx.arc(pad.cx, pad.cy, pad.r, 0, Math.PI * 2);
-                    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+                    ctx.fillStyle = themeSettings.hitNoteColor;
+                    ctx.save();
+                    ctx.globalAlpha = (isUserActive ? 0.4 : 0.25);
                     ctx.fill();
+                    ctx.restore();
                 }
 
                 // Draw indicator at hitLineY (optional, like the image)
@@ -479,10 +485,9 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
             });
 
             // Draw falling notes
-            // Efficiently find visible notes using binary search
-            const viewDurationMs = dimensions.height / pixelsPerMillisecond;
-            const minNoteTime = currentMs - 5000; // Stay visible for 5s after passing to ensure they fall off screen
-            const maxNoteTime = currentMs + viewDurationMs + 100;
+            // Efficiently find visible notes using binary search with dynamic and precise boundaries
+            const minNoteTime = currentMs - (pixelsPerMillisecond > 0 ? 200 / pixelsPerMillisecond : 1000);
+            const maxNoteTime = currentMs + (pixelsPerMillisecond > 0 ? (hitLineY + 100) / pixelsPerMillisecond : 2000);
 
             const startIndex = currentPlaybackData.length > 0 ? findNoteStartIndex(currentPlaybackData, minNoteTime) : 0;
 
@@ -540,7 +545,7 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
 
         render();
         return () => cancelAnimationFrame(animationFrameId);
-    }, [dimensions, drumInputMode, themeSettings, pixelsPerMillisecond]);
+    }, [dimensions, drumInputMode, themeSettings, pixelsPerMillisecond, waitMode]);
 
     return (
         <div className={`w-full h-full relative overflow-hidden touch-none ${isPaused ? 'cursor-ns-resize' : ''}`}>
@@ -553,8 +558,8 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = ({
                 onPointerCancel={handlePointerLeave}
                 onWheel={handleWheel}
                 className="relative z-10"
-                style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none' }}
+                style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none', imageRendering: 'pixelated' }}
             />
         </div>
     );
-};
+});

@@ -69,7 +69,42 @@ interface TopBarProps {
   onUserAudioSyncOffsetChange: (offset: number) => void;
   isCalibrationMode?: boolean;
   userAverageOffset?: number;
+  hp?: number;
 }
+
+const HpMeter = ({ hp }: { hp: number }) => {
+  const maxHp = 100;
+  const hpPercent = (hp / maxHp) * 100;
+  return (
+    <div className="flex flex-col items-center justify-center min-w-[180px] px-2 relative pt-1 pb-4">
+      <div className="flex items-center justify-between w-full text-[9px] font-black uppercase tracking-wider text-slate-300 mb-1">
+        <div className="flex items-center gap-1">
+          <span className="text-rose-500 animate-pulse font-extrabold text-[11px]">♥</span>
+          <span>HP</span>
+        </div>
+        <div className="font-mono font-bold text-slate-400">
+          <span className={hp <= 25 ? "text-rose-400 font-extrabold animate-pulse" : hp <= 60 ? "text-yellow-400" : "text-emerald-400"}>
+            {Math.ceil(hp)}
+          </span>
+          <span className="text-slate-600">/100</span>
+        </div>
+      </div>
+      <div className="relative w-full h-2 bg-slate-900 rounded-full overflow-hidden border border-slate-800/80">
+        <div className="absolute left-1/2 top-0 bottom-0 w-[1px] bg-white/10 z-10" />
+        <div
+          className={`h-full rounded-full transition-all duration-150 ease-out ${
+            hp <= 25
+              ? "bg-gradient-to-r from-red-600 to-rose-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]"
+              : hp <= 60
+              ? "bg-gradient-to-r from-amber-500 to-yellow-400"
+              : "bg-gradient-to-r from-emerald-500 to-cyan-400"
+          }`}
+          style={{ width: `${hpPercent}%` }}
+        />
+      </div>
+    </div>
+  );
+};
 
 const OffsetMeter = ({ offset, perfectWindow, greatWindow, goodWindow }: { offset: number, perfectWindow: number, greatWindow: number, goodWindow: number }) => {
   const maxDisplayOffset = 500; // Fixed max display range for the entire bar
@@ -139,6 +174,7 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
     userAudioSyncOffset, onUserAudioSyncOffsetChange,
     isCalibrationMode,
     userAverageOffset,
+    hp,
   }
   = props;
 
@@ -505,10 +541,9 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
           </button>
           
           <div className="flex items-center gap-4">
-            <OffsetMeter offset={lastHitOffset} perfectWindow={perfectWindow} greatWindow={greatWindow} goodWindow={goodWindow} />
+            <HpMeter hp={hp || 100} />
             <StatBox label="Accuracy" value={`${liveAccuracy.toFixed(1)}%`} color="text-cyan-300" />
             <StatBox label="Combo" value={combo} color="text-white" />
-            <JudgmentDisplay />
             {!isNonStop && waitMode !== 'off' && totalWaitTimeMs !== undefined && (
               <StatBox label="Wait Time" value={formatWaitTime(totalWaitTimeMs)} color="text-rose-300" />
             )}
@@ -581,13 +616,11 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
 
         <div className="flex-grow flex flex-col items-center justify-center relative">
           <div className={`hidden md:flex items-center gap-4 rounded-xl px-4 py-1 border border-white/5 shadow-inner bg-black/40`}>
-              <OffsetMeter offset={lastHitOffset} perfectWindow={perfectWindow} greatWindow={greatWindow} goodWindow={goodWindow} />
+              <HpMeter hp={hp || 100} />
               <div className="h-6 w-px bg-white/10"></div>
               <StatBox label="Accuracy" value={`${liveAccuracy.toFixed(1)}%`} color="text-cyan-300" />
               <div className="h-6 w-px bg-white/10"></div>
               <StatBox label="Combo" value={combo} color="text-white" />
-              <div className="h-6 w-px bg-white/10"></div>
-              <JudgmentDisplay />
               
               {!isNonStop && waitMode !== 'off' && totalWaitTimeMs !== undefined && (
               <>

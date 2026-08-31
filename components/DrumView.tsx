@@ -19,9 +19,34 @@ interface DrumViewProps {
     isPaused?: boolean;
     onSeek?: (timeMs: number) => void;
     drumTyperPadOpacity?: number;
+    waitMode?: string;
+    resolutionScale?: number;
 }
 
-export const DrumView: React.FC<DrumViewProps> = ({
+// Binary search helper to find starting note index in O(log N) time
+function findNoteStartIndex<T extends { timeMs: number; durationMs?: number }>(
+    noteList: T[],
+    targetMinTimeMs: number
+): number {
+    let low = 0;
+    let high = noteList.length - 1;
+    let result = 0;
+
+    while (low <= high) {
+        const mid = (low + high) >> 1;
+        const note = noteList[mid];
+        const duration = note.durationMs || 0;
+        if (note.timeMs + duration >= targetMinTimeMs) {
+            result = mid;
+            high = mid - 1;
+        } else {
+            low = mid + 1;
+        }
+    }
+    return result;
+}
+
+export const DrumView: React.FC<DrumViewProps> = React.memo(({
     currentTimeMs,
     playbackData,
     liveNotes = [],
@@ -37,6 +62,8 @@ export const DrumView: React.FC<DrumViewProps> = ({
     isPaused = false,
     onSeek,
     drumTyperPadOpacity = 100,
+    waitMode = 'strict',
+    resolutionScale = 1.0,
 }) => {
     const MIDI_TO_PAD_MAP = new Map<number, DrumPadConfig>();
     DRUM_PADS.forEach(pad => {
@@ -199,7 +226,7 @@ export const DrumView: React.FC<DrumViewProps> = ({
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
-        const dpr = window.devicePixelRatio || 1;
+        const dpr = (window.devicePixelRatio || 1) * (resolutionScale || 1.0);
 
         canvas.width = dimensions.width * dpr;
         canvas.height = dimensions.height * dpr;
@@ -381,20 +408,28 @@ export const DrumView: React.FC<DrumViewProps> = ({
             const centerY = dimensions.height / 2;
 
             const padApproachingMaxProgress = new Map<string, number>();
-            const visibleNotes = currentPlaybackData.filter(note => {
-                const timeUntilHit = note.timeMs - currentMs;
-                const isVisible = timeUntilHit > 0 && timeUntilHit <= approachDurationMsRef.current;
+            const visibleNotes: MidiNotePlaybackItem[] = [];
+            if (currentPlaybackData.length > 0) {
+                // Find starting note that could be visible (timeMs is close to currentMs)
+                const startIndex = findNoteStartIndex(currentPlaybackData, currentMs);
+                const maxNoteTime = currentMs + approachDurationMsRef.current;
                 
-                if (isVisible) {
-                    const pad = MIDI_TO_PAD_MAP.get(note.midi);
-                    if (pad) {
-                        const progress = 1 - (timeUntilHit / approachDurationMsRef.current);
-                        const currentMax = padApproachingMaxProgress.get(pad.id) || 0;
-                        padApproachingMaxProgress.set(pad.id, Math.max(currentMax, progress));
+                for (let i = startIndex; i < currentPlaybackData.length; i++) {
+                    const note = currentPlaybackData[i];
+                    if (note.timeMs > maxNoteTime) break;
+                    
+                    const timeUntilHit = note.timeMs - currentMs;
+                    if (timeUntilHit > 0 && timeUntilHit <= approachDurationMsRef.current) {
+                        const pad = MIDI_TO_PAD_MAP.get(note.midi);
+                        if (pad) {
+                            const progress = 1 - (timeUntilHit / approachDurationMsRef.current);
+                            const currentMax = padApproachingMaxProgress.get(pad.id) || 0;
+                            padApproachingMaxProgress.set(pad.id, Math.max(currentMax, progress));
+                        }
+                        visibleNotes.push(note);
                     }
                 }
-                return isVisible;
-            });
+            }
 
             DRUM_PADS.forEach(pad => {
                 const cx = centerX + (pad.x * dimensions.width - centerX) * layoutScale;
@@ -416,7 +451,8 @@ export const DrumView: React.FC<DrumViewProps> = ({
                     }
                 }
 
-                if (!isUserActive) {
+                const isAutoMode = waitMode === 'off';
+                if (!isUserActive && isAutoMode) {
                     for (const info of currentActiveNotes.values()) {
                         if (pad.midiNotes.includes(info.midi)) {
                             isPlaybackActive = true;
@@ -433,10 +469,8 @@ export const DrumView: React.FC<DrumViewProps> = ({
                 ctx.beginPath();
                 ctx.arc(cx, cy, r, 0, Math.PI * 2);
                 
-                if (isUserActive) {
+                if (isActive) {
                     ctx.strokeStyle = themeSettings.hitNoteColor;
-                } else if (isPlaybackActive) {
-                    ctx.strokeStyle = '#ffffff';
                 } else {
                     ctx.strokeStyle = '#8b5cf6';
                 }
@@ -456,9 +490,9 @@ export const DrumView: React.FC<DrumViewProps> = ({
                 if (isActive) {
                     ctx.beginPath();
                     ctx.arc(cx, cy, r, 0, Math.PI * 2);
-                    ctx.fillStyle = isUserActive ? themeSettings.hitNoteColor : 'rgba(255,255,255,0.25)';
+                    ctx.fillStyle = themeSettings.hitNoteColor;
                     ctx.save();
-                    ctx.globalAlpha = (isUserActive ? 0.4 : 1.0) * finalPadOpacity;
+                    ctx.globalAlpha = (isUserActive ? 0.4 : 0.25) * finalPadOpacity;
                     ctx.fill();
                     ctx.restore();
                 }
@@ -553,7 +587,7 @@ export const DrumView: React.FC<DrumViewProps> = ({
 
         return () => cancelAnimationFrame(animationFrameId);
 
-    }, [dimensions, drumInputMode, themeSettings]);
+    }, [dimensions, drumInputMode, themeSettings, waitMode]);
 
     return (
         <div className={`w-full h-full relative overflow-hidden touch-none ${isPaused ? 'cursor-ns-resize' : ''}`}>
@@ -567,10 +601,10 @@ export const DrumView: React.FC<DrumViewProps> = ({
                 onPointerCancel={handlePointerLeave}
                 onWheel={handleWheel}
                 className="relative z-10"
-                style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none' }}
+                style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none', imageRendering: 'pixelated' }}
             />
 
         </div>
     );
 
-};
+});

@@ -37,9 +37,9 @@ const tutorials = [
     { title: 'Music Theory', url: 'https://youtu.be/_VvKeiwddPI' },
     { title: 'Scales', url: 'https://youtu.be/1OPWJ4WOuLU' },
     { title: 'Chord', url: 'https://youtu.be/EMj0LrMQDKs' },
-    { title: 'Hand Placement', url: 'https://youtu.be/dQECPiWpULE?si=kFkWWS6exkVpbSOU' },
+    { title: 'Hand Placement', url: 'https://youtu.be/a_kVafB-0C4?si' },
     { title: 'Only for Nerds', url: 'https://youtu.be/Yv-W4ezHvH0' },
-    { title: 'Computer Keyboard', url: 'https://youtu.be/LM-aAcYtKg4?si=OPPsWYQvFbTYt3ww' },
+    { title: 'Computer Keyboard', url: 'https://youtu.be/LM-aAcYtKg4?si' },
 ];
 
 const ModeSelection: React.FC<ModeSelectionProps> = memo(({
@@ -73,6 +73,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
     const [isTutorialModalOpen, setIsTutorialModalOpen] = useState(false);
     const [isTutorialModalRendered, setIsTutorialModalRendered] = useState(false);
     const [isNonStop, setIsNonStop] = useState(false);
+    const [isHpEnabled, setIsHpEnabled] = useState(true);
 
     const [backingType, setBackingType] = useState<BackingType>('none');
     const mp3InputRef = useRef<HTMLInputElement>(null);
@@ -200,6 +201,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
             noteToleranceMs,
             accuracyLevel: finalAccuracyLevel as any,
             isNonStop: selectedMode === 'retical' ? true : (selectedMode === 'practice_lenient' ? isNonStop : false),
+            isHpEnabled: (selectedMode === 'practice_lenient' || selectedMode === 'practice_strict') ? isHpEnabled : true,
             backingTrack: backingConfig,
             instrumentMode,
         });
@@ -321,7 +323,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
                                 </p>
                                 <div className="space-y-1">
                                     <p>
-                                        If your MIDI controller feels delayed, consider adjusting the note offset in settings. Click the icon to go directly to the note offset settings, where you can calibrate it automatically by pressing a note in sync with the metronome beat. {onOpenSettings && (
+                                        If your MIDI controller feels delayed, consider adjusting the note offset in settings. Click the icon to go directly to the note offset settings, where you can calibrate it automatically by playing the calibration song. {onOpenSettings && (
                                             <button onClick={onOpenSettings} className="inline-flex items-center justify-center ml-1 text-cyan-400 hover:text-cyan-300 transition-colors" title="Open Settings">
                                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
                                             </button>
@@ -493,15 +495,27 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
                     </div>
                 )}
 
-                    {selectedMode === 'practice_lenient' && (
-                        <div className="bg-slate-900/50 p-6 rounded-lg mb-6 ring-1 ring-slate-700">
+                    {isPractice && (
+                        <div className="bg-slate-900/50 p-6 rounded-lg mb-6 ring-1 ring-slate-700 space-y-4">
+                            {selectedMode === 'practice_lenient' && (
+                                <label className="flex items-center justify-between cursor-pointer pb-4 border-b border-slate-800">
+                                    <div>
+                                        <span className="text-lg font-medium text-slate-300">Non-Stop Mode</span>
+                                        <p className="text-xs text-slate-400 font-normal mt-1">Music continues playing even if you miss notes, like Autoplay.</p>
+                                    </div>
+                                    <div className="relative inline-flex items-center">
+                                        <input type="checkbox" checked={isNonStop} onChange={e => setIsNonStop(e.target.checked)} className="sr-only peer" />
+                                        <div className="w-11 h-6 bg-slate-600 rounded-full peer peer-checked:bg-cyan-600 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full"></div>
+                                    </div>
+                                </label>
+                            )}
                             <label className="flex items-center justify-between cursor-pointer">
                                 <div>
-                                    <span className="text-lg font-medium text-slate-300">Non-Stop Mode</span>
-                                    <p className="text-xs text-slate-400 font-normal mt-1">Music continues playing even if you miss notes, like Autoplay.</p>
+                                    <span className="text-lg font-medium text-slate-300">Aktifkan Darah (HP Bar)</span>
+                                    <p className="text-xs text-slate-400 font-normal mt-1">Jika dinonaktifkan (No-Fail), HP Anda tidak akan berkurang dan Anda tidak bisa gagal.</p>
                                 </div>
                                 <div className="relative inline-flex items-center">
-                                    <input type="checkbox" checked={isNonStop} onChange={e => setIsNonStop(e.target.checked)} className="sr-only peer" />
+                                    <input type="checkbox" checked={isHpEnabled} onChange={e => setIsHpEnabled(e.target.checked)} className="sr-only peer" />
                                     <div className="w-11 h-6 bg-slate-600 rounded-full peer peer-checked:bg-cyan-600 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full"></div>
                                 </div>
                             </label>
