@@ -244,8 +244,21 @@ const isCacheableMode = (
   return true;
 };
 
+const isAuthHash = (hash: string): boolean => {
+  if (!hash) return false;
+  return (
+    hash.includes("access_token=") ||
+    hash.includes("refresh_token=") ||
+    hash.includes("error=") ||
+    hash.includes("error_description=") ||
+    hash.includes("type=recovery") ||
+    hash.includes("type=invite") ||
+    hash.includes("type=signup")
+  );
+};
+
 const SCREEN_TO_HASH: Record<Screen, string> = {
-  mainMenu: "#/",
+  mainMenu: "",
   settings: "#/settings",
   leaderboard: "#/leaderboard",
   songSelection: "#/songs",
@@ -279,6 +292,9 @@ const HASH_TO_SCREEN: Record<string, Screen> = {
 };
 
 const parseHash = (hash: string): { screen: Screen; songId: string | null } => {
+  if (isAuthHash(hash)) {
+    return { screen: "mainMenu", songId: null };
+  }
   const decodedHash = decodeURIComponent(hash);
   const parts = decodedHash.split("?");
   const path = parts[0] || "";
@@ -421,6 +437,12 @@ const AppContent: React.FC = () => {
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
   const { session, user } = useAuth();
 
+  useEffect(() => {
+    if (session || user) {
+      setIsAuthModalOpen(false);
+    }
+  }, [session, user]);
+
   const sessionPlaytimeMs = useRef<number>(0);
   const playtimeStartRef = useRef<number | null>(null);
   const sessionTotalPlaytimeMs = useRef<number>(0);
@@ -450,6 +472,11 @@ const AppContent: React.FC = () => {
   // Synchronize URL hash with application screens & menu routing (subdomains)
   useEffect(() => {
     const handleHashChange = () => {
+      // If the URL hash contains Supabase / OAuth tokens, do not parse it as an app route
+      if (window.location.hash && isAuthHash(window.location.hash)) {
+        return;
+      }
+
       const { screen, songId } = parseHash(window.location.hash);
       
       setCurrentScreen((prev) => {
@@ -471,19 +498,31 @@ const AppContent: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const baseHash = SCREEN_TO_HASH[currentScreen] || "#/";
+    // If the hash has auth tokens or error callback from OAuth, do NOT overwrite it!
+    if (window.location.hash && isAuthHash(window.location.hash)) {
+      return;
+    }
+
+    const baseHash = SCREEN_TO_HASH[currentScreen] ?? "";
     let targetHash = baseHash;
     
     if (selectedOnlineSongIdForNavigation && (currentScreen === "songSelection" || currentScreen === "modeSelection" || currentScreen === "inGame")) {
       if (baseHash.endsWith("/")) {
         targetHash = `${baseHash}${selectedOnlineSongIdForNavigation}`;
-      } else {
+      } else if (baseHash) {
         targetHash = `${baseHash}/${selectedOnlineSongIdForNavigation}`;
       }
     }
     
-    if (window.location.hash !== targetHash) {
-      window.location.hash = targetHash;
+    if (!targetHash) {
+      // For mainMenu or clean root: if there is an unwanted hash like '#/' or '#', clean it up
+      if (window.location.hash && !isAuthHash(window.location.hash)) {
+        window.history.replaceState(null, "", window.location.pathname + window.location.search);
+      }
+    } else {
+      if (window.location.hash !== targetHash) {
+        window.location.hash = targetHash;
+      }
     }
   }, [currentScreen, selectedOnlineSongIdForNavigation]);
 

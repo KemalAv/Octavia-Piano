@@ -9,8 +9,15 @@ const FALLBACK_SUPABASE_URL = 'https://aigvrsquvxzatahrbbvh.supabase.co'; // <<<
 const FALLBACK_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFpZ3Zyc3F1dnh6YXRhaHJiYnZoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM4NjQ5NDksImV4cCI6MjA3OTQ0MDk0OX0.T6sYVZmjIiXFiEHIPwxTkCNq_aVW7aAdFwMxBtL_SHA'; // <<< PASTE YOUR SUPABASE ANON KEY HERE
 
 // Use environment variables if they exist, otherwise use the fallback
-const supabaseUrl = process.env.VITE_SUPABASE_URL || FALLBACK_SUPABASE_URL;
-const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || FALLBACK_SUPABASE_ANON_KEY;
+const supabaseUrl =
+  (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_URL) ||
+  (typeof process !== 'undefined' && process.env?.VITE_SUPABASE_URL) ||
+  FALLBACK_SUPABASE_URL;
+
+const supabaseAnonKey =
+  (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_ANON_KEY) ||
+  (typeof process !== 'undefined' && process.env?.VITE_SUPABASE_ANON_KEY) ||
+  FALLBACK_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
   // This warning will be logged if both environment variables and fallbacks are missing.
@@ -18,4 +25,12 @@ if (!supabaseUrl || !supabaseAnonKey) {
   console.warn('Supabase URL or Anon Key is missing, even with fallback. Please check `supabaseClient.ts`');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: false, // Handled deterministically by AuthContext to avoid URL wiping and race condition bugs
+    flowType: 'pkce',
+    storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+  },
+});

@@ -14,7 +14,7 @@ const ROLL_VIEW_SCALE_MULTIPLIER = 1.00; // Roll view default is 125%
 const HORIZONTAL_PADDING = 15 * UNIVERSAL_SCALE;
 const MIDDLE_C_MIDI = 60; // C4
 const CLEF_CHANGE_THRESHOLD_RATIO = 0.75;
-const CLEF_CHANGE_MIN_NOTES = 2;
+const CLEF_CHANGE_MIN_NOTES = 1;
 
 // Octave thresholds
 const OCTAVA_15MA_THRESHOLD_MIDI = 96; // C7
@@ -626,9 +626,12 @@ export const getVexFlowRenderData = (
         const is15mbActiveLH = checkOctave(lhNotes, OCTAVA_15MB_THRESHOLD_MIDI, false);
         const is8vbActiveLH = !is15mbActiveLH && checkOctave(lhNotes, OCTAVA_8VB_THRESHOLD_MIDI, false);
 
+        const isClefChangeRH = (i > 0 && detectedClefRH !== lastDrawnClefRH);
+        const isClefChangeLH = (i > 0 && detectedClefLH !== lastDrawnClefLH);
+
         let measureWidth = isRollView 
             ? (measureEndTime - measureStartTime) / 1000 * ROLL_VIEW_PIXELS_PER_SECOND * effectiveZoom * UNIVERSAL_SCALE
-            : Math.max(computeMinWidthFromNotes(fragmentsInMeasure, getBpmAtTime, effectiveZoom, false, measureEndTime), currentTsig.numerator * (4 / currentTsig.denominator) * PIXELS_PER_BEAT) + HORIZONTAL_PADDING;
+            : Math.max(computeMinWidthFromNotes(fragmentsInMeasure, getBpmAtTime, effectiveZoom, false, measureEndTime), currentTsig.numerator * (4 / currentTsig.denominator) * PIXELS_PER_BEAT) + HORIZONTAL_PADDING + ((isClefChangeRH || isClefChangeLH) ? 45 * getLayoutZoom(effectiveZoom, false) * UNIVERSAL_SCALE : 0);
 
         tempMeasures.push({
             rightHand: [], leftHand: [], startTimeMs: measureStartTime, endTimeMs: measureEndTime, width: measureWidth, durationMs: measureEndTime - measureStartTime,
@@ -638,8 +641,10 @@ export const getVexFlowRenderData = (
             activeKeySignature: currentKeySig,
             effectiveClefRH: detectedClefRH, 
             effectiveClefLH: detectedClefLH, 
-            newClefRH: (i === 0 || detectedClefRH !== lastDrawnClefRH) ? detectedClefRH : undefined,
-            newClefLH: (i === 0 || detectedClefLH !== lastDrawnClefLH) ? detectedClefLH : undefined, 
+            newClefRH: (i === 0 || isClefChangeRH) ? detectedClefRH : undefined,
+            newClefLH: (i === 0 || isClefChangeLH) ? detectedClefLH : undefined, 
+            isClefChangeRH,
+            isClefChangeLH,
             is8vaActiveRH, is15maActiveRH, is8vbActiveLH, is15mbActiveLH,
             starts8vaRH: false, ends8vaRH: false, starts15maRH: false, ends15maRH: false, starts8vbLH: false, ends8vbLH: false, starts15mbLH: false, ends15mbLH: false,
             effectiveTimeSignature: currentTsig,

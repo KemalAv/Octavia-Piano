@@ -224,6 +224,52 @@ const SidebarSignaturePanel: React.FC<SidebarSignaturePanelProps> = React.memo((
   );
 });
 
+const drawClefChange = (
+  ctx: CanvasRenderingContext2D,
+  clefType: 'treble' | 'bass' | 'percussion',
+  x: number,
+  staffTopY: number,
+  spacing: number
+) => {
+  if (clefType === 'percussion') return;
+  ctx.save();
+  const isTreble = clefType === 'treble';
+  const glyphCode = isTreble ? 'gClef' : 'fClef';
+  // Treble sits on line 3 (G line), Bass sits on line 1 (F line)
+  const line = isTreble ? 3 : 1;
+  const y = (staffTopY + line * spacing) | 0;
+
+  try {
+    if (Glyph && typeof (Glyph as any).renderGlyph === 'function') {
+      const canvasCtx = ctx as any;
+      const originalFill = canvasCtx.fill;
+      canvasCtx.fill = function() {
+        canvasCtx.strokeStyle = '#ffffff';
+        canvasCtx.lineWidth = 3.5;
+        canvasCtx.stroke();
+        canvasCtx.fillStyle = '#0f172a';
+        originalFill.apply(this, arguments);
+      };
+      // Point 39 matches VexFlow's standard 'default' clef size used in the left bar
+      (Glyph as any).renderGlyph(ctx, x | 0, y | 0, 39, glyphCode, { category: 'clef_default' });
+      canvasCtx.fill = originalFill;
+    } else {
+      ctx.fillStyle = '#0f172a';
+      ctx.font = `bold ${Math.round(spacing * 3.2)}px serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(isTreble ? '𝄞' : '𝄢', x + 12, staffTopY + 2 * spacing);
+    }
+  } catch (e) {
+    ctx.fillStyle = '#0f172a';
+    ctx.font = `bold ${Math.round(spacing * 3.2)}px serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(isTreble ? '𝄞' : '𝄢', x + 12, staffTopY + 2 * spacing);
+  }
+  ctx.restore();
+};
+
 const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
   currentTimeMs,
   width,
@@ -473,6 +519,29 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
           drawVerticalLine(measureRight, barTop, barBottom, 3);
         } else {
           drawVerticalLine(measureRight, barTop, barBottom, 1);
+        }
+
+        // Clef change: Full-size clef right before new notes start (matching left bar)
+        if (!isDrum && idx > 0) {
+          if (measure.isClefChangeRH && measure.newClefRH) {
+            const rhFragments = vexFlowData.fragments.filter(f => f.hand === 'right' && f.timeMs >= measure.startTimeMs && f.timeMs < measure.endTimeMs);
+            const firstRhTime = rhFragments.length > 0 
+              ? Math.min(...rhFragments.map(f => f.timeMs)) 
+              : measure.startTimeMs;
+            const firstRhX = (((firstRhTime - firstMeasureStartTime) * pixelsPerMillisecond) + HORIZONTAL_PADDING) | 0;
+            const clefX = Math.max(measureLeft + 4, firstRhX - 30);
+            drawClefChange(ctx, measure.newClefRH, clefX, trebleTop, effectiveStaffLineSpacing);
+          }
+
+          if (measure.isClefChangeLH && measure.newClefLH && !isMixedHandView && !isQwertyView) {
+            const lhFragments = vexFlowData.fragments.filter(f => f.hand === 'left' && f.timeMs >= measure.startTimeMs && f.timeMs < measure.endTimeMs);
+            const firstLhTime = lhFragments.length > 0 
+              ? Math.min(...lhFragments.map(f => f.timeMs)) 
+              : measure.startTimeMs;
+            const firstLhX = (((firstLhTime - firstMeasureStartTime) * pixelsPerMillisecond) + HORIZONTAL_PADDING) | 0;
+            const clefX = Math.max(measureLeft + 4, firstLhX - 30);
+            drawClefChange(ctx, measure.newClefLH, clefX, bassTop, effectiveStaffLineSpacing);
+          }
         }
       }
 
