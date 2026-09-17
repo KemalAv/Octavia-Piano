@@ -316,6 +316,20 @@ const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
               if (bass) bass.setEndBarType(Barline.type.END); 
           }
           
+          if (!isDrum && globalMeasureIdx > 0) {
+              if (measure.isClefChangeRH && measure.newClefRH) {
+                  treble.addClef(measure.newClefRH, 'default');
+              }
+              if (bass && measure.isClefChangeLH && measure.newClefLH) {
+                  bass.addClef(measure.newClefLH, 'default');
+              }
+              if (measure.isClefChangeRH || measure.isClefChangeLH) {
+                  const startX = Math.max(treble.getNoteStartX(), bass ? bass.getNoteStartX() : 0);
+                  treble.setNoteStartX(startX);
+                  if (bass) bass.setNoteStartX(startX);
+              }
+          }
+
           treble.setContext(ctx).draw(); 
           if (bass) bass.setContext(ctx).draw();
           
@@ -522,7 +536,9 @@ const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
           if (leftStaveNotes.length) voices.push(new Voice({ num_beats: measure.effectiveTimeSignature.numerator, beat_value: measure.effectiveTimeSignature.denominator }).setStrict(false).addTickables(leftStaveNotes));
           
           if (voices.length) { 
-              new Formatter().joinVoices(voices).format(voices, measure.width - 15); 
+              const noteStartX = Math.max(treble.getNoteStartX(), bass ? bass.getNoteStartX() : currentX);
+              const availableWidth = Math.max(30, measure.width - (noteStartX - currentX) - 15);
+              new Formatter().joinVoices(voices).format(voices, availableWidth); 
               
               if (rightStaveNotes.length) {
                   voices[0].draw(ctx, treble); 

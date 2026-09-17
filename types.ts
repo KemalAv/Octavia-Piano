@@ -276,6 +276,8 @@ export interface UserSession {
   session: Session | null;
   user: User | null;
   loading: boolean;
+  authError?: string | null;
+  clearAuthError?: () => void;
 }
 
 // @FIX: Add Score interface for Supabase integration, used in AccountModal and LeaderboardModal.

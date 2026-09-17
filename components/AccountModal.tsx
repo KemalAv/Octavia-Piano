@@ -69,17 +69,31 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
       .eq('id', user.id)
       .single();
 
+    const googleName = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'Player';
+    const googleAvatar = user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
+
     if (profileError && profileError.code !== 'PGRST116') {
       console.error("Error fetching profile:", profileError);
     } else if (profileData) {
       setProfile(profileData as Profile);
-      setUsername(profileData.username || user.email?.split('@')[0] || '');
-      setAvatarUrl(profileData.avatar_url);
+      setUsername(profileData.username || googleName);
+      setAvatarUrl(profileData.avatar_url || googleAvatar);
       setBio(profileData.bio || '');
     } else {
-      setUsername(user.email?.split('@')[0] || '');
-      setAvatarUrl(null);
+      setUsername(googleName);
+      setAvatarUrl(googleAvatar);
       setBio('');
+
+      // Buat baris profil di database jika belum ada
+      try {
+        await supabase.from('profiles').upsert({
+          id: user.id,
+          username: googleName,
+          avatar_url: googleAvatar,
+        }, { onConflict: 'id' });
+      } catch (err) {
+        console.warn('Auto profile seeding skipped:', err);
+      }
     }
 
     // Fetch scores, only for ranked songs
