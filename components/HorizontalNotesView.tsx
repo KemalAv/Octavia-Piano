@@ -217,55 +217,128 @@ const SidebarSignaturePanel: React.FC<SidebarSignaturePanelProps> = React.memo((
         backgroundColor: backgroundColor === 'transparent' ? 'transparent' : backgroundColor,
         backdropFilter: (backgroundColor === 'transparent' || lowDetailMode) ? 'none' : 'blur(4px)',
         borderRight: '1px solid rgba(0,0,0,0.1)',
-        boxShadow: backgroundColor === 'transparent' ? 'none' : '4px 0 12px rgba(0,0,0,0.08)',
-        imageRendering: 'pixelated'
+        boxShadow: backgroundColor === 'transparent' ? 'none' : '4px 0 12px rgba(0,0,0,0.08)'
       }}
     />
   );
 });
 
-const drawClefChange = (
+// Helper to measure signature block width
+const getSignatureBlockWidth = (
+  clef?: 'treble' | 'bass' | 'percussion',
+  key?: string,
+  time?: { numerator: number; denominator: number },
+  spacing = 10,
+  cancelKey?: string
+): number => {
+  try {
+    const s = new Stave(0, 0, 400, {
+      spacing_between_lines_px: spacing,
+      space_above_staff_ln: 0
+    });
+    s.setBegBarType(0);
+    s.setEndBarType(0);
+    s.options.num_lines = 0;
+    s.options.left_bar = false;
+    s.options.right_bar = false;
+    if (clef && clef !== 'percussion') s.addClef(clef);
+    if (key) s.addKeySignature(key, cancelKey);
+    if (time) s.addTimeSignature(`${time.numerator}/${time.denominator}`);
+    return Math.max(30, Math.round(s.getNoteStartX()));
+  } catch (e) {
+    return 35;
+  }
+};
+
+const drawSignatureChange = (
   ctx: CanvasRenderingContext2D,
-  clefType: 'treble' | 'bass' | 'percussion',
   x: number,
   staffTopY: number,
-  spacing: number
+  spacing: number,
+  clefType?: 'treble' | 'bass' | 'percussion',
+  keySignature?: string,
+  timeSignature?: { numerator: number; denominator: number },
+  cancelKeySignature?: string
 ) => {
-  if (clefType === 'percussion') return;
-  ctx.save();
-  const isTreble = clefType === 'treble';
-  const glyphCode = isTreble ? 'gClef' : 'fClef';
-  // Treble sits on line 3 (G line), Bass sits on line 1 (F line)
-  const line = isTreble ? 3 : 1;
-  const y = (staffTopY + line * spacing) | 0;
+  // If nothing to draw, return
+  if (!clefType && !keySignature && !timeSignature) return;
+  if (clefType === 'percussion' && !keySignature && !timeSignature) return;
 
+  ctx.save();
   try {
-    if (Glyph && typeof (Glyph as any).renderGlyph === 'function') {
-      const canvasCtx = ctx as any;
-      const originalFill = canvasCtx.fill;
-      canvasCtx.fill = function() {
-        canvasCtx.strokeStyle = '#ffffff';
-        canvasCtx.lineWidth = 3.5;
-        canvasCtx.stroke();
-        canvasCtx.fillStyle = '#0f172a';
-        originalFill.apply(this, arguments);
-      };
-      // Point 39 matches VexFlow's standard 'default' clef size used in the left bar
-      (Glyph as any).renderGlyph(ctx, x | 0, y | 0, 39, glyphCode, { category: 'clef_default' });
-      canvasCtx.fill = originalFill;
-    } else {
-      ctx.fillStyle = '#0f172a';
-      ctx.font = `bold ${Math.round(spacing * 3.2)}px serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(isTreble ? '𝄞' : '𝄢', x + 12, staffTopY + 2 * spacing);
+    const stave = new Stave(x | 0, staffTopY | 0, 400, {
+      spacing_between_lines_px: spacing,
+      space_above_staff_ln: 0
+    });
+    stave.setBegBarType(0);
+    stave.setEndBarType(0);
+    stave.options.num_lines = 0;
+    stave.options.left_bar = false;
+    stave.options.right_bar = false;
+
+    if (clefType && clefType !== 'percussion') {
+      stave.addClef(clefType, 'default');
+    } else if (clefType) {
+      stave.setClef(clefType);
     }
+    if (keySignature) {
+      stave.addKeySignature(keySignature, cancelKeySignature);
+    }
+    if (timeSignature) {
+      stave.addTimeSignature(`${timeSignature.numerator}/${timeSignature.denominator}`);
+    }
+
+    const canvasCtx = ctx as any;
+    const originalFill = canvasCtx.fill;
+    canvasCtx.fill = function() {
+      canvasCtx.strokeStyle = '#ffffff';
+      canvasCtx.lineWidth = 3.5;
+      canvasCtx.stroke();
+      canvasCtx.fillStyle = '#0f172a';
+      originalFill.apply(this, arguments);
+    };
+
+    const vexCtx: any = {
+      clear: () => {},
+      setStrokeStyle: (s: string) => { ctx.strokeStyle = s; },
+      setFillStyle: (s: string) => { ctx.fillStyle = s; },
+      setLineWidth: (w: number) => { ctx.lineWidth = w; },
+      beginPath: () => ctx.beginPath(),
+      moveTo: (x: number, y: number) => ctx.moveTo(x, y),
+      lineTo: (x: number, y: number) => ctx.lineTo(x, y),
+      bezierCurveTo: (a: number, b: number, c: number, d: number, e: number, f: number) => ctx.bezierCurveTo(a, b, c, d, e, f),
+      quadraticCurveTo: (a: number, b: number, c: number, d: number) => ctx.quadraticCurveTo(a, b, c, d),
+      arc: (x: number, y: number, r: number, sa: number, ea: number, ac: boolean) => ctx.arc(x, y, r, sa, ea, ac),
+      fill: () => ctx.fill(),
+      stroke: () => ctx.stroke(),
+      fillRect: (x: number, y: number, w: number, h: number) => ctx.fillRect(x, y, w, h),
+      clearRect: (x: number, y: number, w: number, h: number) => ctx.clearRect(x, y, w, h),
+      save: () => ctx.save(),
+      restore: () => ctx.restore(),
+      fillText: (t: string, x: number, y: number) => ctx.fillText(t, x, y),
+      measureText: (t: string) => ctx.measureText(t),
+      scale: (x: number, y: number) => ctx.scale(x, y),
+      rect: (x: number, y: number, w: number, h: number) => ctx.rect(x, y, w, h),
+      closePath: () => ctx.closePath(),
+      setFont: () => {},
+      setLineDash: () => {},
+      openGroup: () => {},
+      closeGroup: () => {}
+    };
+
+    stave.setContext(vexCtx);
+    stave.draw();
+
+    canvasCtx.fill = originalFill;
   } catch (e) {
+    // Fallback: simple text rendering if needed
     ctx.fillStyle = '#0f172a';
     ctx.font = `bold ${Math.round(spacing * 3.2)}px serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(isTreble ? '𝄞' : '𝄢', x + 12, staffTopY + 2 * spacing);
+    if (clefType && clefType !== 'percussion') {
+      ctx.fillText(clefType === 'treble' ? '𝄞' : '𝄢', x + 12, staffTopY + 2 * spacing);
+    }
   }
   ctx.restore();
 };
@@ -521,26 +594,63 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
           drawVerticalLine(measureRight, barTop, barBottom, 1);
         }
 
-        // Clef change: Full-size clef right before new notes start (matching left bar)
+        // Signature changes: Full-size clef, key signature, and time signature changes right before new notes start (matching left bar)
         if (!isDrum && idx > 0) {
-          if (measure.isClefChangeRH && measure.newClefRH) {
+          const hasChangeRH = measure.isClefChangeRH || measure.isKeySigChange || measure.isTimeSigChange;
+          const hasChangeLH = (!isMixedHandView && !isQwertyView) && (measure.isClefChangeLH || measure.isKeySigChange || measure.isTimeSigChange);
+
+          if (hasChangeRH) {
             const rhFragments = vexFlowData.fragments.filter(f => f.hand === 'right' && f.timeMs >= measure.startTimeMs && f.timeMs < measure.endTimeMs);
             const firstRhTime = rhFragments.length > 0 
               ? Math.min(...rhFragments.map(f => f.timeMs)) 
               : measure.startTimeMs;
             const firstRhX = (((firstRhTime - firstMeasureStartTime) * pixelsPerMillisecond) + HORIZONTAL_PADDING) | 0;
-            const clefX = Math.max(measureLeft + 4, firstRhX - 30);
-            drawClefChange(ctx, measure.newClefRH, clefX, trebleTop, effectiveStaffLineSpacing);
+            const blockWidth = getSignatureBlockWidth(
+              measure.isClefChangeRH ? measure.newClefRH : undefined,
+              measure.isKeySigChange ? measure.activeKeySignature : undefined,
+              measure.isTimeSigChange ? measure.effectiveTimeSignature : undefined,
+              effectiveStaffLineSpacing,
+              measure.isKeySigChange ? measure.previousKeySignature : undefined
+            );
+            const sigPadding = 14; // Standard spacing between signature changes and the first note
+            const sigX = Math.max(measureLeft + 4, firstRhX - blockWidth - sigPadding);
+            drawSignatureChange(
+              ctx,
+              sigX,
+              trebleTop,
+              effectiveStaffLineSpacing,
+              measure.isClefChangeRH ? measure.newClefRH : undefined,
+              measure.isKeySigChange ? measure.activeKeySignature : undefined,
+              measure.isTimeSigChange ? measure.effectiveTimeSignature : undefined,
+              measure.isKeySigChange ? measure.previousKeySignature : undefined
+            );
           }
 
-          if (measure.isClefChangeLH && measure.newClefLH && !isMixedHandView && !isQwertyView) {
+          if (hasChangeLH) {
             const lhFragments = vexFlowData.fragments.filter(f => f.hand === 'left' && f.timeMs >= measure.startTimeMs && f.timeMs < measure.endTimeMs);
             const firstLhTime = lhFragments.length > 0 
               ? Math.min(...lhFragments.map(f => f.timeMs)) 
               : measure.startTimeMs;
             const firstLhX = (((firstLhTime - firstMeasureStartTime) * pixelsPerMillisecond) + HORIZONTAL_PADDING) | 0;
-            const clefX = Math.max(measureLeft + 4, firstLhX - 30);
-            drawClefChange(ctx, measure.newClefLH, clefX, bassTop, effectiveStaffLineSpacing);
+            const blockWidth = getSignatureBlockWidth(
+              measure.isClefChangeLH ? measure.newClefLH : undefined,
+              measure.isKeySigChange ? measure.activeKeySignature : undefined,
+              measure.isTimeSigChange ? measure.effectiveTimeSignature : undefined,
+              effectiveStaffLineSpacing,
+              measure.isKeySigChange ? measure.previousKeySignature : undefined
+            );
+            const sigPadding = 14; // Standard spacing between signature changes and the first note
+            const sigX = Math.max(measureLeft + 4, firstLhX - blockWidth - sigPadding);
+            drawSignatureChange(
+              ctx,
+              sigX,
+              bassTop,
+              effectiveStaffLineSpacing,
+              measure.isClefChangeLH ? measure.newClefLH : undefined,
+              measure.isKeySigChange ? measure.activeKeySignature : undefined,
+              measure.isTimeSigChange ? measure.effectiveTimeSignature : undefined,
+              measure.isKeySigChange ? measure.previousKeySignature : undefined
+            );
           }
         }
       }
@@ -615,8 +725,12 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
           if (noteLabelType === 'qwerty') {
             if (qwertyLayout === 'mirp') {
               const match = MIRP_KEYBOARD_MAPPING.find(m => m.midi === note.midi - mirpTranspose);
-              if (match) label = match.label;
-              else label = note.pitchClass + Math.floor(note.midi/12 - 1);
+              if (match) {
+                const physicalKey = KEY_CODES_TO_DISPLAY[match.code.toLowerCase()] || match.code.replace('Key', '').replace('Digit', '');
+                label = match.shift ? `⇧${physicalKey}` : physicalKey;
+              } else {
+                label = note.pitchClass + Math.floor(note.midi/12 - 1);
+              }
             } else {
               const match = QWERTY_MINI_KEYBOARD_MAPPING.find(m => m.midiBase === note.midi - (qwertyCurrentOctaveShift * 12));
               if (match) label = KEY_CODES_TO_DISPLAY[match.qwertyKey] || match.qwertyKey.replace('key', '').toUpperCase();
@@ -795,8 +909,12 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
             if (noteLabelType === 'qwerty') {
               if (qwertyLayout === 'mirp') {
                 const match = MIRP_KEYBOARD_MAPPING.find(m => m.midi === note.midi - mirpTranspose);
-                if (match) label = match.label;
-                else label = note.pitchClass + Math.floor(note.midi/12 - 1);
+                if (match) {
+                  const physicalKey = KEY_CODES_TO_DISPLAY[match.code.toLowerCase()] || match.code.replace('Key', '').replace('Digit', '');
+                  label = match.shift ? `⇧${physicalKey}` : physicalKey;
+                } else {
+                  label = note.pitchClass + Math.floor(note.midi/12 - 1);
+                }
               } else {
                 const match = QWERTY_MINI_KEYBOARD_MAPPING.find(m => m.midiBase === note.midi - (qwertyCurrentOctaveShift * 12));
                 if (match) label = KEY_CODES_TO_DISPLAY[match.qwertyKey] || match.qwertyKey.replace('key', '').toUpperCase();
@@ -1005,7 +1123,6 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
           width: `${width}px`,
           height: `${height}px`,
           display: 'block',
-          imageRendering: 'pixelated',
         }}
       />
       {!isQwertyView && (

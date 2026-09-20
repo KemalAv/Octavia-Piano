@@ -36,6 +36,8 @@ interface SettingsProps {
   onMetronomeVolumeChange: (volume: number) => void;
   metronomeOffsetMs: number; // NOTE: This prop name is kept from App.tsx mapping but effectively controls noteOffsetMs now
   onMetronomeOffsetChange: (offset: number) => void; // NOTE: Controls setNoteOffsetMs
+  metronomePianoOffsetMs?: number;
+  onMetronomePianoOffsetChange?: (offset: number) => void;
   themeSettings: ThemeSettings;
   onThemeSettingsChange: (settings: ThemeSettings) => void;
   devicePreset: DevicePreset;
@@ -97,6 +99,9 @@ interface SettingsProps {
   showPerfectJudgment: boolean;
   onShowPerfectJudgmentChange: (value: boolean) => void;
   onStartCalibration?: () => void;
+  userAudioSyncOffset?: number;
+  onUserAudioSyncOffsetChange?: (offset: number) => void;
+  detectedLatencyMs?: number;
 }
 
 const Section: React.FC<{ title: string; children: React.ReactNode; showInfoButton?: boolean; onInfoClick?: () => void }> = ({ title, children, showInfoButton, onInfoClick }) => (
@@ -148,6 +153,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
     onShowQwertyShortcutsChange,
     masterVolume, onMasterVolumeChange, metronomeVolume, onMetronomeVolumeChange,
     metronomeOffsetMs, onMetronomeOffsetChange,
+    metronomePianoOffsetMs = 0, onMetronomePianoOffsetChange,
     themeSettings, onThemeSettingsChange,
     devicePreset, onDevicePresetChange,
     customWhiteKeyHeight, onCustomWhiteKeyHeightChange,
@@ -171,7 +177,10 @@ export const Settings: React.FC<SettingsProps> = (props) => {
     lowDetailMode = false, onLowDetailModeChange,
     resolutionScale = 1.0, onResolutionScaleChange,
     showPerfectJudgment, onShowPerfectJudgmentChange,
-    onStartCalibration
+    onStartCalibration,
+    userAudioSyncOffset = 0,
+    onUserAudioSyncOffsetChange,
+    detectedLatencyMs = 0
   } = props;
 
   const [isRendered, setIsRendered] = useState(false);
@@ -709,10 +718,37 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                 className={`${rangeSliderStyle} max-w-xs`} 
               />
             </SettingRow>
-            {/* Note Offset (Judgment lag compensation) */}
-            <div id="note-offset-section">
-              <SettingRow label={`Note Offset (${metronomeOffsetMs > 0 ? '+' : ''}${metronomeOffsetMs}ms)`} htmlFor="note-offset">
-                <div className="flex items-center gap-4 w-full">
+            {/* Note Offset (Judgment lag compensation & Audio Sync) */}
+            <div id="note-offset-section" className="bg-slate-900/50 p-4 rounded-lg space-y-4 ring-1 ring-slate-700">
+              <div className="flex items-center justify-between border-b border-slate-700 pb-2">
+                <div>
+                  <h4 className="text-md font-semibold text-cyan-400">MIDI & Audio Latency Offset</h4>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Kompensasi delay respons MIDI input & sinkronisasi audio antar device
+                  </p>
+                </div>
+                {detectedLatencyMs > 0 && (
+                  <span className="text-[10px] bg-cyan-950/80 text-cyan-300 px-2.5 py-1 rounded border border-cyan-700/50 font-mono">
+                    Hardware Delay: ~{detectedLatencyMs}ms (Auto-Compensated)
+                  </span>
+                )}
+              </div>
+
+              {/* 1. MIDI Hit Timing Offset */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-400 font-bold text-xs flex items-center justify-center border border-cyan-500/30">1</span>
+                    <label htmlFor="note-offset" className="text-sm font-semibold text-slate-200">
+                      MIDI Hit Timing Offset (Hitbox Shift)
+                    </label>
+                  </div>
+                  <span className="font-mono font-bold text-sm text-cyan-400">
+                    {metronomeOffsetMs > 0 ? `+${metronomeOffsetMs}` : metronomeOffsetMs}ms
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-3">
                   <input 
                     id="note-offset" 
                     type="range" 
@@ -721,14 +757,191 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                     step="5" 
                     value={metronomeOffsetMs} 
                     onChange={e => onMetronomeOffsetChange(parseInt(e.target.value, 10))} 
-                    className={`${rangeSliderStyle} flex-grow max-w-xs`} 
+                    className={`${rangeSliderStyle} flex-grow`} 
                   />
-                  <button onClick={onStartCalibration} className={`${commonButtonStyles} ${secondaryButtonStyles}`}>Calibrate</button>
+                  {onStartCalibration && (
+                    <button 
+                      onClick={onStartCalibration} 
+                      className={`${commonButtonStyles} ${secondaryButtonStyles} whitespace-nowrap text-xs py-1.5`}
+                      title="Run automatic latency calibration with test beats"
+                    >
+                      Calibrate
+                    </button>
+                  )}
                 </div>
-              </SettingRow>
-              <p className="text-xs text-slate-500 mt-1">
-                  Adjust input latency. (+) shifts hitbox earlier, (-) shifts hitbox later relative to visuals.
-              </p>
+
+                {/* Quick step buttons */}
+                <div className="flex items-center gap-1.5 pt-1">
+                  <span className="text-[10px] uppercase font-bold text-slate-500 mr-1">Quick:</span>
+                  <button 
+                    onClick={() => onMetronomeOffsetChange(Math.max(-500, metronomeOffsetMs - 50))}
+                    className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-2 py-0.5 rounded border border-slate-700 transition-colors"
+                  >
+                    -50ms
+                  </button>
+                  <button 
+                    onClick={() => onMetronomeOffsetChange(Math.max(-500, metronomeOffsetMs - 10))}
+                    className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-2 py-0.5 rounded border border-slate-700 transition-colors"
+                  >
+                    -10ms
+                  </button>
+                  <button 
+                    onClick={() => onMetronomeOffsetChange(0)}
+                    className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-2 py-0.5 rounded border border-slate-700 transition-colors"
+                  >
+                    0ms (Reset)
+                  </button>
+                  <button 
+                    onClick={() => onMetronomeOffsetChange(Math.min(500, metronomeOffsetMs + 10))}
+                    className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-2 py-0.5 rounded border border-slate-700 transition-colors"
+                  >
+                    +10ms
+                  </button>
+                  <button 
+                    onClick={() => onMetronomeOffsetChange(Math.min(500, metronomeOffsetMs + 50))}
+                    className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-2 py-0.5 rounded border border-slate-700 transition-colors"
+                  >
+                    +50ms
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Offset waktu ketukan tombol / input MIDI terhadap balok not. Geser ke negatif (-) jika ketukan Anda konsisten telat (Late); geser ke positif (+) jika terlalu awal (Early).
+                </p>
+              </div>
+
+              {/* 2. MP3 Audio Offset */}
+              {onUserAudioSyncOffsetChange && (
+                <div className="space-y-2 pt-3 border-t border-slate-800">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 font-bold text-xs flex items-center justify-center border border-amber-500/30">2</span>
+                      <label htmlFor="audio-sync-offset" className="text-sm font-semibold text-slate-200">
+                        MP3 Audio Offset (Backing Track Sync)
+                      </label>
+                    </div>
+                    <span className="font-mono font-bold text-sm text-amber-400">
+                      {userAudioSyncOffset > 0 ? `+${userAudioSyncOffset}` : userAudioSyncOffset}ms
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <input 
+                      id="audio-sync-offset" 
+                      type="range" 
+                      min="-500" 
+                      max="500" 
+                      step="5" 
+                      value={userAudioSyncOffset} 
+                      onChange={e => onUserAudioSyncOffsetChange(parseInt(e.target.value, 10))} 
+                      className={`${rangeSliderStyle} flex-grow`} 
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-1.5 pt-1">
+                    <span className="text-[10px] uppercase font-bold text-slate-500 mr-1">Quick:</span>
+                    <button 
+                      onClick={() => onUserAudioSyncOffsetChange(Math.max(-500, userAudioSyncOffset - 50))}
+                      className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-2 py-0.5 rounded border border-slate-700 transition-colors"
+                    >
+                      -50ms
+                    </button>
+                    <button 
+                      onClick={() => onUserAudioSyncOffsetChange(Math.max(-500, userAudioSyncOffset - 10))}
+                      className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-2 py-0.5 rounded border border-slate-700 transition-colors"
+                    >
+                      -10ms
+                    </button>
+                    <button 
+                      onClick={() => onUserAudioSyncOffsetChange(0)}
+                      className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-2 py-0.5 rounded border border-slate-700 transition-colors"
+                    >
+                      0ms (Reset)
+                    </button>
+                    <button 
+                      onClick={() => onUserAudioSyncOffsetChange(Math.min(500, userAudioSyncOffset + 10))}
+                      className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-2 py-0.5 rounded border border-slate-700 transition-colors"
+                    >
+                      +10ms
+                    </button>
+                    <button 
+                      onClick={() => onUserAudioSyncOffsetChange(Math.min(500, userAudioSyncOffset + 50))}
+                      className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-2 py-0.5 rounded border border-slate-700 transition-colors"
+                    >
+                      +50ms
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    Menyelaraskan waktu pemutaran file musik MP3 atau video YouTube dengan balok not jatuh pada layar.
+                  </p>
+                </div>
+              )}
+
+              {/* 3. Metronome Offset */}
+              {onMetronomePianoOffsetChange && (
+                <div className="space-y-2 pt-3 border-t border-slate-800">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-xs flex items-center justify-center border border-emerald-500/30">3</span>
+                      <label htmlFor="metro-piano-offset" className="text-sm font-semibold text-slate-200">
+                        Metronome Offset
+                      </label>
+                    </div>
+                    <span className="font-mono font-bold text-sm text-emerald-400">
+                      {metronomePianoOffsetMs > 0 ? `+${metronomePianoOffsetMs}` : metronomePianoOffsetMs}ms
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <input 
+                      id="metro-piano-offset" 
+                      type="range" 
+                      min="-500" 
+                      max="500" 
+                      step="5" 
+                      value={metronomePianoOffsetMs} 
+                      onChange={e => onMetronomePianoOffsetChange(parseInt(e.target.value, 10))} 
+                      className={`${rangeSliderStyle} flex-grow`} 
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-1.5 pt-1">
+                    <span className="text-[10px] uppercase font-bold text-slate-500 mr-1">Quick:</span>
+                    <button 
+                      onClick={() => onMetronomePianoOffsetChange(Math.max(-500, metronomePianoOffsetMs - 50))}
+                      className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-2 py-0.5 rounded border border-slate-700 transition-colors"
+                    >
+                      -50ms
+                    </button>
+                    <button 
+                      onClick={() => onMetronomePianoOffsetChange(Math.max(-500, metronomePianoOffsetMs - 10))}
+                      className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-2 py-0.5 rounded border border-slate-700 transition-colors"
+                    >
+                      -10ms
+                    </button>
+                    <button 
+                      onClick={() => onMetronomePianoOffsetChange(0)}
+                      className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-2 py-0.5 rounded border border-slate-700 transition-colors"
+                    >
+                      0ms (Reset)
+                    </button>
+                    <button 
+                      onClick={() => onMetronomePianoOffsetChange(Math.min(500, metronomePianoOffsetMs + 10))}
+                      className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-2 py-0.5 rounded border border-slate-700 transition-colors"
+                    >
+                      +10ms
+                    </button>
+                    <button 
+                      onClick={() => onMetronomePianoOffsetChange(Math.min(500, metronomePianoOffsetMs + 50))}
+                      className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-2 py-0.5 rounded border border-slate-700 transition-colors"
+                    >
+                      +50ms
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    Menyelaraskan bunyi ketukan metronom jika terdengar mendahului atau tertinggal dari visual hitline.
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Anti Double Trigger */}

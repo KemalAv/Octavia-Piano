@@ -23,6 +23,7 @@ interface QwertyManiaViewProps {
     activeBpm?: number;
     showOnlyMajorNotes?: boolean;
     resolutionScale?: number;
+    waitMode?: string;
 }
 
 // Helper for drawing rounded rectangle shapes matching keyboard keys
@@ -91,6 +92,7 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
     activeBpm = 120,
     showOnlyMajorNotes = false,
     resolutionScale = 1.0,
+    waitMode = 'strict',
 }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
@@ -117,6 +119,7 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
     const qwertyCurrentOctaveShiftRef = useRef(qwertyCurrentOctaveShift);
     const mirpTransposeRef = useRef(mirpTranspose);
     const showOnlyMajorNotesRef = useRef(showOnlyMajorNotes);
+    const waitModeRef = useRef(waitMode);
 
     useEffect(() => {
         currentTimeMsRef.current = currentTimeMs;
@@ -127,35 +130,65 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
         qwertyCurrentOctaveShiftRef.current = qwertyCurrentOctaveShift;
         mirpTransposeRef.current = mirpTranspose;
         showOnlyMajorNotesRef.current = showOnlyMajorNotes;
-    }, [currentTimeMs, playbackData, activePlaybackNotes, userActiveKeys, qwertyLayout, qwertyCurrentOctaveShift, mirpTranspose, showOnlyMajorNotes]);
+        waitModeRef.current = waitMode;
+    }, [currentTimeMs, playbackData, activePlaybackNotes, userActiveKeys, qwertyLayout, qwertyCurrentOctaveShift, mirpTranspose, showOnlyMajorNotes, waitMode]);
 
     useEffect(() => {
         const updateDimensions = () => {
             if (canvasRef.current && canvasRef.current.parentElement) {
-                setDimensions({
-                    width: canvasRef.current.parentElement.clientWidth,
-                    height: canvasRef.current.parentElement.clientHeight
-                });
+                const rect = canvasRef.current.parentElement.getBoundingClientRect();
+                const width = Math.floor(rect.width);
+                const height = Math.floor(rect.height);
+                if (width > 0 && height > 0) {
+                    setDimensions({ width, height });
+                }
             }
         };
+
         updateDimensions();
+
+        let resizeObserver: ResizeObserver | null = null;
+        if (typeof ResizeObserver !== 'undefined' && canvasRef.current && canvasRef.current.parentElement) {
+            resizeObserver = new ResizeObserver(() => {
+                updateDimensions();
+            });
+            resizeObserver.observe(canvasRef.current.parentElement);
+        }
+
         window.addEventListener('resize', updateDimensions);
-        return () => window.removeEventListener('resize', updateDimensions);
+        return () => {
+            window.removeEventListener('resize', updateDimensions);
+            if (resizeObserver) {
+                resizeObserver.disconnect();
+            }
+        };
     }, []);
 
     const getKeyboardLayout = () => {
+        if (dimensions.width <= 0 || dimensions.height <= 0) return [];
+
         const rows = FULL_KEYBOARD_LAYOUT.length;
         const maxCols = Math.max(...FULL_KEYBOARD_LAYOUT.map(r => r.length));
         
         const keyMargin = 4;
-        const availableWidth = Math.max(0, dimensions.width - 60);
-        const keySize = Math.max(10, Math.min(availableWidth / maxCols - keyMargin, 50));
+        const paddingX = Math.min(80, dimensions.width * 0.1);
+
+        const availableWidth = Math.max(0, dimensions.width - paddingX - 30);
+
+        // maxKeyW constrained by width
+        const maxKeyW = Math.max(10, availableWidth / maxCols - keyMargin);
+        // maxKeyH constrained by height (accounting for note zoom expansion)
+        const maxKeyH = Math.max(10, (dimensions.height - 30) / 4.6 - keyMargin);
+
+        const keySize = Math.max(14, Math.min(maxKeyW, maxKeyH, 64));
         
         const totalKeyboardWidth = maxCols * (keySize + keyMargin);
         const totalKeyboardHeight = rows * (keySize + keyMargin);
         
         const startX = (dimensions.width - totalKeyboardWidth) / 2;
-        const startY = (dimensions.height - totalKeyboardHeight) / 2;
+        // Shift keyboard slightly downwards for better visibility
+        const verticalShift = Math.min(32, Math.max(10, (dimensions.height - totalKeyboardHeight) * 0.18));
+        const startY = (dimensions.height - totalKeyboardHeight) / 2 + verticalShift;
 
         const currentLayout = qwertyLayoutRef.current;
         const currentOctaveShift = qwertyCurrentOctaveShiftRef.current;
@@ -178,7 +211,8 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
 
             row.forEach((code, colIndex) => {
                 const midis: number[] = [];
-                let displayLabel = KEY_CODES_TO_DISPLAY[code.toLowerCase()] || code.replace('Key', '').replace('Digit', '');
+                const codeLower = code.toLowerCase();
+                let displayLabel = KEY_CODES_TO_DISPLAY[codeLower] || code.replace('Key', '').replace('Digit', '');
 
                 if (currentLayout === 'mirp') {
                     const mirpEntries = MIRP_KEYBOARD_MAPPING.filter(m => m.code === code);
@@ -189,11 +223,14 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
                         const nonShift = mirpEntries.find(m => !m.shift);
                         if (nonShift) {
                             displayLabel = nonShift.label;
+                        } else if (mirpEntries[0]) {
+                            displayLabel = mirpEntries[0].label;
                         }
+                    } else {
+                        // System control or unmapped keys in MIRP layout
+                        displayLabel = KEY_CODES_TO_DISPLAY[codeLower] || '';
                     }
-                    // No fallback for MIRP: system control keys (Tab, Backspace, Enter, Shift, etc.) stay empty
                 } else {
-                    const codeLower = code.toLowerCase();
                     const isControlKey = ['tab', 'backspace', 'enter', 'shiftleft', 'shiftright', 'capslock', 'space', 'delete'].includes(codeLower);
                     if (!isControlKey) {
                         const miniEntry = QWERTY_MINI_KEYBOARD_MAPPING.find(m => m.qwertyKey === codeLower);
@@ -206,6 +243,7 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
                             }
                         }
                     }
+                    displayLabel = KEY_CODES_TO_DISPLAY[codeLower] || code.replace('Key', '').replace('Digit', '');
                 }
 
                 const x = startX + xOffset + colIndex * (keySize + keyMargin) + keySize / 2;
@@ -225,6 +263,28 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
 
         return layout;
     };
+
+    const pressedPhysicalCodesRef = useRef<Set<string>>(new Set());
+
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            pressedPhysicalCodesRef.current.add(e.code);
+        };
+        const handleKeyUp = (e: KeyboardEvent) => {
+            pressedPhysicalCodesRef.current.delete(e.code);
+        };
+        const handleBlur = () => {
+            pressedPhysicalCodesRef.current.clear();
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('keyup', handleKeyUp);
+        window.addEventListener('blur', handleBlur);
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('keyup', handleKeyUp);
+            window.removeEventListener('blur', handleBlur);
+        };
+    }, []);
 
     const dragRef = useRef<{ isDragging: boolean; startX: number; startTime: number } | null>(null);
 
@@ -324,35 +384,63 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
             // Active keys calculation (100% synced with AR approach arrival)
             const activeKeyCodes = new Set<string>();
 
-            // Physical user input
+            // Physical user input (based on held midi keys and physical computer key states)
             keys.forEach(key => {
-                if (key.midis.some(m => currentUserKeys.has(m))) {
+                if (key.code === 'ShiftLeft' || key.code === 'ShiftRight') {
+                    if (pressedPhysicalCodesRef.current.has(key.code)) {
+                        activeKeyCodes.add(key.code);
+                    }
+                } else if (key.midis.some(m => currentUserKeys.has(m))) {
+                    activeKeyCodes.add(key.code);
+                } else if (pressedPhysicalCodesRef.current.has(key.code)) {
                     activeKeyCodes.add(key.code);
                 }
             });
 
-            // Active playback notes from audio engine
-            currentActiveNotes.forEach(activeInfo => {
-                const key = getNoteKey(activeInfo.midi);
-                if (key) activeKeyCodes.add(key.code);
-            });
+            const isAutoPlay = waitModeRef.current === 'off';
 
-            const isMajorCap = showOnlyMajorNotesRef.current;
+            if (isAutoPlay) {
+                // Active playback notes from audio engine
+                currentActiveNotes.forEach(activeInfo => {
+                    const key = getNoteKey(activeInfo.midi);
+                    if (key) {
+                        activeKeyCodes.add(key.code);
+                        // If MIRP and requires shift, also light up Left Shift
+                        const isMirp = qwertyLayoutRef.current === 'mirp';
+                        const targetBaseMidi = activeInfo.midi - mirpTransposeRef.current;
+                        const match = isMirp ? MIRP_KEYBOARD_MAPPING.find(m => m.midi === targetBaseMidi) : null;
+                        if (match && match.shift) {
+                            activeKeyCodes.add('ShiftLeft');
+                        }
+                    }
+                });
 
-            // Active playback notes in hit window [timeMs, timeMs + duration]
-            if (currentPlaybackData.length > 0) {
-                const hitStartIdx = findNoteStartIndex(currentPlaybackData, currentMs - 2000);
-                for (let i = hitStartIdx; i < currentPlaybackData.length; i++) {
-                    const note = currentPlaybackData[i];
-                    const rawDuration = note.durationMs || 100;
-                    const noteDuration = Math.min(rawDuration, VISUAL_NOTE_CAP_MS);
-                    if (note.timeMs > currentMs + 100) break;
-                    if (currentMs >= note.timeMs && currentMs < note.timeMs + noteDuration) {
-                        const key = getNoteKey(note.midi);
-                        if (key) activeKeyCodes.add(key.code);
+                // Active playback notes in hit window [timeMs, timeMs + duration]
+                if (currentPlaybackData.length > 0) {
+                    const hitStartIdx = findNoteStartIndex(currentPlaybackData, currentMs - 2000);
+                    for (let i = hitStartIdx; i < currentPlaybackData.length; i++) {
+                        const note = currentPlaybackData[i];
+                        const rawDuration = note.durationMs || 100;
+                        const noteDuration = Math.min(rawDuration, VISUAL_NOTE_CAP_MS);
+                        if (note.timeMs > currentMs + 100) break;
+                        if (currentMs >= note.timeMs && currentMs < note.timeMs + noteDuration) {
+                            const key = getNoteKey(note.midi);
+                            if (key) {
+                                activeKeyCodes.add(key.code);
+                                // If MIRP and requires shift, also light up Left Shift
+                                const isMirp = qwertyLayoutRef.current === 'mirp';
+                                const targetBaseMidi = note.midi - mirpTransposeRef.current;
+                                const match = isMirp ? MIRP_KEYBOARD_MAPPING.find(m => m.midi === targetBaseMidi) : null;
+                                if (match && match.shift) {
+                                    activeKeyCodes.add('ShiftLeft');
+                                }
+                            }
+                        }
                     }
                 }
             }
+
+            const isMajorCap = showOnlyMajorNotesRef.current;
 
             const keyApproachingProgressMap = new Map<string, number>();
 
@@ -388,6 +476,15 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
                     }
                     const existing = keyApproachingProgressMap.get(key.code) || 0;
                     keyApproachingProgressMap.set(key.code, Math.max(existing, progress));
+
+                    // If MIRP and requires shift, also update the Shift key approaching progress!
+                    const isMirp = qwertyLayoutRef.current === 'mirp';
+                    const targetBaseMidi = note.midi - mirpTransposeRef.current;
+                    const match = isMirp ? MIRP_KEYBOARD_MAPPING.find(m => m.midi === targetBaseMidi) : null;
+                    if (match && match.shift) {
+                        const existingShift = keyApproachingProgressMap.get('ShiftLeft') || 0;
+                        keyApproachingProgressMap.set('ShiftLeft', Math.max(existingShift, progress));
+                    }
                 }
             });
 
@@ -415,10 +512,13 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
 
                 // Draw label
                 ctx.fillStyle = isActive ? '#000' : '#e2e8f0';
-                ctx.font = `bold ${key.width * 0.35}px "JetBrains Mono", monospace`;
+                const labelText = key.displayLabel || '';
+                const fontScale = labelText.length > 3 ? 0.24 : labelText.length > 1 ? 0.30 : 0.38;
+                const fontSize = Math.max(9, Math.min(key.width * fontScale, 18));
+                ctx.font = `bold ${fontSize}px "JetBrains Mono", monospace`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillText(key.displayLabel, key.cx, key.cy);
+                ctx.fillText(labelText, key.cx, key.cy);
 
                 ctx.restore();
             });
@@ -434,71 +534,95 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
                 const rawDuration = note.durationMs || 0;
                 const noteDuration = Math.min(rawDuration, VISUAL_NOTE_CAP_MS);
 
-                if (timeUntilHit > 0) {
-                    // Approaching phase
-                    const progress = Math.max(0, Math.min(1, 1 - (timeUntilHit / approachMs)));
-                    
-                    let scale: number;
-                    if (currentZoomDir === 'reverse') {
-                        const minScale = 0.2;
-                        scale = minScale + progress * (1.0 - minScale);
+                const isMirp = qwertyLayoutRef.current === 'mirp';
+                const targetBaseMidi = note.midi - mirpTransposeRef.current;
+                const match = isMirp ? MIRP_KEYBOARD_MAPPING.find(m => m.midi === targetBaseMidi) : null;
+                const requiresShift = match ? match.shift : false;
+
+                const drawNoteOnKey = (targetKey: typeof keys[0], strokeColor?: string) => {
+                    if (timeUntilHit > 0) {
+                        // Approaching phase
+                        const progress = Math.max(0, Math.min(1, 1 - (timeUntilHit / approachMs)));
+                        
+                        let scale: number;
+                        if (currentZoomDir === 'reverse') {
+                            const minScale = 0.2;
+                            scale = minScale + progress * (1.0 - minScale);
+                        } else {
+                            const initialScale = 2.8;
+                            scale = initialScale - progress * (initialScale - 1.0);
+                        }
+
+                        if (isNaN(scale)) return;
+
+                        const boxW = targetKey.width * scale;
+                        const boxH = targetKey.height * scale;
+                        const boxX = targetKey.cx - boxW / 2;
+                        const boxY = targetKey.cy - boxH / 2;
+                        const cornerR = Math.max(2, 6 * scale);
+
+                        const opacity = Math.min(1, progress * 1.5);
+                        drawRoundedRect(ctx, boxX, boxY, boxW, boxH, cornerR);
+                        ctx.strokeStyle = strokeColor || `rgba(34,211,238,${opacity})`;
+                        ctx.lineWidth = 3;
+                        ctx.stroke();
+
+                        // Subtle inner glow as it hits
+                        if (progress > 0.7) {
+                            const glowOpacity = (progress - 0.7) / 0.3;
+                            const keyX = targetKey.cx - targetKey.width / 2;
+                            const keyY = targetKey.cy - targetKey.height / 2;
+                            drawRoundedRect(ctx, keyX, keyY, targetKey.width, targetKey.height, 6);
+                            ctx.strokeStyle = `rgba(251, 191, 36, ${glowOpacity})`;
+                            ctx.lineWidth = 2;
+                            ctx.stroke();
+                        }
+                    } else if (currentMs <= note.timeMs + noteDuration) {
+                        // Sustaining phase (stays highlighted with perfect scale and opacity)
+                        const boxW = targetKey.width * 1.02;
+                        const boxH = targetKey.height * 1.02;
+                        const boxX = targetKey.cx - boxW / 2;
+                        const boxY = targetKey.cy - boxH / 2;
+                        const cornerR = 6;
+
+                        drawRoundedRect(ctx, boxX, boxY, boxW, boxH, cornerR);
+                        ctx.strokeStyle = strokeColor || themeSettings.hitNoteColor;
+                        ctx.lineWidth = 3;
+                        ctx.stroke();
                     } else {
-                        const initialScale = 2.8;
-                        scale = initialScale - progress * (initialScale - 1.0);
-                    }
+                        // Release / Post-hit burst phase (0ms to 150ms after note ends)
+                        const timeSinceEnd = currentMs - (note.timeMs + noteDuration);
+                        const hitFade = Math.max(0, 1 - (timeSinceEnd / 150));
 
-                    if (isNaN(scale)) return;
+                        const burstScale = 1.02 + (timeSinceEnd / 150) * 0.23;
+                        const boxW = targetKey.width * burstScale;
+                        const boxH = targetKey.height * burstScale;
+                        const boxX = targetKey.cx - boxW / 2;
+                        const boxY = targetKey.cy - boxH / 2;
+                        const cornerR = Math.max(2, 6 * burstScale);
 
-                    const boxW = key.width * scale;
-                    const boxH = key.height * scale;
-                    const boxX = key.cx - boxW / 2;
-                    const boxY = key.cy - boxH / 2;
-                    const cornerR = Math.max(2, 6 * scale);
-
-                    const opacity = Math.min(1, progress * 1.5);
-                    drawRoundedRect(ctx, boxX, boxY, boxW, boxH, cornerR);
-                    ctx.strokeStyle = `rgba(34,211,238,${opacity})`;
-                    ctx.lineWidth = 3;
-                    ctx.stroke();
-
-                    // Subtle inner glow as it hits
-                    if (progress > 0.7) {
-                        const glowOpacity = (progress - 0.7) / 0.3;
-                        const keyX = key.cx - key.width / 2;
-                        const keyY = key.cy - key.height / 2;
-                        drawRoundedRect(ctx, keyX, keyY, key.width, key.height, 6);
-                        ctx.strokeStyle = `rgba(251, 191, 36, ${glowOpacity})`;
-                        ctx.lineWidth = 2;
+                        drawRoundedRect(ctx, boxX, boxY, boxW, boxH, cornerR);
+                        ctx.strokeStyle = `rgba(251, 191, 36, ${hitFade})`;
+                        ctx.lineWidth = 3;
                         ctx.stroke();
                     }
-                } else if (currentMs <= note.timeMs + noteDuration) {
-                    // Sustaining phase (stays highlighted with perfect scale and opacity)
-                    const boxW = key.width * 1.02;
-                    const boxH = key.height * 1.02;
-                    const boxX = key.cx - boxW / 2;
-                    const boxY = key.cy - boxH / 2;
-                    const cornerR = 6;
+                };
 
-                    drawRoundedRect(ctx, boxX, boxY, boxW, boxH, cornerR);
-                    ctx.strokeStyle = themeSettings.hitNoteColor;
-                    ctx.lineWidth = 3;
-                    ctx.stroke();
-                } else {
-                    // Release / Post-hit burst phase (0ms to 150ms after note ends)
-                    const timeSinceEnd = currentMs - (note.timeMs + noteDuration);
-                    const hitFade = Math.max(0, 1 - (timeSinceEnd / 150));
+                // Draw note on its specific key
+                drawNoteOnKey(key);
 
-                    const burstScale = 1.02 + (timeSinceEnd / 150) * 0.23;
-                    const boxW = key.width * burstScale;
-                    const boxH = key.height * burstScale;
-                    const boxX = key.cx - boxW / 2;
-                    const boxY = key.cy - boxH / 2;
-                    const cornerR = Math.max(2, 6 * burstScale);
-
-                    drawRoundedRect(ctx, boxX, boxY, boxW, boxH, cornerR);
-                    ctx.strokeStyle = `rgba(251, 191, 36, ${hitFade})`;
-                    ctx.lineWidth = 3;
-                    ctx.stroke();
+                // If it requires Shift, also draw the ShiftLeft key approaching note!
+                if (requiresShift) {
+                    const shiftKey = keys.find(k => k.code === 'ShiftLeft');
+                    if (shiftKey) {
+                        const opacity = timeUntilHit > 0 
+                            ? Math.min(1, Math.max(0, Math.min(1, 1 - (timeUntilHit / approachMs))) * 1.5)
+                            : 1;
+                        const shiftStroke = timeUntilHit > 0 
+                            ? `rgba(244,63,94,${opacity})`
+                            : 'rgba(244,63,94,1)';
+                        drawNoteOnKey(shiftKey, shiftStroke);
+                    }
                 }
             });
 
@@ -507,7 +631,7 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
 
         render();
         return () => cancelAnimationFrame(animationFrameId);
-    }, [dimensions, themeSettings]);
+    }, [dimensions, themeSettings, resolutionScale]);
 
     return (
         <div className={`w-full h-full relative overflow-hidden touch-none ${isPaused ? 'cursor-ns-resize' : ''}`}>
@@ -518,17 +642,17 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
                 onPointerUp={handlePointerUp}
                 onPointerLeave={handlePointerUp}
                 onWheel={handleWheel}
-                style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none', imageRendering: 'pixelated' }}
+                style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none' }}
             />
 
             {/* FLOATING HUD */}
             <div 
-                className="absolute top-4 left-4 text-white px-3 py-2 rounded-xl text-xs font-mono tabular-nums shadow-xl border border-white/10 flex flex-col gap-1.5 transition-all duration-300 pointer-events-none select-none"
+                className="absolute top-[72px] sm:top-[78px] left-3 sm:left-4 text-white p-2.5 rounded-xl text-xs font-mono tabular-nums shadow-xl border border-white/10 flex flex-col gap-1 transition-all duration-300 pointer-events-none select-none max-w-[160px]"
                 style={{ 
-                    background: 'rgba(15, 23, 42, 0.85)', 
+                    background: 'rgba(15, 23, 42, 0.88)', 
                     backdropFilter: 'blur(8px)', 
                     zIndex: 30,
-                    minWidth: '150px'
+                    minWidth: '135px'
                 }}
             >
                 {/* Header */}

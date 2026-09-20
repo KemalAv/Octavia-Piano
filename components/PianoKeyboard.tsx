@@ -73,7 +73,12 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = memo(({
     if (qwertyLayout === 'mirp') {
       const targetBaseMidi = keyDef.midiNote - mirpTranspose;
       const matching = MIRP_KEYBOARD_MAPPING.filter(m => m.midi === targetBaseMidi);
-      if (matching.length > 0) return matching[0].label;
+      if (matching.length > 0) {
+        return matching.map(m => {
+          const physicalKey = KEY_CODES_TO_DISPLAY[m.code.toLowerCase()] || m.code.replace('Key', '').replace('Digit', '');
+          return m.shift ? `⇧${physicalKey}` : physicalKey;
+        }).join('/');
+      }
     } else {
       const shiftVal = typeof qwertyCurrentOctaveShift === 'number' && !isNaN(qwertyCurrentOctaveShift) ? qwertyCurrentOctaveShift : 0;
       const matching = QWERTY_MINI_KEYBOARD_MAPPING.filter(m => {
@@ -84,7 +89,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = memo(({
         return matching.map(m => {
           const keyLookup = m.qwertyKey.toLowerCase();
           return KEY_CODES_TO_DISPLAY[keyLookup] || keyLookup.replace('key', '').toUpperCase();
-        }).join(' | ');
+        }).join('/');
       }
     }
     return '';
@@ -142,11 +147,16 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = memo(({
 
       const qwertyText = getQwertyShortcut(keyDef);
       if (qwertyText) {
+        bgCtx.save();
+        bgCtx.beginPath();
+        bgCtx.rect(kp.x, 0, kp.width, blackKeyHeight);
+        bgCtx.clip();
         bgCtx.fillStyle = '#94a3b8';
-        bgCtx.font = 'bold 9px sans-serif';
+        bgCtx.font = 'bold 8px sans-serif';
         bgCtx.textAlign = 'center';
         bgCtx.textBaseline = 'bottom';
-        bgCtx.fillText(qwertyText, kp.x + kp.width / 2, blackKeyHeight - 6);
+        bgCtx.fillText(qwertyText, kp.x + kp.width / 2, blackKeyHeight - 8);
+        bgCtx.restore();
       }
     });
 
@@ -358,11 +368,16 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = memo(({
 
       const qwertyText = getQwertyShortcut(keyDef);
       if (qwertyText) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(kp.x, 0, kp.width, blackKeyHeight);
+        ctx.clip();
         ctx.fillStyle = qwertyColor;
-        ctx.font = 'bold 9px sans-serif';
+        ctx.font = 'bold 8px sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'bottom';
-        ctx.fillText(qwertyText, kp.x + kp.width / 2, blackKeyHeight - 6);
+        ctx.fillText(qwertyText, kp.x + kp.width / 2, blackKeyHeight - 8);
+        ctx.restore();
       }
     });
 
@@ -458,7 +473,6 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = memo(({
           height: `${totalHeight}px`,
           display: 'block',
           touchAction: 'none',
-          imageRendering: 'pixelated',
         }}
       />
     </div>

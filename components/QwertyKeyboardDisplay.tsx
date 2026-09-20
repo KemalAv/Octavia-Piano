@@ -1,6 +1,7 @@
 
 
 import React from 'react';
+import { KEY_CODES_TO_DISPLAY } from '../constants';
 
 interface QwertyKeyboardDisplayProps {
   activeKeys: Set<string>;
@@ -18,12 +19,7 @@ const MAPPING_1_LAYOUT = {
   row2: ['keym', 'keyk', 'comma', 'keyl', 'period', 'slash', 'quote', 'shiftright'],
 };
 
-const KEY_CODES_TO_DISPLAY: { [key: string]: string } = {
-  'tab': '⇥', 'digit1': '1', 'keyq': 'Q', 'digit2': '2', 'keyw': 'W', 'keye': 'E', 'digit4': '4', 'keyr': 'R', 'digit5': '5', 'keyt': 'T', 'digit6': '6', 'keyy': 'Y',
-  'keyu': 'U', 'digit8': '8', 'keyi': 'I', 'digit9': '9', 'keyo': 'O', 'keyp': 'P', 'minus': '-', 'bracketleft': '[', 'equal': '=', 'bracketright': ']', 'backspace': '⌫', 'backslash': '\\', 'enter': '⏎',
-  'shiftleft': 'L ⇧', 'keya': 'A', 'keyz': 'Z', 'keys': 'S', 'keyx': 'X', 'keyc': 'C', 'keyf': 'F', 'keyv': 'V', 'keyg': 'G', 'keyb': 'B', 'keyh': 'H', 'keyn': 'N',
-  'keym': 'M', 'keyk': 'K', 'comma': ',', 'keyl': 'L', 'period': '.', 'slash': '/', 'quote': "'", 'shiftright': 'R ⇧',
-};
+
 
 const QwertyKey: React.FC<{
   qwertyKey: string;

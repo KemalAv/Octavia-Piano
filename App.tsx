@@ -95,6 +95,7 @@ import { DrumView } from "./components/DrumView"; // NEW
 import { DrumManiaView } from "./components/DrumManiaView";
 import { QwertyManiaView } from "./components/QwertyManiaView";
 import { AcousticPianoService } from "./AcousticPianoService";
+import OffsetIndicator from "./components/OffsetIndicator";
 import {
   getActiveKeySignature,
   getActiveTimeSignature,
@@ -120,6 +121,9 @@ import Leaderboard from "./components/Leaderboard";
 import ChordDisplay from "./components/ChordDisplay";
 import { Midi } from "@tonejs/midi";
 import GameOverModal from "./components/GameOverModal";
+import LoopCountdownOverlay, {
+  LoopDelayInfo,
+} from "./components/LoopCountdownOverlay";
 import AdminModal from "./components/AdminModal";
 import {
   AboutUs,
@@ -337,63 +341,6 @@ const parseHash = (hash: string): { screen: Screen; songId: string | null } => {
   }
 
   return { screen, songId };
-};
-
-const OffsetMeterInApp = ({
-  offset,
-  perfectWindow,
-  greatWindow,
-  goodWindow,
-}: {
-  offset: number;
-  perfectWindow: number;
-  greatWindow: number;
-  goodWindow: number;
-}) => {
-  const maxDisplayOffset = 500;
-  const clampedOffset = Math.max(-maxDisplayOffset, Math.min(maxDisplayOffset, offset));
-  const indicatorPercentage = 50 - (clampedOffset / maxDisplayOffset) * 50;
-
-  const pW = (perfectWindow / maxDisplayOffset) * 50;
-  const grW = ((greatWindow - perfectWindow) / maxDisplayOffset) * 50;
-  const goW = ((goodWindow - greatWindow) / maxDisplayOffset) * 50;
-  const miW = 50 - (goodWindow / maxDisplayOffset) * 50;
-
-  return (
-    <div className="absolute bottom-1 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center justify-center min-w-[200px] bg-slate-950/85 border border-slate-700/50 backdrop-blur-md px-3 py-1.5 rounded-lg shadow-2xl pointer-events-none">
-      <div className="relative w-full h-2 flex items-center rounded-full overflow-hidden bg-slate-900">
-        {/* Left Miss zone */}
-        <div className="h-full bg-rose-600" style={{ width: `${miW}%` }}></div>
-        {/* Left Good zone */}
-        <div className="h-full bg-blue-500" style={{ width: `${goW}%` }}></div>
-        {/* Left Great zone */}
-        <div className="h-full bg-emerald-500" style={{ width: `${grW}%` }}></div>
-        
-        {/* Center Perfect zone */}
-        <div className="h-full bg-yellow-400" style={{ width: `${pW * 2}%` }}></div>
-        
-        {/* Right Great zone */}
-        <div className="h-full bg-emerald-500" style={{ width: `${grW}%` }}></div>
-        {/* Right Good zone */}
-        <div className="h-full bg-blue-500" style={{ width: `${goW}%` }}></div>
-        {/* Right Miss zone */}
-        <div className="h-full bg-rose-600" style={{ width: `${miW}%` }}></div>
-        
-        {/* White line indicator */}
-        <div 
-          className="absolute w-1.5 h-4 bg-white rounded-full top-1/2 -translate-y-1/2 -translate-x-1/2 transition-all duration-75 z-10 border border-slate-950"
-          style={{ left: `${indicatorPercentage}%` }}
-        ></div>
-      </div>
-      
-      {/* Labels */}
-      <div className="w-full flex justify-between text-[7px] font-black tracking-widest text-slate-400 mt-1 uppercase">
-        <span>+{maxDisplayOffset}ms</span>
-        <span className="text-slate-200">0ms</span>
-        <span>-{maxDisplayOffset}ms</span>
-      </div>
-    </div>
-  );
 };
 
 const AppContent: React.FC = () => {
@@ -966,6 +913,13 @@ const AppContent: React.FC = () => {
   const prevMasterVolumeRef = useRef(DEFAULT_MASTER_VOLUME); // New ref to store volume before mic/midi mute
   const lastSeekTimeRef = useRef<number>(0);
   const loopDelayStartTimeRef = useRef<number | null>(null);
+  const [loopDelayInfo, setLoopDelayInfo] = useState<LoopDelayInfo | null>(null);
+  const loopDelayInfoRef = useRef<LoopDelayInfo | null>(null);
+  const setLoopDelayInfoWithRef = useCallback((info: LoopDelayInfo | null) => {
+    loopDelayInfoRef.current = info;
+    setLoopDelayInfo(info);
+  }, []);
+  const handleSeekRef = useRef<((t: number, skipPause?: boolean) => Promise<void>) | null>(null);
 
   // State to hold extra online song metadata
   const [currentMidiLink, setCurrentMidiLink] = useState<string | null>(null);
@@ -1317,6 +1271,19 @@ const AppContent: React.FC = () => {
     userAudioSyncOffsetRef.current = userAudioSyncOffset;
     localStorage.setItem("game_user_audio_sync_ms", userAudioSyncOffset.toString());
   }, [userAudioSyncOffset]);
+
+  const [metronomePianoOffsetMs, setMetronomePianoOffsetMs] = useState<number>(() => {
+    const saved = localStorage.getItem("game_metronome_piano_offset_ms");
+    const val = saved ? parseInt(saved, 10) : 0;
+    return isNaN(val) ? 0 : val;
+  });
+  const metronomePianoOffsetMsRef = useRef<number>(metronomePianoOffsetMs);
+  useEffect(() => {
+    metronomePianoOffsetMsRef.current = metronomePianoOffsetMs;
+    localStorage.setItem("game_metronome_piano_offset_ms", metronomePianoOffsetMs.toString());
+  }, [metronomePianoOffsetMs]);
+
+  const [detectedHardwareLatencyMs, setDetectedHardwareLatencyMs] = useState<number>(0);
   const allBeatTimesRef = useRef<BeatInfo[]>([]);
   useEffect(() => {
     allBeatTimesRef.current = allBeatTimes;
@@ -1659,12 +1626,45 @@ const AppContent: React.FC = () => {
     setHp(nextHp);
 
     if (nextHp <= 0) {
+      if (isLoopingRef.current && loopStartMsRef.current !== null) {
+        // Reset hp and loop back instantly with 3s prepare countdown
+        hpRef.current = 100;
+        setHp(100);
+
+        // Pause audio & video
+        if (audioRef.current) {
+          try {
+            audioRef.current.pause();
+          } catch (e) {}
+        }
+        if (youtubePlayerRef.current) {
+          try {
+            youtubePlayerRef.current.pauseVideo();
+          } catch (e) {}
+        }
+
+        // Seek and prepare notes
+        handleSeekRef.current?.(loopStartMsRef.current, true);
+
+        // Setup loop delay/countdown (using 3000ms duration)
+        const loopStartNow = performance.now();
+        loopDelayStartTimeRef.current = loopStartNow;
+        setLoopDelayInfoWithRef({
+          startTime: loopStartNow,
+          duration: 3000, // 3 seconds prepare timer
+          targetTimeMs: loopStartMsRef.current,
+        });
+        return;
+      }
+
       setIsPlaying(false);
       isPlayingRef.current = false;
       if (playbackRequestRef.current) {
         cancelAnimationFrame(playbackRequestRef.current);
         playbackRequestRef.current = null;
       }
+      loopDelayStartTimeRef.current = null;
+      setLoopDelayInfoWithRef(null);
       setGameOverReason("Game Over: Darah Anda habis (0 HP)!");
       setIsGameOver(true);
 
@@ -1971,9 +1971,14 @@ const AppContent: React.FC = () => {
           masterGainRef.current.connect(context.destination);
           metronomeGainRef.current = context.createGain();
           metronomeGainRef.current.connect(context.destination);
+          const hwLat = Math.round(((context.outputLatency || 0) + (context.baseLatency || 0)) * 1000);
+          if (hwLat > 0) setDetectedHardwareLatencyMs(hwLat);
         } catch (e) {
           return false;
         }
+      } else {
+        const hwLat = Math.round(((context.outputLatency || 0) + (context.baseLatency || 0)) * 1000);
+        if (hwLat > 0) setDetectedHardwareLatencyMs(hwLat);
       }
       if (shouldResume && context.state === "suspended") {
         try {
@@ -2522,7 +2527,11 @@ const AppContent: React.FC = () => {
   }, [gameSettings]);
 
   const handleStopPlayback = useCallback(
-    async (exitFreePlay: boolean = true, shouldRewind: boolean = true) => {
+    async (
+      exitFreePlay: boolean = true,
+      shouldRewind: boolean = true,
+      forceResetToZero: boolean = false,
+    ) => {
       if (playtimeStartRef.current !== null) {
         sessionPlaytimeMs.current +=
           performance.now() - playtimeStartRef.current;
@@ -2556,15 +2565,22 @@ const AppContent: React.FC = () => {
         setIsRewinding(true);
         isRewindingRef.current = true;
         
+        const rewindTargetTime =
+          !forceResetToZero &&
+          isLoopingRef.current &&
+          loopStartMsRef.current !== null
+            ? loopStartMsRef.current
+            : 0;
+
         // Stop audio immediately even if we are rewinding visually
         if (audioRef.current) {
           await safePauseAudio();
-          audioRef.current.currentTime = 0;
+          audioRef.current.currentTime = rewindTargetTime / 1000;
         }
         if (youtubePlayerRef.current) {
           await safePauseYoutube();
           try {
-            youtubePlayerRef.current.seekTo(0, true);
+            youtubePlayerRef.current.seekTo(rewindTargetTime / 1000, true);
           } catch (e) {}
         }
         if (audioStartTimeoutRef.current) {
@@ -2580,11 +2596,28 @@ const AppContent: React.FC = () => {
         cancelAnimationFrame(freePlayRequestRef.current);
         freePlayRequestRef.current = null;
       }
-      setMusicalCurrentTimeMs(0);
-      currentTimeRef.current = 0;
-      pausedMusicalTimeRef.current = 0;
-      nextNoteIndexRef.current = 0;
-      missedNoteIndexRef.current = 0;
+
+      const targetResetMs =
+        !forceResetToZero &&
+        isLoopingRef.current &&
+        loopStartMsRef.current !== null
+          ? loopStartMsRef.current
+          : 0;
+
+      setMusicalCurrentTimeMs(targetResetMs);
+      currentTimeRef.current = targetResetMs;
+      pausedMusicalTimeRef.current = targetResetMs;
+
+      let ni = 0;
+      while (ni < notesForGame.length && notesForGame[ni].timeMs < targetResetMs)
+        ni++;
+      nextNoteIndexRef.current = ni;
+      missedNoteIndexRef.current = ni;
+
+      let bi = 0;
+      while (bi < barLines.length && barLines[bi] < targetResetMs) bi++;
+      nextBarIndexRef.current = bi;
+
       noteJudgmentsRef.current.clear();
       clearScheduledNotes();
       clearScheduledMetronomeSounds();
@@ -2594,7 +2627,7 @@ const AppContent: React.FC = () => {
       resumeIndexRef.current = null;
       presatisfiedNoteIdsRef.current = new Set<string>();
       setActivePlaybackNotesInfo(new Map());
-      nextBarIndexRef.current = 0;
+
       hitsAtLastCheckRef.current = 0;
       totalNotesAtLastCheckRef.current = 0;
       lastBarCheckedRef.current = 0;
@@ -2603,6 +2636,7 @@ const AppContent: React.FC = () => {
         chordDetectionTimeoutRef.current = null;
       }
       loopDelayStartTimeRef.current = null;
+      setLoopDelayInfoWithRef(null);
       recentNotesBufferRef.current.clear();
       setDetectedChord(null);
       hitCountRef.current = 0;
@@ -2615,6 +2649,16 @@ const AppContent: React.FC = () => {
       maxComboRef.current = 0;
       lastJudgmentRef.current = null;
       hitNoteIdsRef.current.clear();
+
+      if (targetResetMs > 0) {
+        // Mark notes before loop point A as already processed
+        notesForGame.forEach((n) => {
+          if (n.timeMs < targetResetMs) {
+            hitNoteIdsRef.current.add(n.noteId);
+          }
+        });
+      }
+
       setHitCount(0);
       setErrorCount(0);
       setPerfectCount(0);
@@ -2639,12 +2683,12 @@ const AppContent: React.FC = () => {
 
       if (audioRef.current) {
         await safePauseAudio();
-        audioRef.current.currentTime = 0;
+        audioRef.current.currentTime = targetResetMs / 1000;
       }
       if (youtubePlayerRef.current) {
         await safePauseYoutube();
         try {
-          youtubePlayerRef.current.seekTo(0, true);
+          youtubePlayerRef.current.seekTo(targetResetMs / 1000, true);
         } catch (e) {}
       }
       if (audioStartTimeoutRef.current) {
@@ -2658,6 +2702,8 @@ const AppContent: React.FC = () => {
       updateNotesCurrentlyWaitingFor,
       setIsFreePlayMode,
       safePauseAudio,
+      notesForGame,
+      barLines,
     ],
   );
 
@@ -2669,14 +2715,17 @@ const AppContent: React.FC = () => {
     if (!isRewinding) return;
 
     const startValue = currentTimeRef.current;
+    const isLoopTarget =
+      isLoopingRef.current && loopStartMsRef.current !== null;
+    const baseTarget = isLoopTarget ? loopStartMsRef.current! : 0;
     
-    // Target is behind 0 to create an "overshoot" effect
-    const overshootAmount = 1500; 
-    const targetValue = -overshootAmount;
+    // Target is behind baseTarget to create an overshoot effect, but clamped appropriately
+    const overshootAmount = isLoopTarget ? 500 : 1500; 
+    const targetValue = Math.max(0, baseTarget - overshootAmount);
 
     // Proportional duration: faster for short distances, but with a minimum for the overshoot
     const distance = Math.abs(startValue - targetValue);
-    const duration = Math.min(800, Math.max(400, distance / 15));
+    const duration = Math.min(800, Math.max(300, distance / 15));
     const startTime = performance.now();
     let rafId: number;
 
@@ -2698,7 +2747,7 @@ const AppContent: React.FC = () => {
       } else {
         setIsRewinding(false);
         isRewindingRef.current = false;
-        // Final full reset to 0 once overshoot animation is complete
+        // Final full reset to point A (or 0) once overshoot animation is complete
         handleStopPlayback(false, false);
       }
     };
@@ -2710,7 +2759,7 @@ const AppContent: React.FC = () => {
   const handleCloseGameOverModal = useCallback(() => {
     setIsGameOver(false);
     setGameOverReason("");
-    handleStopPlayback();
+    handleStopPlayback(false, true);
     stopEndGameSfx();
   }, [handleStopPlayback, stopEndGameSfx]);
 
@@ -2911,9 +2960,11 @@ const AppContent: React.FC = () => {
       updateNotesCurrentlyWaitingFor(new Set<number>());
       notesCurrentlyWaitingForIdsRef.current = new Set<string>();
       waitingBlockTimeRef.current = null;
+      currentTimeRef.current = cl;
+      pausedMusicalTimeRef.current = cl;
       const scaledCl = cl / currentPlaybackTempoMultiplier;
       const startIndex = allBeatTimesRef.current.findIndex(
-        (b) => b.timeMs >= scaledCl,
+        (b) => b.timeMs >= scaledCl - 0.001,
       );
       nextBeatToScheduleIndexRef.current =
         startIndex !== -1 ? startIndex : allBeatTimesRef.current.length;
@@ -3025,6 +3076,7 @@ const AppContent: React.FC = () => {
       }
       lastSeekTimeRef.current = performance.now();
       loopDelayStartTimeRef.current = null;
+      setLoopDelayInfoWithRef(null);
       const backing = gameSettingsRef.current?.backingTrack;
       if (backing && backing.type !== "none") {
         if (isPlayingRef.current) {
@@ -3063,6 +3115,10 @@ const AppContent: React.FC = () => {
       barLines,
     ],
   );
+
+  useEffect(() => {
+    handleSeekRef.current = handleSeek;
+  }, [handleSeek]);
 
   const handleProgressBarSeek = useCallback(
     (t: number) => {
@@ -3193,19 +3249,32 @@ const AppContent: React.FC = () => {
       }
       const currentRealTime = performance.now();
 
-      // Handle loop delay (2 seconds)
+      // Handle loop delay (dynamic duration, e.g. 2000ms or 3000ms)
       if (loopDelayStartTimeRef.current !== null) {
         const elapsed = currentRealTime - loopDelayStartTimeRef.current;
-        if (elapsed < 2000) {
-          const remaining = (2000 - elapsed) / 1000;
+        const delayDuration = loopDelayInfoRef.current?.duration ?? 2000;
+        if (elapsed < delayDuration) {
+          currentTimeRef.current = loopStartMsRef.current!;
           setMusicalCurrentTimeMs(loopStartMsRef.current!);
           playbackRequestRef.current = requestAnimationFrame(playbackLoop);
           return;
         } else {
           loopDelayStartTimeRef.current = null;
+          setLoopDelayInfoWithRef(null);
           performanceStartTimeRef.current = performance.now();
           audioCtxStartTimeRef.current = audioContextRef.current ? audioContextRef.current.currentTime : (performance.now() / 1000);
           pausedMusicalTimeRef.current = loopStartMsRef.current!;
+          currentTimeRef.current = loopStartMsRef.current!;
+
+          // Re-sync metronome index just in case it drifted or was affected by stale refs
+          const currentMultiplier = Math.max(0.1, playbackTempoMultiplierRef.current);
+          const scaledTarget = loopStartMsRef.current! / currentMultiplier;
+          const startIndex = allBeatTimesRef.current.findIndex(
+            (b) => b.timeMs >= scaledTarget - 0.001,
+          );
+          nextBeatToScheduleIndexRef.current =
+            startIndex !== -1 ? startIndex : allBeatTimesRef.current.length;
+          prevConceptualTimeRef.current = loopStartMsRef.current!;
           
           if (!isNoneBacking && backing) {
             triggerBackingTrackPlay(loopStartMsRef.current!);
@@ -3230,7 +3299,15 @@ const AppContent: React.FC = () => {
         (conceptualMusicalTime >= 100 || loopEndMsRef.current >= 100)
       ) {
         handleSeek(loopStartMsRef.current, true);
-        loopDelayStartTimeRef.current = performance.now();
+        const loopStartNow = performance.now();
+        loopDelayStartTimeRef.current = loopStartNow;
+        setLoopDelayInfoWithRef({
+          startTime: loopStartNow,
+          duration: 3000, // Upgrade natural loop wraparound to 3s to match other restarts as requested!
+          targetTimeMs: loopStartMsRef.current,
+        });
+        hpRef.current = 100;
+        setHp(100);
         if (audioRef.current) safePauseAudio();
         if (youtubePlayerRef.current) safePauseYoutube();
         playbackRequestRef.current = requestAnimationFrame(playbackLoop);
@@ -3383,9 +3460,10 @@ const AppContent: React.FC = () => {
             const timeUntilBeatPlaysRealMs =
               beat.timeMs - idealCurrentTimeRealMs;
             
-            // Scheduling logic: Use a high-precision target time.
+            // Scheduling logic: Use a high-precision target time with Metronome & Piano Offset.
             const targetAudioContextTime =
-              audioCtx.currentTime + timeUntilBeatPlaysRealMs / 1000;
+              audioCtx.currentTime +
+              (timeUntilBeatPlaysRealMs - metronomePianoOffsetMsRef.current) / 1000;
 
             if (timeUntilBeatPlaysRealMs > -100) {
               const scheduleTime = Math.max(audioCtx.currentTime, targetAudioContextTime);
@@ -3931,7 +4009,8 @@ const AppContent: React.FC = () => {
             if (shouldSchedule) {
               const timeUntilBeatMs = nextBeatTimeToSchedule - elapsed;
               const targetAudioTime =
-                audioCtx.currentTime + timeUntilBeatMs / 1000;
+                audioCtx.currentTime +
+                (timeUntilBeatMs - metronomePianoOffsetMsRef.current) / 1000;
               const buffer = isStrongBeat
                 ? metronomeBuffersRef.current.strong
                 : metronomeBuffersRef.current.weak;
@@ -4110,6 +4189,46 @@ const AppContent: React.FC = () => {
     }
 
     if (isPlayingRef.current) return;
+
+    if (
+      isLoopingRef.current &&
+      loopStartMsRef.current !== null &&
+      Math.abs(pausedMusicalTimeRef.current - loopStartMsRef.current) < 20
+    ) {
+      // Trigger prepare countdown instead of instant play!
+      setIsPlaying(true);
+      isPlayingRef.current = true;
+      isUserPausedRef.current = false;
+      const loopStartNow = performance.now();
+      loopDelayStartTimeRef.current = loopStartNow;
+      setLoopDelayInfoWithRef({
+        startTime: loopStartNow,
+        duration: 3000, // 3-second prepare countdown
+        targetTimeMs: loopStartMsRef.current,
+      });
+
+      // Pause audio & video
+      if (audioRef.current) {
+        try {
+          audioRef.current.pause();
+        } catch (e) {}
+      }
+      if (youtubePlayerRef.current) {
+        try {
+          youtubePlayerRef.current.pauseVideo();
+        } catch (e) {}
+      }
+
+      performanceStartTimeRef.current = performance.now();
+      audioCtxStartTimeRef.current = audioContextRef.current ? audioContextRef.current.currentTime : (performance.now() / 1000);
+      setMusicalCurrentTimeMs(pausedMusicalTimeRef.current);
+      currentTimeRef.current = pausedMusicalTimeRef.current;
+      prevMusicalTimeRef.current = pausedMusicalTimeRef.current;
+      hasAudioStartedThisStretchRef.current = false;
+      playbackRequestRef.current = requestAnimationFrame(playbackLoop);
+      return;
+    }
+
     if (audioStartTimeoutRef.current) {
       clearTimeout(audioStartTimeoutRef.current);
       audioStartTimeoutRef.current = null;
@@ -4213,6 +4332,7 @@ const AppContent: React.FC = () => {
     clearScheduledMetronomeSounds();
     setMetronomeBeat(null);
     loopDelayStartTimeRef.current = null;
+    setLoopDelayInfoWithRef(null);
     if (audioStartTimeoutRef.current) {
       clearTimeout(audioStartTimeoutRef.current);
       audioStartTimeoutRef.current = null;
@@ -4226,6 +4346,44 @@ const AppContent: React.FC = () => {
     isFreePlayMode,
     safePauseAudio,
     safePauseYoutube,
+  ]);
+
+  const handleRetryGameOver = useCallback(() => {
+    setIsGameOver(false);
+    setGameOverReason("");
+    stopEndGameSfx();
+    if (isLoopingRef.current && loopStartMsRef.current !== null) {
+      handleSeek(loopStartMsRef.current, true);
+      hpRef.current = 100;
+      setHp(100);
+      setIsPlaying(true);
+      isPlayingRef.current = true;
+      const now = performance.now();
+      loopDelayStartTimeRef.current = now;
+      setLoopDelayInfoWithRef({
+        startTime: now,
+        duration: 3000, // 3 seconds prepare timer
+        targetTimeMs: loopStartMsRef.current,
+      });
+      if (audioRef.current) safePauseAudio();
+      if (youtubePlayerRef.current) safePauseYoutube();
+      if (!playbackRequestRef.current) {
+        playbackRequestRef.current = requestAnimationFrame(playbackLoop);
+      }
+    } else {
+      handleStopPlayback(false, false);
+      hpRef.current = 100;
+      setHp(100);
+      handlePlay();
+    }
+  }, [
+    handleSeek,
+    handleStopPlayback,
+    handlePlay,
+    playbackLoop,
+    safePauseAudio,
+    safePauseYoutube,
+    stopEndGameSfx,
   ]);
 
   const handleUserAudioSyncOffsetChange = useCallback(
@@ -4857,6 +5015,8 @@ const AppContent: React.FC = () => {
       // Automatically reset note offset to 0ms for accurate calibration results
       setNoteOffsetMs(0);
       noteOffsetMsRef.current = 0;
+      setUserAudioSyncOffset(0);
+      userAudioSyncOffsetRef.current = 0;
       
       const response = await fetch("/sounds/offset.mid");
       if (!response.ok) {
@@ -5803,12 +5963,14 @@ const AppContent: React.FC = () => {
   }, [playbackNotes, handlePlay]);
   const handleExitGame = useCallback(() => {
     const wasInFreePlay = isFreePlayModeRef.current;
-    handleStopPlayback(true, false); // exitFreePlay: true, shouldRewind: false
+    handleStopPlayback(true, false, true); // exitFreePlay: true, shouldRewind: false, forceResetToZero: true
 
     // Reset loop state
     setIsLooping(false);
     setLoopStartMs(0);
     setLoopEndMs(0);
+    loopDelayStartTimeRef.current = null;
+    setLoopDelayInfoWithRef(null);
 
     // Reset practice mode tolerance to default
     setGameSettings((prev) => {
@@ -5883,6 +6045,7 @@ const AppContent: React.FC = () => {
     setLoopStartMs(null);
     setLoopEndMs(null);
     loopDelayStartTimeRef.current = null;
+    setLoopDelayInfoWithRef(null);
   }, []);
 
   const stopAudioProcessing = useCallback(() => {
@@ -6348,6 +6511,7 @@ const AppContent: React.FC = () => {
                         activeBpm={activeBpmForDisplay}
                         showOnlyMajorNotes={showOnlyMajorNotes}
                         resolutionScale={resolutionScale}
+                        waitMode={waitMode}
                       />
                     ) : viewMode === "falling" ? (
                       <FallingNotesArea
@@ -6446,6 +6610,7 @@ const AppContent: React.FC = () => {
                         playbackTempoMultiplier={playbackTempoMultiplier}
                         backgroundColor={sheetMusicBackgroundColor}
                         instrumentMode={instrumentMode}
+                        resolutionScale={resolutionScale}
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center bg-slate-900">
@@ -6487,12 +6652,20 @@ const AppContent: React.FC = () => {
                         waitMode={waitMode}
                         resolutionScale={resolutionScale}
                       />
-                      <OffsetMeterInApp
-                        offset={lastHitOffset}
-                        perfectWindow={100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20}
-                        greatWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 1.5}
-                        goodWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 2}
-                      />
+                      <div className="absolute bottom-4 left-0 right-0 w-full flex justify-center z-50 pointer-events-none">
+                        <OffsetIndicator
+                          midiHitTiming={lastHitOffset}
+                          midiHitTimingOffset={noteOffsetMs}
+                          onMidiHitTimingOffsetChange={setNoteOffsetMs}
+                          mp3Offset={userAudioSyncOffset}
+                          onMp3OffsetChange={setUserAudioSyncOffset}
+                          metronomePianoOffset={metronomePianoOffsetMs}
+                          onMetronomePianoOffsetChange={setMetronomePianoOffsetMs}
+                          perfectWindow={100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20}
+                          greatWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 1.5}
+                          goodWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 2}
+                        />
+                      </div>
                       {isSustainPedalActive && (
                         <div
                           className="absolute bottom-2 right-2 px-3 py-1 bg-yellow-400 text-black text-xs font-bold rounded shadow-lg animate-pulse"
@@ -6505,9 +6678,15 @@ const AppContent: React.FC = () => {
                     </div>
                   ) : (
                     <div className="absolute bottom-0 left-0 right-0 h-0 z-50 pointer-events-none">
-                      <div className="absolute bottom-4 left-0 right-0 w-full flex justify-center">
-                        <OffsetMeterInApp
-                          offset={lastHitOffset}
+                      <div className="absolute bottom-4 left-0 right-0 w-full flex justify-center pointer-events-auto">
+                        <OffsetIndicator
+                          midiHitTiming={lastHitOffset}
+                          midiHitTimingOffset={noteOffsetMs}
+                          onMidiHitTimingOffsetChange={setNoteOffsetMs}
+                          mp3Offset={userAudioSyncOffset}
+                          onMp3OffsetChange={setUserAudioSyncOffset}
+                          metronomePianoOffset={metronomePianoOffsetMs}
+                          onMetronomePianoOffsetChange={setMetronomePianoOffsetMs}
                           perfectWindow={100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20}
                           greatWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 1.5}
                           goodWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 2}
@@ -6644,6 +6823,11 @@ const AppContent: React.FC = () => {
             onMetronomeVolumeChange={setMetronomeVolume}
             metronomeOffsetMs={noteOffsetMs}
             onMetronomeOffsetChange={setNoteOffsetMs}
+            metronomePianoOffsetMs={metronomePianoOffsetMs}
+            onMetronomePianoOffsetChange={setMetronomePianoOffsetMs}
+            userAudioSyncOffset={userAudioSyncOffset}
+            onUserAudioSyncOffsetChange={setUserAudioSyncOffset}
+            detectedLatencyMs={detectedHardwareLatencyMs}
             themeSettings={themeSettings}
             onThemeSettingsChange={setThemeSettings}
             devicePreset={devicePreset}
@@ -6754,6 +6938,7 @@ const AppContent: React.FC = () => {
       )}
       {currentScreen === "inGame" && (
         <div className="flex-grow relative overflow-hidden">
+          <LoopCountdownOverlay loopDelayInfo={loopDelayInfo} />
           <div className="absolute top-0 left-0 right-0 z-[60] pointer-events-none">
             {notesForGame.length > 0 && (
               <div className="w-full pointer-events-auto">
@@ -7052,6 +7237,7 @@ const AppContent: React.FC = () => {
                       activeBpm={currentTempoBpm || 120}
                       showOnlyMajorNotes={showOnlyMajorNotes}
                       resolutionScale={resolutionScale}
+                      waitMode={waitMode}
                     />
                   ) : isFreePlayMode && viewMode === "falling" ? (
                     <div
@@ -7163,6 +7349,7 @@ const AppContent: React.FC = () => {
                       activeBpm={activeBpmForDisplay}
                       showOnlyMajorNotes={showOnlyMajorNotes}
                       resolutionScale={resolutionScale}
+                      waitMode={waitMode}
                     />
                   ) : viewMode === "falling" ? (
                     <FallingNotesArea
@@ -7260,6 +7447,7 @@ const AppContent: React.FC = () => {
                       backgroundColor={sheetMusicBackgroundColor}
                       instrumentMode={instrumentMode}
                       lowDetailMode={lowDetailMode}
+                      resolutionScale={resolutionScale}
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center bg-slate-900">
@@ -7301,12 +7489,20 @@ const AppContent: React.FC = () => {
                         waitMode={waitMode}
                         resolutionScale={resolutionScale}
                       />
-                      <OffsetMeterInApp
-                        offset={lastHitOffset}
-                        perfectWindow={100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20}
-                        greatWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 1.5}
-                        goodWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 2}
-                      />
+                      <div className="absolute bottom-4 left-0 right-0 w-full flex justify-center z-50 pointer-events-none">
+                        <OffsetIndicator
+                          midiHitTiming={lastHitOffset}
+                          midiHitTimingOffset={noteOffsetMs}
+                          onMidiHitTimingOffsetChange={setNoteOffsetMs}
+                          mp3Offset={userAudioSyncOffset}
+                          onMp3OffsetChange={setUserAudioSyncOffset}
+                          metronomePianoOffset={metronomePianoOffsetMs}
+                          onMetronomePianoOffsetChange={setMetronomePianoOffsetMs}
+                          perfectWindow={100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20}
+                          greatWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 1.5}
+                          goodWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 2}
+                        />
+                      </div>
                       {isSustainPedalActive && (
                         <div
                           className="absolute bottom-2 right-2 px-3 py-1 bg-yellow-400 text-black text-xs font-bold rounded shadow-lg animate-pulse"
@@ -7319,9 +7515,15 @@ const AppContent: React.FC = () => {
                     </div>
                   ) : (
                     <div className="absolute bottom-0 left-0 right-0 h-0 z-50 pointer-events-none">
-                      <div className="absolute bottom-4 left-0 right-0 w-full flex justify-center">
-                        <OffsetMeterInApp
-                          offset={lastHitOffset}
+                      <div className="absolute bottom-4 left-0 right-0 w-full flex justify-center pointer-events-auto">
+                        <OffsetIndicator
+                          midiHitTiming={lastHitOffset}
+                          midiHitTimingOffset={noteOffsetMs}
+                          onMidiHitTimingOffsetChange={setNoteOffsetMs}
+                          mp3Offset={userAudioSyncOffset}
+                          onMp3OffsetChange={setUserAudioSyncOffset}
+                          metronomePianoOffset={metronomePianoOffsetMs}
+                          onMetronomePianoOffsetChange={setMetronomePianoOffsetMs}
                           perfectWindow={100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20}
                           greatWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 1.5}
                           goodWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 2}
@@ -7380,6 +7582,10 @@ const AppContent: React.FC = () => {
             isVisible={!!isGameOver}
             reason={gameOverReason}
             onClose={handleCloseGameOverModal}
+            onRetry={handleRetryGameOver}
+            isLooping={isLooping}
+            loopStartMs={loopStartMs}
+            loopEndMs={loopEndMs}
           />
         </div>
       )}

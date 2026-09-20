@@ -178,6 +178,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
     const [editingTempoIndex, setEditingTempoIndex] = useState<number | null>(null);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [isSettingsRendered, setIsSettingsRendered] = useState(false);
+    const [gridOrientation, setGridOrientation] = useState<'horizontal' | 'vertical'>('horizontal');
     const [tapTimes, setTapTimes] = useState<number[]>([]);
     const [backingTrackCurrentTime, setBackingTrackCurrentTime] = useState(0);
     const [backingTrackDuration, setBackingTrackDuration] = useState(0);
@@ -312,11 +313,17 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
         return Math.round(base * mult * TICKS_PER_QUARTER);
     }, [snapBaseIndex, snapTypeIndex]);
 
+    const isVertical = gridOrientation === 'vertical';
+
     const handleGridScroll = useCallback(() => {
         if (gridContainerRef.current && pianoSidebarRef.current) {
-            pianoSidebarRef.current.scrollTop = gridContainerRef.current.scrollTop;
+            if (gridOrientation === 'horizontal') {
+                pianoSidebarRef.current.scrollTop = gridContainerRef.current.scrollTop;
+            } else {
+                pianoSidebarRef.current.scrollLeft = gridContainerRef.current.scrollLeft;
+            }
         }
-    }, []);
+    }, [gridOrientation]);
 
     const handleCopy = useCallback(() => {
         const selectedNotes = editorState?.notes.filter(n => n.selected) || [];
@@ -954,8 +961,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
 
         const isReady = backingType === 'online' || isTrackDownloaded;
         if (backingTrackUrl && isReady && (backingType === 'mp3' || backingType === 'online')) {
-            // Apply a hidden +350ms offset for mp3 and ytmp3 in MIDI editor
-            const defaultOffsetMs = backingTrackOffset + 350;
+            const defaultOffsetMs = backingTrackOffset - 0;
             const userOffsetMs = userAudioSyncOffset;
             const totalOffsetMs = defaultOffsetMs + userOffsetMs;
             const midiStartMs = ticksToMs(cursorTick);
@@ -1195,6 +1201,16 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
     const totalWidth = tickToPx(totalTicks);
     const totalHeight = keysConfig.length * effectiveRowHeight;
 
+    useEffect(() => {
+        if (gridOrientation === 'vertical' && gridContainerRef.current) {
+            setTimeout(() => {
+                if (gridContainerRef.current) {
+                    gridContainerRef.current.scrollTop = totalWidth - gridContainerRef.current.clientHeight;
+                }
+            }, 50);
+        }
+    }, [gridOrientation, totalWidth]);
+
     const pxToMidi = (y: number) => {
         const index = Math.floor(y / effectiveRowHeight);
         const reversedKeys = keysConfig.slice().reverse();
@@ -1209,6 +1225,20 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
         const reversedKeys = keysConfig.slice().reverse();
         const index = reversedKeys.findIndex(k => k.midiNote === normalizedMidi);
         return index !== -1 ? index * effectiveRowHeight : -1;
+    };
+
+    const midiToX = (midi: number) => {
+        const normalizedMidi = instrumentMode === 'drum' ? (DRUM_PRIMARY_MIDI_MAP[midi] || midi) : midi;
+        const index = keysConfig.findIndex(k => k.midiNote === normalizedMidi);
+        return index !== -1 ? index * effectiveRowHeight : -1;
+    };
+
+    const pxToMidiHorizontal = (x: number) => {
+        const index = Math.floor(x / effectiveRowHeight);
+        if (index >= 0 && index < keysConfig.length) {
+            return keysConfig[index].midiNote;
+        }
+        return -1;
     };
 
     const handleMouseDownShared = (action: () => void) => {
@@ -1229,16 +1259,33 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
         const absoluteX = (e.clientX - containerRect.left) / zoomScale + scrollContainer.scrollLeft;
         const absoluteY = (e.clientY - containerRect.top) / zoomScale + scrollContainer.scrollTop;
 
-        // The note grid is offset by the ruler's height inside the scrollable content
-        const gridY = absoluteY - RULER_HEIGHT;
+        let tick: number;
+        let midi: number;
+        let selectStartX: number;
+        let selectStartY: number;
 
-        // Check if click was on the ruler part (which has its own handler) and ignore.
-        if (gridY < 0) return;
+        if (isVertical) {
+            const gridX = absoluteX;
+            if (gridX > totalHeight) return; // Ruler click
+            const index = Math.floor(gridX / effectiveRowHeight);
+            midi = keysConfig[index]?.midiNote ?? -1;
+            tick = snapTick(pxToTick(absoluteY));
+            selectStartX = gridX;
+            selectStartY = absoluteY;
+        } else {
+            const gridY = absoluteY - RULER_HEIGHT;
+            if (gridY < 0) return; // Ruler click
+            
+            const index = Math.floor(gridY / effectiveRowHeight);
+            const reversedKeys = keysConfig.slice().reverse();
+            midi = reversedKeys[index]?.midiNote ?? -1;
+            tick = snapTick(pxToTick(absoluteX));
+            selectStartX = absoluteX;
+            selectStartY = gridY;
+        }
 
         if (activeTool === 'draw') {
             handleMouseDownShared(() => {
-                const tick = snapTick(pxToTick(absoluteX));
-                const midi = pxToMidi(gridY);
                 if (midi === -1) return;
                 const newNote: EditorNote = { id: Math.random().toString(36).substr(2, 9), midi, ticks: tick, durationTicks: snapTicks, velocity: 0.8, hand: activeHand, selected: false };
 
@@ -1261,7 +1308,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                         return { ...prev, notes: prev.notes.map(n => ({ ...n, selected: false })) }
                     }, true); // Use overwrite=true for better performance during selection
                 }
-                setSelectionBox({ startX: absoluteX, startY: gridY, endX: absoluteX, endY: gridY });
+                setSelectionBox({ startX: selectStartX, startY: selectStartY, endX: selectStartX, endY: selectStartY });
             });
         }
     };
@@ -1341,13 +1388,18 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
         const handleMouseMove = (e: MouseEvent) => {
             if (isDraggingRulerRef.current && gridContainerRef.current) {
                 const rect = gridContainerRef.current.getBoundingClientRect();
-                const x = (e.clientX - rect.left) / zoomScale;
-                setCursorTick(Math.max(0, pxToTick(x + gridContainerRef.current.scrollLeft)));
+                if (isVertical) {
+                    const y = (e.clientY - rect.top) / zoomScale;
+                    setCursorTick(Math.max(0, pxToTick(totalWidth - (y + gridContainerRef.current.scrollTop))));
+                } else {
+                    const x = (e.clientX - rect.left) / zoomScale;
+                    setCursorTick(Math.max(0, pxToTick(x + gridContainerRef.current.scrollLeft)));
+                }
             } else if (dragInfo && isDraggingRef.current) {
                 if (dragInfo.type === 'selection' && dragInfo.initialNotes && dragInfo.minOriginalTick !== undefined) {
                     const dx = (e.clientX - dragInfo.startX) / zoomScale; const dy = (e.clientY - dragInfo.startY) / zoomScale;
-                    const rawTickDelta = pxToTick(dx);
-                    const rowDelta = Math.round(dy / effectiveRowHeight);
+                    const rawTickDelta = isVertical ? pxToTick(-dy) : pxToTick(dx);
+                    const rowDelta = isVertical ? Math.round(dx / effectiveRowHeight) : Math.round(dy / effectiveRowHeight);
 
                     const proposedMinTick = dragInfo.minOriginalTick + rawTickDelta;
                     const snappedMinTick = snapTick(proposedMinTick);
@@ -1357,11 +1409,11 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                         ...prev, notes: prev.notes.map(n => {
                             const initial = dragInfo.initialNotes!.get(n.id);
                             if (initial) {
-                                const reversedKeys = keysConfig.slice().reverse();
-                                const initialKeyIndex = reversedKeys.findIndex(k => k.midiNote === initial.midi);
+                                const keysList = isVertical ? keysConfig : keysConfig.slice().reverse();
+                                const initialKeyIndex = keysList.findIndex(k => k.midiNote === initial.midi);
                                 if (initialKeyIndex === -1) return n;
-                                const newKeyIndex = Math.max(0, Math.min(reversedKeys.length - 1, initialKeyIndex + rowDelta));
-                                return { ...n, ticks: Math.max(0, initial.ticks + snappedTickDelta), midi: reversedKeys[newKeyIndex].midiNote };
+                                const newKeyIndex = Math.max(0, Math.min(keysList.length - 1, initialKeyIndex + rowDelta));
+                                return { ...n, ticks: Math.max(0, initial.ticks + snappedTickDelta), midi: keysList[newKeyIndex].midiNote };
                             }
                             return n;
                         })
@@ -1381,15 +1433,18 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                 const scrollContainer = gridContainerRef.current;
                 const rect = scrollContainer.getBoundingClientRect();
                 const x = (e.clientX - rect.left) / zoomScale + scrollContainer.scrollLeft;
-                const y = (e.clientY - rect.top) / zoomScale + scrollContainer.scrollTop - RULER_HEIGHT;
-                setSelectionBox(prev => prev ? { ...prev, endX: x, endY: Math.max(0, y) } : null);
+                const selectX = x;
+                const y = isVertical 
+                    ? ((e.clientY - rect.top) / zoomScale + scrollContainer.scrollTop)
+                    : ((e.clientY - rect.top) / zoomScale + scrollContainer.scrollTop - RULER_HEIGHT);
+                setSelectionBox(prev => prev ? { ...prev, endX: selectX, endY: Math.max(0, y) } : null);
             }
         };
 
         const handleMouseUp = async (e: MouseEvent) => {
             if (isDraggingRulerRef.current && (backingTrackUrl || backingTrackRef.current)) {
-                // Apply a hidden +350ms offset for mp3 and ytmp3 in MIDI editor
-                const defaultOffsetMs = backingTrackOffset + 350;
+                // Apply a hidden -350ms offset for mp3 and ytmp3 in MIDI editor
+                const defaultOffsetMs = backingTrackOffset - 350;
                 const userOffsetMs = userAudioSyncOffset;
                 const totalOffsetMs = defaultOffsetMs + userOffsetMs;
                 const midiStartMs = ticksToMs(cursorTick);
@@ -1417,17 +1472,34 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
             if (selectionBox && gridContainerRef.current && editorState) {
                 const x1 = Math.min(selectionBox.startX, selectionBox.endX), x2 = Math.max(selectionBox.startX, selectionBox.endX);
                 const y1 = Math.min(selectionBox.startY, selectionBox.endY), y2 = Math.max(selectionBox.startY, selectionBox.endY);
-                const startTick = pxToTick(x1), endTick = pxToTick(x2);
                 
-                const startMidi = pxToMidi(y2);
-                const endMidi = pxToMidi(y1);
-
-                setEditorState(prev => ({
-                    ...prev, notes: prev.notes.map(n => {
+                const isNoteSelected = (n: EditorNote) => {
+                    if (isVertical) {
+                        // X corresponds to MIDI keys (low to high, not reversed)
+                        const startMidi = pxToMidiHorizontal(x1);
+                        const endMidi = pxToMidiHorizontal(x2);
+                        const startIndex = keysConfig.findIndex(k => k.midiNote === startMidi);
+                        const endIndex = keysConfig.findIndex(k => k.midiNote === endMidi);
+                        const noteIndex = keysConfig.findIndex(k => k.midiNote === n.midi);
+                        
+                        const isPitchIn = noteIndex !== -1 && startIndex !== -1 && endIndex !== -1 &&
+                                            noteIndex >= startIndex && noteIndex <= endIndex;
+                        
+                        // Y corresponds to Ticks
+                        const startTick = pxToTick(totalWidth - y2);
+                        const endTick = pxToTick(totalWidth - y1);
+                        const noteStartTick = n.ticks, noteEndTick = n.ticks + n.durationTicks;
+                        const isTimeIn = noteStartTick < endTick && noteEndTick > startTick;
+                        
+                        return isPitchIn && isTimeIn;
+                    } else {
+                        const startTick = pxToTick(x1), endTick = pxToTick(x2);
+                        const startMidi = pxToMidi(y2);
+                        const endMidi = pxToMidi(y1);
+                        
                         const noteStartTick = n.ticks, noteEndTick = n.ticks + n.durationTicks, noteMidi = n.midi;
                         const isHorizontallyIn = noteStartTick < endTick && noteEndTick > startTick;
                         
-                        // Vertical selection is tricky with non-sequential MIDI notes
                         const reversedKeys = keysConfig.slice().reverse();
                         const noteIndex = reversedKeys.findIndex(k => k.midiNote === noteMidi);
                         const startIndex = reversedKeys.findIndex(k => k.midiNote === startMidi);
@@ -1435,8 +1507,14 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                         
                         const isVerticallyIn = noteIndex !== -1 && startIndex !== -1 && endIndex !== -1 && 
                                              noteIndex >= endIndex && noteIndex <= startIndex;
+                                             
+                        return isHorizontallyIn && isVerticallyIn;
+                    }
+                };
 
-                        return { ...n, selected: (isHorizontallyIn && isVerticallyIn) || (e.shiftKey && n.selected) };
+                setEditorState(prev => ({
+                    ...prev, notes: prev.notes.map(n => {
+                        return { ...n, selected: isNoteSelected(n) || (e.shiftKey && n.selected) };
                     })
                 }));
                 setSelectionBox(null);
@@ -1455,10 +1533,17 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
     const handleRulerInteraction = (e: React.MouseEvent | React.TouchEvent<HTMLDivElement>) => {
         const rulerEl = e.currentTarget as HTMLDivElement;
         const rect = rulerEl.getBoundingClientRect();
-        const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-        const x = (clientX - rect.left) / zoomScale;
-        if (x < 0) return;
-        setCursorTick(Math.max(0, pxToTick(x + (gridContainerRef.current?.scrollLeft || 0))));
+        if (isVertical) {
+            const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+            const y = (clientY - rect.top) / zoomScale;
+            if (y < 0) return;
+            setCursorTick(Math.max(0, pxToTick(totalWidth - (y + (gridContainerRef.current?.scrollTop || 0)))));
+        } else {
+            const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+            const x = (clientX - rect.left) / zoomScale;
+            if (x < 0) return;
+            setCursorTick(Math.max(0, pxToTick(x + (gridContainerRef.current?.scrollLeft || 0))));
+        }
     };
 
     const handleSignatureChange = (type: 'key' | 'time', value: string) => {
@@ -1784,7 +1869,17 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                         {instrumentMode !== 'drum' && (
                             <>
                                 <button 
-                                    onClick={() => setActiveHand(p => p === 'right' ? 'left' : 'right')}
+                                    onClick={() => {
+                                        const nextHand = activeHand === 'right' ? 'left' : 'right';
+                                        setActiveHand(nextHand);
+                                        const hasSelection = editorState?.notes.some(n => n.selected);
+                                        if (hasSelection) {
+                                            setEditorState(prev => ({
+                                                ...prev,
+                                                notes: prev.notes.map(n => n.selected ? { ...n, hand: nextHand } : n)
+                                            }));
+                                        }
+                                    }}
                                     className={`px-2 py-1.5 rounded text-[10px] font-bold uppercase transition-colors ${activeHand === 'right' ? 'bg-violet-500/20 text-violet-400' : 'bg-blue-500/20 text-blue-400'}`}
                                     title={`Current Hand: ${activeHand.toUpperCase()}`}
                                 >
@@ -1878,6 +1973,24 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                             {activeDropdown === 'view' && (
                                 <div className="absolute top-full right-0 mt-1 w-48 bg-slate-900 border border-white/10 rounded-lg shadow-2xl p-3 z-[100]">
                                     <div className="mb-3">
+                                        <div className="text-[9px] uppercase text-slate-500 font-bold mb-1.5">Orientation</div>
+                                        <div className="flex gap-1 bg-slate-950 p-0.5 rounded border border-white/5">
+                                            <button 
+                                                onClick={() => { setGridOrientation('horizontal'); setActiveDropdown(null); }} 
+                                                className={`flex-1 py-1 text-[10px] font-bold rounded transition-all uppercase ${gridOrientation === 'horizontal' ? 'bg-cyan-600 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}
+                                            >
+                                                Horizontal
+                                            </button>
+                                            <button 
+                                                onClick={() => { setGridOrientation('vertical'); setActiveDropdown(null); }} 
+                                                className={`flex-1 py-1 text-[10px] font-bold rounded transition-all uppercase ${gridOrientation === 'vertical' ? 'bg-cyan-600 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}
+                                            >
+                                                Vertical
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className="h-px bg-white/5 my-2.5"></div>
+                                    <div className="mb-3">
                                         <div className="text-[9px] uppercase text-slate-500 font-bold mb-1.5">Pitch Zoom</div>
                                         <div className="flex items-center justify-between gap-2">
                                             <button onClick={() => setVZoom(p => Math.max(0.2, p - 0.1))} className="flex-1 h-7 rounded bg-slate-800 hover:bg-slate-700 text-sm font-bold">−</button>
@@ -1906,36 +2019,38 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                 </div>
             </div>
 
-            <div className="flex-grow flex flex-row overflow-hidden relative">
+            <div className={`flex-grow flex ${isVertical ? 'flex-col-reverse' : 'flex-row'} overflow-hidden relative`}>
                 {/* PIANO SIDEBAR / BPM SIDEBAR */}
                 <div
                     ref={pianoSidebarRef}
-                    className="flex-shrink-0 w-[60px] bg-[#121212] border-r border-white/10 overflow-hidden pointer-events-none"
+                    className={`flex-shrink-0 bg-[#121212] overflow-hidden pointer-events-none ${isVertical ? 'h-[45px] w-full border-t border-white/10' : 'w-[60px] border-r border-white/10'}`}
                 >
-                    <div style={{ height: RULER_HEIGHT }} className="bg-[#151515] border-b border-white/10"></div>
-                    <div className="relative" style={{ height: totalHeight }}>
+                    {!isVertical && <div style={{ height: RULER_HEIGHT }} className="bg-[#151515] border-b border-white/10"></div>}
+                    <div className={isVertical ? "flex flex-row relative h-full" : "relative"} style={isVertical ? { width: totalHeight } : { height: totalHeight }}>
                         {showBpmAutomation ? (
                             /* BPM SCALE SIDEBAR */
                             bpmMarkers.map((bpm) => {
-                                const top = totalHeight - ((bpm - 20) / 480 * totalHeight);
+                                const offset = (bpm - 20) / 480 * totalHeight;
+                                const top = isVertical ? undefined : totalHeight - offset;
+                                const left = isVertical ? offset : undefined;
                                 return (
-                                    <div key={bpm} className="absolute left-0 right-0 border-t border-amber-500/20 flex items-start justify-center" style={{ top }}>
-                                        <span className="text-[10px] font-black text-amber-500/60 bg-[#121212] px-1 translate-y-[-50%]">{bpm}</span>
+                                    <div key={bpm} className={`absolute border-amber-500/20 flex ${isVertical ? 'top-0 bottom-0 border-l items-center justify-center' : 'left-0 right-0 border-t items-start justify-center'}`} style={{ top, left }}>
+                                        <span className={`text-[10px] font-black text-amber-500/60 bg-[#121212] px-1 ${isVertical ? '' : 'translate-y-[-50%]'}`}>{bpm}</span>
                                     </div>
                                 );
                             })
                         ) : (
                             /* INSTRUMENT KEY SIDEBAR */
-                            keysConfig.slice().reverse().map((key) => {
+                            (isVertical ? keysConfig : keysConfig.slice().reverse()).map((key) => {
                                 const midi = key.midiNote;
                                 const isBlack = instrumentMode === 'piano' && [1, 3, 6, 8, 10].includes(midi % 12);
                                 const isC = instrumentMode === 'piano' && midi % 12 === 0;
                                 return (
                                     <div key={midi}
-                                        className={`border-b text-[9px] flex items-center justify-center cursor-default transition-colors ${isBlack ? 'bg-black text-slate-300 border-slate-800' : 'bg-white text-slate-700 border-slate-300'} ${isC ? 'border-b-slate-500' : ''}`}
-                                        style={{ height: effectiveRowHeight }} >
+                                        className={`text-[9px] flex items-center justify-center cursor-default transition-colors ${isVertical ? 'border-r' : 'border-b'} ${isBlack ? 'bg-black text-slate-300 border-slate-800' : 'bg-white text-slate-700 border-slate-300'} ${isC ? (isVertical ? 'border-r-slate-500' : 'border-b-slate-500') : ''}`}
+                                        style={isVertical ? { width: effectiveRowHeight, minWidth: effectiveRowHeight, height: '100%' } : { height: effectiveRowHeight }} >
                                         {instrumentMode === 'drum' ? (
-                                            <span className="font-bold text-[8px] text-center px-1">{key.displayName}</span>
+                                            <span className="font-bold text-[8px] text-center px-1 truncate">{key.displayName}</span>
                                         ) : (
                                             isC && <span className="font-black">C{Math.floor(midi / 12) - 1}</span>
                                         )}
@@ -1952,17 +2067,46 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                     ref={gridContainerRef}
                     onScroll={handleGridScroll}
                 >
-                    <div style={{ width: totalWidth, height: totalHeight + RULER_HEIGHT, position: 'relative' }}>
-                        <div className="sticky top-0 z-30 bg-[#151515] border-b border-white/10 flex text-[10px] text-slate-500 cursor-crosshair" style={{ height: RULER_HEIGHT, width: '100%' }}
-                            onMouseDown={e => { isDraggingRulerRef.current = true; handleRulerInteraction(e); }} onMouseMove={e => isDraggingRulerRef.current && handleRulerInteraction(e)}
-                            onMouseUp={() => isDraggingRulerRef.current = false} onMouseLeave={() => isDraggingRulerRef.current = false} >
-                            {barStartTicks.slice(0, -1).map((tick, i) => {
-                                const width = tickToPx(barStartTicks[i + 1] - tick);
-                                return (<div key={tick} className="border-l border-white/10 pl-1 h-full flex items-center" style={{ width }}>BAR {i + 1}</div>)
-                            })}
-                        </div>
+                    <div style={isVertical ? { width: totalHeight + RULER_HEIGHT, height: totalWidth, position: 'relative', display: 'flex', flexDirection: 'row' } : { width: totalWidth, height: totalHeight + RULER_HEIGHT, position: 'relative' }}>
+                        {!isVertical ? (
+                            <div className="sticky top-0 z-30 bg-[#151515] border-b border-white/10 text-[10px] text-slate-500 cursor-crosshair relative" style={{ height: RULER_HEIGHT, width: totalWidth }}
+                                onMouseDown={e => { isDraggingRulerRef.current = true; handleRulerInteraction(e); }} onMouseMove={e => isDraggingRulerRef.current && handleRulerInteraction(e)}
+                                onMouseUp={() => isDraggingRulerRef.current = false} onMouseLeave={() => isDraggingRulerRef.current = false} >
+                                {barStartTicks.slice(0, -1).map((tick, i) => {
+                                    const left = tickToPx(tick);
+                                    const width = tickToPx(barStartTicks[i + 1] - tick);
+                                    return (
+                                        <div 
+                                            key={tick} 
+                                            className="absolute top-0 bottom-0 border-l border-white/10 pl-1 h-full flex items-center shrink-0 font-bold" 
+                                            style={{ left, width }}
+                                        >
+                                            BAR {i + 1}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <div className="sticky right-0 z-30 bg-[#151515] border-l border-white/10 text-[10px] text-slate-500 cursor-crosshair relative shrink-0 ml-auto" style={{ width: RULER_HEIGHT, height: totalWidth }}
+                                onMouseDown={e => { isDraggingRulerRef.current = true; handleRulerInteraction(e); }} onMouseMove={e => isDraggingRulerRef.current && handleRulerInteraction(e)}
+                                onMouseUp={() => isDraggingRulerRef.current = false} onMouseLeave={() => isDraggingRulerRef.current = false} >
+                                {barStartTicks.slice(0, -1).map((tick, i) => {
+                                    const top = totalWidth - tickToPx(barStartTicks[i + 1]);
+                                    const height = tickToPx(barStartTicks[i + 1] - tick);
+                                    return (
+                                        <div 
+                                            key={tick} 
+                                            className="absolute left-0 right-0 border-b border-white/10 pl-1 pt-1 w-full flex items-start justify-center font-bold text-[8px]" 
+                                            style={{ top, height, writingMode: 'vertical-rl' }}
+                                        >
+                                            BAR {i + 1}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
 
-                        <div className="absolute" style={{ top: RULER_HEIGHT, left: 0, width: totalWidth, height: totalHeight }}>
+                        <div className="absolute" style={isVertical ? { top: 0, left: 0, width: totalHeight, height: totalWidth } : { top: RULER_HEIGHT, left: 0, width: totalWidth, height: totalHeight }}>
                             {showBpmAutomation ? (
                                 <div className="relative w-full h-full bg-[#0f0f0f] border-t-2 border-amber-500/50" onMouseDown={(e) => handleBpmMouseDown(e)}>
                                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
@@ -2033,22 +2177,56 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                             ) : (
                                 <>
                                     <div className="relative w-full h-full" onMouseDown={handleGridMouseDown}>
-                                        {keysConfig.slice().reverse().map((key) => (
-                                            <div key={key.midiNote}
-                                                className={`w-full border-b ${instrumentMode === 'piano' && key.midiNote % 12 === 0 ? 'border-slate-500/50' : 'border-slate-800'}`}
-                                                style={{ height: effectiveRowHeight }}
-                                            ></div>
+                                        {isVertical ? (
+                                            // Vertical Mode Grid Columns
+                                            <div className="absolute inset-0 flex flex-row pointer-events-none">
+                                                {keysConfig.map((key) => (
+                                                    <div key={key.midiNote}
+                                                        className={`h-full border-r ${instrumentMode === 'piano' && key.midiNote % 12 === 0 ? 'border-slate-500/50' : 'border-slate-800'}`}
+                                                        style={{ width: effectiveRowHeight, minWidth: effectiveRowHeight, flexShrink: 0 }}
+                                                    ></div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            // Horizontal Mode Grid Rows
+                                            keysConfig.slice().reverse().map((key) => (
+                                                <div key={key.midiNote}
+                                                    className={`w-full border-b ${instrumentMode === 'piano' && key.midiNote % 12 === 0 ? 'border-slate-500/50' : 'border-slate-800'}`}
+                                                    style={{ height: effectiveRowHeight }}
+                                                ></div>
+                                            ))
+                                        )}
+
+                                        {isVertical ? (
+                                            // Horizontal bar lines for Vertical Mode
+                                            barStartTicks.map((tick) => (
+                                                <div key={tick} className="absolute left-0 right-0 border-t border-slate-600" style={{ top: totalWidth - tickToPx(tick) }}></div>
+                                            ))
+                                        ) : (
+                                            // Vertical bar lines for Horizontal Mode
+                                            barStartTicks.map((tick) => (
+                                                <div key={tick} className="absolute top-0 bottom-0 border-l border-slate-600" style={{ left: tickToPx(tick) }}></div>
+                                            ))
+                                        )}
+
+                                        {isVertical && barStartTicks.slice(0, -1).map((tick, i) => (
+                                            <div key={`bar-label-${tick}`} className="absolute left-3 text-[10px] font-black text-slate-500/60 pointer-events-none select-none uppercase tracking-wider" style={{ top: totalWidth - tickToPx(tick) - 16 }}>
+                                                BAR {i + 1}
+                                            </div>
                                         ))}
-                                        {barStartTicks.map((tick) => (<div key={tick} className="absolute top-0 bottom-0 border-l border-slate-600" style={{ left: tickToPx(tick) }}></div>))}
+
                                         {notes.map(note => {
-                                            const top = midiToY(note.midi);
-                                            if (top === -1) return null;
-                                            const left = tickToPx(note.ticks), width = Math.max(2, tickToPx(note.durationTicks));
+                                            const noteLeft = isVertical ? midiToX(note.midi) : tickToPx(note.ticks);
+                                            const noteWidth = isVertical ? (effectiveRowHeight - 1) : Math.max(2, tickToPx(note.durationTicks));
+                                            const noteTop = isVertical ? (totalWidth - tickToPx(note.ticks + note.durationTicks)) : midiToY(note.midi);
+                                            if (noteTop === -1 || noteLeft === -1) return null;
+                                            const noteHeight = isVertical ? Math.max(2, tickToPx(note.durationTicks)) : (effectiveRowHeight - 1);
+
                                             const colorClass = instrumentMode === 'drum' ? 'bg-amber-500 border-amber-300' : (note.hand === 'right' ? 'bg-violet-500 border-violet-300' : 'bg-blue-500 border-blue-300');
                                             const selectedClass = note.selected ? 'ring-2 ring-offset-2 ring-offset-black ring-yellow-400' : '';
                                             return (
                                                 <div key={note.id} className={`absolute rounded-[2px] border opacity-80 hover:opacity-100 transition-opacity ${colorClass} ${selectedClass} flex items-center justify-center overflow-hidden`}
-                                                    style={{ top, left, width, height: effectiveRowHeight - 1, zIndex: note.selected ? 11 : 10 }} onMouseDown={(e) => handleNoteMouseDown(e, note)}>
+                                                    style={{ top: noteTop, left: noteLeft, width: noteWidth, height: noteHeight, zIndex: note.selected ? 11 : 10 }} onMouseDown={(e) => handleNoteMouseDown(e, note)}>
                                                     <span className="text-[9px] font-black pointer-events-none select-none text-white/90 truncate px-0.5">
                                                         {getNoteName(note.midi)}
                                                     </span>
@@ -2057,7 +2235,16 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                                         })}
                                         {selectionBox && (<div className="absolute bg-cyan-500/20 border-2 border-cyan-400 pointer-events-none z-50" style={{ left: Math.min(selectionBox.startX, selectionBox.endX), top: Math.min(selectionBox.startY, selectionBox.endY), width: Math.abs(selectionBox.startX - selectionBox.endX), height: Math.abs(selectionBox.startY - selectionBox.endY) }}></div>)}
                                     </div>
-                                    <div className="absolute top-0 bottom-0 w-0.5 bg-cyan-400 z-40 pointer-events-none shadow-[0_0_10px_rgba(34,211,238,0.8)]" style={{ left: tickToPx(cursorTick) }}><div className="w-4 h-4 -ml-2 -mt-2 bg-cyan-400 rotate-45 transform"></div></div>
+                                    
+                                    {isVertical ? (
+                                        <div className="absolute left-0 right-0 h-0.5 bg-cyan-400 z-40 pointer-events-none shadow-[0_0_10px_rgba(34,211,238,0.8)]" style={{ top: totalWidth - tickToPx(cursorTick) }}>
+                                            <div className="w-4 h-4 -mt-2 -ml-2 bg-cyan-400 rotate-45 transform"></div>
+                                        </div>
+                                    ) : (
+                                        <div className="absolute top-0 bottom-0 w-0.5 bg-cyan-400 z-40 pointer-events-none shadow-[0_0_10px_rgba(34,211,238,0.8)]" style={{ left: tickToPx(cursorTick) }}>
+                                            <div className="w-4 h-4 -ml-2 -mt-2 bg-cyan-400 rotate-45 transform"></div>
+                                        </div>
+                                    )}
                                 </>
                             )}
                         </div>

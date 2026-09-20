@@ -106,7 +106,8 @@ const Note: React.FC<NoteProps> = ({
       const targetBaseMidi = noteItem.midi - mirpTranspose;
       const match = MIRP_KEYBOARD_MAPPING.find(m => m.midi === targetBaseMidi);
       if (match) {
-        displayedLabel = match.label;
+        const physicalKey = KEY_CODES_TO_DISPLAY[match.code.toLowerCase()] || match.code.replace('Key', '').replace('Digit', '');
+        displayedLabel = match.shift ? `⇧${physicalKey}` : physicalKey;
       }
     } else {
       const targetBaseMidi = noteItem.midi - (qwertyCurrentOctaveShift * 12);

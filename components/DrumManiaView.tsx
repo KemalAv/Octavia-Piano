@@ -545,7 +545,7 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = React.memo(({
 
         render();
         return () => cancelAnimationFrame(animationFrameId);
-    }, [dimensions, drumInputMode, themeSettings, pixelsPerMillisecond, waitMode]);
+    }, [dimensions, drumInputMode, themeSettings, pixelsPerMillisecond, waitMode, resolutionScale]);
 
     return (
         <div className={`w-full h-full relative overflow-hidden touch-none ${isPaused ? 'cursor-ns-resize' : ''}`}>
@@ -558,7 +558,7 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = React.memo(({
                 onPointerCancel={handlePointerLeave}
                 onWheel={handleWheel}
                 className="relative z-10"
-                style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none', imageRendering: 'pixelated' }}
+                style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none' }}
             />
         </div>
     );

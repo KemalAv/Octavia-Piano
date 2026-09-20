@@ -545,7 +545,7 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
       <canvas
         ref={canvasRef}
         className="absolute inset-0 pointer-events-none"
-        style={{ width: `${width}px`, height: `${actualHeight}px`, imageRendering: 'pixelated' }}
+        style={{ width: `${width}px`, height: `${actualHeight}px` }}
       />
 
       <div
