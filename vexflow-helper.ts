@@ -563,6 +563,8 @@ export const getVexFlowRenderData = (
 
     let lastDrawnClefRH: 'treble' | 'bass' | 'percussion' = instrumentMode === 'drum' ? 'percussion' : 'treble';
     let lastDrawnClefLH: 'treble' | 'bass' | 'percussion' = instrumentMode === 'drum' ? 'percussion' : 'bass';
+    let lastDrawnKeySig = keySignatureStr;
+    let lastDrawnTimeSig = timeSignature;
     let currentKeySig = keySignatureStr;
     let currentTsig = timeSignature;
     let currentTempoBpmForMeasure = initialTempoBpm;
@@ -628,23 +630,49 @@ export const getVexFlowRenderData = (
 
         const isClefChangeRH = (i > 0 && detectedClefRH !== lastDrawnClefRH);
         const isClefChangeLH = (i > 0 && detectedClefLH !== lastDrawnClefLH);
+        const isKeySigChange = (i > 0 && currentKeySig !== lastDrawnKeySig);
+        const isTimeSigChange = (i > 0 && (currentTsig.numerator !== lastDrawnTimeSig.numerator || currentTsig.denominator !== lastDrawnTimeSig.denominator));
+
+        let extraSignatureWidth = 0;
+        if (isClefChangeRH || isClefChangeLH || isKeySigChange || isTimeSigChange) {
+            try {
+                const measureStave = new Stave(0, 0, 400);
+                measureStave.setBegBarType(0);
+                measureStave.setEndBarType(0);
+                measureStave.options.num_lines = 0;
+                measureStave.options.left_bar = false;
+                measureStave.options.right_bar = false;
+                if (isClefChangeRH) measureStave.addClef(detectedClefRH, 'default');
+                else if (isClefChangeLH) measureStave.addClef(detectedClefLH, 'default');
+                if (isKeySigChange) measureStave.addKeySignature(currentKeySig, lastDrawnKeySig);
+                if (isTimeSigChange) measureStave.addTimeSignature(`${currentTsig.numerator}/${currentTsig.denominator}`);
+                extraSignatureWidth = Math.max(35, Math.round(measureStave.getNoteStartX()) + 15);
+            } catch (e) {
+                if (isClefChangeRH || isClefChangeLH) extraSignatureWidth += 45;
+                if (isKeySigChange) extraSignatureWidth += 40;
+                if (isTimeSigChange) extraSignatureWidth += 35;
+            }
+        }
 
         let measureWidth = isRollView 
             ? (measureEndTime - measureStartTime) / 1000 * ROLL_VIEW_PIXELS_PER_SECOND * effectiveZoom * UNIVERSAL_SCALE
-            : Math.max(computeMinWidthFromNotes(fragmentsInMeasure, getBpmAtTime, effectiveZoom, false, measureEndTime), currentTsig.numerator * (4 / currentTsig.denominator) * PIXELS_PER_BEAT) + HORIZONTAL_PADDING + ((isClefChangeRH || isClefChangeLH) ? 45 * getLayoutZoom(effectiveZoom, false) * UNIVERSAL_SCALE : 0);
+            : Math.max(computeMinWidthFromNotes(fragmentsInMeasure, getBpmAtTime, effectiveZoom, false, measureEndTime), currentTsig.numerator * (4 / currentTsig.denominator) * PIXELS_PER_BEAT) + HORIZONTAL_PADDING + (extraSignatureWidth * getLayoutZoom(effectiveZoom, false) * UNIVERSAL_SCALE);
 
         tempMeasures.push({
             rightHand: [], leftHand: [], startTimeMs: measureStartTime, endTimeMs: measureEndTime, width: measureWidth, durationMs: measureEndTime - measureStartTime,
-            newKeySignature: (i === 0 || newKey) ? currentKeySig : undefined,
-            newTimeSignature: (i === 0 || newTime) ? currentTsig : undefined,
+            newKeySignature: (i === 0 || isKeySigChange) ? currentKeySig : undefined,
+            newTimeSignature: (i === 0 || isTimeSigChange) ? currentTsig : undefined,
             newTempoBpm: (i === 0 || newTempo) ? currentTempoBpmForMeasure : undefined,
             activeKeySignature: currentKeySig,
+            previousKeySignature: isKeySigChange ? lastDrawnKeySig : undefined,
             effectiveClefRH: detectedClefRH, 
             effectiveClefLH: detectedClefLH, 
             newClefRH: (i === 0 || isClefChangeRH) ? detectedClefRH : undefined,
             newClefLH: (i === 0 || isClefChangeLH) ? detectedClefLH : undefined, 
             isClefChangeRH,
             isClefChangeLH,
+            isKeySigChange,
+            isTimeSigChange,
             is8vaActiveRH, is15maActiveRH, is8vbActiveLH, is15mbActiveLH,
             starts8vaRH: false, ends8vaRH: false, starts15maRH: false, ends15maRH: false, starts8vbLH: false, ends8vbLH: false, starts15mbLH: false, ends15mbLH: false,
             effectiveTimeSignature: currentTsig,
@@ -659,6 +687,8 @@ export const getVexFlowRenderData = (
         });
         if (tempMeasures[i].newClefRH) lastDrawnClefRH = tempMeasures[i].newClefRH!;
         if (tempMeasures[i].newClefLH) lastDrawnClefLH = tempMeasures[i].newClefLH!;
+        lastDrawnKeySig = currentKeySig;
+        lastDrawnTimeSig = currentTsig;
     }
 
     const measures: VexFlowMeasureData[] = [], octaveLines: OctaveLineInfo[] = [];

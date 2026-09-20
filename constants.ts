@@ -520,8 +520,16 @@ export const DEFAULT_THEME_SETTINGS: ThemeSettings = {
 
 // --- Key Code Display Mapping ---
 export const KEY_CODES_TO_DISPLAY: { [key: string]: string } = {
-  'tab': '⇥', 'digit1': '1', 'keyq': 'Q', 'digit2': '2', 'keyw': 'W', 'keye': 'E', 'digit4': '4', 'keyr': 'R', 'digit5': '5', 'keyt': 'T', 'digit6': '6', 'keyy': 'Y',
-  'keyu': 'U', 'digit8': '8', 'keyi': 'I', 'digit9': '9', 'keyo': 'O', 'keyp': 'P', 'minus': '-', 'bracketleft': '[', 'equal': '=', 'bracketright': ']', 'backspace': '⌫', 'backslash': '\\', 'enter': '⏎',
-  'shiftleft': 'L ⇧', 'keya': 'A', 'keyz': 'Z', 'keys': 'S', 'keyx': 'X', 'keyc': 'C', 'keyf': 'F', 'keyv': 'V', 'keyg': 'G', 'keyb': 'B', 'keyh': 'H', 'keyn': 'N',
-  'keym': 'M', 'keyk': 'K', 'comma': ',', 'keyl': 'L', 'period': '.', 'slash': '/', 'quote': "'", 'shiftright': 'R ⇧',
+  'backquote': '`',
+  'digit1': '1', 'digit2': '2', 'digit3': '3', 'digit4': '4', 'digit5': '5',
+  'digit6': '6', 'digit7': '7', 'digit8': '8', 'digit9': '9', 'digit0': '0',
+  'minus': '-', 'equal': '=', 'backspace': '⌫',
+  'tab': '⇥',
+  'keyq': 'Q', 'keyw': 'W', 'keye': 'E', 'keyr': 'R', 'keyt': 'T', 'keyy': 'Y', 'keyu': 'U', 'keyi': 'I', 'keyo': 'O', 'keyp': 'P',
+  'bracketleft': '[', 'bracketright': ']', 'backslash': '\\',
+  'capslock': '⇪',
+  'keya': 'A', 'keys': 'S', 'keyd': 'D', 'keyf': 'F', 'keyg': 'G', 'keyh': 'H', 'keyj': 'J', 'keyk': 'K', 'keyl': 'L',
+  'semicolon': ';', 'quote': "'", 'enter': '⏎',
+  'shiftleft': '⇧', 'keyz': 'Z', 'keyx': 'X', 'keyc': 'C', 'keyv': 'V', 'keyb': 'B', 'keyn': 'N', 'keym': 'M',
+  'comma': ',', 'period': '.', 'slash': '/', 'shiftright': '⇧', 'space': '␣'
 };

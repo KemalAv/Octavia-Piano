@@ -455,10 +455,15 @@ export interface VexFlowMeasureData {
   newKeySignature?: string;
   newTimeSignature?: TimeSignatureInfo;
   activeKeySignature: string;
+  previousKeySignature?: string;
   effectiveClefRH: 'treble' | 'bass' | 'percussion';
   effectiveClefLH: 'treble' | 'bass' | 'percussion';
   newClefRH?: 'treble' | 'bass' | 'percussion';
   newClefLH?: 'treble' | 'bass' | 'percussion';
+  isClefChangeRH?: boolean;
+  isClefChangeLH?: boolean;
+  isKeySigChange?: boolean;
+  isTimeSigChange?: boolean;
   starts8vaRH: boolean;
   ends8vaRH: boolean;
   starts15maRH: boolean; // NEW: 15ma support

@@ -78,6 +78,7 @@ interface Props {
   backgroundColor?: string;
   lowDetailMode?: boolean;
   instrumentMode?: 'piano' | 'drum';
+  resolutionScale?: number;
 }
 
 interface StickySignaturePanelProps {
@@ -86,9 +87,10 @@ interface StickySignaturePanelProps {
   height: number;
   backgroundColor: string;
   lowDetailMode?: boolean;
+  resolutionScale?: number;
 }
 
-const StickySignaturePanel: React.FC<StickySignaturePanelProps> = React.memo(({ vexFlowData, currentTimeMs, height, backgroundColor, lowDetailMode = false }) => {
+const StickySignaturePanel: React.FC<StickySignaturePanelProps> = React.memo(({ vexFlowData, currentTimeMs, height, backgroundColor, lowDetailMode = false, resolutionScale = 1.0 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const currentMeasure = useMemo(() => {
     return vexFlowData.measures.find(m => currentTimeMs >= m.startTimeMs && currentTimeMs < m.endTimeMs) || vexFlowData.measures[0];
@@ -100,9 +102,16 @@ const StickySignaturePanel: React.FC<StickySignaturePanelProps> = React.memo(({ 
     const ctx = canvas.getContext('2d');
     if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    const dpr = (typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1) * (resolutionScale || 1.0);
+    canvas.width = Math.floor(SIDEBAR_WIDTH * dpr);
+    canvas.height = Math.floor(height * dpr);
+
     const renderer = new Renderer(canvas, Renderer.Backends.CANVAS);
-    renderer.resize(SIDEBAR_WIDTH, height);
+    renderer.resize(SIDEBAR_WIDTH * dpr, height * dpr);
+    canvas.style.width = `${SIDEBAR_WIDTH}px`;
+    canvas.style.height = `${height}px`;
     const vexCtx = renderer.getContext();
+    vexCtx.scale(dpr, dpr);
     (vexCtx as any).setFillStyle = function(style: string) { this.fillStyle = style; };
 
     const topStaveYOffset = Math.floor(vexFlowData.topStaveYOffset);
@@ -136,7 +145,7 @@ const StickySignaturePanel: React.FC<StickySignaturePanelProps> = React.memo(({ 
         new StaveConnector(treble, bass).setType(StaveConnector.type.BRACE).setContext(vexCtx).draw();
         new StaveConnector(treble, bass).setType(StaveConnector.type.SINGLE_LEFT).setContext(vexCtx).draw();
     }
-  }, [vexFlowData, currentMeasure, height]);
+  }, [vexFlowData, currentMeasure, height, resolutionScale]);
 
   return (
     <div 
@@ -152,7 +161,7 @@ const StickySignaturePanel: React.FC<StickySignaturePanelProps> = React.memo(({ 
         boxShadow: '4px 0 12px rgba(0,0,0,0.08)'
       }}
     >
-      <canvas ref={canvasRef} style={{ width: `${SIDEBAR_WIDTH}px`, height: `${height}px`, imageRendering: 'pixelated' }}/>
+      <canvas ref={canvasRef} style={{ width: `${SIDEBAR_WIDTH}px`, height: `${height}px` }}/>
     </div>
   );
 });
@@ -181,6 +190,7 @@ const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
   backgroundColor = '#f7f5ed',
   lowDetailMode = false,
   instrumentMode = 'piano',
+  resolutionScale = 1.0,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const cursorRef = useRef<HTMLDivElement>(null);
@@ -290,9 +300,16 @@ const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
         const canvas = canvasRefs.current[chunkIdx];
         if (!canvas) return;
 
+        const dpr = (typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1) * (resolutionScale || 1.0);
+        canvas.width = Math.floor(chunk.width * dpr);
+        canvas.height = Math.floor(height * dpr);
+
         const renderer = new Renderer(canvas, Renderer.Backends.CANVAS);
-        renderer.resize(chunk.width, height);
+        renderer.resize(chunk.width * dpr, height * dpr);
+        canvas.style.width = `${chunk.width}px`;
+        canvas.style.height = `${height}px`;
         const ctx = renderer.getContext();
+        ctx.scale(dpr, dpr);
         (ctx as any).setFillStyle = function(style: string) { this.fillStyle = style; };
 
         let currentX = chunk.chunkIndex === 0 ? HORIZONTAL_PADDING : 0;
@@ -323,7 +340,16 @@ const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
               if (bass && measure.isClefChangeLH && measure.newClefLH) {
                   bass.addClef(measure.newClefLH, 'default');
               }
-              if (measure.isClefChangeRH || measure.isClefChangeLH) {
+              if (measure.isKeySigChange && measure.activeKeySignature) {
+                  treble.addKeySignature(measure.activeKeySignature, measure.previousKeySignature);
+                  if (bass) bass.addKeySignature(measure.activeKeySignature, measure.previousKeySignature);
+              }
+              if (measure.isTimeSigChange && measure.effectiveTimeSignature) {
+                  const timeSigStr = `${measure.effectiveTimeSignature.numerator}/${measure.effectiveTimeSignature.denominator}`;
+                  treble.addTimeSignature(timeSigStr);
+                  if (bass) bass.addTimeSignature(timeSigStr);
+              }
+              if (measure.isClefChangeRH || measure.isClefChangeLH || measure.isKeySigChange || measure.isTimeSigChange) {
                   const startX = Math.max(treble.getNoteStartX(), bass ? bass.getNoteStartX() : 0);
                   treble.setNoteStartX(startX);
                   if (bass) bass.setNoteStartX(startX);
@@ -597,7 +623,7 @@ const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
         notePositionsRef.current.clear();
         setRenderedLayoutId(prev => prev + 1);
     }
-  }, [vexFlowData, chunks, width, height, keySignature, timeSignature, totalDurationMs, onLayoutRendered]);
+  }, [vexFlowData, chunks, width, height, keySignature, timeSignature, totalDurationMs, onLayoutRendered, resolutionScale]);
 
   useEffect(() => {
     setHighlights([]);
@@ -745,6 +771,7 @@ const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
           height={height} 
           backgroundColor={backgroundColor}
           lowDetailMode={lowDetailMode}
+          resolutionScale={resolutionScale}
         />
       )}
       <div 
@@ -762,8 +789,7 @@ const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
                 top: 0,
                 left: `${chunk.startX - (chunk.chunkIndex === 0 ? 0 : 0)}px`,
                 width: `${chunk.width}px`,
-                height: `${height}px`,
-                imageRendering: 'pixelated'
+                height: `${height}px`
               }}
             />
           ))}
