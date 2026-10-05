@@ -89,7 +89,7 @@ const SongSelection: React.FC<SongSelectionProps> = memo(({
         if (downloadError) throw downloadError;
         if (!fileData) throw new Error("No file data received for online song.");
 
-        const file = new File([fileData], songMetadata.title + '.mid', { type: fileData.type });
+        const file = new File([fileData], songMetadata.title + '.mid', { type: fileData?.type || 'audio/midi' });
         await onFileLoaded(file, songMetadata.id, songMetadata.is_ranked, songMetadata.midi_link, songMetadata.midi_offset, songMetadata.background_url); 
         setActiveTab('online'); 
       } catch (err: unknown) {

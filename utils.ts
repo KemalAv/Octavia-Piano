@@ -651,3 +651,28 @@ export const getAudioMetadata = async (url: string): Promise<{ size: string | nu
   }
   return { size: null, duration: null };
 };
+
+/**
+ * Calculates the score multiplier based on Gameplay PS percentage.
+ * Target points:
+ * - Gameplay PS >= 100%: Multiplier = 1.00 (100% PS)
+ * - Gameplay PS = 97.5%: Multiplier = 0.80 (80% PS)
+ * - Gameplay PS = 95.0%: Multiplier = 0.50 (50% PS)
+ * - Gameplay PS = 90.0%: Multiplier = 0.10 (10% PS)
+ * - Gameplay PS <= 85.0%: Multiplier = 0.00 (0% PS)
+ */
+export const calculateScoreMultiplier = (gameplayPS: number): number => {
+  if (gameplayPS >= 100) {
+    return 1.0;
+  } else if (gameplayPS >= 97.5) {
+    return 0.80 + ((gameplayPS - 97.5) / 2.5) * 0.20;
+  } else if (gameplayPS >= 95.0) {
+    return 0.50 + ((gameplayPS - 95.0) / 2.5) * 0.30;
+  } else if (gameplayPS >= 90.0) {
+    return 0.10 + ((gameplayPS - 90.0) / 5.0) * 0.40;
+  } else if (gameplayPS >= 85.0) {
+    return 0.00 + ((gameplayPS - 85.0) / 5.0) * 0.10;
+  } else {
+    return 0.0;
+  }
+};

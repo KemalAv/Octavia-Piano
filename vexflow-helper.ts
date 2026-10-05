@@ -147,41 +147,68 @@ function getVexFlowDuration(durationInQuarterNotes: number): { type: string, dot
       return DURATION_TO_VEXFLOW[snappedDuration];
     }
     const closest = Object.keys(DURATION_TO_VEXFLOW).map(Number).reduce((prev, curr) => (Math.abs(curr - durationInQuarterNotes) < Math.abs(prev - durationInQuarterNotes) ? curr : prev));
-    return DURATION_TO_VEXFLOW[closest];
+    return DURATION_TO_VEXFLOW[closest] || { type: '16', dots: 0 };
 }
 
 function decomposeDuration(durationInQuarters: number): { type: string, dots: number, isTriplet?: boolean }[] {
-    // Check if it's a single triplet first to avoid breaking it into standard notes
-    const closest = getClosestCommonDuration(durationInQuarters);
-    if (closest !== null && Math.abs(closest - durationInQuarters) < 0.05) {
-        const entry = DURATION_TO_VEXFLOW[closest];
-        if (entry.isTriplet) return [entry];
+    // 1. Try single match first, but prioritize standard durations over triplets if they are equally close
+    const sortedCommonDurations = Array.from(COMMON_VEXFLOW_DURATIONS_SET).sort((a, b) => {
+        const aIsTriplet = DURATION_TO_VEXFLOW[a]?.isTriplet;
+        const bIsTriplet = DURATION_TO_VEXFLOW[b]?.isTriplet;
+        if (aIsTriplet !== bIsTriplet) return aIsTriplet ? 1 : -1;
+        return 0;
+    });
+
+    let closestMatch: number | null = null;
+    let minDiff = Infinity;
+    for (const commonQ of sortedCommonDurations) {
+        const diff = Math.abs(durationInQuarters - commonQ);
+        if (diff < minDiff) {
+            minDiff = diff;
+            closestMatch = commonQ;
+        }
     }
 
+    if (closestMatch !== null && minDiff < 0.05) { // Increased tolerance to 0.05 to snap near-triplets
+        const entry = DURATION_TO_VEXFLOW[closestMatch];
+        if (entry) return [entry];
+    }
+
+    // 2. Greedy decomposition
     const results: { type: string, dots: number, isTriplet?: boolean }[] = [];
     let remaining = durationInQuarters;
-    // For standard decomposition, only use non-triplets
-    const sortedDurations = Object.keys(DURATION_TO_VEXFLOW)
+    
+    // Sort all durations. For decomposition, we prefer standard durations to avoid accidental triplets.
+    const allDurations = Object.keys(DURATION_TO_VEXFLOW)
         .map(Number)
-        .filter(k => !DURATION_TO_VEXFLOW[k].isTriplet)
-        .sort((a, b) => b - a);
+        .sort((a, b) => {
+            const aIsTriplet = DURATION_TO_VEXFLOW[a]?.isTriplet;
+            const bIsTriplet = DURATION_TO_VEXFLOW[b]?.isTriplet;
+            if (aIsTriplet !== bIsTriplet) return aIsTriplet ? 1 : -1; // Standard first
+            return b - a; // Then descending
+        });
 
     let loopCount = 0;
-    const MAX_LOOPS = 50; // Safety brake
+    const MAX_LOOPS = 20;
 
     while (remaining > DURATION_MATCH_TOLERANCE && loopCount < MAX_LOOPS) {
         let found = false;
-        for (const dur of sortedDurations) {
+        for (const dur of allDurations) {
             if (remaining >= dur - DURATION_MATCH_TOLERANCE) {
-                results.push(DURATION_TO_VEXFLOW[dur]);
-                remaining -= dur;
-                found = true;
-                break;
+                const entry = DURATION_TO_VEXFLOW[dur];
+                if (entry) {
+                    results.push(entry);
+                    remaining -= dur;
+                    found = true;
+                    break;
+                }
             }
         }
         if (!found) break;
         loopCount++;
     }
+    
+    if (results.length === 0) return [{ type: '16', dots: 0 }];
     return results;
 }
 
@@ -325,7 +352,7 @@ function processHandAndAccidentals(
                 }
             }
             if (singleBestVexFlowDurationValue === null) singleBestVexFlowDurationValue = 0.03125;
-            decomposedDurations = [DURATION_TO_VEXFLOW[singleBestVexFlowDurationValue]];
+            decomposedDurations = [DURATION_TO_VEXFLOW[singleBestVexFlowDurationValue] || { type: '16', dots: 0 }];
         } else {
             decomposedDurations = decomposeDuration(durationQuarters);
         }
@@ -334,9 +361,10 @@ function processHandAndAccidentals(
         let cumulativeQuarters = 0;
 
         decomposedDurations.forEach((vexDuration, index) => {
+            if (!vexDuration) return;
             const durationValueStr = Object.keys(DURATION_TO_VEXFLOW).find(k => {
                 const entry = DURATION_TO_VEXFLOW[Number(k)];
-                return entry.type === vexDuration.type && entry.dots === vexDuration.dots && entry.isTriplet === vexDuration.isTriplet;
+                return entry && entry.type === vexDuration.type && entry.dots === vexDuration.dots && entry.isTriplet === vexDuration.isTriplet;
             });
             const durationValue = durationValueStr ? Number(durationValueStr) : 0;
             const durationMsForThisPart = durationValue * localMsPerQuarterNote;
@@ -408,7 +436,11 @@ function processHandAndAccidentals(
                 tempStave.setClef(effectiveClef);
                 const tempNote = new StaveNote({ keys: keysForStaveNote, duration: vexDuration.type, clef: effectiveClef });
                 
-                if (accidentalsForStaveNote.length > 0) accidentalsForStaveNote.forEach(acc => tempNote.addModifier(new Accidental(acc.type), acc.index));
+                if (accidentalsForStaveNote.length > 0) {
+                    accidentalsForStaveNote.forEach(acc => {
+                        if (acc && acc.type) tempNote.addModifier(new Accidental(acc.type), acc.index);
+                    });
+                }
                 tempNote.setStave(tempStave);
                 const noteYs = tempNote.getYs();
                 const keyProps = tempNote.getKeyProps();
@@ -424,6 +456,7 @@ function processHandAndAccidentals(
                     timeMs: cumulativeTimeMs,
                     durationMs: durationMsForThisPart,
                     originalNotes: notesAtTime,
+                    fingering: notesAtTime.map(n => n.finger),
                     isTieStart: Array(keysForStaveNote.length).fill(false),
                     isTieEnd: Array(keysForStaveNote.length).fill(false),
                     vexNoteYPositions: noteYs,
@@ -679,7 +712,7 @@ export const getVexFlowRenderData = (
             hasDottedBeamableNotes: fragmentsInMeasure.some(f => {
                 const dur = f.durationMs / (60000 / getBpmAtTime(f.timeMs));
                 const vfd = getVexFlowDuration(dur);
-                return vfd.dots > 0 && ['8', '16', '32', '64'].includes(vfd.type);
+                return !!(vfd && vfd.dots > 0 && ['8', '16', '32', '64'].includes(vfd.type));
             }),
             startsRepeat: fragmentsInMeasure.some(n => n.isRepeatStart), endsRepeat: fragmentsInMeasure.some(n => n.isRepeatEnd),
             rightHandTuplets: [], leftHandTuplets: [],

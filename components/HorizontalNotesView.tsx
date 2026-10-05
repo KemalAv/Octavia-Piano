@@ -215,7 +215,6 @@ const SidebarSignaturePanel: React.FC<SidebarSignaturePanelProps> = React.memo((
         width: SIDEBAR_WIDTH,
         height: height,
         backgroundColor: backgroundColor === 'transparent' ? 'transparent' : backgroundColor,
-        backdropFilter: (backgroundColor === 'transparent' || lowDetailMode) ? 'none' : 'blur(4px)',
         borderRight: '1px solid rgba(0,0,0,0.1)',
         boxShadow: backgroundColor === 'transparent' ? 'none' : '4px 0 12px rgba(0,0,0,0.08)'
       }}

@@ -211,47 +211,52 @@ export async function parseMidiData(
     });
 
     const uniqueNotesMap = new Map<string, Omit<MidiNotePlaybackItem, 'noteId'>>();
+    const tracksWithNotes = midi.tracks.filter(t => t.notes.length > 0);
+
     midi.tracks.forEach((track, trackIndex) => {
+        // Find which musical track index this is among tracks that actually contain notes
+        const noteTrackIndex = tracksWithNotes.indexOf(track);
+
         track.notes.forEach(note => {
-            // Removed the duration filter (note.durationTicks < ppq / 32) to ensure all notes,
-            // including very short drum notes or staccato notes, are parsed and displayed.
-            if (note.durationTicks < 0) {
-                return; // Skip notes with negative duration
+            // Filter out corrupted/zero-duration glitch notes and zero-velocity notes
+            if (note.durationTicks <= 0 || note.duration <= 0.005 || note.velocity <= 0) {
+                return;
             }
 
             const noteName = midiNoteToNameMap.get(note.midi);
             if (noteName) {
                 let hand: 'left' | 'right';
-                if (midi.tracks.length > 1) {
-                    if (trackIndex === 0) {
-                        hand = 'right';
-                    } else if (trackIndex === 1) {
-                        hand = 'left';
-                    } else {
-                        hand = note.midi < HAND_SPLIT_MIDI_NOTE ? 'left' : 'right';
-                    }
+                if (tracksWithNotes.length === 2 && noteTrackIndex !== -1) {
+                    hand = noteTrackIndex === 0 ? 'right' : 'left';
                 } else {
                     hand = note.midi < HAND_SPLIT_MIDI_NOTE ? 'left' : 'right';
                 }
 
+                // Ensure a minimum audible duration so notes don't get cut off in 0ms
+                const rawDurationMs = Math.round(note.duration * 1000);
+                const durationMs = Math.max(60, rawDurationMs);
+                const durationTicks = Math.max(Math.round(ppq / 16), note.durationTicks);
+
                 const newNote = {
                     midi: note.midi,
                     timeMs: Math.round(note.time * 1000) + INITIAL_PLAYBACK_DELAY_MS,
-                    durationMs: Math.round(note.duration * 1000),
+                    durationMs: durationMs,
                     name: noteName,
                     pitchClass: note.pitch,
                     velocity: note.velocity,
                     hand: hand,
                     originalTrackSourceInfo: `midi_track_${trackIndex}`,
                     ticks: note.ticks,
-                    durationTicks: note.durationTicks
+                    durationTicks: durationTicks
                 };
 
                 const key = `${note.ticks}_${note.midi}`;
                 if (uniqueNotesMap.has(key)) {
                     const existingNote = uniqueNotesMap.get(key)!;
-                    // If the existing note is right hand and the new one is left hand, replace it.
-                    if (existingNote.hand === 'right' && newNote.hand === 'left') {
+                    // Prefer the note with longer duration or better velocity
+                    if (newNote.durationMs > existingNote.durationMs) {
+                        uniqueNotesMap.set(key, newNote);
+                    } else if (existingNote.hand === 'right' && newNote.hand === 'left') {
                         uniqueNotesMap.set(key, newNote);
                     }
                 } else {

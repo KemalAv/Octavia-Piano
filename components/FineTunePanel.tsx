@@ -27,16 +27,6 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
   const [songs, setSongs] = useState<CalibrationSong[]>([]);
   const [isLoadingSongs, setIsLoadingSongs] = useState(false);
   const [weights, setWeights] = useState<FineTunedWeights>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const stored = localStorage.getItem('tuned_physical_weights');
-        if (stored) {
-          return { ...DEFAULT_FINE_TUNED_WEIGHTS, ...JSON.parse(stored) };
-        }
-      } catch (e) {
-        // Fallback
-      }
-    }
     return DEFAULT_FINE_TUNED_WEIGHTS;
   });
 
@@ -250,13 +240,13 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
     });
   };
 
-  // Save tuned weights to localStorage
+  // Copy tuned weights JSON for manual code update
   const handleSaveWeights = () => {
     try {
-      localStorage.setItem('tuned_physical_weights', JSON.stringify(weights));
-      alert("Weights successfully saved to Local Storage! These will be used for all new song analyses.");
+      navigator.clipboard.writeText(JSON.stringify(weights, null, 2));
+      alert("JSON Bobot telah disalin ke clipboard! Silakan tempelkan (paste) ke DEFAULT_FINE_TUNED_WEIGHTS di midiAnalysis.ts untuk menerapkannya secara permanen ke kode.");
     } catch (e) {
-      alert("Failed to save weights: " + e);
+      alert("Gagal menyalin: " + e);
     }
   };
 
@@ -402,8 +392,8 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
       setErrorStats({ startError, endError: bestError });
       setProgressLog(prev => [...prev, `🎉 Calibration finished successfully!`]);
       
-      // Save tuned weights automatically
-      localStorage.setItem('tuned_physical_weights', JSON.stringify(bestWeights));
+      // Calibration finished: keep weights in state for live workbench display
+      setProgressLog(prev => [...prev, `💡 Silakan salin bobot lewat tombol "Copy Weights JSON" untuk diterapkan ke kode.`]);
 
       // Recalculate scores for local display list
       const finalSongs = [...activeSet];

@@ -513,7 +513,7 @@ export const DEFAULT_THEME_SETTINGS: ThemeSettings = {
   fallingNotesBackgroundColor: '#1c2636',
   hitNoteColor: '#f59e0b', // Amber-500
   backgroundUrl: '/wallpaper.jpg',
-  backgroundOpacity: 0.25,
+  backgroundOpacity: 0.1,
   pianoTilesOpacity: 50, // Default 50%
 };
 // --- End Default Settings Constants ---

@@ -232,16 +232,6 @@ export function analyzeMidi(
   if (!notes.length || totalDurationMs <= 500) return null;
 
   let weights = customWeights;
-  if (!weights && typeof window !== 'undefined') {
-    try {
-      const stored = localStorage.getItem('tuned_physical_weights');
-      if (stored) {
-        weights = { ...DEFAULT_FINE_TUNED_WEIGHTS, ...JSON.parse(stored) };
-      }
-    } catch (e) {
-      // Ignore reading error
-    }
-  }
   if (!weights) {
     weights = DEFAULT_FINE_TUNED_WEIGHTS;
   }

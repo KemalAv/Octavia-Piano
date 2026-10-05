@@ -41,17 +41,40 @@ const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ song, onClose, onGo
         .select('*, songs(title, artist)')
         .eq('song_id', song.id)
         .order('final_score', { ascending: false })
-        .limit(50);
+        .limit(100);
         
       if (scoresError) {
         console.error("Supabase error (scores):", scoresError);
         throw scoresError;
       }
 
-      const scores = scoresData as Score[];
+      const rawScores = (scoresData || []) as Score[];
+
+      // Clean up redundant lower scores for the current user in the database
+      const { data: authData } = await supabase.auth.getSession();
+      const currentAuthUser = authData?.session?.user;
+      if (currentAuthUser) {
+        const myScores = rawScores.filter(s => s.user_id === currentAuthUser.id);
+        if (myScores.length > 1) {
+          // myScores is sorted by final_score DESC, so index 0 is their highest score
+          const redundantIds = myScores.slice(1).map(s => s.id);
+          if (redundantIds.length > 0) {
+            supabase.from('scores').delete().in('id', redundantIds).then(() => {});
+          }
+        }
+      }
+
+      // Deduplicate: Keep strictly only the MAXIMUM score for each player
+      const bestUserScoresMap = new Map<string, Score>();
+      for (const s of rawScores) {
+        if (!bestUserScoresMap.has(s.user_id)) {
+          bestUserScoresMap.set(s.user_id, s);
+        }
+      }
+      const uniqueMaxScores = Array.from(bestUserScoresMap.values()).sort((a, b) => b.final_score - a.final_score);
       
       // 2. Fetch profiles separately
-      const userIds = [...new Set(scores.map(s => s.user_id))];
+      const userIds = [...new Set(uniqueMaxScores.map(s => s.user_id))];
       let profiles: any[] = [];
       if (userIds.length > 0) {
         const { data: profilesData, error: profilesError } = await supabase
@@ -68,7 +91,7 @@ const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ song, onClose, onGo
       }
 
       // 3. Merge profiles into scores
-      const scoresWithProfiles = scores.map(s => ({
+      const scoresWithProfiles = uniqueMaxScores.map(s => ({
         ...s,
         profiles: profiles.find(p => p.id === s.user_id) || null
       }));

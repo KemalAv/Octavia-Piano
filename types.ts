@@ -434,6 +434,8 @@ export interface VexFlowNoteInfo {
   vexNoteKeyProps?: { line: number }[];
   isTriplet?: boolean; // NEW: Flag for triplet notes
   stem_direction?: number; // NEW: Explicit stem direction (1 = down, -1 = up)
+  fingering?: (number | undefined)[];
+  dynamics?: string;
 }
 
 // NEW: Interface for tuplet grouping
