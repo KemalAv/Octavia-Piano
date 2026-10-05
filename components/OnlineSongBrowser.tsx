@@ -375,7 +375,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
       if (!data) throw new Error("No data received");
 
       // Convert Blob to File
-      const file = new File([data], song.title + '.mid', { type: data.type });
+      const file = new File([data], song.title + '.mid', { type: data?.type || 'audio/midi' });
       await onSongLoaded(file, song.id, song.is_ranked, song.midi_link || null, song.midi_offset || null, song.background_url || null, song.accuracy_level || null); // Pass is_ranked status and extra metadata
     } catch (err: unknown) {
       console.error("Error downloading or processing MIDI:", err);

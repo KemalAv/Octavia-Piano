@@ -5,6 +5,7 @@ import { analyzeMidi } from '../midiAnalysis';
 import { parseFileForAnalysis } from '../midiParser';
 import { PIANO_KEYS_CONFIG, DRUM_MIDI_TO_NAME_MAP } from '../constants';
 import { OnlineSong } from '../types';
+import { calculateScoreMultiplier } from '../utils';
 
 interface AdminModalProps {
   isOpen: boolean;
@@ -168,19 +169,7 @@ const handleRecalculatePlayerScores = useCallback(async () => {
               else if (gameplayPS >= 87.5) rank = "C";
               else rank = "D";
 
-              let multiplier = Math.pow(Math.max(0, (gameplayPS - 75) / 25), 4);
-              if (gameplayPS >= 97.5) {
-                multiplier += (1 - multiplier) * 0.55;
-              } else if (gameplayPS >= 95) {
-                multiplier += (1 - multiplier) * 0.45;
-              } else if (gameplayPS >= 92.5) {
-                multiplier += (1 - multiplier) * 0.25;
-              } else if (gameplayPS >= 90) {
-                multiplier += (1 - multiplier) * 0.10;
-              } else if (gameplayPS >= 87.5) {
-                multiplier += (1 - multiplier) * 0.05;
-              }
-
+              const multiplier = calculateScoreMultiplier(gameplayPS);
               const calculatedFinalScore = basePS * multiplier;
 
               const newFinalScore = Math.round(calculatedFinalScore);
@@ -213,6 +202,88 @@ const handleRecalculatePlayerScores = useCallback(async () => {
       }
 
       addLog("Step 2 Finished.");
+  } catch (err: any) {
+      addLog(`FATAL: ${err.message}`);
+  } finally {
+      setIsLoading(false);
+  }
+}, []);
+
+const handleCleanDuplicateScores = useCallback(async () => {
+  if (!window.confirm("Step 3: Clean up all duplicate scores in Supabase, keeping ONLY the highest score per user per song? Proceed?")) return;
+
+  setIsLoading(true);
+  setLogs([]);
+  setProgress(0);
+  setErrorCount(0);
+
+  try {
+      addLog("Fetching all scores to check for duplicates...");
+      const { data: allScores, error: fetchError } = await supabase
+          .from('scores')
+          .select('id, user_id, song_id, instrument_mode, final_score, created_at')
+          .order('final_score', { ascending: false });
+
+      if (fetchError) throw fetchError;
+      if (!allScores || allScores.length === 0) {
+          addLog("No scores found in database.");
+          return;
+      }
+
+      addLog(`Analyzing ${allScores.length} total score records...`);
+
+      // Group scores by unique key: userId + songId + (instrument_mode || 'piano')
+      const groups = new Map<string, any[]>();
+      for (const score of allScores) {
+          const key = `${score.user_id}_${score.song_id}_${score.instrument_mode || 'piano'}`;
+          if (!groups.has(key)) {
+              groups.set(key, []);
+          }
+          groups.get(key)!.push(score);
+      }
+
+      const duplicateIdsToDelete: string[] = [];
+      let duplicateGroupsCount = 0;
+
+      for (const [, groupScores] of groups.entries()) {
+          if (groupScores.length > 1) {
+              duplicateGroupsCount++;
+              // Since allScores was sorted by final_score DESC, index 0 is the highest score
+              const toDelete = groupScores.slice(1).map(s => s.id);
+              duplicateIdsToDelete.push(...toDelete);
+          }
+      }
+
+      if (duplicateIdsToDelete.length === 0) {
+          addLog("No duplicate scores found! Database is already clean.");
+          return;
+      }
+
+      addLog(`Found ${duplicateIdsToDelete.length} duplicate/lower scores across ${duplicateGroupsCount} entries.`);
+      setTotal(duplicateIdsToDelete.length);
+
+      // Delete in batches of 50
+      const BATCH_SIZE = 50;
+      let deletedCount = 0;
+      for (let i = 0; i < duplicateIdsToDelete.length; i += BATCH_SIZE) {
+          const batch = duplicateIdsToDelete.slice(i, i + BATCH_SIZE);
+          const { error: delError } = await supabase
+              .from('scores')
+              .delete()
+              .in('id', batch);
+
+          if (delError) {
+              addLog(` -> ERROR deleting batch: ${delError.message}`);
+              setErrorCount(prev => prev + batch.length);
+          } else {
+              deletedCount += batch.length;
+              addLog(` -> Deleted ${deletedCount}/${duplicateIdsToDelete.length} duplicate scores...`);
+          }
+          setProgress(deletedCount);
+          await new Promise(r => setTimeout(r, 100));
+      }
+
+      addLog(`Cleanup Finished! Successfully removed ${deletedCount} duplicate scores.`);
   } catch (err: any) {
       addLog(`FATAL: ${err.message}`);
   } finally {
@@ -257,6 +328,12 @@ const handleRecalculatePlayerScores = useCallback(async () => {
                 <h3 className="text-lg font-bold text-orange-400 mb-1">Step 2: Recalculate Player Scores</h3>
                 <p className="text-xs text-slate-400 mb-3">Recalculate Player Scores match new system</p>
                 <button onClick={handleRecalculatePlayerScores} disabled={isLoading} className="w-full bg-orange-600 hover:bg-orange-700 py-2 rounded font-bold disabled:opacity-50">Run Score Recalculation</button>
+            </div>
+
+            <div className="bg-slate-900/50 p-4 rounded-lg border border-purple-500/30">
+                <h3 className="text-lg font-bold text-purple-400 mb-1">Step 3: Clean Duplicate Scores</h3>
+                <p className="text-xs text-slate-400 mb-3">Scan and remove all older/lower duplicate scores, keeping only each player's highest score per MIDI.</p>
+                <button onClick={handleCleanDuplicateScores} disabled={isLoading} className="w-full bg-purple-600 hover:bg-purple-700 py-2 rounded font-bold disabled:opacity-50">Clean Duplicate Scores Now</button>
             </div>
         </div>
 

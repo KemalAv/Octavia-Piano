@@ -188,7 +188,7 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
     }
   }, [lastJudgment, combo]); // Also trigger on combo change to refresh the animation for same judgments
 
-  const hudContainerStyle = `text-white p-1 shadow-md border-b border-white/10 min-h-[52px] flex flex-wrap items-center justify-between gap-2 no-select relative z-50 bg-slate-900 transition-all duration-300 ease-in-out`;
+  const hudContainerStyle = `text-white p-1 shadow-md border-b border-white/10 min-h-[52px] flex flex-wrap items-center justify-between gap-2 no-select relative z-50 bg-slate-900/60 transition-all duration-300 ease-in-out`;
   const iconButtonStyles = "p-2 rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed active:scale-95";
   const primaryButtonStyles = "bg-cyan-600 hover:bg-cyan-500 text-white";
   const secondaryButtonStyles = "bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 hover:border-slate-500";
@@ -228,7 +228,7 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
 
   if (isCalibrationMode) {
     return (
-      <div className="relative z-[100] w-full bg-slate-900 border-b border-white/10 p-2 flex items-center justify-between shadow-2xl">
+      <div className="relative z-[100] w-full bg-slate-900/60 border-b border-white/10 p-2 flex items-center justify-between shadow-2xl">
         <div className="flex items-center gap-3">
           <button onClick={onExit} className={`${iconButtonStyles} ${secondaryButtonStyles}`} title="Exit Calibration">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path></svg>
@@ -333,7 +333,7 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
       <div className="relative z-50">
         {/* MINIMAL OVERLAY (Visible when TopBar is hidden) */}
         <div className={`absolute top-0 right-8 flex flex-col items-center pointer-events-none transition-opacity duration-300 ${!isTopBarVisible ? 'opacity-100' : 'opacity-0'}`}>
-          <div className="flex items-center gap-3 bg-black/40 backdrop-blur-sm px-3 py-1 rounded-b-xl border-x border-b border-white/10 pointer-events-auto shadow-lg">
+          <div className="flex items-center gap-3 bg-slate-900/60 px-3 py-1 rounded-b-xl border-x border-b border-white/10 pointer-events-auto shadow-lg">
             <button onClick={onExit} className={`${iconButtonStyles} ${secondaryButtonStyles} w-8 h-8`} aria-label="Exit" title="Exit">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path></svg>
             </button>
@@ -535,7 +535,7 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
     <div className="relative z-50">
       {/* MINIMAL OVERLAY (Visible when TopBar is hidden) */}
       <div className={`absolute top-0 left-0 right-0 flex flex-col items-center pointer-events-none transition-opacity duration-300 ${!isTopBarVisible ? 'opacity-100' : 'opacity-0'}`}>
-        <div className="flex items-center gap-4 bg-black/40 backdrop-blur-sm px-4 py-1 rounded-b-xl border-x border-b border-white/10 pointer-events-auto shadow-lg">
+        <div className="flex items-center gap-4 bg-slate-900/60 px-4 py-1 rounded-b-xl border-x border-b border-white/10 pointer-events-auto shadow-lg">
           <button onClick={onExit} className={`${iconButtonStyles} ${secondaryButtonStyles} w-8 h-8`} aria-label="Exit" title="Exit">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path></svg>
           </button>

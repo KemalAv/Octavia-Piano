@@ -1085,14 +1085,14 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                     </button>
                   )}
                 </div>
-                <SettingRow label={`Background Opacity (${Math.round((themeSettings.backgroundOpacity ?? 0.25) * 100)}%)`} htmlFor="bg-opacity">
+                <SettingRow label={`Background Opacity (${Math.round((themeSettings.backgroundOpacity ?? 0.1) * 100)}%)`} htmlFor="bg-opacity">
                   <input
                     id="bg-opacity"
                     type="range"
                     min="0"
                     max="1"
                     step="0.05"
-                    value={themeSettings.backgroundOpacity ?? 0.25}
+                    value={themeSettings.backgroundOpacity ?? 0.1}
                     onChange={e => onThemeSettingsChange({ ...themeSettings, backgroundOpacity: parseFloat(e.target.value) })}
                     className={`${rangeSliderStyle} max-w-xs`}
                   />

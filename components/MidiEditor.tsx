@@ -821,15 +821,20 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
     const safePlayBackingTrack = useCallback(async () => {
         if (backingTrackRef.current && backingTrackUrl) {
             try {
-                audioPlayPromiseRef.current = backingTrackRef.current.play();
+                const audio = backingTrackRef.current;
+                audio.defaultPlaybackRate = playbackSpeed;
+                audio.playbackRate = playbackSpeed;
+                (audio as any).preservesPitch = true;
+                audioPlayPromiseRef.current = audio.play();
                 await audioPlayPromiseRef.current;
                 audioPlayPromiseRef.current = null;
+                audio.playbackRate = playbackSpeed;
             } catch (e: any) {
                 audioPlayPromiseRef.current = null;
                 if (e.name !== 'AbortError') console.error("Backing track play failed:", e);
             }
         }
-    }, [backingTrackUrl]);
+    }, [backingTrackUrl, playbackSpeed]);
 
     const ticksToMsRef = useRef(ticksToMs);
     useEffect(() => { ticksToMsRef.current = ticksToMs; }, [ticksToMs]);

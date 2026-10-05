@@ -1,17 +1,15 @@
-
 import React, {
   useEffect,
   useRef,
   useMemo,
+  useState,
   useCallback,
   useLayoutEffect,
-  useState,
 } from 'react';
 import {
   Accidental,
   Barline,
   Beam,
-  BoundingBox,
   Dot,
   Formatter,
   Renderer,
@@ -20,6 +18,10 @@ import {
   StaveNote,
   Voice,
   Tuplet,
+  Fraction,
+  FretHandFinger,
+  Modifier,
+  Annotation,
 } from 'vexflow';
 import {
   MidiNotePlaybackItem,
@@ -27,32 +29,120 @@ import {
   ActiveMidiNoteInfo,
   VexFlowMeasureData,
   VexFlowNoteInfo,
-  OctaveLineInfo,
-  NoteFragment,
   TempoEvent,
-  VexFlowRenderData,
   VexFlowTupletGroup,
+  NoteLabelType,
 } from '../types';
 import { getVexFlowRenderData } from '../vexflow-helper';
-import { SYSTEM_PLAY_COLOR, USER_PLAY_COLOR } from '../constants'; 
 
-const HORIZONTAL_PADDING = 30; // Set to 30 to match HorizontalNotesView
-const SIDEBAR_WIDTH = 200; // Increased from 140
+// Notation scaling factor to scale down bars & engraving slightly (diperkecil sedikit ~14%)
+const NOTATION_SCALE = 0.86;
 
-interface HighlightInfo {
-  key: string;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  color: string;
-}
+// Vertical spacing configuration:
+// - TOP_STAVE_Y: 32 (room above for measure numbers and tempo)
+// - VERTICAL_STAFF_SPACING: 94 (clean distance between treble and bass staves)
+// - VIRTUAL_SYSTEM_HEIGHT: 280 (leaves ample space below line 4 of bass clef so low notes C1-C2,
+//   ledger lines, down stems, and barlines are never cut off)
+const TOP_STAVE_Y = 55; // Increased further to give more room for high RH fingering
+const VERTICAL_STAFF_SPACING = 125; // Increased further to give room for LH fingering above bass staff
+const VIRTUAL_SYSTEM_HEIGHT = 350; // Increased to accommodate more vertical space
+const VIRTUAL_DRUM_SYSTEM_HEIGHT = 160;
+const SYSTEM_SPACING = 16;
+const SYSTEM_PADDING_X = 20;
 
-interface SignatureEvent {
-  timeMs: number;
-  key?: string;
-  time?: TimeSignatureInfo;
-}
+const NATURAL_PITCH_CLASS: Record<string, number> = {
+  C: 0,
+  D: 2,
+  E: 4,
+  F: 5,
+  G: 7,
+  A: 9,
+  B: 11,
+};
+
+const KEY_ACCIDENTALS: Record<string, Record<string, string>> = {
+  // Major keys
+  'C': {},
+  'G': { F: '#' },
+  'D': { F: '#', C: '#' },
+  'A': { F: '#', C: '#', G: '#' },
+  'E': { F: '#', C: '#', G: '#', D: '#' },
+  'B': { F: '#', C: '#', G: '#', D: '#', A: '#' },
+  'F#': { F: '#', C: '#', G: '#', D: '#', A: '#', E: '#' },
+  'C#': { F: '#', C: '#', G: '#', D: '#', A: '#', E: '#', B: '#' },
+  'F': { B: 'b' },
+  'Bb': { B: 'b', E: 'b' },
+  'Eb': { B: 'b', E: 'b', A: 'b' },
+  'Ab': { B: 'b', E: 'b', A: 'b', D: 'b' },
+  'Db': { B: 'b', E: 'b', A: 'b', D: 'b', G: 'b' },
+  'Gb': { B: 'b', E: 'b', A: 'b', D: 'b', G: 'b', C: 'b' },
+  'Cb': { B: 'b', E: 'b', A: 'b', D: 'b', G: 'b', C: 'b', F: 'b' },
+  // Minor keys
+  'Am': {},
+  'Em': { F: '#' },
+  'Bm': { F: '#', C: '#' },
+  'F#m': { F: '#', C: '#', G: '#' },
+  'C#m': { F: '#', C: '#', G: '#', D: '#' },
+  'G#m': { F: '#', C: '#', G: '#', D: '#', A: '#' },
+  'D#m': { F: '#', C: '#', G: '#', D: '#', A: '#', E: '#' },
+  'A#m': { F: '#', C: '#', G: '#', D: '#', A: '#', E: '#', B: '#' },
+  'Dm': { B: 'b' },
+  'Gm': { B: 'b', E: 'b' },
+  'Cm': { B: 'b', E: 'b', A: 'b' },
+  'Fm': { B: 'b', E: 'b', A: 'b', D: 'b' },
+  'Bbm': { B: 'b', E: 'b', A: 'b', D: 'b', G: 'b' },
+  'Ebm': { B: 'b', E: 'b', A: 'b', D: 'b', G: 'b', C: 'b' },
+  'Abm': { B: 'b', E: 'b', A: 'b', D: 'b', G: 'b', C: 'b', F: 'b' },
+};
+
+const getNoteNameForDisplay = (
+  keyStr: string,
+  idx: number,
+  info: VexFlowNoteInfo,
+  activeKey: string
+): string => {
+  const keyWithoutOctave = keyStr.split('/')[0];
+  const baseLetter = keyWithoutOctave.charAt(0).toUpperCase();
+
+  // If the key already has an explicit modifier (e.g. "c#", "eb")
+  if (keyWithoutOctave.length > 1) {
+    const rawAcc = keyWithoutOctave.slice(1);
+    return `${baseLetter}${rawAcc}`;
+  }
+
+  // 1. Try to compute from original note MIDI pitch
+  const orig = info.originalNotes?.[idx];
+  const midi = orig?.midi ?? (info.vexNote.keys.length === 1 && info.midiValue >= 0 ? info.midiValue : undefined);
+
+  if (midi !== undefined && NATURAL_PITCH_CLASS[baseLetter] !== undefined) {
+    const naturalPitch = NATURAL_PITCH_CLASS[baseLetter];
+    const actualPitch = ((midi % 12) + 12) % 12;
+    const diff = (actualPitch - naturalPitch + 12) % 12;
+    if (diff === 0) return baseLetter;
+    if (diff === 1) return `${baseLetter}#`;
+    if (diff === 2) return `${baseLetter}##`;
+    if (diff === 11) return `${baseLetter}b`;
+    if (diff === 10) return `${baseLetter}bb`;
+  }
+
+  // 2. Check explicit accidental attached to this note in VexFlow
+  const explicitAcc = info.accidentals?.find(a => a && a.index === idx);
+  if (explicitAcc && explicitAcc.type) {
+    if (explicitAcc.type === '#') return `${baseLetter}#`;
+    if (explicitAcc.type === 'b') return `${baseLetter}b`;
+    if (explicitAcc.type === 'n') return baseLetter;
+    if (explicitAcc.type === '##') return `${baseLetter}##`;
+    if (explicitAcc.type === 'bb') return `${baseLetter}bb`;
+  }
+
+  // 3. Fall back to Key Signature accidental
+  const keyAcc = KEY_ACCIDENTALS[activeKey]?.[baseLetter];
+  if (keyAcc) {
+    return `${baseLetter}${keyAcc}`;
+  }
+
+  return baseLetter;
+};
 
 interface Props {
   notes: MidiNotePlaybackItem[];
@@ -71,7 +161,7 @@ interface Props {
   rightHandColor: string;
   leftHandColor: string;
   hitNoteColor: string;
-  signatureEvents: SignatureEvent[];
+  signatureEvents: { timeMs: number; key?: string; time?: TimeSignatureInfo }[];
   onLayoutRendered: (layoutId: number) => void;
   tempoEvents: TempoEvent[];
   playbackTempoMultiplier: number;
@@ -79,94 +169,73 @@ interface Props {
   lowDetailMode?: boolean;
   instrumentMode?: 'piano' | 'drum';
   resolutionScale?: number;
+  noteLabelType?: NoteLabelType;
 }
 
-interface StickySignaturePanelProps {
-  vexFlowData: VexFlowRenderData;
-  currentTimeMs: number;
+interface NotePosInfo {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  systemIndex: number;
+  measureIndex: number;
+  timeMs: number;
+}
+
+interface SystemMeasureLayout {
+  measure: VexFlowMeasureData;
+  globalIndex: number;
+  systemIndex: number;
+  x: number;
+  width: number;
+  isFirstInSystem: boolean;
+  isLastInSystem: boolean;
+  noteStartX: number;
+}
+
+interface SystemLayout {
+  systemIndex: number;
+  measures: SystemMeasureLayout[];
+  width: number;
   height: number;
-  backgroundColor: string;
-  lowDetailMode?: boolean;
-  resolutionScale?: number;
+  virtualWidth: number;
+  virtualHeight: number;
+  startY: number;
+  firstMeasureIndex: number;
+  lastMeasureIndex: number;
 }
 
-const StickySignaturePanel: React.FC<StickySignaturePanelProps> = React.memo(({ vexFlowData, currentTimeMs, height, backgroundColor, lowDetailMode = false, resolutionScale = 1.0 }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const currentMeasure = useMemo(() => {
-    return vexFlowData.measures.find(m => currentTimeMs >= m.startTimeMs && currentTimeMs < m.endTimeMs) || vexFlowData.measures[0];
-  }, [vexFlowData, currentTimeMs]);
+/**
+ * Calculates lead width required for clefs, key signatures, and time signatures.
+ */
+function getSystemLeadWidth(
+  isFirstSystem: boolean,
+  keySignature: string,
+  timeSignature?: TimeSignatureInfo,
+  isTimeSigChange?: boolean
+): number {
+  let lead = 36; // Clef + initial left margin
+  const keyAccidentals: Record<string, number> = {
+    'C': 0, 'Am': 0,
+    'G': 1, 'Em': 1, 'F': 1, 'Dm': 1,
+    'D': 2, 'Bm': 2, 'Bb': 2, 'Gm': 2,
+    'A': 3, 'F#m': 3, 'Eb': 3, 'Cm': 3,
+    'E': 4, 'C#m': 4, 'Ab': 4, 'Fm': 4,
+    'B': 5, 'G#m': 5, 'Db': 5, 'Bbm': 5,
+    'F#': 6, 'D#m': 6, 'Gb': 6, 'Ebm': 6,
+    'C#': 7, 'A#m': 7, 'Cb': 7, 'Abm': 7,
+  };
+  const accCount = keyAccidentals[keySignature] ?? 0;
+  if (accCount > 0) {
+    lead += accCount * 11 + 6;
+  }
+  if (isFirstSystem || isTimeSigChange) {
+    lead += 30;
+  }
+  return Math.ceil(lead + 10);
+}
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !vexFlowData || !currentMeasure) return;
-    const ctx = canvas.getContext('2d');
-    if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    const dpr = (typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1) * (resolutionScale || 1.0);
-    canvas.width = Math.floor(SIDEBAR_WIDTH * dpr);
-    canvas.height = Math.floor(height * dpr);
-
-    const renderer = new Renderer(canvas, Renderer.Backends.CANVAS);
-    renderer.resize(SIDEBAR_WIDTH * dpr, height * dpr);
-    canvas.style.width = `${SIDEBAR_WIDTH}px`;
-    canvas.style.height = `${height}px`;
-    const vexCtx = renderer.getContext();
-    vexCtx.scale(dpr, dpr);
-    (vexCtx as any).setFillStyle = function(style: string) { this.fillStyle = style; };
-
-    const topStaveYOffset = Math.floor(vexFlowData.topStaveYOffset);
-    const verticalSpacing = Math.floor(vexFlowData.verticalSpacing);
-    const { keySignature, timeSignature, instrumentMode } = vexFlowData;
-    const isDrum = instrumentMode === 'drum';
-
-    if (isDrum) {
-        const drumStave = new Stave(0, topStaveYOffset, SIDEBAR_WIDTH - 5);
-        const activeTime = currentMeasure.effectiveTimeSignature || timeSignature;
-        drumStave.addClef('percussion');
-        drumStave.addTimeSignature(`${activeTime.numerator}/${activeTime.denominator}`);
-        drumStave.setContext(vexCtx).draw();
-    } else {
-        const treble = new Stave(0, topStaveYOffset, SIDEBAR_WIDTH - 5);
-        const bass = new Stave(0, topStaveYOffset + verticalSpacing, SIDEBAR_WIDTH - 5);
-
-        const activeKey = currentMeasure.activeKeySignature || keySignature;
-        const activeTime = currentMeasure.effectiveTimeSignature || timeSignature;
-
-        treble.addClef(currentMeasure.effectiveClefRH || 'treble');
-        treble.addKeySignature(activeKey);
-        treble.addTimeSignature(`${activeTime.numerator}/${activeTime.denominator}`);
-        
-        bass.addClef(currentMeasure.effectiveClefLH || 'bass');
-        bass.addKeySignature(activeKey);
-        bass.addTimeSignature(`${activeTime.numerator}/${activeTime.denominator}`);
-
-        treble.setContext(vexCtx).draw();
-        bass.setContext(vexCtx).draw();
-        new StaveConnector(treble, bass).setType(StaveConnector.type.BRACE).setContext(vexCtx).draw();
-        new StaveConnector(treble, bass).setType(StaveConnector.type.SINGLE_LEFT).setContext(vexCtx).draw();
-    }
-  }, [vexFlowData, currentMeasure, height, resolutionScale]);
-
-  return (
-    <div 
-      className="absolute top-0 left-0 z-30 pointer-events-none"
-      style={{ 
-        width: `${SIDEBAR_WIDTH}px`,
-        height: `${height}px`,
-        backgroundColor: backgroundColor === 'transparent' 
-            ? (lowDetailMode ? 'rgba(247, 245, 237, 0.8)' : 'rgba(247, 245, 237, 0.95)')
-            : (backgroundColor === 'transparent' ? '#f7f5ed' : backgroundColor),
-        backdropFilter: lowDetailMode ? 'none' : 'blur(4px)',
-        borderRight: '1px solid rgba(0,0,0,0.1)',
-        boxShadow: '4px 0 12px rgba(0,0,0,0.08)'
-      }}
-    >
-      <canvas ref={canvasRef} style={{ width: `${SIDEBAR_WIDTH}px`, height: `${height}px` }}/>
-    </div>
-  );
-});
-
-const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
+export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
   notes,
   timeSignature,
   keySignature,
@@ -191,653 +260,1095 @@ const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
   lowDetailMode = false,
   instrumentMode = 'piano',
   resolutionScale = 1.0,
+  noteLabelType = 'none',
 }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const cursorRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]); 
-  const scrollOffsetRef = useRef(0);
+  const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
+  const systemDivRefs = useRef<(HTMLDivElement | null)[]>([]);
 
-  const [highlights, setHighlights] = useState<HighlightInfo[]>([]);
-  const notePositionsRef = useRef<Map<string, BoundingBox>>(new Map());
   const [renderedLayoutId, setRenderedLayoutId] = useState(0);
-  const dragRef = useRef<{ isDragging: boolean; startX: number; startTime: number } | null>(null);
+  const [notePositions, setNotePositions] = useState<Map<string, NotePosInfo>>(new Map());
+  const lastActiveSystemRef = useRef<number>(-1);
 
+  // Compute base VexFlow render data with sheetMusicZoom
+  const vexFlowData = useMemo(() => {
+    if (!notes.length || !timeSignature || initialTempoBpm <= 0) return null;
+    if (width == null || width <= 0 || !Number.isFinite(width) || height == null || height <= 0 || !Number.isFinite(height)) return null;
+    try {
+      return getVexFlowRenderData(
+        notes,
+        timeSignature,
+        initialTempoBpm,
+        keySignature,
+        sheetMusicZoom,
+        barLines,
+        signatureEvents,
+        width,
+        height,
+        true,
+        tempoEvents,
+        playbackTempoMultiplier,
+        false,
+        instrumentMode
+      );
+    } catch (e) {
+      console.error('Error generating VexFlow render data:', e);
+      return null;
+    }
+  }, [notes, timeSignature, initialTempoBpm, keySignature, sheetMusicZoom, barLines, signatureEvents, width, height, tempoEvents, playbackTempoMultiplier, instrumentMode]);
+
+  // Dynamic system wrapping:
+  // Packs measures cleanly. If a measure would exceed the line width, it wraps to the line below
+  // so bars are never squashed or cut off halfway, guaranteed across all screen widths.
+  const systems = useMemo<SystemLayout[]>(() => {
+    if (!vexFlowData || vexFlowData.measures.length === 0) return [];
+
+    const isDrum = instrumentMode === 'drum';
+    const systemDisplayWidth = Math.max(280, Math.floor(width - SYSTEM_PADDING_X * 2));
+    const virtualSystemWidth = Math.floor(systemDisplayWidth / NOTATION_SCALE);
+    const virtualSystemHeight = isDrum ? VIRTUAL_DRUM_SYSTEM_HEIGHT : VIRTUAL_SYSTEM_HEIGHT;
+    const systemDisplayHeight = Math.floor(virtualSystemHeight * NOTATION_SCALE);
+
+    // Responsive limit on max measures per line to ensure no measure is ever crushed or cut off
+    let maxMeasuresPerLine = 4;
+    if (virtualSystemWidth < 550) maxMeasuresPerLine = 1;
+    else if (virtualSystemWidth < 850) maxMeasuresPerLine = 2;
+    else if (virtualSystemWidth < 1200) maxMeasuresPerLine = 3;
+    else maxMeasuresPerLine = 4;
+
+    const allMeasures = vexFlowData.measures;
+    const result: SystemLayout[] = [];
+
+    let currentSystemMeasures: { measure: VexFlowMeasureData; globalIndex: number }[] = [];
+    let currentSystemIndex = 0;
+    let accumulatedWidth = 0;
+
+    for (let i = 0; i < allMeasures.length; i++) {
+      const m = allMeasures[i];
+      const isFirstInSystem = currentSystemMeasures.length === 0;
+      const lead = getSystemLeadWidth(
+        currentSystemIndex === 0 && isFirstInSystem,
+        m.activeKeySignature || vexFlowData.keySignature,
+        m.effectiveTimeSignature || vexFlowData.timeSignature,
+        m.isTimeSigChange
+      );
+      const extraLead = isFirstInSystem ? lead : 0;
+      
+      // Calculate realistic required width based on note count so notes never overflow
+      const noteCount = Math.max(m.rightHand.length, m.leftHand.length, 1);
+      const minContentWidth = Math.max(120, noteCount * 26);
+      const mReqWidth = Math.max(minContentWidth, m.width) + extraLead;
+
+      const wouldExceed = accumulatedWidth + mReqWidth > virtualSystemWidth;
+      const hasAtLeastOneMeasure = currentSystemMeasures.length >= 1;
+      const isMaxMeasures = currentSystemMeasures.length >= maxMeasuresPerLine;
+
+      // Wrap immediately to the next row if adding this measure would exceed the line width
+      if ((wouldExceed && hasAtLeastOneMeasure) || isMaxMeasures) {
+        const firstIdx = currentSystemMeasures[0].globalIndex;
+        const lastIdx = currentSystemMeasures[currentSystemMeasures.length - 1].globalIndex;
+        const firstMeasure = currentSystemMeasures[0].measure;
+        const lineExtraLead = getSystemLeadWidth(
+          currentSystemIndex === 0,
+          firstMeasure.activeKeySignature || vexFlowData.keySignature,
+          firstMeasure.effectiveTimeSignature || vexFlowData.timeSignature,
+          firstMeasure.isTimeSigChange
+        );
+        const totalBaseWidth = currentSystemMeasures.reduce((sum, item) => sum + Math.max(80, item.measure.width), 0);
+        const availableForContent = Math.max(100, virtualSystemWidth - lineExtraLead);
+
+        let curX = 0;
+        const measureLayouts: SystemMeasureLayout[] = currentSystemMeasures.map((item, mIdx) => {
+          const isFirst = mIdx === 0;
+          const isLast = mIdx === currentSystemMeasures.length - 1;
+          const prop = Math.max(80, item.measure.width) / totalBaseWidth;
+          const contentW = prop * availableForContent;
+          const actualW = isFirst ? contentW + lineExtraLead : contentW;
+
+          const layout: SystemMeasureLayout = {
+            measure: item.measure,
+            globalIndex: item.globalIndex,
+            systemIndex: currentSystemIndex,
+            x: curX,
+            width: actualW,
+            isFirstInSystem: isFirst,
+            isLastInSystem: isLast,
+            noteStartX: isFirst ? lineExtraLead : 0,
+          };
+          curX += actualW;
+          return layout;
+        });
+
+        // Snap last measure to right margin
+        if (measureLayouts.length > 0) {
+          const actualTotalX = measureLayouts[measureLayouts.length - 1].x + measureLayouts[measureLayouts.length - 1].width;
+          const diff = virtualSystemWidth - actualTotalX;
+          measureLayouts[measureLayouts.length - 1].width += diff;
+        }
+
+        result.push({
+          systemIndex: currentSystemIndex,
+          measures: measureLayouts,
+          width: systemDisplayWidth,
+          height: systemDisplayHeight,
+          virtualWidth: virtualSystemWidth,
+          virtualHeight: virtualSystemHeight,
+          startY: 32 + currentSystemIndex * (systemDisplayHeight + SYSTEM_SPACING),
+          firstMeasureIndex: firstIdx,
+          lastMeasureIndex: lastIdx,
+        });
+
+        currentSystemIndex++;
+        currentSystemMeasures = [];
+        accumulatedWidth = 0;
+      }
+
+      currentSystemMeasures.push({ measure: m, globalIndex: i });
+      accumulatedWidth += mReqWidth;
+    }
+
+    // Process remaining measures in the last line
+    if (currentSystemMeasures.length > 0) {
+      const firstIdx = currentSystemMeasures[0].globalIndex;
+      const lastIdx = currentSystemMeasures[currentSystemMeasures.length - 1].globalIndex;
+      const firstMeasure = currentSystemMeasures[0].measure;
+      const lineExtraLead = getSystemLeadWidth(
+        currentSystemIndex === 0,
+        firstMeasure.activeKeySignature || vexFlowData.keySignature,
+        firstMeasure.effectiveTimeSignature || vexFlowData.timeSignature,
+        firstMeasure.isTimeSigChange
+      );
+      const totalBaseWidth = currentSystemMeasures.reduce((sum, item) => sum + Math.max(80, item.measure.width), 0);
+      const availableForContent = Math.max(100, virtualSystemWidth - lineExtraLead);
+
+      let curX = 0;
+      const shouldJustify = currentSystemIndex === 0 || currentSystemMeasures.length >= 3;
+
+      const measureLayouts: SystemMeasureLayout[] = currentSystemMeasures.map((item, mIdx) => {
+        const isFirst = mIdx === 0;
+        const isLast = mIdx === currentSystemMeasures.length - 1;
+        const prop = Math.max(80, item.measure.width) / totalBaseWidth;
+        const contentW = shouldJustify ? prop * availableForContent : Math.max(120, item.measure.width * 1.15);
+        const actualW = isFirst ? contentW + lineExtraLead : contentW;
+
+        const layout: SystemMeasureLayout = {
+          measure: item.measure,
+          globalIndex: item.globalIndex,
+          systemIndex: currentSystemIndex,
+          x: curX,
+          width: actualW,
+          isFirstInSystem: isFirst,
+          isLastInSystem: isLast,
+          noteStartX: isFirst ? lineExtraLead : 0,
+        };
+        curX += actualW;
+        return layout;
+      });
+
+      if (shouldJustify && measureLayouts.length > 0) {
+        const actualTotalX = measureLayouts[measureLayouts.length - 1].x + measureLayouts[measureLayouts.length - 1].width;
+        const diff = virtualSystemWidth - actualTotalX;
+        measureLayouts[measureLayouts.length - 1].width += diff;
+      }
+
+      result.push({
+        systemIndex: currentSystemIndex,
+        measures: measureLayouts,
+        width: systemDisplayWidth,
+        height: systemDisplayHeight,
+        virtualWidth: virtualSystemWidth,
+        virtualHeight: virtualSystemHeight,
+        startY: 32 + currentSystemIndex * (systemDisplayHeight + SYSTEM_SPACING),
+        firstMeasureIndex: firstIdx,
+        lastMeasureIndex: lastIdx,
+      });
+    }
+
+    return result;
+  }, [vexFlowData, width, instrumentMode]);
+
+  // Notify parent of layout render
   useEffect(() => {
     if (renderedLayoutId > 0) {
       onLayoutRendered(renderedLayoutId);
     }
   }, [renderedLayoutId, onLayoutRendered]);
 
-  const vexFlowData = useMemo(() => {
-    if (!notes.length || !timeSignature || initialTempoBpm <= 0) return null;
-    if (width == null || width <= 0 || !Number.isFinite(width) || height == null || height <= 0 || !Number.isFinite(height)) return null;
-    try {
-      return getVexFlowRenderData(
-        notes, timeSignature, initialTempoBpm, keySignature, sheetMusicZoom,
-        barLines, signatureEvents, width, height, true, 
-        tempoEvents, playbackTempoMultiplier, false, instrumentMode
-      );
-    } catch (e) { return null; }
-  }, [notes, timeSignature, initialTempoBpm, keySignature, sheetMusicZoom, barLines, signatureEvents, width, height, tempoEvents, playbackTempoMultiplier, instrumentMode]);
-
-  const PLAY_LINE_X = SIDEBAR_WIDTH + (width > SIDEBAR_WIDTH ? (width - SIDEBAR_WIDTH) * 0.1 : 0);
-
-  const chunks = useMemo(() => {
-    if (!vexFlowData) return [];
-    const CHUNK_SIZE = 16;
-    const result: { chunkIndex: number; measures: VexFlowMeasureData[]; startX: number; width: number; globalStartIndex: number }[] = [];
-    let currentChunkMeasures: VexFlowMeasureData[] = [];
-    let currentChunkWidth = 0;
-    let currentStartX = 0;
-    let globalStartIndex = 0;
-
-    vexFlowData.measures.forEach((m, idx) => {
-      if (currentChunkMeasures.length === 0) {
-        globalStartIndex = idx;
-      }
-      currentChunkMeasures.push(m);
-      currentChunkWidth += m.width;
-
-      const isLast = idx === vexFlowData.measures.length - 1;
-
-      if (currentChunkMeasures.length >= CHUNK_SIZE || isLast) {
-        const chunkIndex = result.length;
-        const isFirst = chunkIndex === 0;
-        const paddingLeft = isFirst ? HORIZONTAL_PADDING : 0;
-        const paddingRight = isLast ? HORIZONTAL_PADDING : 0;
-        const chunkWidth = currentChunkWidth + paddingLeft + paddingRight;
-
-        result.push({
-          chunkIndex,
-          measures: currentChunkMeasures,
-          startX: currentStartX,
-          width: chunkWidth,
-          globalStartIndex
-        });
-        currentStartX += chunkWidth;
-        currentChunkMeasures = [];
-        currentChunkWidth = 0;
-      }
-    });
-    return result;
-  }, [vexFlowData]);
-
-  const totalMusicWidth = useMemo(() => {
-    if (!vexFlowData) return width;
-    return chunks.reduce((sum, c) => sum + c.width, 0);
-  }, [vexFlowData, chunks, width]);
-
+  // Render VexFlow score onto canvases with high-DPI scaling and compact notation
   useLayoutEffect(() => {
-    if (!vexFlowData || width <= 0 || height <= 0) {
+    if (!vexFlowData || systems.length === 0 || width <= 0 || height <= 0) {
       canvasRefs.current.forEach(canvas => {
         if (canvas) {
           const ctx = canvas.getContext('2d');
           if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
         }
       });
-      notePositionsRef.current.clear();
-      setRenderedLayoutId(prev => { onLayoutRendered(prev + 1); return prev + 1; });
+      setNotePositions(new Map());
+      setRenderedLayoutId(prev => prev + 1);
       return;
     }
 
-    canvasRefs.current.forEach(canvas => {
-      if (canvas) {
-        const ctx = canvas.getContext('2d');
-        if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
-      }
-    });
+    const dpr = (typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1) * (resolutionScale || 1.0);
+    const newPositions = new Map<string, NotePosInfo>();
+    const isDrum = instrumentMode === 'drum';
 
-    const newNotePositions = new Map<string, BoundingBox>();
+    systems.forEach((system, sysIdx) => {
+      const canvas = canvasRefs.current[sysIdx];
+      if (!canvas) return;
 
-    try {
-      const topStaveYOffset = Math.floor(vexFlowData.topStaveYOffset);
-      const verticalSpacing = Math.floor(vexFlowData.verticalSpacing);
-      const { instrumentMode } = vexFlowData;
-      const isDrum = instrumentMode === 'drum';
+      canvas.width = Math.floor(system.width * dpr);
+      canvas.height = Math.floor(system.height * dpr);
+      canvas.style.width = `${system.width}px`;
+      canvas.style.height = `${system.height}px`;
 
-      chunks.forEach((chunk, chunkIdx) => {
-        const canvas = canvasRefs.current[chunkIdx];
-        if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        const dpr = (typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1) * (resolutionScale || 1.0);
-        canvas.width = Math.floor(chunk.width * dpr);
-        canvas.height = Math.floor(height * dpr);
+      // Scale context directly by (DPR * NOTATION_SCALE)
+      // Note: Do NOT call renderer.resize() as it applies window.devicePixelRatio a second time
+      ctx.scale(dpr * NOTATION_SCALE, dpr * NOTATION_SCALE);
 
-        const renderer = new Renderer(canvas, Renderer.Backends.CANVAS);
-        renderer.resize(chunk.width * dpr, height * dpr);
-        canvas.style.width = `${chunk.width}px`;
-        canvas.style.height = `${height}px`;
-        const ctx = renderer.getContext();
-        ctx.scale(dpr, dpr);
-        (ctx as any).setFillStyle = function(style: string) { this.fillStyle = style; };
+      const renderer = new Renderer(canvas, Renderer.Backends.CANVAS);
+      const vexCtx = renderer.getContext();
+      (vexCtx as any).setFillStyle = function (style: string) {
+        this.fillStyle = style;
+      };
 
-        let currentX = chunk.chunkIndex === 0 ? HORIZONTAL_PADDING : 0;
+      system.measures.forEach((mLayout) => {
+        const { measure, isFirstInSystem, isLastInSystem, globalIndex } = mLayout;
+        const curX = mLayout.x;
+        const curW = mLayout.width;
+        const activeMeasureKey = measure.activeKeySignature || vexFlowData.keySignature || 'C';
 
-        chunk.measures.forEach((measure, mIdx) => {
-          const globalMeasureIdx = chunk.globalStartIndex + mIdx;
-          const treble = new Stave(currentX, topStaveYOffset, measure.width);
-          const bass = isDrum ? null : new Stave(currentX, topStaveYOffset + verticalSpacing, measure.width);
-          
-          treble.setMeasure(globalMeasureIdx + 1);
+        const treble = new Stave(curX, TOP_STAVE_Y, curW);
+        const bass = isDrum ? null : new Stave(curX, TOP_STAVE_Y + VERTICAL_STAFF_SPACING, curW);
 
-          if (measure.startsRepeat) { 
-              treble.setBegBarType(Barline.type.REPEAT_BEGIN); 
-              if (bass) bass.setBegBarType(Barline.type.REPEAT_BEGIN); 
-          }
-          if (measure.endsRepeat) {
-              treble.setEndBarType(Barline.type.REPEAT_END);
-              if (bass) bass.setEndBarType(Barline.type.REPEAT_END);
-          } else if (measure.endTimeMs >= totalDurationMs) { 
-              treble.setEndBarType(Barline.type.END); 
-              if (bass) bass.setEndBarType(Barline.type.END); 
-          }
-          
-          if (!isDrum && globalMeasureIdx > 0) {
-              if (measure.isClefChangeRH && measure.newClefRH) {
-                  treble.addClef(measure.newClefRH, 'default');
-              }
-              if (bass && measure.isClefChangeLH && measure.newClefLH) {
-                  bass.addClef(measure.newClefLH, 'default');
-              }
-              if (measure.isKeySigChange && measure.activeKeySignature) {
-                  treble.addKeySignature(measure.activeKeySignature, measure.previousKeySignature);
-                  if (bass) bass.addKeySignature(measure.activeKeySignature, measure.previousKeySignature);
-              }
-              if (measure.isTimeSigChange && measure.effectiveTimeSignature) {
-                  const timeSigStr = `${measure.effectiveTimeSignature.numerator}/${measure.effectiveTimeSignature.denominator}`;
-                  treble.addTimeSignature(timeSigStr);
-                  if (bass) bass.addTimeSignature(timeSigStr);
-              }
-              if (measure.isClefChangeRH || measure.isClefChangeLH || measure.isKeySigChange || measure.isTimeSigChange) {
-                  const startX = Math.max(treble.getNoteStartX(), bass ? bass.getNoteStartX() : 0);
-                  treble.setNoteStartX(startX);
-                  if (bass) bass.setNoteStartX(startX);
-              }
+        // Clefs & signatures on system starts
+        if (isFirstInSystem) {
+          treble.addClef(measure.effectiveClefRH || 'treble');
+          if (bass) bass.addClef(measure.effectiveClefLH || 'bass');
+
+          // Key signature (if not C major / Am)
+          const activeKey = activeMeasureKey;
+          if (activeKey && activeKey !== 'C' && activeKey !== 'Am') {
+            treble.addKeySignature(activeKey);
+            if (bass) bass.addKeySignature(activeKey);
           }
 
-          treble.setContext(ctx).draw(); 
-          if (bass) bass.setContext(ctx).draw();
-          
-          if (bass) new StaveConnector(treble, bass).setType(StaveConnector.type.SINGLE_RIGHT).setContext(ctx).draw();
-          
-          const createNote = (info: VexFlowNoteInfo, isLeftHand: boolean) => { 
-              const n = new StaveNote({ ...info.vexNote }); 
-              if (info.vexNote.dots) { for (let i = 0; i < info.vexNote.dots; i++) n.addModifier(new Dot()); } 
-              if (info.accidentals) info.accidentals.forEach(acc => n.addModifier(new Accidental(acc.type), acc.index)); 
-              
-              n.setAttribute('id', info.vexNoteId); 
-              
-              const props = n.getKeyProps();
-              let onOrAboveCount = 0;
-              let belowCount = 0;
-              let maxDist = -1;
-              let farthestLine = 2;
+          // Time signature on system 0 or on change
+          if (sysIdx === 0 || measure.isTimeSigChange) {
+            const ts = measure.effectiveTimeSignature || vexFlowData.timeSignature;
+            const tsStr = (ts.numerator === 4 && ts.denominator === 4) ? 'C' : `${ts.numerator}/${ts.denominator}`;
+            treble.addTimeSignature(tsStr);
+            if (bass) bass.addTimeSignature(tsStr);
+          }
+        } else {
+          // Mid-system clef, key, or time signature changes
+          if (measure.isClefChangeRH && measure.effectiveClefRH) {
+            treble.addClef(measure.effectiveClefRH);
+          }
+          if (bass && measure.isClefChangeLH && measure.effectiveClefLH) {
+            bass.addClef(measure.effectiveClefLH);
+          }
+          if (measure.isKeySigChange && measure.activeKeySignature) {
+            treble.addKeySignature(measure.activeKeySignature);
+            if (bass) bass.addKeySignature(measure.activeKeySignature);
+          }
+          if (measure.isTimeSigChange && measure.effectiveTimeSignature) {
+            const ts = measure.effectiveTimeSignature;
+            const tsStr = `${ts.numerator}/${ts.denominator}`;
+            treble.addTimeSignature(tsStr);
+            if (bass) bass.addTimeSignature(tsStr);
+          }
+        }
 
-              props.forEach(p => {
-                  const dist = Math.abs(p.line - 2);
-                  if (dist > maxDist) {
-                      maxDist = dist;
-                      farthestLine = p.line;
-                  }
-                  if (p.line <= 2) onOrAboveCount++;
-                  else belowCount++;
-              });
+        // Barlines: Repeat begin / end / standard barline / final end
+        if (measure.startsRepeat) {
+          treble.setBegBarType(Barline.type.REPEAT_BEGIN);
+          if (bass) bass.setBegBarType(Barline.type.REPEAT_BEGIN);
+        }
+        if (measure.endsRepeat) {
+          treble.setEndBarType(Barline.type.REPEAT_END);
+          if (bass) bass.setEndBarType(Barline.type.REPEAT_END);
+        } else if (globalIndex === vexFlowData.measures.length - 1) {
+          treble.setEndBarType(Barline.type.END);
+          if (bass) bass.setEndBarType(Barline.type.END);
+        } else {
+          // Explicit end barline on EVERY measure
+          treble.setEndBarType(Barline.type.SINGLE);
+          if (bass) bass.setEndBarType(Barline.type.SINGLE);
+        }
 
-              let direction: number;
-              if (onOrAboveCount > belowCount) {
-                  direction = StaveNote.STEM_UP;
-              } else if (belowCount > onOrAboveCount) {
-                  direction = StaveNote.STEM_DOWN;
-              } else {
-                  direction = farthestLine <= 2 ? StaveNote.STEM_UP : StaveNote.STEM_DOWN;
+        // Draw staves
+        treble.setContext(vexCtx).draw();
+        if (bass) bass.setContext(vexCtx).draw();
+
+        // Connectors across Grand Staff:
+        // 1. Initial brace and bracket on first measure of system
+        if (isFirstInSystem && bass) {
+          new StaveConnector(treble, bass).setType(StaveConnector.type.BRACE).setContext(vexCtx).draw();
+          new StaveConnector(treble, bass).setType(StaveConnector.type.SINGLE_LEFT).setContext(vexCtx).draw();
+        }
+
+        if (bass && !isFirstInSystem) {
+          new StaveConnector(treble, bass).setType(StaveConnector.type.SINGLE_LEFT).setContext(vexCtx).draw();
+        }
+
+        // 2. Continuous vertical end barline connecting treble and bass at the end of EVERY measure!
+        if (bass) {
+          if (globalIndex === vexFlowData.measures.length - 1) {
+            new StaveConnector(treble, bass).setType(StaveConnector.type.BOLD_DOUBLE_RIGHT).setContext(vexCtx).draw();
+          } else {
+            new StaveConnector(treble, bass).setType(StaveConnector.type.SINGLE_RIGHT).setContext(vexCtx).draw();
+          }
+        }
+
+        // Create StaveNotes
+        const createStaveNote = (info: VexFlowNoteInfo) => {
+          const n = new StaveNote({ ...info.vexNote });
+          if (info.vexNote.dots) {
+            for (let d = 0; d < info.vexNote.dots; d++) n.addModifier(new Dot());
+          }
+          if (info.accidentals) {
+            info.accidentals.forEach(acc => {
+              if (acc && acc.type) {
+                n.addModifier(new Accidental(acc.type), acc.index);
               }
-              
-              n.setStemDirection(direction);
-              return n; 
-          };
-          const rightStaveNotes: StaveNote[] = [];
-          const rightInfoMap = new Map<string, VexFlowNoteInfo>();
-          measure.rightHand.forEach(info => {
-              const isDuplicate = rightStaveNotes.some(n => {
-                  const rhInfo = rightInfoMap.get(n.getAttribute('id'));
-                  return rhInfo && Math.abs(rhInfo.timeMs - info.timeMs) < 1 && rhInfo.midiValue === info.midiValue;
-              });
-              if (!isDuplicate) {
-                  const n = createNote(info, false);
-                  rightStaveNotes.push(n);
-                  rightInfoMap.set(info.vexNoteId, info);
-              }
+            });
+          }
+          n.setAttribute('id', info.vexNoteId);
+
+          const props = n.getKeyProps();
+          let onOrAboveCount = 0;
+          let belowCount = 0;
+          let maxDist = -1;
+          let farthestLine = 2;
+
+          props.forEach(p => {
+            const dist = Math.abs(p.line - 2);
+            if (dist > maxDist) {
+              maxDist = dist;
+              farthestLine = p.line;
+            }
+            // In VexFlow, line 0 is bottom stave line, line 2 is middle stave line, line 4 is top stave line.
+            // Notes on or above middle line (line >= 2) standardly have stem pointing DOWN.
+            // Notes below middle line (line < 2) standardly have stem pointing UP.
+            if (p.line >= 2) onOrAboveCount++;
+            else belowCount++;
           });
 
-          const leftStaveNotes: StaveNote[] = [];
-          const leftInfoMap = new Map<string, VexFlowNoteInfo>();
-          measure.leftHand.forEach(info => {
-              const isDuplicateInternal = leftStaveNotes.some(n => {
-                  const lhInfo = leftInfoMap.get(n.getAttribute('id'));
-                  return lhInfo && Math.abs(lhInfo.timeMs - info.timeMs) < 1 && lhInfo.midiValue === info.midiValue;
-              });
-              
-              const isDuplicateAcross = rightStaveNotes.some(n => {
-                  const rhInfo = rightInfoMap.get(n.getAttribute('id'));
-                  return rhInfo && Math.abs(rhInfo.timeMs - info.timeMs) < 1 && rhInfo.midiValue === info.midiValue;
-              });
-              
-              if (!isDuplicateInternal && !isDuplicateAcross) {
-                  const n = createNote(info, true);
-                  leftStaveNotes.push(n);
-                  leftInfoMap.set(info.vexNoteId, info);
+          const direction = onOrAboveCount > belowCount
+            ? StaveNote.STEM_DOWN
+            : belowCount > onOrAboveCount
+              ? StaveNote.STEM_UP
+              : farthestLine >= 2 ? StaveNote.STEM_DOWN : StaveNote.STEM_UP;
+
+          n.setStemDirection(direction);
+          if (noteLabelType === 'fingering' && info.fingering && info.fingering.length > 0) {
+            info.fingering.forEach((f, idx) => {
+              if (f !== undefined && f !== null && f > 0) {
+                const finger = new FretHandFinger(String(f));
+                // Match the bold, visible style of the reference image
+                finger.setFont({ family: 'Arial, sans-serif', size: 11, weight: 'bold' });
+                // Always place fingering ABOVE the notes/beams for both hands
+                finger.setPosition(Modifier.Position.ABOVE);
+                // Increased shift to move them significantly higher as requested
+                finger.setYShift(-30);
+                n.addModifier(finger, idx);
               }
+            });
+          }
+
+          // Add Note Names as Annotations above the note
+          if (noteLabelType === 'noteName' && info.vexNote.keys && info.vexNote.keys.length > 0) {
+            info.vexNote.keys.forEach((k, idx) => {
+              const noteName = getNoteNameForDisplay(k, idx, info, activeMeasureKey);
+              const annotation = new Annotation(noteName);
+              annotation.setFont({ family: 'Arial, sans-serif', size: 10, weight: 'bold' });
+              annotation.setVerticalJustification(Annotation.VerticalJustify.TOP);
+              // Shift note name slightly to be clearly visible
+              annotation.setYShift(-20);
+              n.addModifier(annotation, idx);
+            });
+          }
+
+          return n;
+        };
+
+        const rightStaveNotes: StaveNote[] = [];
+        const rightInfoMap = new Map<string, VexFlowNoteInfo>();
+        measure.rightHand.forEach(info => {
+          const isDup = rightStaveNotes.some(sn => {
+            const rh = rightInfoMap.get(sn.getAttribute('id'));
+            return rh && Math.abs(rh.timeMs - info.timeMs) < 1 && rh.midiValue === info.midiValue;
           });
+          if (!isDup) {
+            const sn = createStaveNote(info);
+            rightStaveNotes.push(sn);
+            rightInfoMap.set(info.vexNoteId, info);
+          }
+        });
+
+        const leftStaveNotes: StaveNote[] = [];
+        const leftInfoMap = new Map<string, VexFlowNoteInfo>();
+        measure.leftHand.forEach(info => {
+          const isDupInt = leftStaveNotes.some(sn => {
+            const lh = leftInfoMap.get(sn.getAttribute('id'));
+            return lh && Math.abs(lh.timeMs - info.timeMs) < 1 && lh.midiValue === info.midiValue;
+          });
+          const isDupAcross = rightStaveNotes.some(sn => {
+            const rh = rightInfoMap.get(sn.getAttribute('id'));
+            return rh && Math.abs(rh.timeMs - info.timeMs) < 1 && rh.midiValue === info.midiValue;
+          });
+          if (!isDupInt && !isDupAcross) {
+            const sn = createStaveNote(info);
+            leftStaveNotes.push(sn);
+            leftInfoMap.set(info.vexNoteId, info);
+          }
+        });
+
+        // Beams
+        const buildBeams = (notesArr: StaveNote[], ts: TimeSignatureInfo, tupletGroups: VexFlowTupletGroup[]) => {
+          if (notesArr.length === 0) return [];
           
-          const groupBeams = (notes: StaveNote[], timeSig: TimeSignatureInfo, tuplets: VexFlowTupletGroup[]) => {
-              const beams: Beam[] = []; 
-              let current: StaveNote[] = [];
-              const { numerator, denominator } = timeSig;
+          const beams: Beam[] = [];
+          const beamedNoteIds = new Set<string>();
 
-              const applyStemDirectionToGroup = (group: StaveNote[]) => {
-                  if (group.length === 0) return;
-                  
-                  let maxDist = -1;
-                  let farthestLine = 2;
-                  let onOrAboveCount = 0;
-                  let belowCount = 0;
+          // 1. Manually beam tuplets only if they are composed of beamable notes
+          // (Notes shorter than a quarter note: 8th, 16th, 32nd, 64th, 128th).
+          // Quarter-note triplets and half-note triplets use tuplet brackets, not beams.
+          const BEAMABLE_DURATIONS = new Set(['8', '16', '32', '64', '128']);
+          tupletGroups.forEach(tg => {
+            const tNotes = tg.indices
+              .map(idx => notesArr[idx])
+              .filter(n => n && !n.isRest());
+            
+            const isAllBeamable = tNotes.length > 1 && tNotes.every(n => BEAMABLE_DURATIONS.has(n.getDuration()));
+            if (isAllBeamable) {
+              try {
+                // Pass true for auto_stem to harmonize stem directions across all notes in the tuplet beam
+                const b = new Beam(tNotes, true);
+                beams.push(b);
+                tNotes.forEach(n => beamedNoteIds.add(n.getAttribute('id')));
+              } catch (e) {
+                console.warn('Could not beam tuplet:', e);
+              }
+            }
+          });
 
-                  group.forEach(n => {
-                      const props = n.getKeyProps();
-                      props.forEach(p => {
-                          const dist = Math.abs(p.line - 2);
-                          if (dist > maxDist) {
-                              maxDist = dist;
-                              farthestLine = p.line;
-                          }
-                          if (p.line <= 2) onOrAboveCount++;
-                          else belowCount++;
-                      });
-                  });
-                  
-                  let direction: number;
-                  if (onOrAboveCount > belowCount) {
-                      direction = StaveNote.STEM_UP;
-                  } else if (belowCount > onOrAboveCount) {
-                      direction = StaveNote.STEM_DOWN;
-                  } else {
-                      direction = farthestLine <= 2 ? StaveNote.STEM_UP : StaveNote.STEM_DOWN;
-                  }
-                  
-                  group.forEach(n => n.setStemDirection(direction));
+          // 2. Determine beaming groups for remaining notes based on time signature
+          let groups = [new Fraction(1, 4)]; // Default: beam by quarter note
+          if (ts.numerator === 6 && ts.denominator === 8) groups = [new Fraction(3, 8)];
+          else if (ts.numerator === 9 && ts.denominator === 8) groups = [new Fraction(3, 8)];
+          else if (ts.numerator === 12 && ts.denominator === 8) groups = [new Fraction(3, 8)];
+          else if (ts.denominator === 2) groups = [new Fraction(1, 2)];
+          
+          // Split notes into contiguous runs of beamable notes to prevent VexFlow's generateBeams
+          // from failing or dropping beams when non-beamable notes (quarter/half/whole notes or rests) are in the measure
+          const runs: StaveNote[][] = [];
+          let currentRun: StaveNote[] = [];
+
+          for (const n of notesArr) {
+            if (!n.isRest() && BEAMABLE_DURATIONS.has(n.getDuration()) && !beamedNoteIds.has(n.getAttribute('id'))) {
+              currentRun.push(n);
+            } else {
+              if (currentRun.length > 1) {
+                runs.push(currentRun);
+              }
+              currentRun = [];
+            }
+          }
+          if (currentRun.length > 1) {
+            runs.push(currentRun);
+          }
+
+          runs.forEach(run => {
+            try {
+              const autoBeams = Beam.generateBeams(run, {
+                groups: groups,
+                beam_middle_only: false,
+                beam_rests: false,
+                maintain_stem_directions: false,
+              });
+              if (autoBeams && autoBeams.length > 0) {
+                autoBeams.forEach(ab => beams.push(ab));
+              } else if (run.length > 1) {
+                beams.push(new Beam(run, true));
+              }
+            } catch {
+              try {
+                beams.push(new Beam(run, true));
+              } catch (e) {
+                console.warn('Could not beam run:', e);
+              }
+            }
+          });
+
+          return beams;
+        };
+
+        const effTime = measure.effectiveTimeSignature || vexFlowData.timeSignature;
+        const rightBeams = buildBeams(rightStaveNotes, effTime, measure.rightHandTuplets || []);
+        const leftBeams = buildBeams(leftStaveNotes, effTime, measure.leftHandTuplets || []);
+
+        const rightTies: any[] = []; // Removed tie logic
+        const leftTies: any[] = [];
+
+        // Tuplets
+        const createTupletObjects = (tuplets: VexFlowTupletGroup[], staveNotes: StaveNote[]) => {
+          return tuplets.map(g => {
+            const tNotes = g.indices.map(idx => staveNotes[idx]).filter(Boolean);
+            if (tNotes.length === 0) return new Tuplet([]);
+
+            const isBeamed = tNotes.some(n => n.hasBeam());
+            const stemDir = tNotes[0].getStemDirection();
+            // In standard music engraving (as shown in reference image):
+            // - If stems point UP, the beam is at the top -> place tuplet number ABOVE the beam (LOCATION_TOP)
+            // - If stems point DOWN, the beam is at the bottom -> place tuplet number BELOW the beam (LOCATION_BOTTOM)
+            const location = stemDir === StaveNote.STEM_UP ? Tuplet.LOCATION_TOP : Tuplet.LOCATION_BOTTOM;
+            const yOffset = isBeamed ? (location === Tuplet.LOCATION_TOP ? -4 : 6) : 0;
+
+            const tuplet = new Tuplet(tNotes, {
+              location: location,
+              bracketed: !isBeamed,
+              y_offset: yOffset,
+            });
+
+            tuplet.setTupletLocation(location);
+            tuplet.setBracketed(!isBeamed);
+
+            return tuplet;
+          });
+        };
+
+        const rhTupletObjs = createTupletObjects(measure.rightHandTuplets || [], rightStaveNotes);
+        const lhTupletObjs = createTupletObjects(measure.leftHandTuplets || [], leftStaveNotes);
+
+        // Format and draw voices
+        const voices: Voice[] = [];
+
+        if (rightStaveNotes.length > 0) {
+          voices.push(new Voice({ num_beats: effTime.numerator, beat_value: effTime.denominator }).setStrict(false).addTickables(rightStaveNotes));
+        }
+        if (leftStaveNotes.length > 0) {
+          voices.push(new Voice({ num_beats: effTime.numerator, beat_value: effTime.denominator }).setStrict(false).addTickables(leftStaveNotes));
+        }
+
+        if (voices.length > 0) {
+          const noteStartX = Math.max(treble.getNoteStartX(), bass ? bass.getNoteStartX() : curX);
+          const availableVoiceWidth = Math.max(40, curW - (noteStartX - curX) - 16);
+
+          new Formatter().joinVoices(voices).format(voices, availableVoiceWidth);
+
+          if (rightStaveNotes.length > 0) {
+            voices[0].draw(vexCtx, treble);
+          }
+          if (leftStaveNotes.length > 0) {
+            const lhVoice = rightStaveNotes.length > 0 ? voices[1] : voices[0];
+            lhVoice.draw(vexCtx, isDrum ? treble : (bass as Stave));
+          }
+
+          rightBeams.forEach(b => b.setContext(vexCtx).draw());
+          leftBeams.forEach(b => b.setContext(vexCtx).draw());
+          rhTupletObjs.forEach(t => t.setContext(vexCtx).draw());
+          lhTupletObjs.forEach(t => t.setContext(vexCtx).draw());
+        }
+
+        // Capture notehead positions directly using exact VexFlow notehead stave line coordinates!
+        // sn.getNoteHeadBeginX() provides the horizontal origin of the notehead.
+        // glyphW / 2 centers the highlight directly on the notehead ellipse.
+        // sn.getYs()[hi] provides the exact center Y coordinate of that notehead on the stave!
+        const capture = (notesArr: StaveNote[], map: Map<string, VexFlowNoteInfo>) => {
+          notesArr.forEach(sn => {
+            if (sn.isRest()) return;
+            const info = map.get(sn.getAttribute('id'));
+            if (!info) return;
+
+            const beginX = typeof sn.getNoteHeadBeginX === 'function' ? sn.getNoteHeadBeginX() : sn.getAbsoluteX();
+            const glyphW = typeof (sn as any).getGlyphWidth === 'function' ? (sn as any).getGlyphWidth() : 11;
+            const noteYs = typeof sn.getYs === 'function' ? sn.getYs() : [];
+
+            sn.noteHeads.forEach((nh, hi) => {
+              const isDisplaced = typeof (nh as any).isDisplaced === 'function'
+                ? (nh as any).isDisplaced()
+                : Boolean((nh as any).displaced);
+              const shift = isDisplaced ? (sn.getStemDirection() === -1 ? -glyphW : glyphW) : 0;
+              const headCenterX = beginX + glyphW / 2 + shift;
+              const headCenterY = noteYs[hi] !== undefined
+                ? noteYs[hi]
+                : (typeof nh.getY === 'function' ? nh.getY() : TOP_STAVE_Y + 20);
+
+              const w = 12;
+              const h = 10;
+              const x = headCenterX - w / 2;
+              const y = headCenterY - h / 2;
+
+              const posData: NotePosInfo = {
+                x,
+                y,
+                w,
+                h,
+                systemIndex: sysIdx,
+                measureIndex: globalIndex,
+                timeMs: info.timeMs || measure.startTimeMs,
               };
 
-              const tupletIndices = new Set<number>();
-              tuplets.forEach(t => t.indices.forEach(idx => tupletIndices.add(idx)));
-
-              const isQuadOrCut = (numerator === 4 && denominator === 4) || (numerator === 2 && denominator === 2);
-              const isTripleOrCompound = (numerator === 3 && denominator === 4) ||
-                                         (numerator === 6 && denominator === 8) ||
-                                         (numerator === 12 && denominator === 8) ||
-                                         (numerator === 3 && denominator === 8);
-
-              for (let i = 0; i < notes.length; i++) {
-                  const note = notes[i];
-                  const duration = note.getDuration();
-                  const isBeamableDuration = ['8', '16', '32', '64'].some(d => duration.includes(d)); 
-                  const isRest = note.isRest();
-                  const isInTuplet = tupletIndices.has(i);
-
-                  if (!isRest && isBeamableDuration && !isInTuplet) {
-                      current.push(note);
-                      const hasDotted = current.some(n => n.getModifiers().some(m => m instanceof Dot));
-                      let limit = 4; 
-                      if (isQuadOrCut) { limit = hasDotted ? 3 : 4; } else if (isTripleOrCompound) { limit = hasDotted ? 4 : 3; }
-                      
-                      const nextNote = notes[i + 1];
-                      const nextDuration = nextNote ? nextNote.getDuration() : '';
-                      const nextIsBeamable = nextNote && !nextNote.isRest() && ['8', '16', '32', '64'].some(d => nextDuration.includes(d));
-                      const nextIsInTuplet = nextNote && tupletIndices.has(i + 1);
-
-                      if (current.length >= limit || !nextIsBeamable || nextIsInTuplet) {
-                          if (current.length > 1) {
-                              applyStemDirectionToGroup(current);
-                              beams.push(new Beam(current));
-                          }
-                          current = [];
-                      }
-                  } else {
-                      if (current.length > 1) {
-                          applyStemDirectionToGroup(current);
-                          beams.push(new Beam(current));
-                      }
-                      current = [];
-                  }
-              }
-              if (current.length > 1) {
-                  applyStemDirectionToGroup(current);
-                  beams.push(new Beam(current));
+              if (info.fragmentMapping) {
+                const m = info.fragmentMapping.find(xm => xm.keyIndex === hi);
+                if (m) {
+                  newPositions.set(m.fragmentId, posData);
+                  const raw = m.fragmentId.replace(/-\d+$/, '');
+                  if (raw) newPositions.set(raw, posData);
+                }
               }
 
-              tuplets.forEach(t => {
-                  const tupletNotes = t.indices.map(idx => notes[idx]);
-                  const beamableTupletNotes = tupletNotes.filter(n => !n.isRest());
-                  
-                  if (beamableTupletNotes.length > 1) {
-                      const allNotesBeamable = beamableTupletNotes.every(n => {
-                          const dur = n.getDuration();
-                          return ['8', '16', '32', '64'].some(d => dur.includes(d));
-                      });
-                      
-                      if (allNotesBeamable) {
-                          applyStemDirectionToGroup(beamableTupletNotes);
-                          beams.push(new Beam(beamableTupletNotes));
-                      }
-                  }
-              });
-
-              return beams;
-          };
-
-          const rightBeams = groupBeams(rightStaveNotes, measure.effectiveTimeSignature, measure.rightHandTuplets);
-          const leftBeams = groupBeams(leftStaveNotes, measure.effectiveTimeSignature, measure.leftHandTuplets);
-          
-          const rhTupletObjs = measure.rightHandTuplets.map(g => {
-              const tupletNotes = g.indices.map(idx => rightStaveNotes[idx]);
-              const tuplet = new Tuplet(tupletNotes);
-              if (tupletNotes.length > 0) {
-                  const direction = tupletNotes[0].getStemDirection();
-                  tuplet.setTupletLocation(direction === StaveNote.STEM_UP ? Tuplet.LOCATION_TOP : Tuplet.LOCATION_BOTTOM);
+              if (info.originalNotes && info.originalNotes[hi]) {
+                const on = info.originalNotes[hi];
+                if (on.noteId) newPositions.set(on.noteId, posData);
+                if (on.originalNoteId) newPositions.set(on.originalNoteId, posData);
+                if (on.fragmentId) newPositions.set(on.fragmentId, posData);
               }
-              return tuplet;
+
+              newPositions.set(`${info.vexNoteId}-${hi}`, posData);
+            });
           });
-          const lhTupletObjs = measure.leftHandTuplets.map(g => {
-              const tupletNotes = g.indices.map(idx => leftStaveNotes[idx]);
-              const tuplet = new Tuplet(tupletNotes);
-              if (tupletNotes.length > 0) {
-                  const direction = tupletNotes[0].getStemDirection();
-                  tuplet.setTupletLocation(direction === StaveNote.STEM_UP ? Tuplet.LOCATION_TOP : Tuplet.LOCATION_BOTTOM);
-              }
-              return tuplet;
-          });
+        };
 
-          const voices: Voice[] = [];
-          if (rightStaveNotes.length) voices.push(new Voice({ num_beats: measure.effectiveTimeSignature.numerator, beat_value: measure.effectiveTimeSignature.denominator }).setStrict(false).addTickables(rightStaveNotes));
-          if (leftStaveNotes.length) voices.push(new Voice({ num_beats: measure.effectiveTimeSignature.numerator, beat_value: measure.effectiveTimeSignature.denominator }).setStrict(false).addTickables(leftStaveNotes));
-          
-          if (voices.length) { 
-              const noteStartX = Math.max(treble.getNoteStartX(), bass ? bass.getNoteStartX() : currentX);
-              const availableWidth = Math.max(30, measure.width - (noteStartX - currentX) - 15);
-              new Formatter().joinVoices(voices).format(voices, availableWidth); 
-              
-              if (rightStaveNotes.length) {
-                  voices[0].draw(ctx, treble); 
-              }
-              
-              if (leftStaveNotes.length) {
-                  const lhVoice = rightStaveNotes.length > 0 ? voices[1] : voices[0];
-                  lhVoice.draw(ctx, isDrum ? treble : (bass as Stave)); 
-              }
-              
-              rightBeams.forEach(b => b.setContext(ctx).draw()); 
-              leftBeams.forEach(b => b.setContext(ctx).draw()); 
-              rhTupletObjs.forEach(t => t.setContext(ctx).draw());
-              lhTupletObjs.forEach(t => t.setContext(ctx).draw());
-          }
+        capture(rightStaveNotes, rightInfoMap);
+        capture(leftStaveNotes, leftInfoMap);
+      });
+    });
 
-          const capture = (notes: StaveNote[], map: Map<string, VexFlowNoteInfo>) => notes.forEach(sn => { 
-              if (sn.isRest()) return; 
-              const info = map.get(sn.getAttribute('id')); 
-              if (info?.fragmentMapping) {
-                  sn.noteHeads.forEach((nh, hi) => { 
-                      const m = info.fragmentMapping!.find(x => x.keyIndex === hi); 
-                      if (m) { 
-                          const bb = nh.getBoundingBox(); 
-                          if (bb) {
-                              const absoluteX = chunk.startX + bb.getX();
-                              const adjustedBox = {
-                                  getX: () => absoluteX,
-                                  getY: () => bb.getY(),
-                                  getW: () => bb.getW(),
-                                  getH: () => bb.getH(),
-                              };
-                              newNotePositions.set(m.fragmentId, adjustedBox as BoundingBox); 
-                          }
-                      } 
-                  }); 
-              }
-          });
-          capture(rightStaveNotes, rightInfoMap); 
-          capture(leftStaveNotes, leftInfoMap);
+    setNotePositions(newPositions);
+    setRenderedLayoutId(prev => prev + 1);
+  }, [vexFlowData, systems, width, height, instrumentMode, resolutionScale]);
 
-          currentX += measure.width;
-        });
+  // Find currently active measure and system based on currentTimeMs
+  const activeMeasureInfo = useMemo(() => {
+    if (!vexFlowData || vexFlowData.measures.length === 0) return null;
+    let mIdx = vexFlowData.measures.findIndex(m => currentTimeMs >= m.startTimeMs && currentTimeMs < m.endTimeMs);
+    if (mIdx === -1) {
+      if (currentTimeMs >= (vexFlowData.measures[vexFlowData.measures.length - 1]?.endTimeMs || 0)) {
+        mIdx = vexFlowData.measures.length - 1;
+      } else {
+        mIdx = 0;
+      }
+    }
+
+    const measure = vexFlowData.measures[mIdx];
+    const system = systems.find(s => mIdx >= s.firstMeasureIndex && mIdx <= s.lastMeasureIndex);
+    const systemMeasure = system?.measures.find(m => m.globalIndex === mIdx);
+
+    return {
+      measureIndex: mIdx,
+      measure,
+      system,
+      systemMeasure,
+    };
+  }, [vexFlowData, systems, currentTimeMs]);
+
+  // Compute smooth playhead X coordinate within active measure:
+  // Monotonically interpolates from note to note within the active measure
+  const playheadHighlightInfo = useMemo(() => {
+    if (!activeMeasureInfo || !activeMeasureInfo.system || !activeMeasureInfo.systemMeasure) return null;
+    const { system, systemMeasure, measure } = activeMeasureInfo;
+    const isDrum = instrumentMode === 'drum';
+
+    // 1. If there are notes currently waiting in activePlaybackNotesInfo, lock playhead directly to that notehead
+    const waitingEntry = Array.from(activePlaybackNotesInfo.entries()).find(([_, info]) => info.status === 'waiting');
+    if (waitingEntry) {
+      const noteId = waitingEntry[0];
+      const pos = notePositions.get(noteId) || notePositions.get(`${noteId}-0`);
+      if (pos && pos.systemIndex === system.systemIndex) {
+        return {
+          systemIndex: system.systemIndex,
+          x: pos.x + pos.w / 2,
+          y: TOP_STAVE_Y - 4,
+          w: 2,
+          h: isDrum ? 86 : (VERTICAL_STAFF_SPACING + 72),
+        };
+      }
+    }
+
+    // 2. Interpolate within active measure's note anchors
+    const measureStartX = systemMeasure.x + (systemMeasure.isFirstInSystem ? systemMeasure.noteStartX : 15);
+    const measureEndX = systemMeasure.x + systemMeasure.width;
+
+    const measureNotePositions = Array.from(notePositions.values())
+      .filter(np => np.systemIndex === system.systemIndex && np.measureIndex === activeMeasureInfo.measureIndex);
+
+    const timeToXMap = new Map<number, number[]>();
+    measureNotePositions.forEach(np => {
+      if (!timeToXMap.has(np.timeMs)) timeToXMap.set(np.timeMs, []);
+      timeToXMap.get(np.timeMs)!.push(np.x + np.w / 2);
+    });
+
+    const measureAnchors: { timeMs: number; x: number }[] = [];
+    measureAnchors.push({ timeMs: measure.startTimeMs, x: measureStartX });
+
+    Array.from(timeToXMap.entries())
+      .sort((a, b) => a[0] - b[0])
+      .forEach(([t, xs]) => {
+        const avgX = xs.reduce((sum, v) => sum + v, 0) / xs.length;
+        if (t > measure.startTimeMs && t < measure.endTimeMs) {
+          measureAnchors.push({ timeMs: t, x: avgX });
+        }
       });
 
-      notePositionsRef.current = newNotePositions; 
-      setRenderedLayoutId(prev => prev + 1);
-    } catch (e) { 
-        console.error("VexFlow Rendering Error:", e);
-        canvasRefs.current.forEach(canvas => {
-            if (canvas) {
-                const ctx = canvas.getContext('2d');
-                if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
-            }
-        });
-        notePositionsRef.current.clear();
-        setRenderedLayoutId(prev => prev + 1);
+    measureAnchors.push({ timeMs: measure.endTimeMs, x: measureEndX });
+
+    let currentX = measureStartX;
+    if (currentTimeMs <= measureAnchors[0].timeMs) {
+      currentX = measureAnchors[0].x;
+    } else if (currentTimeMs >= measureAnchors[measureAnchors.length - 1].timeMs) {
+      currentX = measureAnchors[measureAnchors.length - 1].x;
+    } else {
+      const nextIdx = measureAnchors.findIndex(pt => pt.timeMs > currentTimeMs);
+      if (nextIdx > 0) {
+        const prev = measureAnchors[nextIdx - 1];
+        const next = measureAnchors[nextIdx];
+        const span = next.timeMs - prev.timeMs;
+        const ratio = span > 0 ? (currentTimeMs - prev.timeMs) / span : 0;
+        currentX = prev.x + (next.x - prev.x) * ratio;
+      }
     }
-  }, [vexFlowData, chunks, width, height, keySignature, timeSignature, totalDurationMs, onLayoutRendered, resolutionScale]);
+
+    return {
+      systemIndex: system.systemIndex,
+      x: currentX,
+      y: TOP_STAVE_Y - 4,
+      w: 2,
+      h: isDrum ? 86 : (VERTICAL_STAFF_SPACING + 72),
+    };
+  }, [activeMeasureInfo, notePositions, activePlaybackNotesInfo, currentTimeMs, instrumentMode]);
+
+  // Reset to Bar 1 at top when entering in-game or when currentTimeMs === 0
+  useEffect(() => {
+    if (currentTimeMs === 0 && scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({ top: 0, behavior: 'auto' });
+      lastActiveSystemRef.current = -1;
+    }
+  }, [currentTimeMs]);
 
   useEffect(() => {
-    setHighlights([]);
-  }, [vexFlowData]);
+    if (renderedLayoutId > 0 && currentTimeMs === 0 && scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({ top: 0, behavior: 'auto' });
+      lastActiveSystemRef.current = -1;
+    }
+  }, [renderedLayoutId, currentTimeMs]);
 
+  const isPlayingPrevRef = useRef(isPlaying);
   useEffect(() => {
-    if (!vexFlowData || !scrollContainerRef.current || width <= 0) return;
-    
-    const anchorPoints: { timeMs: number, x: number }[] = [];
-    let accumulatedWidth = HORIZONTAL_PADDING;
-    
-    vexFlowData.measures.forEach(measure => {
-        const measureStartX = accumulatedWidth;
-        
-        const notesInMeasure = vexFlowData.fragments.filter(n => n.timeMs >= measure.startTimeMs && n.timeMs < measure.endTimeMs);
-        const rhNotes = notesInMeasure.filter(n => n.hand === 'right');
-        const lhNotes = notesInMeasure.filter(n => n.hand === 'left');
-        
-        let selectedNotes = [...rhNotes, ...lhNotes];
-        selectedNotes.sort((a, b) => a.timeMs - b.timeMs);
-        
-        // Add measure start
-        anchorPoints.push({ timeMs: measure.startTimeMs, x: measureStartX });
-        
-        selectedNotes.forEach(note => {
-            const pos = notePositionsRef.current.get(note.fragmentId);
-            if (pos) {
-                anchorPoints.push({ timeMs: note.timeMs, x: pos.getX() });
-            }
+    if (isPlaying && !isPlayingPrevRef.current) {
+      // Force re-centering on active system when user starts playing
+      lastActiveSystemRef.current = -1;
+    }
+    isPlayingPrevRef.current = isPlaying;
+  }, [isPlaying]);
+
+  // Smooth vertical auto-scroll: Keep active system row comfortably in view below the top HUD
+  useEffect(() => {
+    if (!activeMeasureInfo?.system || !scrollContainerRef.current) return;
+    const activeSysIdx = activeMeasureInfo.system.systemIndex;
+
+    if (activeSysIdx !== lastActiveSystemRef.current) {
+      lastActiveSystemRef.current = activeSysIdx;
+
+      const container = scrollContainerRef.current;
+      if (activeSysIdx === 0) {
+        container.scrollTo({
+          top: 0,
+          behavior: isPlaying ? 'smooth' : 'auto',
         });
-        
-        accumulatedWidth += measure.width;
-    });
-    
-    if (vexFlowData.measures.length > 0) {
-        const lastMeasure = vexFlowData.measures[vexFlowData.measures.length - 1];
-        anchorPoints.push({ timeMs: lastMeasure.endTimeMs, x: accumulatedWidth });
-    }
-    
-    anchorPoints.sort((a, b) => a.timeMs - b.timeMs);
-    
-    const uniqueAnchors: { timeMs: number, x: number }[] = [];
-    for (const pt of anchorPoints) {
-        if (uniqueAnchors.length === 0) {
-            uniqueAnchors.push(pt);
-        } else {
-            const last = uniqueAnchors[uniqueAnchors.length - 1];
-            if (pt.timeMs === last.timeMs) {
-                last.x = (last.x + pt.x) / 2;
-            } else {
-                uniqueAnchors.push(pt);
-            }
+        return;
+      }
+
+      const targetEl = systemDivRefs.current[activeSysIdx];
+      if (targetEl && container) {
+        // Measure element's absolute offset from the top of the container content
+        let elementAbsoluteTop = targetEl.offsetTop;
+        let parent = targetEl.offsetParent as HTMLElement | null;
+        while (parent && parent !== container) {
+          elementAbsoluteTop += parent.offsetTop;
+          parent = parent.offsetParent as HTMLElement | null;
         }
+
+        const targetHeight = targetEl.offsetHeight || activeMeasureInfo.system.height;
+        const containerHeight = container.clientHeight;
+
+        // Position active system comfortably near the top of the viewing area
+        // (with a clean 40px clearance) so it doesn't drop too low, keeping
+        // both the active line and the upcoming line below it clearly visible above the piano keys.
+        const desiredTopOffset = 40;
+
+        const targetTop = Math.max(0, Math.round(elementAbsoluteTop - desiredTopOffset));
+
+        container.scrollTo({
+          top: targetTop,
+          behavior: isPlaying ? 'smooth' : 'auto',
+        });
+      }
     }
-    
-    let absoluteCursorX = HORIZONTAL_PADDING;
-    if (uniqueAnchors.length > 0) {
-        let nextIdx = uniqueAnchors.findIndex(pt => pt.timeMs > currentTimeMs);
-        if (nextIdx === -1) {
-            absoluteCursorX = uniqueAnchors[uniqueAnchors.length - 1].x;
-        } else if (nextIdx === 0) {
-            absoluteCursorX = uniqueAnchors[0].x;
-        } else {
-            const prev = uniqueAnchors[nextIdx - 1];
-            const next = uniqueAnchors[nextIdx];
-            const progress = (currentTimeMs - prev.timeMs) / (next.timeMs - prev.timeMs);
-            absoluteCursorX = prev.x + (next.x - prev.x) * progress;
-        }
-    }
+  }, [activeMeasureInfo, isPlaying]);
 
-    const newScrollOffset = (PLAY_LINE_X - SIDEBAR_WIDTH) - absoluteCursorX;
-    scrollOffsetRef.current = newScrollOffset;
-    scrollContainerRef.current.style.transform = `translateX(${newScrollOffset}px)`;
-  }, [currentTimeMs, vexFlowData, width, PLAY_LINE_X]);
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (isPlaying || totalDurationMs <= 0) return;
-    dragRef.current = {
-      isDragging: true,
-      startX: e.clientX,
-      startTime: currentTimeMs
-    };
-  };
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!dragRef.current || !dragRef.current.isDragging || totalMusicWidth <= 0) return;
-    const deltaX = e.clientX - dragRef.current.startX;
-    const msPerPixel = totalDurationMs / totalMusicWidth;
-    const deltaTime = -deltaX * msPerPixel;
-    onSeek(Math.max(0, Math.min(totalDurationMs, dragRef.current.startTime + deltaTime)));
-  };
-
-  const handleMouseUp = () => {
-    if (dragRef.current) dragRef.current.isDragging = false;
-  };
-
-  const handleWheel = (e: React.WheelEvent) => {
-    if (isPlaying || totalDurationMs <= 0) return;
-    const msPerPixel = totalDurationMs / totalMusicWidth;
-    // deltaY is vertical scroll, but we want it to scroll horizontally
-    // or if the user uses horizontal scroll (deltaX)
-    const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-    const deltaTime = delta * msPerPixel * 2; // multiply by 2 for faster scrolling
-    onSeek(Math.max(0, Math.min(totalDurationMs, currentTimeMs + deltaTime)));
-  };
-
-  const handleTouchStart = (e: React.TouchEvent) => {
-    if (isPlaying || totalDurationMs <= 0) return;
-    dragRef.current = {
-      isDragging: true,
-      startX: e.touches[0].clientX,
-      startTime: currentTimeMs
-    };
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (!dragRef.current || !dragRef.current.isDragging || totalMusicWidth <= 0) return;
-    const deltaX = e.touches[0].clientX - dragRef.current.startX;
-    const msPerPixel = totalDurationMs / totalMusicWidth;
-    const deltaTime = -deltaX * msPerPixel;
-    onSeek(Math.max(0, Math.min(totalDurationMs, dragRef.current.startTime + deltaTime)));
-  };
-
-  const handleTouchEnd = () => {
-    if (dragRef.current) dragRef.current.isDragging = false;
-  };
+  // Click on a measure in the sheet music to seek to its start time
+  const handleMeasureClick = useCallback((measureStartTimeMs: number) => {
+    lastActiveSystemRef.current = -1;
+    onSeek(measureStartTimeMs);
+  }, [onSeek]);
 
   return (
-    <div 
-      className={`sheet-container no-select ${!isPlaying ? 'cursor-ew-resize' : ''}`} 
-      style={{ width: `${width}px`, height: `${height}px`, backgroundColor }}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
-      onWheel={handleWheel}
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
+    <div
+      className="sheet-container relative select-none overflow-hidden"
+      style={{
+        width: `${width}px`,
+        height: `${height}px`,
+        backgroundColor: backgroundColor || '#f7f5ed',
+        color: '#1a1816',
+      }}
     >
-      {vexFlowData && (
-        <StickySignaturePanel 
-          vexFlowData={vexFlowData} 
-          currentTimeMs={currentTimeMs} 
-          height={height} 
-          backgroundColor={backgroundColor}
-          lowDetailMode={lowDetailMode}
-          resolutionScale={resolutionScale}
-        />
-      )}
-      <div 
-        ref={containerRef} 
-        className="sheet-content-wrapper" 
-        style={{ left: `${SIDEBAR_WIDTH}px`, width: `calc(100% - ${SIDEBAR_WIDTH}px)`}}
+      {/* Vertically Scrollable Sheet Music Area */}
+      <div
+        ref={scrollContainerRef}
+        className="w-full h-full overflow-y-auto overflow-x-hidden relative"
+        style={{
+          paddingTop: '20px',
+          paddingBottom: `${Math.max(200, height * 0.5)}px`,
+        }}
       >
-        <div ref={scrollContainerRef} style={{ position: 'relative', width: totalMusicWidth, height, willChange: 'transform' }}>
-          {chunks.map((chunk, chunkIdx) => (
-            <canvas
-              key={`chunk-${chunkIdx}`}
-              ref={el => { canvasRefs.current[chunkIdx] = el; }}
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: `${chunk.startX - (chunk.chunkIndex === 0 ? 0 : 0)}px`,
-                width: `${chunk.width}px`,
-                height: `${height}px`
-              }}
-            />
-          ))}
-          <svg style={{ position: 'absolute', top: 0, left: 0, width: totalMusicWidth, height: '100%', pointerEvents: 'none', zIndex: 15 }}>
-            {/* Active hit notehead highlights */}
-            {Array.from(activePlaybackNotesInfo.entries()).map(([noteId, info]) => {
-              if (info.status !== 'user_played') return null;
-              const pos = notePositionsRef.current.get(`${noteId}-0`);
-              if (!pos) return null;
-              const x = pos.getX();
-              const y = pos.getY();
-              const w = pos.getW();
-              const h = pos.getH();
-              return (
-                <ellipse
-                  key={`highlight-${noteId}`}
-                  cx={x + w / 2}
-                  cy={y + h / 2}
-                  rx={w * 0.85}
-                  ry={h * 1.25}
-                  fill={hitNoteColor || '#10b981'}
-                  opacity={0.5}
+        <div
+          className="mx-auto flex flex-col items-center"
+          style={{
+            paddingLeft: `${SYSTEM_PADDING_X}px`,
+            paddingRight: `${SYSTEM_PADDING_X}px`,
+            maxWidth: `${width}px`,
+          }}
+        >
+          {systems.map((system, sysIdx) => {
+            const isSystemActive = playheadHighlightInfo?.systemIndex === sysIdx;
+
+            return (
+              <div
+                key={`system-${sysIdx}`}
+                ref={el => { systemDivRefs.current[sysIdx] = el; }}
+                className="relative mb-3"
+                style={{
+                  width: `${system.width}px`,
+                  height: `${system.height}px`,
+                }}
+              >
+                {/* VexFlow System Canvas */}
+                <canvas
+                  ref={el => { canvasRefs.current[sysIdx] = el; }}
+                  className="absolute top-0 left-0"
+                  style={{
+                    width: `${system.width}px`,
+                    height: `${system.height}px`,
+                  }}
                 />
-              );
-            })}
-            {vexFlowData?.octaveLines.map((line, index) => {
-              const y = line.startY;
-              const text = line.type;
-              const isAbove = line.type === '8va' || line.type === '15ma';
-              const textY = y;
-              const lineY = isAbove ? y + 4 : y + 16;
-              const hookEndY = isAbove ? lineY + 10 : lineY - 10;
-              return (
-                  <g key={`octave-${index}`} fill="#000" stroke="#000" strokeWidth="1.5">
-                      <text x={line.startX} y={textY} fontSize="16" fontStyle="italic" fontWeight="bold">{text}</text>
-                      <path d={`M ${line.startX + (text.length * 10)} ${lineY} L ${line.endX} ${lineY}`} strokeDasharray="4,3" fill="none" />
-                      <path d={`M ${line.endX} ${lineY} L ${line.endX} ${hookEndY}`} fill="none" />
-                  </g>
-              );
-            })}
-            {vexFlowData?.tempoMarkings.map((mark, index) => (
-              <text key={`tempo-${index}`} x={mark.x} y={mark.y} fontSize="14" fontWeight="bold" fill="#000">♩ = {mark.bpm}</text>
-            ))}
-          </svg>
+
+                {/* SVG Overlay: Playhead cursor, Measure numbers, Octaves, Tempo, Notehead Highlights.
+                    preserveAspectRatio="none" ensures exact pixel-perfect 1:1 match with canvas! */}
+                <svg
+                  className="absolute top-0 left-0 pointer-events-none"
+                  style={{
+                    width: `${system.width}px`,
+                    height: `${system.height}px`,
+                    zIndex: 10,
+                  }}
+                  viewBox={`0 0 ${system.virtualWidth} ${system.virtualHeight}`}
+                  preserveAspectRatio="none"
+                >
+                  {/* Measure Numbers */}
+                  {system.measures.map((mLayout) => {
+                    const measureNum = mLayout.globalIndex + 1;
+                    const textX = mLayout.x + (mLayout.isFirstInSystem ? mLayout.noteStartX - 28 : 2);
+                    const isSystemFirst = mLayout.isFirstInSystem;
+
+                    return (
+                      <g key={`measure-header-${mLayout.globalIndex}`}>
+                        <text
+                          x={Math.max(2, textX)}
+                          y={TOP_STAVE_Y - 8}
+                          fontFamily="'Times New Roman', Cambria, Georgia, serif"
+                          fontSize={isSystemFirst ? '14' : '12'}
+                          fontWeight={isSystemFirst ? 'bold' : 'normal'}
+                          fill="#262320"
+                        >
+                          {measureNum}
+                        </text>
+                      </g>
+                    );
+                  })}
+
+                  {/* Octave Markings: Positioned safely over the measure notes without clef collision */}
+                  {system.measures.map((mLayout) => {
+                    const m = mLayout.measure;
+                    const is15ma = m.is15maActiveRH;
+                    const is8va = m.is8vaActiveRH;
+                    const is15mb = m.is15mbActiveLH;
+                    const is8vb = m.is8vbActiveLH;
+                    const show8vaGroup = is8va || is15ma;
+                    const show8vbGroup = is8vb || is15mb;
+                    
+                    const startX = mLayout.x + (mLayout.isFirstInSystem ? mLayout.noteStartX + 4 : 4);
+                    const endX = mLayout.x + mLayout.width - 4;
+                    const textX = startX;
+
+                    return (
+                      <g key={`octave-measure-${mLayout.globalIndex}`} fill="#262320" stroke="#262320" strokeWidth="0.8">
+                        {show8vaGroup && (
+                          <>
+                            <text x={textX} y={TOP_STAVE_Y - 14} fontSize="11" fontStyle="italic" fontWeight="bold" stroke="none">
+                              {is15ma ? '15ma' : '8va'}
+                            </text>
+                            <line 
+                              x1={textX + (is15ma ? 28 : 22)} 
+                              y1={TOP_STAVE_Y - 18} 
+                              x2={endX} 
+                              y2={TOP_STAVE_Y - 18} 
+                              strokeDasharray="3,3" 
+                            />
+                            {mLayout.isLastInSystem && (
+                               <line x1={endX} y1={TOP_STAVE_Y - 18} x2={endX} y2={TOP_STAVE_Y - 12} />
+                            )}
+                          </>
+                        )}
+                        {show8vbGroup && (
+                          <>
+                            <text x={textX} y={TOP_STAVE_Y + VERTICAL_STAFF_SPACING + 104} fontSize="11" fontStyle="italic" fontWeight="bold" stroke="none">
+                              {is15mb ? '15mb' : '8vb'}
+                            </text>
+                            <line 
+                              x1={textX + (is15mb ? 28 : 22)} 
+                              y1={TOP_STAVE_Y + VERTICAL_STAFF_SPACING + 100} 
+                              x2={endX} 
+                              y2={TOP_STAVE_Y + VERTICAL_STAFF_SPACING + 100} 
+                              strokeDasharray="3,3" 
+                            />
+                            {mLayout.isLastInSystem && (
+                               <line x1={endX} y1={TOP_STAVE_Y + VERTICAL_STAFF_SPACING + 100} x2={endX} y2={TOP_STAVE_Y + VERTICAL_STAFF_SPACING + 56} />
+                            )}
+                          </>
+                        )}
+                      </g>
+                    );
+                  })}
+
+                  {/* Tempo Markings on Measure 1 or Tempo changes */}
+                  {vexFlowData?.tempoMarkings.map((mark, index) => {
+                    if (sysIdx === 0 && index === 0) {
+                      return (
+                        <text
+                          key={`tempo-${index}`}
+                          x={system.measures[0]?.noteStartX || 20}
+                          y={TOP_STAVE_Y - 10}
+                          fontSize="13"
+                          fontWeight="bold"
+                          fontFamily="sans-serif"
+                          fill="#000"
+                        >
+                          ♩ = {mark.bpm}
+                        </text>
+                      );
+                    }
+                    return null;
+                  })}
+
+                  {/* Sleek Playhead Indicator Line: slender cursor across staves */}
+                  {isSystemActive && playheadHighlightInfo && (
+                    <g key={`playhead-${sysIdx}`}>
+                      <line
+                        x1={playheadHighlightInfo.x}
+                        y1={playheadHighlightInfo.y}
+                        x2={playheadHighlightInfo.x}
+                        y2={playheadHighlightInfo.y + playheadHighlightInfo.h}
+                        stroke="rgba(239, 68, 68, 0.9)"
+                        strokeWidth={2.2}
+                        strokeLinecap="round"
+                      />
+                      <polygon
+                        points={`
+                          ${playheadHighlightInfo.x - 4},${playheadHighlightInfo.y}
+                          ${playheadHighlightInfo.x + 4},${playheadHighlightInfo.y}
+                          ${playheadHighlightInfo.x},${playheadHighlightInfo.y + 6}
+                        `}
+                        fill="rgba(239, 68, 68, 0.95)"
+                      />
+                    </g>
+                  )}
+
+                  {/* User Note Glow Highlights: ONLY for user notes (played or waiting).
+                      No left/right hand color distinction. Perfectly tailored to notehead ellipse tilted at -20 deg */}
+                  {Array.from(activePlaybackNotesInfo.entries()).map(([noteId, info]) => {
+                    if (info.status !== 'user_played' && info.status !== 'waiting') return null;
+                    const pos = notePositions.get(noteId) || notePositions.get(`${noteId}-0`);
+                    if (!pos || pos.systemIndex !== sysIdx) return null;
+
+                    const isWaiting = info.status === 'waiting';
+                    const highlightColor = isWaiting ? '#f59e0b' : (hitNoteColor || '#10b981');
+                    const cx = pos.x + pos.w / 2;
+                    const cy = pos.y + pos.h / 2;
+
+                    return (
+                      <g key={`hit-${noteId}`} transform={`rotate(-20, ${cx}, ${cy})`}>
+                        {/* Soft ambient glow */}
+                        <ellipse
+                          cx={cx}
+                          cy={cy}
+                          rx={9}
+                          ry={6}
+                          fill={highlightColor}
+                          opacity={isWaiting ? 0.35 : 0.4}
+                        />
+                        {/* Notehead highlight matching note shape */}
+                        <ellipse
+                          cx={cx}
+                          cy={cy}
+                          rx={6.8}
+                          ry={4.5}
+                          fill={highlightColor}
+                          opacity={isWaiting ? 0.8 : 0.9}
+                          stroke={isWaiting ? '#fbbf24' : '#34d399'}
+                          strokeWidth={1}
+                        />
+                      </g>
+                    );
+                  })}
+                </svg>
+
+                {/* Clickable Measure Hitboxes for Seeking */}
+                {system.measures.map((mLayout) => (
+                  <div
+                    key={`hitbox-${mLayout.globalIndex}`}
+                    className="absolute cursor-pointer hover:bg-black/[0.03] transition-colors rounded"
+                    style={{
+                      left: `${Math.round(mLayout.x * NOTATION_SCALE)}px`,
+                      top: 0,
+                      width: `${Math.round(mLayout.width * NOTATION_SCALE)}px`,
+                      height: `${system.height}px`,
+                      zIndex: 20,
+                    }}
+                    onClick={() => handleMeasureClick(mLayout.measure.startTimeMs)}
+                    title={`Measure ${mLayout.globalIndex + 1} - Click to seek`}
+                  />
+                ))}
+              </div>
+            );
+          })}
         </div>
       </div>
-      <div ref={cursorRef} className="cursor-line" style={{ left: `${PLAY_LINE_X}px` }} />
-      {!vexFlowData && notes.length > 0 && <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-20"><p className="text-slate-600 font-medium animate-pulse">Rendering Sheet Music...</p></div>}
+
+      {/* Loading state indicator */}
+      {!vexFlowData && notes.length > 0 && (
+        <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-30">
+          <p className="text-slate-600 font-medium animate-pulse">
+            Rendering Sheet Music...
+          </p>
+        </div>
+      )}
     </div>
   );
 });

@@ -48,7 +48,7 @@ export const BackgroundDisplay: React.FC<{
       backgroundUrl.toLowerCase().endsWith(".webm"),
     [backgroundUrl],
   );
-  const opacity = backgroundOpacity ?? 0.25;
+  const opacity = backgroundOpacity ?? 0.1;
   const commonStyle: React.CSSProperties = {
     position: "absolute",
     inset: 0,

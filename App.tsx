@@ -105,6 +105,7 @@ import {
   frequencyToMidi,
   midiToFrequency,
   preloadAudioUrl,
+  calculateScoreMultiplier,
 } from "./utils";
 import { AuthProvider, useAuth } from "./AuthContext";
 import { supabase } from "./supabaseClient";
@@ -602,6 +603,20 @@ const AppContent: React.FC = () => {
   const MP3_INTERNAL_OFFSET_MS = 0; // Aligned with MIDI editor's 0ms offset
   const MIDI_EDITOR_INTERNAL_OFFSET_MS = 200;
 
+  const applyAudioPlaybackRate = useCallback((audio: HTMLAudioElement | null, rate: number) => {
+    if (!audio) return;
+    const clampedRate = Math.max(0.1, Math.min(4.0, rate));
+    try {
+      audio.defaultPlaybackRate = clampedRate;
+      audio.playbackRate = clampedRate;
+      (audio as any).preservesPitch = true;
+      (audio as any).mozPreservesPitch = true;
+      (audio as any).webkitPreservesPitch = true;
+    } catch (e) {
+      console.warn("Failed to set audio playback rate", e);
+    }
+  }, []);
+
   const [isBackingTrackOverlayDismissed, setIsBackingTrackOverlayDismissed] = useState(false);
 
   const getAudioStartTime = (baseTimeSec: number, backingType: string | undefined, offsetMs: number = 0) => {
@@ -654,7 +669,7 @@ const AppContent: React.FC = () => {
       if ((backing.type === "mp3" || backing.type === "link") && audioRef.current) {
         const audio = audioRef.current;
         audio.volume = mp3VolumeRef.current;
-        audio.playbackRate = currentMultiplier;
+        applyAudioPlaybackRate(audio, currentMultiplier);
 
         const setTimeAndPlay = () => {
           // Re-calculate the start playhead based on the latest estimated musical time
@@ -674,8 +689,12 @@ const AppContent: React.FC = () => {
           }
 
           audio.currentTime = Math.max(0, dynamicStartPlayheadSec);
+          applyAudioPlaybackRate(audio, currentMultiplier);
           lastAudioSyncTimeRef.current = performance.now(); // Reset sync timer on seek
-          audio.play().then(() => setBackingTrackStatus("playing")).catch((e) => {
+          audio.play().then(() => {
+            applyAudioPlaybackRate(audio, currentMultiplier);
+            setBackingTrackStatus("playing");
+          }).catch((e) => {
             console.error("Audio trigger play error:", e.name, e.message);
             if (e.name !== 'AbortError') setBackingTrackStatus("error");
           });
@@ -1201,8 +1220,7 @@ const AppContent: React.FC = () => {
 
     // Update audio playback rate immediately
     if (audioRef.current) {
-      audioRef.current.playbackRate = playbackTempoMultiplier;
-      audioRef.current.defaultPlaybackRate = playbackTempoMultiplier;
+      applyAudioPlaybackRate(audioRef.current, playbackTempoMultiplier);
     }
     if (
       youtubePlayerRef.current &&
@@ -1214,7 +1232,7 @@ const AppContent: React.FC = () => {
         /* ignore */
       }
     }
-  }, [playbackTempoMultiplier]);
+  }, [playbackTempoMultiplier, applyAudioPlaybackRate]);
 
   const [notesCurrentlyWaitingFor, setNotesCurrentlyWaitingFor] = useState<
     Set<number>
@@ -1739,7 +1757,7 @@ const AppContent: React.FC = () => {
 
   useEffect(() => {
     if (audioRef.current) {
-      audioRef.current.playbackRate = playbackTempoMultiplier;
+      applyAudioPlaybackRate(audioRef.current, playbackTempoMultiplier);
     }
     if (
       youtubePlayerRef.current &&
@@ -1751,7 +1769,7 @@ const AppContent: React.FC = () => {
         console.warn("Failed to set YouTube playback rate:", e);
       }
     }
-  }, [playbackTempoMultiplier, isPlaying]); // Update when multiplier OR playing status changes
+  }, [playbackTempoMultiplier, isPlaying, applyAudioPlaybackRate]); // Update when multiplier OR playing status changes
   // --- End Auto-Offset and Mic/MIDI Volume Logic ---
 
   const midiNoteToNameMap = useMemo(() => {
@@ -1958,6 +1976,12 @@ const AppContent: React.FC = () => {
   const initializeAudioContext = useCallback(
     async (shouldResume: boolean = true) => {
       let context = audioContextRef.current;
+      const updateLatency = () => {
+        if (!context) return;
+        const hwLat = Math.round(((context.outputLatency || 0) + (context.baseLatency || 0)) * 1000);
+        if (hwLat > 0) setDetectedHardwareLatencyMs(hwLat);
+      };
+
       if (!context) {
         try {
           const AudioContextConstructor =
@@ -1971,18 +1995,20 @@ const AppContent: React.FC = () => {
           masterGainRef.current.connect(context.destination);
           metronomeGainRef.current = context.createGain();
           metronomeGainRef.current.connect(context.destination);
-          const hwLat = Math.round(((context.outputLatency || 0) + (context.baseLatency || 0)) * 1000);
-          if (hwLat > 0) setDetectedHardwareLatencyMs(hwLat);
+          updateLatency();
+          context.onstatechange = () => {
+            updateLatency();
+          };
         } catch (e) {
           return false;
         }
       } else {
-        const hwLat = Math.round(((context.outputLatency || 0) + (context.baseLatency || 0)) * 1000);
-        if (hwLat > 0) setDetectedHardwareLatencyMs(hwLat);
+        updateLatency();
       }
       if (shouldResume && context.state === "suspended") {
         try {
           await context.resume();
+          updateLatency();
         } catch (e) {
           return false;
         }
@@ -1991,6 +2017,7 @@ const AppContent: React.FC = () => {
       if (shouldResume && context.state !== "running") {
         try {
           await context.resume();
+          updateLatency();
         } catch (e) {}
       }
       return context.state === "running" || !shouldResume;
@@ -2025,15 +2052,15 @@ const AppContent: React.FC = () => {
 
   useEffect(() => {
     if (audioRef.current) {
-      audioRef.current.playbackRate = playbackTempoMultiplier;
+      applyAudioPlaybackRate(audioRef.current, playbackTempoMultiplier);
       // Force a re-apply after a short delay because some browsers reset it when playback starts or src changes
       const timer = setTimeout(() => {
         if (audioRef.current)
-          audioRef.current.playbackRate = playbackTempoMultiplier;
+          applyAudioPlaybackRate(audioRef.current, playbackTempoMultiplier);
       }, 100);
       return () => clearTimeout(timer);
     }
-  }, [playbackTempoMultiplier, gameSettings?.backingTrack?.url, isPlaying]);
+  }, [playbackTempoMultiplier, gameSettings?.backingTrack?.url, isPlaying, applyAudioPlaybackRate]);
   useEffect(() => {
     const backing = gameSettings?.backingTrack;
     if (
@@ -2113,6 +2140,11 @@ const AppContent: React.FC = () => {
         onStateChange: (event: any) => {
           // YT.PlayerState.PLAYING = 1, BUFFERING = 3
           if (event.data === 1) {
+            if (typeof event.target.setPlaybackRate === "function") {
+              try {
+                event.target.setPlaybackRate(playbackTempoMultiplierRef.current);
+              } catch (e) {}
+            }
             if (backingTrackStatus !== 'playing') setBackingTrackStatus('playing');
           } else if (event.data === 3) {
             if (backingTrackStatus !== 'loading' && backingTrackStatus !== 'stalled') {
@@ -2251,7 +2283,8 @@ const AppContent: React.FC = () => {
       const selectedOutput = selectedMidiOutputId
         ? midiOutputs.get(selectedMidiOutputId)
         : null;
-      const realDurationMs = musicalDurationMs / playbackTempoMultiplier;
+      const effectiveMusicalDuration = Math.max(60, musicalDurationMs);
+      const realDurationMs = effectiveMusicalDuration / playbackTempoMultiplier;
       if (selectedOutput) {
         selectedOutput.send([0x90, midiNote, Math.round(velocity * 127)]);
         setTimeout(() => {
@@ -2264,39 +2297,52 @@ const AppContent: React.FC = () => {
       const isDrumMode = instrumentMode === "drum";
       const cacheKey = isDrumMode ? `drum_${midiNote}` : midiNote;
       const audioBuffer = audioBufferCacheRef.current.get(cacheKey);
-      if (!audioBuffer) return;
-      const source = audioCtx.createBufferSource();
-      source.buffer = audioBuffer;
-      const gainNode = audioCtx.createGain();
-      const now = audioCtx.currentTime;
-      gainNode.gain.setValueAtTime(velocity * 1.6, now);
-      source.connect(gainNode);
-      gainNode.connect(masterGainRef.current);
-      source.start(now);
-      source.onended = () => {
-        try {
-          source.disconnect();
-          gainNode.disconnect();
-        } catch (e) {}
+
+      const triggerAudio = (buffer: AudioBuffer) => {
+        if (!audioContextRef.current || !masterGainRef.current) return;
+        const ctx = audioContextRef.current;
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        const gainNode = ctx.createGain();
+        const now = ctx.currentTime;
+        gainNode.gain.setValueAtTime(velocity * 1.6, now);
+        source.connect(gainNode);
+        gainNode.connect(masterGainRef.current);
+        source.start(now);
+        source.onended = () => {
+          try {
+            source.disconnect();
+            gainNode.disconnect();
+          } catch (e) {}
+        };
+        if (isDrumMode) {
+          // Drum sounds play to completion without premature stop
+          return;
+        }
+        const releaseTimeSec = 0.4,
+          noteEndTimeSec = now + realDurationMs / 1000;
+        gainNode.gain.setValueAtTime(velocity * 1.6, noteEndTimeSec);
+        gainNode.gain.exponentialRampToValueAtTime(
+          0.0001,
+          noteEndTimeSec + releaseTimeSec,
+        );
+        source.stop(noteEndTimeSec + releaseTimeSec + 0.1);
       };
-      if (isDrumMode) {
-        // Drum sounds play to completion without premature stop
+
+      if (!audioBuffer) {
+        getAudioBuffer(midiNote).then((buf) => {
+          if (buf) triggerAudio(buf);
+        });
         return;
       }
-      const releaseTimeSec = 0.4,
-        noteEndTimeSec = now + realDurationMs / 1000;
-      gainNode.gain.setValueAtTime(velocity * 1.6, noteEndTimeSec);
-      gainNode.gain.exponentialRampToValueAtTime(
-        0.0001,
-        noteEndTimeSec + releaseTimeSec,
-      );
-      source.stop(noteEndTimeSec + releaseTimeSec + 0.1);
+      triggerAudio(audioBuffer);
     },
     [
       playbackTempoMultiplier,
       selectedMidiOutputId,
       midiOutputs,
       instrumentMode,
+      getAudioBuffer,
     ],
   );
 
@@ -2426,6 +2472,7 @@ const AppContent: React.FC = () => {
   // Robust Audio Playback Helper
   const safePlayAudio = useCallback(async (isDirect: boolean = false) => {
     if (audioRef.current) {
+      applyAudioPlaybackRate(audioRef.current, playbackTempoMultiplierRef.current);
       try {
         if (!isDirect && audioPlayPromiseRef.current)
           await audioPlayPromiseRef.current;
@@ -2436,6 +2483,7 @@ const AppContent: React.FC = () => {
         p.then(() => {
           if (audioPlayPromiseRef.current === p)
             audioPlayPromiseRef.current = null;
+          applyAudioPlaybackRate(audioRef.current, playbackTempoMultiplierRef.current);
         }).catch((err) => {
           if (audioPlayPromiseRef.current === p)
             audioPlayPromiseRef.current = null;
@@ -3328,6 +3376,10 @@ const AppContent: React.FC = () => {
         let audioCurrentTimeSec = -1;
         if ((backing.type === "mp3" || backing.type === "link") && audioRef.current) {
           audioCurrentTimeSec = audioRef.current.currentTime;
+          // Guard against browser spontaneously dropping playbackRate
+          if (Math.abs(audioRef.current.playbackRate - currentPlaybackTempoMultiplier) > 0.02) {
+            applyAudioPlaybackRate(audioRef.current, currentPlaybackTempoMultiplier);
+          }
         } else if (backing.type === "youtube" && youtubePlayerRef.current) {
           if (typeof youtubePlayerRef.current.getCurrentTime === "function") {
             audioCurrentTimeSec = youtubePlayerRef.current.getCurrentTime();
@@ -3346,18 +3398,44 @@ const AppContent: React.FC = () => {
             expectedAudioTimeSec = (conceptualMusicalTime + totalOffsetMs) / 1000;
           }
 
-          const driftSec = Math.abs(audioCurrentTimeSec - expectedAudioTimeSec);
+          const rawDriftSec = audioCurrentTimeSec - expectedAudioTimeSec;
+          const driftSec = Math.abs(rawDriftSec);
           const nowTime = performance.now();
-          const isStuckAtZero = audioCurrentTimeSec < 0.1 && expectedAudioTimeSec > 0.5;
+          const isStuckAtZero = audioCurrentTimeSec < 0.1 && expectedAudioTimeSec > 0.6;
           
-          // Apply auto-sync if drift exceeds 150ms and we haven't synced in the last 2 seconds (to avoid seek-loops)
-          // Also force-sync if the audio is at 0 but we expect it to be much further along (typical startup glitch)
-          if (isStuckAtZero || (driftSec > 0.15 && nowTime - lastAudioSyncTimeRef.current > 2000)) {
-            lastAudioSyncTimeRef.current = nowTime;
-            if ((backing.type === "mp3" || backing.type === "link") && audioRef.current) {
-               audioRef.current.currentTime = expectedAudioTimeSec;
-            } else if (backing.type === "youtube" && youtubePlayerRef.current) {
-               try { youtubePlayerRef.current.seekTo(expectedAudioTimeSec, true); } catch(e) {}
+          if ((backing.type === "mp3" || backing.type === "link") && audioRef.current) {
+            const audio = audioRef.current;
+            // Major drift (> 350ms) or stuck at zero: hard seek
+            if (isStuckAtZero || (driftSec > 0.35 && nowTime - lastAudioSyncTimeRef.current > 1500)) {
+              lastAudioSyncTimeRef.current = nowTime;
+              audio.currentTime = Math.max(0, expectedAudioTimeSec);
+              applyAudioPlaybackRate(audio, currentPlaybackTempoMultiplier);
+            } 
+            // Moderate drift (35ms - 350ms): phase lock via gentle slew (nudge ±4% speed)
+            // Completely seamless and inaudible phase correction without audio cuts/clicks!
+            else if (driftSec > 0.035) {
+              const slewFactor = rawDriftSec > 0 ? 0.96 : 1.04;
+              const targetRate = currentPlaybackTempoMultiplier * slewFactor;
+              if (Math.abs(audio.playbackRate - targetRate) > 0.005) {
+                try {
+                  audio.playbackRate = Math.max(0.1, Math.min(4.0, targetRate));
+                } catch (e) {}
+              }
+            } else {
+              // Drift within 35ms: lock precisely to target multiplier
+              if (Math.abs(audio.playbackRate - currentPlaybackTempoMultiplier) > 0.005) {
+                applyAudioPlaybackRate(audio, currentPlaybackTempoMultiplier);
+              }
+            }
+          } else if (backing.type === "youtube" && youtubePlayerRef.current) {
+            if (isStuckAtZero || (driftSec > 0.35 && nowTime - lastAudioSyncTimeRef.current > 2000)) {
+              lastAudioSyncTimeRef.current = nowTime;
+              try {
+                youtubePlayerRef.current.seekTo(expectedAudioTimeSec, true);
+                if (typeof youtubePlayerRef.current.setPlaybackRate === "function") {
+                  youtubePlayerRef.current.setPlaybackRate(currentPlaybackTempoMultiplier);
+                }
+              } catch (e) {}
             }
           }
         }
@@ -3656,7 +3734,9 @@ const AppContent: React.FC = () => {
             (instrumentMode === "piano" ? 200 : 100);
           while (mi < notesForGame.length) {
             const note = notesForGame[mi];
-            if (currentTimeRef.current > note.timeMs + goodWindow) {
+            const compensatedNoteTime = note.timeMs - (noteOffsetMsRef.current * currentPlaybackTempoMultiplier);
+            const noteToleranceMusical = goodWindow * currentPlaybackTempoMultiplier;
+            if (currentTimeRef.current > compensatedNoteTime + noteToleranceMusical) {
               if (!hitNoteIdsRef.current.has(note.noteId)) {
                 setMissCount((p) => p + 1);
                 missCountRef.current += 1;
@@ -3865,19 +3945,7 @@ const AppContent: React.FC = () => {
           else if (gameplayPS >= 87.5) rank = "C";
           else rank = "D";
 
-          let multiplier = Math.pow(Math.max(0, (gameplayPS - 75) / 25), 4);
-          if (gameplayPS >= 97.5) {
-            multiplier += (1 - multiplier) * 0.55;
-          } else if (gameplayPS >= 95) {
-            multiplier += (1 - multiplier) * 0.45;
-          } else if (gameplayPS >= 92.5) {
-            multiplier += (1 - multiplier) * 0.25;
-          } else if (gameplayPS >= 90) {
-            multiplier += (1 - multiplier) * 0.10;
-          } else if (gameplayPS >= 87.5) {
-            multiplier += (1 - multiplier) * 0.05;
-          }
-
+          const multiplier = calculateScoreMultiplier(gameplayPS);
           const finalScore = baseMidiScore * multiplier;
 
           let gameplayStyle = "";
@@ -4563,16 +4631,18 @@ const AppContent: React.FC = () => {
           min = Infinity,
           bestOffset = 0;
 
+        const currentMultiplier = Math.max(0.05, playbackTempoMultiplierRef.current);
+
         for (const n of search) {
           // Adjust judgment calculation: 
-          // Use the precise sub-frame inputTime calculated above.
-          const adjustedNoteTime = n.timeMs - noteOffsetMs; 
+          // noteOffsetMs is the physical hardware/device input delay in real milliseconds.
+          // Scaled to musical time: (noteOffsetMs * currentMultiplier).
+          const compensatedNoteTime = n.timeMs - (noteOffsetMsRef.current * currentMultiplier); 
+          // Real physical difference in ms between tap and note:
+          const realOffsetMs = (compensatedNoteTime - inputTime) / currentMultiplier;
 
-          // Optimization: Skip notes way out of range
-          if (
-            adjustedNoteTime < inputTime - 2500 ||
-            adjustedNoteTime > inputTime + 2500
-          )
+          // Optimization: Skip notes more than 2.5 real seconds away
+          if (Math.abs(realOffsetMs) > 2500)
             continue;
 
           let midiMatch = false;
@@ -4592,8 +4662,8 @@ const AppContent: React.FC = () => {
           }
 
           if (midiMatch && !presatisfiedNoteIdsRef.current.has(n.noteId)) {
-            // Rule: HIT if |inputTime - adjustedNoteTime| <= hitWindow (implied logic via closest search)
-            const offset = adjustedNoteTime - inputTime; // positive if early, negative if late
+            // Rule: HIT if |realOffsetMs| <= hitWindow
+            const offset = realOffsetMs; // positive if early, negative if late
             const d = Math.abs(offset);
             if (d < min) {
               min = d;
@@ -5597,32 +5667,51 @@ const AppContent: React.FC = () => {
             .limit(1);
           const hasInstrumentMode = !testError || testError.code !== "42703";
 
-          let query = supabase
+          // 1. Fetch all existing score entries for this user and song
+          const { data: existingScoresData, error: fetchScoresError } = await supabase
             .from("scores")
-            .select("final_score")
+            .select("id, final_score, instrument_mode")
             .eq("user_id", session.user.id)
             .eq("song_id", currentOnlineSongId);
-          if (hasInstrumentMode) {
-            query = query.eq(
-              "instrument_mode",
-              performanceSummary.instrumentMode,
-            );
-          }
-          const { data: b } = await query
-            .order("final_score", { ascending: false })
-            .limit(1);
 
-          if (performanceSummary.finalScore > (b?.[0]?.final_score ?? -1)) {
+          if (fetchScoresError) {
+            console.error("Error fetching existing scores:", fetchScoresError);
+          }
+
+          const existingScores = existingScoresData || [];
+
+          // Filter matching scores for this instrument mode (handling both exact match and legacy NULLs)
+          const matchingScores = existingScores.filter((s: any) => {
+            if (!hasInstrumentMode) return true;
+            return s.instrument_mode === performanceSummary.instrumentMode || !s.instrument_mode;
+          });
+
+          const currentBestScore = matchingScores.reduce(
+            (max: number, s: any) => Math.max(max, s.final_score ?? -1),
+            -1
+          );
+
+          if (performanceSummary.finalScore > currentBestScore) {
+            // Delete all previous lower scores for this user and song by primary key ID
+            const idsToDelete = matchingScores.map((s: any) => s.id);
+            if (idsToDelete.length > 0) {
+              const { error: delError } = await supabase
+                .from("scores")
+                .delete()
+                .in("id", idsToDelete);
+              if (delError) {
+                console.error("Failed to delete older scores by id:", delError);
+              }
+            }
+
+            // Also fallback delete by user_id and song_id
             let delQuery = supabase
               .from("scores")
               .delete()
               .eq("user_id", session.user.id)
               .eq("song_id", currentOnlineSongId);
-            if (hasInstrumentMode) {
-              delQuery = delQuery.eq(
-                "instrument_mode",
-                performanceSummary.instrumentMode,
-              );
+            if (hasInstrumentMode && performanceSummary.instrumentMode) {
+              delQuery = delQuery.or(`instrument_mode.eq.${performanceSummary.instrumentMode},instrument_mode.is.null`);
             }
             await delQuery;
 
@@ -5654,6 +5743,18 @@ const AppContent: React.FC = () => {
             if (insertError) {
               console.error("Failed to insert score:", insertError);
               throw insertError;
+            }
+          } else {
+            // If new score is not higher, but redundant duplicate lower records exist, clean them up
+            if (matchingScores.length > 1) {
+              const maxEntry = matchingScores.reduce(
+                (prev: any, curr: any) => (curr.final_score > prev.final_score ? curr : prev),
+                matchingScores[0]
+              );
+              const redundantIds = matchingScores.filter((s: any) => s.id !== maxEntry.id).map((s: any) => s.id);
+              if (redundantIds.length > 0) {
+                await supabase.from("scores").delete().in("id", redundantIds);
+              }
             }
           }
         } catch (e) {
@@ -6284,11 +6385,26 @@ const AppContent: React.FC = () => {
             ref={audioRef}
             src={gameSettings.backingTrack.url}
             preload="auto"
-            onPlay={() => {
+            onLoadedMetadata={(e) => {
+              applyAudioPlaybackRate(e.currentTarget, playbackTempoMultiplierRef.current);
+            }}
+            onCanPlay={(e) => {
+              applyAudioPlaybackRate(e.currentTarget, playbackTempoMultiplierRef.current);
+            }}
+            onPlay={(e) => {
+              applyAudioPlaybackRate(e.currentTarget, playbackTempoMultiplierRef.current);
               if (backingTrackStatus !== 'playing') setBackingTrackStatus('playing');
             }}
-            onPlaying={() => {
+            onPlaying={(e) => {
+              applyAudioPlaybackRate(e.currentTarget, playbackTempoMultiplierRef.current);
               if (backingTrackStatus !== 'playing') setBackingTrackStatus('playing');
+            }}
+            onRateChange={(e) => {
+              const audio = e.currentTarget;
+              const target = playbackTempoMultiplierRef.current;
+              if (Math.abs(audio.playbackRate - target) > 0.08) {
+                applyAudioPlaybackRate(audio, target);
+              }
             }}
             onWaiting={() => {
               if (backingTrackStatus !== 'stalled') setBackingTrackStatus('stalled');
@@ -6611,6 +6727,7 @@ const AppContent: React.FC = () => {
                         backgroundColor={sheetMusicBackgroundColor}
                         instrumentMode={instrumentMode}
                         resolutionScale={resolutionScale}
+                        noteLabelType={noteLabelType}
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center bg-slate-900">
@@ -6967,11 +7084,11 @@ const AppContent: React.FC = () => {
                   exit={{ opacity: 0, y: -20, x: "-50%" }}
                   onClick={() => {
                     // Manual Unblock Action
-                    if (gameSettings.backingTrack.type === 'youtube') safePlayYoutube();
+                    if (gameSettings?.backingTrack?.type === 'youtube') safePlayYoutube();
                     else if (audioRef.current) safePlayAudio();
                     setIsBackingTrackOverlayDismissed(true); // Hide it after attempt
                   }}
-                  className={`absolute top-[80px] left-1/2 z-[70] bg-slate-900/95 border border-cyan-500/30 rounded-full px-5 py-2 flex items-center gap-3 backdrop-blur-md shadow-2xl pointer-events-auto cursor-pointer hover:bg-slate-800 transition-colors`}
+                  className={`absolute top-[80px] left-1/2 z-[70] bg-slate-900/95 border border-cyan-500/30 rounded-full px-5 py-2 flex items-center gap-3 shadow-2xl pointer-events-auto cursor-pointer hover:bg-slate-800 transition-colors`}
                 >
                   <div className={`w-3.5 h-3.5 rounded-full border-2 ${
                     backingTrackStatus === 'error' ? 'border-red-500 bg-red-500/20' : 
@@ -7448,6 +7565,7 @@ const AppContent: React.FC = () => {
                       instrumentMode={instrumentMode}
                       lowDetailMode={lowDetailMode}
                       resolutionScale={resolutionScale}
+                      noteLabelType={noteLabelType}
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center bg-slate-900">
