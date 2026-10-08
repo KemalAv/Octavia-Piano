@@ -166,6 +166,7 @@ interface Props {
   tempoEvents: TempoEvent[];
   playbackTempoMultiplier: number;
   backgroundColor?: string;
+  notationColor?: string;
   lowDetailMode?: boolean;
   instrumentMode?: 'piano' | 'drum';
   resolutionScale?: number;
@@ -261,8 +262,10 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
   instrumentMode = 'piano',
   resolutionScale = 1.0,
   noteLabelType = 'none',
+  notationColor: foregroundColor,
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const notationColor = foregroundColor || (!backgroundColor || backgroundColor === 'transparent' ? '#e2e8f0' : '#1a1816');
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
   const systemDivRefs = useRef<(HTMLDivElement | null)[]>([]);
 
@@ -512,9 +515,13 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
 
       const renderer = new Renderer(canvas, Renderer.Backends.CANVAS);
       const vexCtx = renderer.getContext();
-      (vexCtx as any).setFillStyle = function (style: string) {
-        this.fillStyle = style;
-      };
+      const originalFill = vexCtx.setFillStyle.bind(vexCtx);
+      vexCtx.setFillStyle = (style: string) => originalFill(/^(black|#000(?:000)?|#444(?:444)?)$/i.test(style) ? notationColor : style);
+
+      const originalStroke = vexCtx.setStrokeStyle.bind(vexCtx);
+      vexCtx.setStrokeStyle = (style: string) => originalStroke(/^(black|#000(?:000)?|#444(?:444)?)$/i.test(style) ? notationColor : style);
+      vexCtx.setFillStyle(notationColor);
+      vexCtx.setStrokeStyle(notationColor);
 
       system.measures.forEach((mLayout) => {
         const { measure, isFirstInSystem, isLastInSystem, globalIndex } = mLayout;
@@ -710,7 +717,7 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
         });
 
         // Beams
-        const buildBeams = (notesArr: StaveNote[], ts: TimeSignatureInfo, tupletGroups: VexFlowTupletGroup[]) => {
+        const buildBeams = (notesArr: StaveNote[], ts: TimeSignatureInfo, tupletGroups: VexFlowTupletGroup[], hand: 'right' | 'left') => {
           if (notesArr.length === 0) return [];
           
           const beams: Beam[] = [];
@@ -738,15 +745,43 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
             }
           });
 
-          // 2. Determine beaming groups for remaining notes based on time signature
-          let groups = [new Fraction(1, 4)]; // Default: beam by quarter note
-          if (ts.numerator === 6 && ts.denominator === 8) groups = [new Fraction(3, 8)];
-          else if (ts.numerator === 9 && ts.denominator === 8) groups = [new Fraction(3, 8)];
-          else if (ts.numerator === 12 && ts.denominator === 8) groups = [new Fraction(3, 8)];
-          else if (ts.denominator === 2) groups = [new Fraction(1, 2)];
-          
-          // Split notes into contiguous runs of beamable notes to prevent VexFlow's generateBeams
-          // from failing or dropping beams when non-beamable notes (quarter/half/whole notes or rests) are in the measure
+          // 2. Identify rapid arpeggio / flourish notes ('32', '64', '128')
+          // When 2 or more consecutive rapid notes occur, beam them strictly among themselves!
+          // They should NEVER be joined with preceding/following slower notes (e.g. dotted 8th notes).
+          // For RH / treble clef, stems point UP and beams sit neatly at the top.
+          const isRapidNote = (n: StaveNote) => ['32', '64', '128'].includes(n.getDuration());
+
+          let currentRapidRun: StaveNote[] = [];
+          const rapidRuns: StaveNote[][] = [];
+
+          for (const n of notesArr) {
+            if (!n.isRest() && isRapidNote(n) && !beamedNoteIds.has(n.getAttribute('id'))) {
+              currentRapidRun.push(n);
+            } else {
+              if (currentRapidRun.length > 1) {
+                rapidRuns.push(currentRapidRun);
+              }
+              currentRapidRun = [];
+            }
+          }
+          if (currentRapidRun.length > 1) {
+            rapidRuns.push(currentRapidRun);
+          }
+
+          rapidRuns.forEach(rRun => {
+            try {
+              if (hand === 'right') {
+                rRun.forEach(n => n.setStemDirection(StaveNote.STEM_UP));
+              }
+              const b = new Beam(rRun, hand !== 'right');
+              beams.push(b);
+              rRun.forEach(n => beamedNoteIds.add(n.getAttribute('id')));
+            } catch (e) {
+              console.warn('Could not beam rapid run:', e);
+            }
+          });
+
+          // 3. Split remaining beamable notes into contiguous runs
           const runs: StaveNote[][] = [];
           let currentRun: StaveNote[] = [];
 
@@ -764,22 +799,95 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
             runs.push(currentRun);
           }
 
+          // 4. Determine beaming groups per run based on time signature and the run's note durations
           runs.forEach(run => {
+            const runHasSubdivisions = run.some(n => ['16', '32', '64', '128'].includes(n.getDuration()));
+            let runGroups = [new Fraction(1, 4)]; // Default: beam by quarter note
+
+            if (ts.numerator === 4 && ts.denominator === 4) {
+              // 4/4:
+              // - Runs of 8th notes only: beam by half note (4 eighth notes per beam)
+              // - Runs with 16th notes or faster: beam by quarter note (4 sixteenth notes per beam)
+              runGroups = runHasSubdivisions ? [new Fraction(1, 4)] : [new Fraction(1, 2)];
+            } else if (ts.numerator === 3 && ts.denominator === 4) {
+              // 3/4:
+              // - Runs of 8th notes: beam 6 eighth notes together across the measure (Fraction(3, 4))
+              // - Runs with 16th notes or faster: beam in groups of max 6 notes (Fraction(3, 8))
+              runGroups = runHasSubdivisions ? [new Fraction(3, 8)] : [new Fraction(3, 4)];
+            } else if (ts.numerator === 3 && ts.denominator === 8) {
+              // 3/8:
+              // - 8th notes & 16th notes (up to 6 notes): full measure beam (Fraction(3, 8))
+              // - 32nd notes or faster: beam in groups of 6 notes (Fraction(3, 16))
+              const runHas32 = run.some(n => ['32', '64', '128'].includes(n.getDuration()));
+              runGroups = runHas32 ? [new Fraction(3, 16)] : [new Fraction(3, 8)];
+            } else if (ts.numerator === 6 && ts.denominator === 4) {
+              // 6/4:
+              // - 8th notes: 6 notes per beam (Fraction(3, 4))
+              // - 16th notes: 6 notes per beam (Fraction(3, 8))
+              runGroups = runHasSubdivisions ? [new Fraction(3, 8)] : [new Fraction(3, 4)];
+            } else if (ts.numerator === 2 && ts.denominator === 4) {
+              // 2/4:
+              // - 8th notes: full measure (Fraction(2, 4))
+              // - 16th notes: per quarter note (Fraction(1, 4))
+              runGroups = runHasSubdivisions ? [new Fraction(1, 4)] : [new Fraction(2, 4)];
+            } else if (ts.denominator === 8) {
+              // Compound meters (6/8, 9/8, 12/8): beam by dotted quarter note
+              runGroups = [new Fraction(3, 8)];
+            } else if (ts.denominator === 2) {
+              runGroups = [new Fraction(1, 2)];
+            }
+
+            // Enforce max 6 notes per beam specifically for 3-based meters when subdivided
+            const is3Meter = (ts.numerator === 3 && (ts.denominator === 4 || ts.denominator === 8)) || (ts.numerator === 6 && ts.denominator === 4);
+            const addBeamWithMeterConstraint = (b: Beam) => {
+              if (is3Meter && runHasSubdivisions && b.notes.length > 6) {
+                for (let i = 0; i < b.notes.length; i += 6) {
+                  const chunk = b.notes.slice(i, i + 6);
+                  if (chunk.length > 1) {
+                    try {
+                      beams.push(new Beam(chunk, true));
+                    } catch (e) {
+                      console.warn('Could not beam split chunk:', e);
+                    }
+                  }
+                }
+              } else {
+                beams.push(b);
+              }
+            };
+
+            // In 4/4:
+            // When notes are 8th notes (duration '8'), ALWAYS beam up to 4 notes together per beam
+            // (half measure / 4 notes per beam), NEVER split into 2-2!
+            if (ts.numerator === 4 && ts.denominator === 4 && !runHasSubdivisions) {
+              for (let i = 0; i < run.length; i += 4) {
+                const chunk = run.slice(i, i + 4);
+                if (chunk.length > 1) {
+                  try {
+                    beams.push(new Beam(chunk, true));
+                  } catch (e) {
+                    console.warn('Could not beam 4-note chunk in 4/4:', e);
+                  }
+                }
+              }
+              return;
+            }
+
             try {
               const autoBeams = Beam.generateBeams(run, {
-                groups: groups,
+                groups: runGroups,
                 beam_middle_only: false,
                 beam_rests: false,
                 maintain_stem_directions: false,
               });
               if (autoBeams && autoBeams.length > 0) {
-                autoBeams.forEach(ab => beams.push(ab));
+                autoBeams.forEach(ab => addBeamWithMeterConstraint(ab));
               } else if (run.length > 1) {
-                beams.push(new Beam(run, true));
+                addBeamWithMeterConstraint(new Beam(run, true));
               }
             } catch {
               try {
-                beams.push(new Beam(run, true));
+                addBeamWithMeterConstraint(new Beam(run, true));
               } catch (e) {
                 console.warn('Could not beam run:', e);
               }
@@ -790,8 +898,8 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
         };
 
         const effTime = measure.effectiveTimeSignature || vexFlowData.timeSignature;
-        const rightBeams = buildBeams(rightStaveNotes, effTime, measure.rightHandTuplets || []);
-        const leftBeams = buildBeams(leftStaveNotes, effTime, measure.leftHandTuplets || []);
+        const rightBeams = buildBeams(rightStaveNotes, effTime, measure.rightHandTuplets || [], 'right');
+        const leftBeams = buildBeams(leftStaveNotes, effTime, measure.leftHandTuplets || [], 'left');
 
         const rightTies: any[] = []; // Removed tie logic
         const leftTies: any[] = [];
@@ -842,18 +950,26 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
 
           new Formatter().joinVoices(voices).format(voices, availableVoiceWidth);
 
-          if (rightStaveNotes.length > 0) {
-            voices[0].draw(vexCtx, treble);
-          }
-          if (leftStaveNotes.length > 0) {
-            const lhVoice = rightStaveNotes.length > 0 ? voices[1] : voices[0];
-            lhVoice.draw(vexCtx, isDrum ? treble : (bass as Stave));
+          try {
+            if (rightStaveNotes.length > 0) {
+              voices[0].draw(vexCtx, treble);
+            }
+            if (leftStaveNotes.length > 0) {
+              const lhVoice = rightStaveNotes.length > 0 ? voices[1] : voices[0];
+              lhVoice.draw(vexCtx, isDrum ? treble : (bass as Stave));
+            }
+          } catch (err) {
+            console.warn('Error drawing stave voices in measure', globalIndex, err);
           }
 
-          rightBeams.forEach(b => b.setContext(vexCtx).draw());
-          leftBeams.forEach(b => b.setContext(vexCtx).draw());
-          rhTupletObjs.forEach(t => t.setContext(vexCtx).draw());
-          lhTupletObjs.forEach(t => t.setContext(vexCtx).draw());
+          try {
+            rightBeams.forEach(b => b.setContext(vexCtx).draw());
+            leftBeams.forEach(b => b.setContext(vexCtx).draw());
+            rhTupletObjs.forEach(t => t.setContext(vexCtx).draw());
+            lhTupletObjs.forEach(t => t.setContext(vexCtx).draw());
+          } catch (err) {
+            console.warn('Error drawing beams/tuplets in measure', globalIndex, err);
+          }
         }
 
         // Capture notehead positions directly using exact VexFlow notehead stave line coordinates!
@@ -923,7 +1039,7 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
 
     setNotePositions(newPositions);
     setRenderedLayoutId(prev => prev + 1);
-  }, [vexFlowData, systems, width, height, instrumentMode, resolutionScale]);
+  }, [vexFlowData, systems, width, height, instrumentMode, resolutionScale, noteLabelType, notationColor]);
 
   // Find currently active measure and system based on currentTimeMs
   const activeMeasureInfo = useMemo(() => {
@@ -1105,8 +1221,8 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
       style={{
         width: `${width}px`,
         height: `${height}px`,
-        backgroundColor: backgroundColor || '#f7f5ed',
-        color: '#1a1816',
+        backgroundColor: backgroundColor || 'transparent',
+        color: notationColor,
       }}
     >
       {/* Vertically Scrollable Sheet Music Area */}
@@ -1137,6 +1253,7 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
                 style={{
                   width: `${system.width}px`,
                   height: `${system.height}px`,
+                  borderRadius: '6px',
                 }}
               >
                 {/* VexFlow System Canvas */}
@@ -1175,7 +1292,7 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
                           fontFamily="'Times New Roman', Cambria, Georgia, serif"
                           fontSize={isSystemFirst ? '14' : '12'}
                           fontWeight={isSystemFirst ? 'bold' : 'normal'}
-                          fill="#262320"
+                          fill={notationColor}
                         >
                           {measureNum}
                         </text>
@@ -1198,7 +1315,7 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
                     const textX = startX;
 
                     return (
-                      <g key={`octave-measure-${mLayout.globalIndex}`} fill="#262320" stroke="#262320" strokeWidth="0.8">
+                      <g key={`octave-measure-${mLayout.globalIndex}`} fill={notationColor} stroke={notationColor} strokeWidth="0.8">
                         {show8vaGroup && (
                           <>
                             <text x={textX} y={TOP_STAVE_Y - 14} fontSize="11" fontStyle="italic" fontWeight="bold" stroke="none">
@@ -1248,7 +1365,7 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
                           fontSize="13"
                           fontWeight="bold"
                           fontFamily="sans-serif"
-                          fill="#000"
+                          fill={notationColor}
                         >
                           ♩ = {mark.bpm}
                         </text>
@@ -1343,8 +1460,8 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
 
       {/* Loading state indicator */}
       {!vexFlowData && notes.length > 0 && (
-        <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-30">
-          <p className="text-slate-600 font-medium animate-pulse">
+        <div className="absolute inset-0 flex items-center justify-center bg-slate-900/80 z-30">
+          <p className="text-slate-300 font-medium animate-pulse">
             Rendering Sheet Music...
           </p>
         </div>

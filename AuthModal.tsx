@@ -78,11 +78,11 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
           window.location.href = data.url;
         }
       } else {
-        throw new Error('Gagal mendapatkan tautan login dari Supabase.');
+        throw new Error('Failed to get the sign-in link from Supabase.');
       }
     } catch (err: any) {
       console.error('[Auth] Error signing in with Google:', err);
-      setErrorMessage(err?.message || 'Gagal memulai login Google. Silakan coba lagi.');
+      setErrorMessage(err?.message || 'Failed to start Google sign-in. Please try again.');
       setLoading(false);
     }
   };
@@ -103,16 +103,16 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
           id="btn-close-auth-modal"
           onClick={onClose}
           className="absolute top-3 right-3 p-2 text-slate-400 hover:text-white rounded-full hover:bg-slate-800 transition-colors"
-          aria-label="Tutup"
+          aria-label="Close"
         >
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
 
-        <h2 className="text-xl font-bold mb-2">Masuk Akun</h2>
+        <h2 className="text-xl font-bold mb-2">Sign In</h2>
         <p className="text-sm text-slate-400 mb-6">
-          Pilih akun Google Anda untuk menyimpan skor dan profil pemain.
+          Choose your Google account to save scores and your player profile.
         </p>
 
         {errorMessage && (
@@ -139,7 +139,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               <path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571c0.001-0.001,0.002-0.001,0.003-0.002l6.19,5.238C36.971,39.205,44,34,44,24C44,22.659,43.862,21.35,43.611,20.083z"/>
             </svg>
           )}
-          <span>{loading ? 'Membuka Google...' : 'Masuk dengan Google'}</span>
+          <span>{loading ? 'Opening Google...' : 'Sign in with Google'}</span>
         </button>
       </div>
     </div>

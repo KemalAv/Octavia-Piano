@@ -1,3 +1,6 @@
+import { backingPlayheadMs, noteInputOffsetMs, measuredOutputLatencyMs, backingCorrection, routeLocalBackingAudio } from './playbackSync';
+import { parsePlaybackFile, needsAutomaticFingering } from './songLoading';
+import { getDifficultyNoteDurationMs, getMajorNoteVisualDurationMs, getMajorVisualDurationsByNoteId, getPianoPlaybackDurationMs } from './noteInteraction';
 import React, {
   useState,
   useCallback,
@@ -62,6 +65,7 @@ import {
   DEFAULT_THEME_SETTINGS,
   DEVICE_LAYOUTS,
   DEFAULT_SHOW_PIANO_TILES_BACKGROUND,
+  DEFAULT_SHOW_PERFECT_JUDGMENT,
   VISUAL_NOTE_CAP_MS,
   FREE_PLAY_ARPEGGIO_WINDOW_MS,
   DEFAULT_MP3_VOLUME,
@@ -81,11 +85,12 @@ import ProgressBar from "./components/ProgressBar";
 import MainMenu from "./components/MainMenu";
 import SongSelection from "./components/SongSelection";
 import ModeSelection from "./components/ModeSelection";
+import { HandFingering3D } from './components/HandFingering3D';
 import { Settings } from "./components/Settings";
 import AuthModal from "./AuthModal";
 import AccountModal from "./components/AccountModal";
 import JSZip, { JSZipObject } from "jszip";
-import { assignFingering } from "./fingering";
+import { requestNativeFingering, applyNativeMidiFingering, postProcessWideIntervalFingering, type FingeringPreferences, type HandPose } from "./fingeringApi";
 import { analyzeMidi } from "./midiAnalysis";
 import VexFlowSheetMusicView from "./components/VexFlowSheetMusicView";
 import HorizontalNotesView from "./components/HorizontalNotesView";
@@ -96,6 +101,7 @@ import { DrumManiaView } from "./components/DrumManiaView";
 import { QwertyManiaView } from "./components/QwertyManiaView";
 import { AcousticPianoService } from "./AcousticPianoService";
 import OffsetIndicator from "./components/OffsetIndicator";
+import { useWakeLock } from "./useWakeLock";
 import {
   getActiveKeySignature,
   getActiveTimeSignature,
@@ -191,6 +197,8 @@ interface MetronomeAudioNode {
 interface ActiveAudioNode {
   source: AudioBufferSourceNode;
   gainNode: GainNode;
+  keyName?: string;
+  startTime?: number;
 }
 
 const END_PLAYBACK_DELAY_MS = 200;
@@ -211,34 +219,34 @@ const PITCH_CLASS_TO_NAME: { [key: number]: string } = {
 };
 
 const CHORD_FORMULAS: { [key: string]: { name: string; intervals: number[] } } =
-  {
-    "0,4,7": { name: "", intervals: [0, 4, 7] },
-    "0,3,7": { name: "m", intervals: [0, 3, 7] },
-    "0,3,6": { name: "dim", intervals: [0, 3, 6] },
-    "0,4,8": { name: "aug", intervals: [0, 4, 8] },
-    "0,5,7": { name: "sus4", intervals: [0, 5, 7] },
-    "0,2,7": { name: "sus2", intervals: [0, 2, 7] },
-    "0,4,7,9": { name: "6", intervals: [0, 4, 7, 9] },
-    "0,3,7,9": { name: "m6", intervals: [0, 3, 7, 9] },
-    "0,4,7,10": { name: "7", intervals: [0, 4, 7, 10] },
-    "0,4,7,11": { name: "maj7", intervals: [0, 4, 7, 11] },
-    "0,3,7,10": { name: "m7", intervals: [0, 3, 7, 10] },
-    "0,3,6,10": { name: "m7b5", intervals: [0, 3, 6, 10] },
-    "0,3,6,9": { name: "dim7", intervals: [0, 3, 6, 9] },
-    "0,5,7,10": { name: "7sus4", intervals: [0, 5, 7, 10] },
-    "0,2,4,7,10": { name: "9", intervals: [0, 2, 4, 7, 10] },
-    "0,2,4,7,11": { name: "maj9", intervals: [0, 2, 4, 7, 11] },
-    "0,2,3,7,10": { name: "m9", intervals: [0, 2, 3, 7, 10] },
-    "0,2,4,7": { name: "add9", intervals: [0, 2, 4, 7] },
-    "0,2,3,7": { name: "madd9", intervals: [0, 2, 3, 7] },
-    "0,4,5,7,10": { name: "11", intervals: [0, 4, 5, 7, 10] },
-    "0,4,7,9,10": { name: "13", intervals: [0, 4, 7, 9, 10] },
-    "0,4,7,10,13": { name: "7b9", intervals: [0, 4, 7, 10, 1] },
-    "0,4,7,10,15": { name: "7#9", intervals: [0, 4, 7, 10, 3] },
-    "0,7": { name: "5", intervals: [0, 7] },
-    "0,4": { name: "", intervals: [0, 4] },
-    "0,3": { name: "m", intervals: [0, 3] },
-  };
+{
+  "0,4,7": { name: "", intervals: [0, 4, 7] },
+  "0,3,7": { name: "m", intervals: [0, 3, 7] },
+  "0,3,6": { name: "dim", intervals: [0, 3, 6] },
+  "0,4,8": { name: "aug", intervals: [0, 4, 8] },
+  "0,5,7": { name: "sus4", intervals: [0, 5, 7] },
+  "0,2,7": { name: "sus2", intervals: [0, 2, 7] },
+  "0,4,7,9": { name: "6", intervals: [0, 4, 7, 9] },
+  "0,3,7,9": { name: "m6", intervals: [0, 3, 7, 9] },
+  "0,4,7,10": { name: "7", intervals: [0, 4, 7, 10] },
+  "0,4,7,11": { name: "maj7", intervals: [0, 4, 7, 11] },
+  "0,3,7,10": { name: "m7", intervals: [0, 3, 7, 10] },
+  "0,3,6,10": { name: "m7b5", intervals: [0, 3, 6, 10] },
+  "0,3,6,9": { name: "dim7", intervals: [0, 3, 6, 9] },
+  "0,5,7,10": { name: "7sus4", intervals: [0, 5, 7, 10] },
+  "0,2,4,7,10": { name: "9", intervals: [0, 2, 4, 7, 10] },
+  "0,2,4,7,11": { name: "maj9", intervals: [0, 2, 4, 7, 11] },
+  "0,2,3,7,10": { name: "m9", intervals: [0, 2, 3, 7, 10] },
+  "0,2,4,7": { name: "add9", intervals: [0, 2, 4, 7] },
+  "0,2,3,7": { name: "madd9", intervals: [0, 2, 3, 7] },
+  "0,4,5,7,10": { name: "11", intervals: [0, 4, 5, 7, 10] },
+  "0,4,7,9,10": { name: "13", intervals: [0, 4, 7, 9, 10] },
+  "0,4,7,10,13": { name: "7b9", intervals: [0, 4, 7, 10, 1] },
+  "0,4,7,10,15": { name: "7#9", intervals: [0, 4, 7, 10, 3] },
+  "0,7": { name: "5", intervals: [0, 7] },
+  "0,4": { name: "", intervals: [0, 4] },
+  "0,3": { name: "m", intervals: [0, 3] },
+};
 
 const isCacheableMode = (
   settings: GameSettings | null,
@@ -310,7 +318,7 @@ const parseHash = (hash: string): { screen: Screen; songId: string | null } => {
   const match = path.match(uuidRegex);
   let songId: string | null = null;
   let pathWithoutUuid = path;
-  
+
   if (match) {
     songId = match[0];
     // Remove the UUID and collapse multi-slashes
@@ -353,7 +361,7 @@ const AppContent: React.FC = () => {
         try {
           activeEndGameSfxRef.current.pause();
           activeEndGameSfxRef.current.currentTime = 0;
-        } catch (e) {}
+        } catch (e) { }
       }
       const sfx = new Audio(src);
       sfx.volume = 0.5;
@@ -369,7 +377,7 @@ const AppContent: React.FC = () => {
       try {
         activeEndGameSfxRef.current.pause();
         activeEndGameSfxRef.current.currentTime = 0;
-      } catch (e) {}
+      } catch (e) { }
       activeEndGameSfxRef.current = null;
     }
   }, []);
@@ -401,6 +409,8 @@ const AppContent: React.FC = () => {
   const isFreePlayModeRef = useRef(false);
   const [isCalibrating, setIsCalibrating] = useState<boolean>(false);
   const isCalibratingRef = useRef<boolean>(false);
+  const calibrationAutoplayPendingRef = useRef(false);
+  const handleExitSettingsPreviewRef = useRef<() => Promise<void>>(async () => { });
   const [showCalibrationTutorial, setShowCalibrationTutorial] = useState<boolean>(false);
   const previousViewModeRef = useRef<ViewMode>("falling");
   const fileRef = useRef<File | null>(null);
@@ -426,7 +436,7 @@ const AppContent: React.FC = () => {
       }
 
       const { screen, songId } = parseHash(window.location.hash);
-      
+
       setCurrentScreen((prev) => {
         if (prev !== screen) return screen;
         return prev;
@@ -453,7 +463,7 @@ const AppContent: React.FC = () => {
 
     const baseHash = SCREEN_TO_HASH[currentScreen] ?? "";
     let targetHash = baseHash;
-    
+
     if (selectedOnlineSongIdForNavigation && (currentScreen === "songSelection" || currentScreen === "modeSelection" || currentScreen === "inGame")) {
       if (baseHash.endsWith("/")) {
         targetHash = `${baseHash}${selectedOnlineSongIdForNavigation}`;
@@ -461,7 +471,7 @@ const AppContent: React.FC = () => {
         targetHash = `${baseHash}/${selectedOnlineSongIdForNavigation}`;
       }
     }
-    
+
     if (!targetHash) {
       // For mainMenu or clean root: if there is an unwanted hash like '#/' or '#', clean it up
       if (window.location.hash && !isAuthHash(window.location.hash)) {
@@ -478,6 +488,7 @@ const AppContent: React.FC = () => {
   const isRewindingRef = useRef(false);
 
   const [isSustainPedalActive, setIsSustainPedalActive] = useState(false);
+  const isSustainPedalActiveRef = useRef(false);
   const [isHiHatFootPressed, setIsHiHatFootPressed] = useState(false);
   const isHiHatFootPressedRef = useRef(false);
   const sustainedByPedalKeysRef = useRef<Map<string, number>>(new Map());
@@ -603,9 +614,23 @@ const AppContent: React.FC = () => {
   const MP3_INTERNAL_OFFSET_MS = 0; // Aligned with MIDI editor's 0ms offset
   const MIDI_EDITOR_INTERNAL_OFFSET_MS = 200;
 
+  const desiredBackingRateRef = useRef(1);
+  const backingMediaSourcesRef = useRef(new WeakMap<HTMLAudioElement, MediaElementAudioSourceNode>());
+  const setBackingAudioElement = useCallback((element: HTMLAudioElement | null) => {
+    const previous = audioRef.current;
+    if (previous && previous !== element) backingMediaSourcesRef.current.get(previous)?.disconnect();
+    audioRef.current = element;
+  }, []);
+  const connectBackingAudio = useCallback((audio: HTMLAudioElement) => routeLocalBackingAudio(audio, audioContextRef.current, backingMediaSourcesRef.current, window.location.origin), []);
+  const backingOutputLatency = () => {
+    // An existing manual calibration already includes the user's output path.
+    if (userAudioSyncOffsetRef.current !== 0 || noteOffsetMsRef.current !== 0) return 0;
+    return audioRef.current && backingMediaSourcesRef.current.has(audioRef.current) ? measuredOutputLatencyMs(audioContextRef.current) : 0;
+  };
   const applyAudioPlaybackRate = useCallback((audio: HTMLAudioElement | null, rate: number) => {
     if (!audio) return;
     const clampedRate = Math.max(0.1, Math.min(4.0, rate));
+    desiredBackingRateRef.current = clampedRate;
     try {
       audio.defaultPlaybackRate = clampedRate;
       audio.playbackRate = clampedRate;
@@ -620,23 +645,7 @@ const AppContent: React.FC = () => {
   const [isBackingTrackOverlayDismissed, setIsBackingTrackOverlayDismissed] = useState(false);
 
   const getAudioStartTime = (baseTimeSec: number, backingType: string | undefined, offsetMs: number = 0) => {
-    const hiddenOffsetMs = -INITIAL_PLAYBACK_DELAY_MS;
-    const userOffsetMs = userAudioSyncOffsetRef.current;
-    const defaultOffsetMs = offsetMs;
-
-    const totalOffsetMs = hiddenOffsetMs + defaultOffsetMs + userOffsetMs;
-    const clMs = baseTimeSec * 1000;
-
-    if (totalOffsetMs < 0) {
-      const absDelayMs = Math.abs(totalOffsetMs);
-      if (clMs < absDelayMs) {
-        return 0;
-      } else {
-        return (clMs - absDelayMs) / 1000;
-      }
-    } else {
-      return (clMs + totalOffsetMs) / 1000;
-    }
+    return Math.max(0, backingPlayheadMs(baseTimeSec * 1000, playbackTempoMultiplierRef.current, offsetMs, userAudioSyncOffsetRef.current, backingType === 'mp3' || backingType === 'link' ? backingOutputLatency() : 0)) / 1000;
   };
 
   const triggerBackingTrackPlay = useCallback((clMs: number) => {
@@ -647,14 +656,15 @@ const AppContent: React.FC = () => {
       return;
     }
 
+    if ((backing.type === 'mp3' || backing.type === 'link') && audioRef.current) connectBackingAudio(audioRef.current);
     const defaultOffset = backing.offsetMs || 0;
     const userMs = userAudioSyncOffsetRef.current;
-    
+
     // totalOffsetMs defines where 0s of audio is relative to clMs=0.
     // Since notes have a +2000ms offset (INITIAL_PLAYBACK_DELAY_MS),
     // an audio track with 0 offset should start when clMs reaches 2000ms.
     const TOTAL_START_DELAY_MS = INITIAL_PLAYBACK_DELAY_MS; // 2000
-    const totalOffsetMs = -TOTAL_START_DELAY_MS + defaultOffset + userMs;
+    const totalOffsetMs = backingPlayheadMs(0, playbackTempoMultiplierRef.current, defaultOffset, userMs, backingOutputLatency());
     const currentMultiplier = Math.max(0.1, playbackTempoMultiplierRef.current);
 
     const playDirect = (startPlayheadSec: number) => {
@@ -668,19 +678,21 @@ const AppContent: React.FC = () => {
       lastAudioSyncTimeRef.current = performance.now(); // Give 2 seconds breathing room after startup
       if ((backing.type === "mp3" || backing.type === "link") && audioRef.current) {
         const audio = audioRef.current;
+        connectBackingAudio(audio);
         audio.volume = mp3VolumeRef.current;
-        applyAudioPlaybackRate(audio, currentMultiplier);
+        applyAudioPlaybackRate(audio, playbackTempoMultiplierRef.current);
 
         const setTimeAndPlay = () => {
+          if (audioRef.current !== audio || !isPlayingRef.current || isWaitStateRef.current) return;
           // Re-calculate the start playhead based on the latest estimated musical time
           // to account for any delay in loading metadata or browser scheduling.
           const currentRealTime = performance.now();
           const realTimeElapsed = currentRealTime - performanceStartTimeRef.current;
-          const latestClMs = pausedMusicalTimeRef.current + realTimeElapsed * currentMultiplier;
-          
+          const latestClMs = pausedMusicalTimeRef.current + realTimeElapsed * playbackTempoMultiplierRef.current;
+
           const TOTAL_START_DELAY_MS = INITIAL_PLAYBACK_DELAY_MS;
-          const dynamicTotalOffsetMs = -TOTAL_START_DELAY_MS + (gameSettingsRef.current?.backingTrack?.offsetMs || 0) + userAudioSyncOffsetRef.current;
-          
+          const dynamicTotalOffsetMs = backingPlayheadMs(0, playbackTempoMultiplierRef.current, gameSettingsRef.current?.backingTrack?.offsetMs || 0, userAudioSyncOffsetRef.current, backingOutputLatency());
+
           let dynamicStartPlayheadSec = 0;
           if (dynamicTotalOffsetMs < 0) {
             dynamicStartPlayheadSec = Math.max(0, latestClMs - Math.abs(dynamicTotalOffsetMs)) / 1000;
@@ -689,10 +701,10 @@ const AppContent: React.FC = () => {
           }
 
           audio.currentTime = Math.max(0, dynamicStartPlayheadSec);
-          applyAudioPlaybackRate(audio, currentMultiplier);
+          applyAudioPlaybackRate(audio, playbackTempoMultiplierRef.current);
           lastAudioSyncTimeRef.current = performance.now(); // Reset sync timer on seek
           audio.play().then(() => {
-            applyAudioPlaybackRate(audio, currentMultiplier);
+            applyAudioPlaybackRate(audio, playbackTempoMultiplierRef.current);
             setBackingTrackStatus("playing");
           }).catch((e) => {
             console.error("Audio trigger play error:", e.name, e.message);
@@ -734,7 +746,7 @@ const AppContent: React.FC = () => {
         // Let the playbackLoop call us every frame until clMs >= absDelayMs.
         // This ensures audio starts exactly when the visual head reaches it.
         setBackingTrackStatus("loading");
-        
+
         // Reset player to start while waiting (only if not already reset)
         if ((backing.type === "mp3" || backing.type === "link") && audioRef.current) {
           const audio = audioRef.current;
@@ -745,9 +757,9 @@ const AppContent: React.FC = () => {
             // Only seek if not already at 0 to avoid constant API calls
             if (youtubePlayerRef.current.getCurrentTime() > 0.1) youtubePlayerRef.current.seekTo(0, true);
             safePauseYoutube();
-          } catch(e) {}
+          } catch (e) { }
         }
-        
+
         // Don't set hasAudioStartedThisStretchRef = true here so we stay in the check-loop
         return;
       } else {
@@ -758,9 +770,11 @@ const AppContent: React.FC = () => {
       const startPlayheadSec = (clMs + totalOffsetMs) / 1000;
       playDirect(startPlayheadSec);
     }
-  }, []); 
+  }, []);
 
   const [backingTrackStatus, setBackingTrackStatus] = useState<"idle" | "loading" | "playing" | "stalled" | "error">("idle");
+  const backingTrackStatusRef = useRef(backingTrackStatus);
+  useEffect(() => { backingTrackStatusRef.current = backingTrackStatus; }, [backingTrackStatus]);
   const audioStartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -882,6 +896,17 @@ const AppContent: React.FC = () => {
   );
   const [currentFileName, setCurrentFileName] = useState<string | null>(null);
   const [isLoadingFile, setIsLoadingFile] = useState<boolean>(false);
+  const [fingeringLoadingMessage, setFingeringLoadingMessage] = useState('');
+  const [fingeringWarnings, setFingeringWarnings] = useState<string[]>([]);
+  const [fingeringError, setFingeringError] = useState('');
+  const fingeringAttemptedFileRef = useRef<File | null>(null);
+  const annotationControllerRef = useRef<AbortController | null>(null);
+  const mainFingeringControllerRef = useRef<AbortController | null>(null);
+  const [handPoses, setHandPoses] = useState<HandPose[]>([]);
+  const [showHand3D, setShowHand3D] = useState(true);
+  const [fingeringPreferences, setFingeringPreferences] = useState<FingeringPreferences>({ handSize: 'M', routing: 'auto', splitMidi: 60, engine: 'pianoplayer' });
+  const fingeringLoadController = useRef<AbortController | null>(null);
+  const audioPreloadJobRef = useRef(0);
   const [isPreloading, setIsPreloading] = useState<boolean>(false);
   const [currentFileType, setCurrentFileType] = useState<FileType>(
     FileType.UNKNOWN,
@@ -928,6 +953,9 @@ const AppContent: React.FC = () => {
   }, [loopEndMs]);
 
   const isSettingsPreviewActiveRef = useRef(false);
+  const settingsPreviewRunRef = useRef(0);
+  const settingsScreenRef = useRef(currentScreen);
+  settingsScreenRef.current = currentScreen;
   const originalMasterVolumeRef = useRef(DEFAULT_MASTER_VOLUME);
   const prevMasterVolumeRef = useRef(DEFAULT_MASTER_VOLUME); // New ref to store volume before mic/midi mute
   const lastSeekTimeRef = useRef<number>(0);
@@ -994,6 +1022,50 @@ const AppContent: React.FC = () => {
   const metronomeGainRef = useRef<GainNode | null>(null);
   const activeKeyTimeoutsRef = useRef<Map<string, number>>(new Map());
   const activeAudioNodesRef = useRef<Map<string, ActiveAudioNode>>(new Map());
+  const pedalHeldPlaybackNodesRef = useRef<Set<ActiveAudioNode>>(new Set());
+  const activeVoicesListRef = useRef<ActiveAudioNode[]>([]);
+  const MAX_ACTIVE_AUDIO_VOICES = 32;
+  const lastAvgOffsetUpdateRef = useRef<number>(0);
+
+  const safelyStopAndDisconnectVoice = useCallback(
+    (node: ActiveAudioNode, fadeTimeSec: number = 0.02) => {
+      try {
+        const ctx = audioContextRef.current;
+        if (ctx && ctx.state !== "closed") {
+          const now = ctx.currentTime;
+          node.gainNode.gain.cancelScheduledValues(now);
+          node.gainNode.gain.setValueAtTime(Math.max(0.0001, node.gainNode.gain.value), now);
+          node.gainNode.gain.linearRampToValueAtTime(0.0001, now + fadeTimeSec);
+          node.source.stop(now + fadeTimeSec + 0.01);
+        } else {
+          node.source.stop();
+        }
+      } catch (e) { }
+      setTimeout(() => {
+        try {
+          node.source.disconnect();
+          node.gainNode.disconnect();
+        } catch (e) { }
+      }, Math.max(30, Math.round((fadeTimeSec + 0.05) * 1000)));
+    },
+    [],
+  );
+
+  const enforceAudioPolyphony = useCallback(
+    (maxVoices: number = MAX_ACTIVE_AUDIO_VOICES) => {
+      while (activeVoicesListRef.current.length >= maxVoices) {
+        const oldest = activeVoicesListRef.current.shift();
+        if (oldest) {
+          if (oldest.keyName && activeAudioNodesRef.current.get(oldest.keyName) === oldest) {
+            activeAudioNodesRef.current.delete(oldest.keyName);
+          }
+          safelyStopAndDisconnectVoice(oldest, 0.015);
+        }
+      }
+    },
+    [safelyStopAndDisconnectVoice],
+  );
+
   const audioBufferCacheRef = useRef<Map<string | number, AudioBuffer>>(
     new Map(),
   );
@@ -1013,12 +1085,12 @@ const AppContent: React.FC = () => {
   const totalSessionOffsetSumRef = useRef<number>(0);
   const totalSessionHitCountForOffsetRef = useRef<number>(0);
   const [viewMode, setViewMode] = useState<ViewMode>(DEFAULT_VIEW_MODE);
-  
+
   // Sync falling notes color with view mode automatically
   useEffect(() => {
     const isSheetMode = viewMode === "sheet" || viewMode === "sheet-roll" || viewMode === "sheet-qwerty";
     const targetColor = isSheetMode ? "#F0F6FF" : "#1C2636";
-    
+
     setThemeSettings(prev => {
       if (prev.fallingNotesBackgroundColor === targetColor) return prev;
       return {
@@ -1042,7 +1114,7 @@ const AppContent: React.FC = () => {
     } else {
       setLastDrumViewMode(newMode);
     }
-    setIsLoadingContent(true);
+    setIsLoadingContent(currentScreen !== "settings");
     setRenderedLayoutId(0);
     setActivePlaybackNotesInfo(new Map());
   };
@@ -1050,7 +1122,7 @@ const AppContent: React.FC = () => {
     setInstrumentMode(newMode);
     setActivePlaybackNotesInfo(new Map());
     setRenderedLayoutId(0);
-    
+
     // Switch to the last used view mode for the new instrument mode
     if (newMode === "piano") {
       setViewMode(lastPianoViewMode);
@@ -1208,8 +1280,8 @@ const AppContent: React.FC = () => {
       const realTimeElapsed = currentRealTime - performanceStartTimeRef.current;
       // Use the OLD multiplier (which is still in ref) to calculate current musical time
       const currentMusicalTime =
-        pausedMusicalTimeRef.current +
-        realTimeElapsed * playbackTempoMultiplierRef.current;
+        isWaitStateRef.current ? currentTimeRef.current : pausedMusicalTimeRef.current +
+          realTimeElapsed * playbackTempoMultiplierRef.current;
 
       // Re-anchor time
       pausedMusicalTimeRef.current = currentMusicalTime;
@@ -1218,8 +1290,10 @@ const AppContent: React.FC = () => {
     // Update ref to new multiplier
     playbackTempoMultiplierRef.current = playbackTempoMultiplier;
 
-    // Update audio playback rate immediately
+    // Reposition with the new rate: physical offsets keep their real duration.
     if (audioRef.current) {
+      if (audioRef.current.readyState >= 1) audioRef.current.currentTime = getAudioStartTime(pausedMusicalTimeRef.current / 1000, gameSettingsRef.current?.backingTrack?.type, gameSettingsRef.current?.backingTrack?.offsetMs || 0);
+      lastAudioSyncTimeRef.current = performance.now();
       applyAudioPlaybackRate(audioRef.current, playbackTempoMultiplier);
     }
     if (
@@ -1287,6 +1361,12 @@ const AppContent: React.FC = () => {
   const userAudioSyncOffsetRef = useRef<number>(userAudioSyncOffset);
   useEffect(() => {
     userAudioSyncOffsetRef.current = userAudioSyncOffset;
+    if (audioRef.current && audioRef.current.readyState >= 1) {
+      const rate = playbackTempoMultiplierRef.current;
+      const time = isPlayingRef.current && !isWaitStateRef.current ? pausedMusicalTimeRef.current + (performance.now() - performanceStartTimeRef.current) * rate : currentTimeRef.current;
+      audioRef.current.currentTime = getAudioStartTime(time / 1000, gameSettingsRef.current?.backingTrack?.type, gameSettingsRef.current?.backingTrack?.offsetMs || 0);
+      lastAudioSyncTimeRef.current = performance.now();
+    }
     localStorage.setItem("game_user_audio_sync_ms", userAudioSyncOffset.toString());
   }, [userAudioSyncOffset]);
 
@@ -1362,11 +1442,15 @@ const AppContent: React.FC = () => {
   }, [lastJudgment]);
 
   const [displayJudgment, setDisplayJudgment] = useState<{ id: number; type: 'perfect' | 'great' | 'good' | 'miss' } | null>(null);
+  const judgmentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (lastJudgment) {
+      if (judgmentTimerRef.current) clearTimeout(judgmentTimerRef.current);
       setDisplayJudgment({ id: Date.now(), type: lastJudgment });
-      const timer = setTimeout(() => setDisplayJudgment(null), 800);
-      return () => clearTimeout(timer);
+      judgmentTimerRef.current = setTimeout(() => {
+        setDisplayJudgment(null);
+        judgmentTimerRef.current = null;
+      }, 800);
     }
   }, [lastJudgment, combo]);
 
@@ -1403,6 +1487,7 @@ const AppContent: React.FC = () => {
   >(null);
   const [midiAccessError, setMidiAccessError] = useState<string | null>(null);
   const activeMidiInputDeviceRef = useRef<MIDIInput | null>(null);
+  const handleMidiMessageRef = useRef<((e: MIDIMessageEvent) => void) | null>(null);
   const midiAccessInstanceRef = useRef<MIDIAccess | null>(null);
   const [midiAccessStatus, setMidiAccessStatus] =
     useState<MidiAccessStatus>("uninitialized");
@@ -1421,12 +1506,78 @@ const AppContent: React.FC = () => {
   const [showOnlyMajorNotes, setShowOnlyMajorNotes] = useState<boolean>(
     DEFAULT_SHOW_ONLY_MAJOR_NOTES,
   );
+  const tapOnlyMode = instrumentMode === "drum" || showOnlyMajorNotes;
+  // The cap belongs to the note's onset BPM, never the current playhead BPM.
+  const majorVisualDurationByNoteId = useMemo(
+    () => getMajorVisualDurationsByNoteId(
+      notesForGame,
+      timeMs => getActiveTempoBpmAtOriginalTime(
+        timeMs,
+        tempoEvents,
+        currentTempoBpm ?? DEFAULT_MUSICXML_TEMPO_BPM,
+      ),
+    ),
+    [currentTempoBpm, notesForGame, tempoEvents],
+  );
+  const majorVisualNotesForGame = useMemo(
+    () =>
+      tapOnlyMode
+        ? notesForGame.map((note) => ({
+          ...note,
+          durationMs: majorVisualDurationByNoteId.get(note.noteId) ?? note.durationMs,
+        }))
+        : notesForGame,
+    [majorVisualDurationByNoteId, notesForGame, tapOnlyMode],
+  );
+  const fingeringHandNotes = useMemo(
+    () =>
+      notesForGame.map((note) => ({
+        ...note,
+        durationMs:
+          majorVisualDurationByNoteId.get(note.noteId) ??
+          Math.min(note.durationMs, VISUAL_NOTE_CAP_MS),
+      })),
+    [majorVisualDurationByNoteId, notesForGame],
+  );
+  const difficultyPlaybackNotes = useMemo(
+    () =>
+      playbackNotes.map((note) => ({
+        ...note,
+        durationMs: getDifficultyNoteDurationMs(
+          note,
+          getActiveTempoBpmAtOriginalTime(
+            note.timeMs,
+            tempoEvents,
+            currentTempoBpm ?? DEFAULT_MUSICXML_TEMPO_BPM,
+          ),
+        ),
+      })),
+    [currentTempoBpm, playbackNotes, tempoEvents],
+  );
+  const activeMajorNoteVisualDurationMs = useMemo(() => {
+    const sourceBpm = isFreePlayMode
+      ? freePlayBpm
+      : getActiveTempoBpmAtOriginalTime(
+        musicalCurrentTimeMs,
+        tempoEvents,
+        currentTempoBpm ?? DEFAULT_MUSICXML_TEMPO_BPM,
+      );
+    return getMajorNoteVisualDurationMs(sourceBpm);
+  }, [
+    currentTempoBpm,
+    freePlayBpm,
+    isFreePlayMode,
+    musicalCurrentTimeMs,
+    tempoEvents,
+  ]);
   const [showQwertyShortcuts, setShowQwertyShortcuts] = useState<boolean>(
     DEFAULT_SHOW_QWERTY_SHORTCUTS,
   );
   const [showPianoTilesBackground, setShowPianoTilesBackground] =
     useState<boolean>(DEFAULT_SHOW_PIANO_TILES_BACKGROUND);
-  const [showPerfectJudgment, setShowPerfectJudgment] = useState<boolean>(false);
+  const [showPerfectJudgment, setShowPerfectJudgment] = useState<boolean>(
+    DEFAULT_SHOW_PERFECT_JUDGMENT,
+  );
   const [lowDetailMode, setLowDetailMode] = useState<boolean>(true);
   const [resolutionScale, setResolutionScale] = useState<number>(1.0);
   const [zoomDirection, setZoomDirection] = useState<"normal" | "reverse">(
@@ -1453,6 +1604,8 @@ const AppContent: React.FC = () => {
     if (saved) {
       try {
         const s = JSON.parse(saved);
+        if (s.showHand3D !== undefined) setShowHand3D(!!s.showHand3D);
+        if (s.fingeringPreferences && ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL'].includes(s.fingeringPreferences.handSize)) setFingeringPreferences({ ...s.fingeringPreferences, routing: 'auto', engine: 'pianoplayer' });
         if (s.masterVolume !== undefined) setMasterVolume(s.masterVolume);
         if (s.metronomeVolume !== undefined)
           setMetronomeVolume(s.metronomeVolume);
@@ -1511,6 +1664,7 @@ const AppContent: React.FC = () => {
   // Save settings to localStorage whenever they change
   useEffect(() => {
     const settings = {
+      fingeringPreferences, showHand3D,
       masterVolume,
       metronomeVolume,
       mp3Volume,
@@ -1550,6 +1704,7 @@ const AppContent: React.FC = () => {
     };
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   }, [
+    fingeringPreferences, showHand3D,
     masterVolume,
     metronomeVolume,
     mp3Volume,
@@ -1588,6 +1743,8 @@ const AppContent: React.FC = () => {
   ]);
 
   const resetSettings = useCallback(() => {
+    setFingeringPreferences({ handSize: 'M', routing: 'auto', splitMidi: 60, engine: 'pianoplayer' });
+    setShowHand3D(true);
     setMasterVolume(DEFAULT_MASTER_VOLUME);
     setMetronomeVolume(DEFAULT_METRONOME_VOLUME);
     setMp3Volume(DEFAULT_MP3_VOLUME);
@@ -1606,7 +1763,7 @@ const AppContent: React.FC = () => {
     setCustomEndNote("C5");
     setQwertyLayout("mirp");
     setShowPianoTilesBackground(DEFAULT_SHOW_PIANO_TILES_BACKGROUND);
-    setShowPerfectJudgment(false);
+    setShowPerfectJudgment(DEFAULT_SHOW_PERFECT_JUDGMENT);
     setUiZoomAuto(true);
     setMicThresholds({
       subBass: -70,
@@ -1631,13 +1788,16 @@ const AppContent: React.FC = () => {
   const recentNotesBufferRef = useRef<Map<number, number>>(new Map());
   const [isGameOver, setIsGameOver] = useState(false);
   const [gameOverReason, setGameOverReason] = useState("");
+
+  // Screen Wake Lock: Prevent device screen from sleeping during gameplay session (manual & auto mode)
+  useWakeLock(currentScreen === "inGame" && isPlaying && !isGameOver);
   const badStretchStartTimeRef = useRef<number | null>(null);
   const lastChunkCheckedRef = useRef<number>(-1);
 
   const changeHp = useCallback((amount: number) => {
     if (isFreePlayModeRef.current) return;
     if (gameSettingsRef.current?.isHpEnabled === false) return;
-    
+
     const currentHp = hpRef.current;
     const nextHp = Math.min(100, Math.max(0, currentHp + amount));
     hpRef.current = nextHp;
@@ -1653,12 +1813,12 @@ const AppContent: React.FC = () => {
         if (audioRef.current) {
           try {
             audioRef.current.pause();
-          } catch (e) {}
+          } catch (e) { }
         }
         if (youtubePlayerRef.current) {
           try {
             youtubePlayerRef.current.pauseVideo();
-          } catch (e) {}
+          } catch (e) { }
         }
 
         // Seek and prepare notes
@@ -1683,19 +1843,19 @@ const AppContent: React.FC = () => {
       }
       loopDelayStartTimeRef.current = null;
       setLoopDelayInfoWithRef(null);
-      setGameOverReason("Game Over: Darah Anda habis (0 HP)!");
+      setGameOverReason("Game Over: You have run out of health (0 HP)!");
       setIsGameOver(true);
 
       // Stop background backing track automatically
       if (audioRef.current) {
         try {
           audioRef.current.pause();
-        } catch (e) {}
+        } catch (e) { }
       }
       if (youtubePlayerRef.current) {
         try {
           youtubePlayerRef.current.pauseVideo();
-        } catch (e) {}
+        } catch (e) { }
       }
 
       if (currentHp > 0) {
@@ -1738,7 +1898,7 @@ const AppContent: React.FC = () => {
       } else {
         setMasterVolume(DEFAULT_MASTER_VOLUME);
       }
-      setMp3Volume(DEFAULT_MP3_VOLUME); 
+      setMp3Volume(DEFAULT_MP3_VOLUME);
       setMetronomeVolume(DEFAULT_METRONOME_VOLUME); // Restore metronome volume
     }
     // If MIDI was just enabled (and mic is not enabled), mute piano
@@ -1978,7 +2138,7 @@ const AppContent: React.FC = () => {
       let context = audioContextRef.current;
       const updateLatency = () => {
         if (!context) return;
-        const hwLat = Math.round(((context.outputLatency || 0) + (context.baseLatency || 0)) * 1000);
+        const hwLat = Math.round(measuredOutputLatencyMs(context));
         if (hwLat > 0) setDetectedHardwareLatencyMs(hwLat);
       };
 
@@ -1987,7 +2147,7 @@ const AppContent: React.FC = () => {
           const AudioContextConstructor =
             window.AudioContext || (window as any).webkitAudioContext;
           if (!AudioContextConstructor) return false;
-          context = new (AudioContextConstructor as { new (options?: AudioContextOptions): AudioContext })({
+          context = new (AudioContextConstructor as { new(options?: AudioContextOptions): AudioContext })({
             latencyHint: "interactive",
           });
           audioContextRef.current = context;
@@ -2018,7 +2178,7 @@ const AppContent: React.FC = () => {
         try {
           await context.resume();
           updateLatency();
-        } catch (e) {}
+        } catch (e) { }
       }
       return context.state === "running" || !shouldResume;
     },
@@ -2086,7 +2246,7 @@ const AppContent: React.FC = () => {
           if (originalOnReady) {
             try {
               originalOnReady();
-            } catch (e) {}
+            } catch (e) { }
           }
           initializeYoutubePlayer(backing.url!);
         };
@@ -2096,7 +2256,7 @@ const AppContent: React.FC = () => {
       if (youtubePlayerRef.current) {
         try {
           youtubePlayerRef.current.destroy();
-        } catch (e) {}
+        } catch (e) { }
         youtubePlayerRef.current = null;
       }
     };
@@ -2143,7 +2303,7 @@ const AppContent: React.FC = () => {
             if (typeof event.target.setPlaybackRate === "function") {
               try {
                 event.target.setPlaybackRate(playbackTempoMultiplierRef.current);
-              } catch (e) {}
+              } catch (e) { }
             }
             if (backingTrackStatus !== 'playing') setBackingTrackStatus('playing');
           } else if (event.data === 3) {
@@ -2175,7 +2335,7 @@ const AppContent: React.FC = () => {
     ) {
       try {
         youtubePlayerRef.current.playVideo();
-      } catch (e) {}
+      } catch (e) { }
     }
   };
 
@@ -2186,7 +2346,7 @@ const AppContent: React.FC = () => {
     ) {
       try {
         youtubePlayerRef.current.pauseVideo();
-      } catch (e) {}
+      } catch (e) { }
     }
   };
 
@@ -2211,11 +2371,11 @@ const AppContent: React.FC = () => {
         if (isDrumMode) {
           const drumFile = DRUM_SOUND_MAP[midiNote];
           if (!drumFile) return null;
-          response = await fetch(`/sounds/drum/${drumFile}`);
+          response = await fetch(`/sounds/drum/${drumFile}`, { signal: AbortSignal.timeout(15000) });
         } else {
           const noteName = midiNoteToNameMap.get(midiNote);
           if (!noteName) return null;
-          response = await fetch(`/sounds/piano/${noteName}.mp3`);
+          response = await fetch(`/sounds/piano/${noteName}.mp3`, { signal: AbortSignal.timeout(15000) });
         }
         if (!response.ok) throw new Error();
         const arrayBuffer = await response.arrayBuffer();
@@ -2243,7 +2403,10 @@ const AppContent: React.FC = () => {
 
   const preloadSamplesForSong = useCallback(
     async (notes: MidiNotePlaybackItem[]) => {
-      const audioContextReady = await initializeAudioContext();
+      const preloadJob = ++audioPreloadJobRef.current;
+      // Decoding samples does not require autoplay permission. Resume on Play,
+      // while a fresh user gesture is available, instead of blocking file loading.
+      const audioContextReady = await initializeAudioContext(false);
       if (!audioContextReady) return;
       setIsPreloading(true);
       const uniqueMidiNotes =
@@ -2253,20 +2416,24 @@ const AppContent: React.FC = () => {
       );
       const loadGeneric = async (path: string) => {
         if (!audioContextRef.current) return null;
-        const res = await fetch(path);
+        const res = await fetch(path, { signal: AbortSignal.timeout(15000) });
         const ab = await res.arrayBuffer();
         return audioContextRef.current.decodeAudioData(ab);
       };
       const p1 = loadGeneric("/sounds/metronome/strong_beat.mp3");
       const p2 = loadGeneric("/sounds/metronome/weak_beat.mp3");
       promises.push(p1 as any, p2 as any);
+      let preloadTimer: ReturnType<typeof setTimeout>;
       try {
-        await Promise.all(promises);
+        await Promise.race([Promise.all(promises), new Promise((_, reject) => {
+          preloadTimer = setTimeout(() => reject(new Error('Audio preload timed out')), 20000);
+        })]);
         metronomeBuffersRef.current.strong = (await p1) as AudioBuffer;
         metronomeBuffersRef.current.weak = (await p2) as AudioBuffer;
       } catch (e) {
       } finally {
-        setIsPreloading(false);
+        clearTimeout(preloadTimer!);
+        if (audioPreloadJobRef.current === preloadJob) setIsPreloading(false);
       }
     },
     [initializeAudioContext, getAudioBuffer],
@@ -2301,6 +2468,9 @@ const AppContent: React.FC = () => {
       const triggerAudio = (buffer: AudioBuffer) => {
         if (!audioContextRef.current || !masterGainRef.current) return;
         const ctx = audioContextRef.current;
+
+        enforceAudioPolyphony(MAX_ACTIVE_AUDIO_VOICES);
+
         const source = ctx.createBufferSource();
         source.buffer = buffer;
         const gainNode = ctx.createGain();
@@ -2309,14 +2479,25 @@ const AppContent: React.FC = () => {
         source.connect(gainNode);
         gainNode.connect(masterGainRef.current);
         source.start(now);
+        const nodeRecord: ActiveAudioNode = { source, gainNode, startTime: now };
+        activeVoicesListRef.current.push(nodeRecord);
+
         source.onended = () => {
+          const idx = activeVoicesListRef.current.indexOf(nodeRecord);
+          if (idx !== -1) activeVoicesListRef.current.splice(idx, 1);
+          pedalHeldPlaybackNodesRef.current.delete(nodeRecord);
           try {
             source.disconnect();
             gainNode.disconnect();
-          } catch (e) {}
+          } catch (e) { }
         };
         if (isDrumMode) {
           // Drum sounds play to completion without premature stop
+          return;
+        }
+        if (isSustainPedalActiveRef.current) {
+          // Let the sample resonate naturally until the pedal is released.
+          pedalHeldPlaybackNodesRef.current.add(nodeRecord);
           return;
         }
         const releaseTimeSec = 0.4,
@@ -2343,8 +2524,28 @@ const AppContent: React.FC = () => {
       midiOutputs,
       instrumentMode,
       getAudioBuffer,
+      enforceAudioPolyphony,
     ],
   );
+
+  useEffect(() => {
+    isSustainPedalActiveRef.current = isSustainPedalActive;
+    const selectedOutput = selectedMidiOutputId
+      ? midiOutputs.get(selectedMidiOutputId)
+      : null;
+    selectedOutput?.send([0xb0, 64, isSustainPedalActive ? 127 : 0]);
+    if (isSustainPedalActive || !audioContextRef.current) return;
+    const now = audioContextRef.current.currentTime;
+    pedalHeldPlaybackNodesRef.current.forEach(({ source, gainNode }) => {
+      try {
+        gainNode.gain.cancelScheduledValues(now);
+        gainNode.gain.setValueAtTime(Math.max(0.0001, gainNode.gain.value), now);
+        gainNode.gain.exponentialRampToValueAtTime(0.0001, now + 0.7);
+        source.stop(now + 0.8);
+      } catch (e) { }
+    });
+    pedalHeldPlaybackNodesRef.current.clear();
+  }, [isSustainPedalActive, midiOutputs, selectedMidiOutputId]);
 
   const startSustainedSound = useCallback(
     (keyName: string, midiNote: number, velocity: number = 0.75) => {
@@ -2359,23 +2560,48 @@ const AppContent: React.FC = () => {
       if (activeAudioNodesRef.current.has(keyName)) {
         const audioNode = activeAudioNodesRef.current.get(keyName);
         if (audioNode) {
-          try {
-            audioNode.source.stop(audioContextRef.current.currentTime);
-          } catch (e) {}
+          const idx = activeVoicesListRef.current.indexOf(audioNode);
+          if (idx !== -1) activeVoicesListRef.current.splice(idx, 1);
+          safelyStopAndDisconnectVoice(audioNode, 0.015);
         }
         activeAudioNodesRef.current.delete(keyName);
       }
       const audioCtx = audioContextRef.current;
       const playBufferedNote = (buffer: AudioBuffer) => {
-        const source = audioCtx.createBufferSource();
+        if (!audioContextRef.current || !masterGainRef.current) return;
+        const ctx = audioContextRef.current;
+
+        enforceAudioPolyphony(MAX_ACTIVE_AUDIO_VOICES);
+
+        const source = ctx.createBufferSource();
         source.buffer = buffer;
         source.loop = false;
-        const gainNode = audioCtx.createGain();
-        gainNode.gain.setValueAtTime(velocity * 1.6, audioCtx.currentTime);
+        const gainNode = ctx.createGain();
+        gainNode.gain.setValueAtTime(velocity * 1.6, ctx.currentTime);
         source.connect(gainNode);
-        gainNode.connect(masterGainRef.current!);
+        gainNode.connect(masterGainRef.current);
         source.start(0);
-        activeAudioNodesRef.current.set(keyName, { source, gainNode });
+
+        const nodeRecord: ActiveAudioNode = {
+          source,
+          gainNode,
+          keyName,
+          startTime: ctx.currentTime,
+        };
+        activeVoicesListRef.current.push(nodeRecord);
+        activeAudioNodesRef.current.set(keyName, nodeRecord);
+
+        source.onended = () => {
+          const idx = activeVoicesListRef.current.indexOf(nodeRecord);
+          if (idx !== -1) activeVoicesListRef.current.splice(idx, 1);
+          if (activeAudioNodesRef.current.get(keyName) === nodeRecord) {
+            activeAudioNodesRef.current.delete(keyName);
+          }
+          try {
+            source.disconnect();
+            gainNode.disconnect();
+          } catch (e) { }
+        };
       };
       const isDrumMode = instrumentMode === "drum";
 
@@ -2405,6 +2631,8 @@ const AppContent: React.FC = () => {
       midiOutputs,
       instrumentMode,
       isHiHatFootPressed,
+      enforceAudioPolyphony,
+      safelyStopAndDisconnectVoice,
     ],
   );
 
@@ -2427,17 +2655,17 @@ const AppContent: React.FC = () => {
       if (audioNode) {
         const { source, gainNode } = audioNode;
         const now = audioCtx.currentTime,
-          releaseTime = 0.5;
-        gainNode.gain.cancelScheduledValues(now);
-        gainNode.gain.setValueAtTime(gainNode.gain.value, now);
-        gainNode.gain.exponentialRampToValueAtTime(0.0001, now + releaseTime);
-        source.stop(now + releaseTime + 0.1);
-        source.onended = () => {
+          releaseTime = 0.35;
+        try {
+          gainNode.gain.cancelScheduledValues(now);
+          gainNode.gain.setValueAtTime(Math.max(0.0001, gainNode.gain.value), now);
+          gainNode.gain.exponentialRampToValueAtTime(0.0001, now + releaseTime);
+          source.stop(now + releaseTime + 0.05);
+        } catch (e) {
           try {
-            source.disconnect();
-            gainNode.disconnect();
-          } catch (e) {}
-        };
+            source.stop(now);
+          } catch (e2) { }
+        }
       }
       activeAudioNodesRef.current.delete(keyName);
     },
@@ -2456,7 +2684,7 @@ const AppContent: React.FC = () => {
           nodes.gainNode.gain.setValueAtTime(0, now);
           if (nodes.oscillator) nodes.oscillator.stop(now);
           if (nodes.source) nodes.source.stop(now);
-        } catch (e) {}
+        } catch (e) { }
       });
     }
     scheduledMetronomeAudioNodesRef.current = [];
@@ -2467,6 +2695,17 @@ const AppContent: React.FC = () => {
     scheduledNoteTimeoutsRef.current.clear();
     activeNoteInstancesRef.current.clear();
     setActivePlaybackNotesInfo(new Map());
+
+    // Clean up all active audio voices to prevent memory/WebAudio leaks
+    activeVoicesListRef.current.forEach((v) => {
+      try {
+        v.source.stop();
+        v.source.disconnect();
+        v.gainNode.disconnect();
+      } catch (e) { }
+    });
+    activeVoicesListRef.current = [];
+    activeAudioNodesRef.current.clear();
   }, []);
 
   // Robust Audio Playback Helper
@@ -2510,12 +2749,12 @@ const AppContent: React.FC = () => {
       if (audioPlayPromiseRef.current) {
         try {
           await audioPlayPromiseRef.current;
-        } catch (e) {}
+        } catch (e) { }
         audioPlayPromiseRef.current = null;
       }
       try {
         audioRef.current.pause();
-      } catch (e) {}
+      } catch (e) { }
     }
   }, []);
 
@@ -2556,7 +2795,7 @@ const AppContent: React.FC = () => {
       audioContextRef.current &&
       audioContextRef.current.state === "suspended"
     ) {
-      audioContextRef.current.resume().catch(() => {});
+      audioContextRef.current.resume().catch(() => { });
     }
     // Properly seek and resume backing track audio at the correct position
     const currentWait = accumulatedWaitTimeRef.current;
@@ -2590,9 +2829,6 @@ const AppContent: React.FC = () => {
       }
       sessionPlaytimeMs.current = 0;
       playtimeStartRef.current = null;
-      if (isSettingsPreviewActiveRef.current) {
-        isSettingsPreviewActiveRef.current = false;
-      }
       setIsPlaying(false);
       isPlayingRef.current = false;
       isUserPausedRef.current = false;
@@ -2612,11 +2848,11 @@ const AppContent: React.FC = () => {
       if (shouldRewind) {
         setIsRewinding(true);
         isRewindingRef.current = true;
-        
+
         const rewindTargetTime =
           !forceResetToZero &&
-          isLoopingRef.current &&
-          loopStartMsRef.current !== null
+            isLoopingRef.current &&
+            loopStartMsRef.current !== null
             ? loopStartMsRef.current
             : 0;
 
@@ -2629,7 +2865,7 @@ const AppContent: React.FC = () => {
           await safePauseYoutube();
           try {
             youtubePlayerRef.current.seekTo(rewindTargetTime / 1000, true);
-          } catch (e) {}
+          } catch (e) { }
         }
         if (audioStartTimeoutRef.current) {
           clearTimeout(audioStartTimeoutRef.current);
@@ -2647,8 +2883,8 @@ const AppContent: React.FC = () => {
 
       const targetResetMs =
         !forceResetToZero &&
-        isLoopingRef.current &&
-        loopStartMsRef.current !== null
+          isLoopingRef.current &&
+          loopStartMsRef.current !== null
           ? loopStartMsRef.current
           : 0;
 
@@ -2737,7 +2973,7 @@ const AppContent: React.FC = () => {
         await safePauseYoutube();
         try {
           youtubePlayerRef.current.seekTo(targetResetMs / 1000, true);
-        } catch (e) {}
+        } catch (e) { }
       }
       if (audioStartTimeoutRef.current) {
         clearTimeout(audioStartTimeoutRef.current);
@@ -2766,9 +3002,9 @@ const AppContent: React.FC = () => {
     const isLoopTarget =
       isLoopingRef.current && loopStartMsRef.current !== null;
     const baseTarget = isLoopTarget ? loopStartMsRef.current! : 0;
-    
+
     // Target is behind baseTarget to create an overshoot effect, but clamped appropriately
-    const overshootAmount = isLoopTarget ? 500 : 1500; 
+    const overshootAmount = isLoopTarget ? 500 : 1500;
     const targetValue = Math.max(0, baseTarget - overshootAmount);
 
     // Proportional duration: faster for short distances, but with a minimum for the overshoot
@@ -2788,7 +3024,7 @@ const AppContent: React.FC = () => {
 
       currentTimeRef.current = current;
       setMusicalCurrentTimeMs(current);
-      setFreePlayElapsedTime(current); 
+      setFreePlayElapsedTime(current);
 
       if (progress < 1) {
         rafId = requestAnimationFrame(animateRewind);
@@ -2814,60 +3050,76 @@ const AppContent: React.FC = () => {
   const satisfyUpcomingNote = useCallback(
     (noteDef: MidiNotePlaybackItem) => {
       presatisfiedNoteIdsRef.current.add(noteDef.noteId);
-      setActivePlaybackNotesInfo((prev) =>
-        new Map(prev).set(noteDef.noteId, {
-          noteId: noteDef.noteId,
-          name: noteDef.name,
-          timeMs: noteDef.timeMs,
-          hand: noteDef.hand,
-          midi: noteDef.midi,
-          pitchClass: noteDef.pitchClass,
-          status: "user_played",
-          finger: noteDef.finger,
-        }),
-      );
-      const highlightDurationMs =
-        Math.min(noteDef.durationMs, VISUAL_NOTE_CAP_MS) /
-        playbackTempoMultiplier;
-      scheduledNoteTimeoutsRef.current.set(
-        noteDef.noteId,
-        window.setTimeout(
-          () => {
+      // In falling/drum modes, neither FallingNotesArea nor PianoKeyboard displays user_played status.
+      // Only horizontal/sheet views consume activePlaybackNotesInfo for user_played styling.
+      const isSheetView =
+        viewMode === "sheet" ||
+        viewMode === "sheet-roll" ||
+        viewMode === "sheet-qwerty";
+
+      if (isSheetView) {
+        setActivePlaybackNotesInfo((prev) =>
+          new Map(prev).set(noteDef.noteId, {
+            noteId: noteDef.noteId,
+            name: noteDef.name,
+            timeMs: noteDef.timeMs,
+            hand: noteDef.hand,
+            midi: noteDef.midi,
+            pitchClass: noteDef.pitchClass,
+            status: "user_played",
+            finger: noteDef.finger,
+          }),
+        );
+        const highlightDurationMs = Math.max(
+          60,
+          Math.min(noteDef.durationMs, VISUAL_NOTE_CAP_MS) /
+          playbackTempoMultiplier,
+        );
+        if (scheduledNoteTimeoutsRef.current.has(noteDef.noteId)) {
+          clearTimeout(scheduledNoteTimeoutsRef.current.get(noteDef.noteId)!);
+        }
+        scheduledNoteTimeoutsRef.current.set(
+          noteDef.noteId,
+          window.setTimeout(() => {
             setActivePlaybackNotesInfo((prev) => {
+              if (!prev.has(noteDef.noteId)) return prev;
               const nm = new Map(prev);
               nm.delete(noteDef.noteId);
               return nm;
             });
             scheduledNoteTimeoutsRef.current.delete(noteDef.noteId);
-          },
-          Math.max(
-            0,
-            noteDef.timeMs +
-              Math.min(noteDef.durationMs, VISUAL_NOTE_CAP_MS) -
-              currentTimeRef.current,
-          ) / playbackTempoMultiplier,
-        ),
-      );
+          }, highlightDurationMs),
+        );
+      }
     },
-    [playbackTempoMultiplier],
+    [viewMode, playbackTempoMultiplier],
   );
 
   const visuallySatisfyNote = useCallback(
     (noteDef: MidiNotePlaybackItem) => {
       const noteId = noteDef.noteId;
       activeNoteInstancesRef.current.set(noteId, noteDef);
-      setActivePlaybackNotesInfo((prev) =>
-        new Map(prev).set(noteId, {
-          noteId,
-          name: noteDef.name,
-          timeMs: noteDef.timeMs,
-          hand: noteDef.hand,
-          midi: noteDef.midi,
-          pitchClass: noteDef.pitchClass,
-          status: "user_played",
-          finger: noteDef.finger,
-        }),
-      );
+
+      const isSheetView =
+        viewMode === "sheet" ||
+        viewMode === "sheet-roll" ||
+        viewMode === "sheet-qwerty";
+
+      if (isSheetView) {
+        setActivePlaybackNotesInfo((prev) =>
+          new Map(prev).set(noteId, {
+            noteId,
+            name: noteDef.name,
+            timeMs: noteDef.timeMs,
+            hand: noteDef.hand,
+            midi: noteDef.midi,
+            pitchClass: noteDef.pitchClass,
+            status: "user_played",
+            finger: noteDef.finger,
+          }),
+        );
+      }
+
       if (scheduledNoteTimeoutsRef.current.has(noteId))
         clearTimeout(scheduledNoteTimeoutsRef.current.get(noteId)!);
       scheduledNoteTimeoutsRef.current.set(
@@ -2876,18 +3128,30 @@ const AppContent: React.FC = () => {
           () => {
             activeNoteInstancesRef.current.delete(noteId);
             scheduledNoteTimeoutsRef.current.delete(noteId);
-            setActivePlaybackNotesInfo((prev) => {
-              const nm = new Map(prev);
-              nm.delete(noteId);
-              return nm;
-            });
+            if (isSheetView) {
+              setActivePlaybackNotesInfo((prev) => {
+                if (!prev.has(noteId)) return prev;
+                const nm = new Map(prev);
+                nm.delete(noteId);
+                return nm;
+              });
+            }
           },
-          Math.min(noteDef.durationMs, VISUAL_NOTE_CAP_MS) /
-            playbackTempoMultiplier,
+          Math.min(
+            tapOnlyMode ? getMajorNoteVisualDurationMs(getActiveTempoBpmAtOriginalTime(noteDef.timeMs, tempoEvents, currentTempoBpm ?? DEFAULT_MUSICXML_TEMPO_BPM)) : noteDef.durationMs,
+            VISUAL_NOTE_CAP_MS,
+          ) /
+          playbackTempoMultiplier,
         ),
       );
     },
-    [playbackTempoMultiplier],
+    [
+      currentTempoBpm,
+      playbackTempoMultiplier,
+      tapOnlyMode,
+      tempoEvents,
+      viewMode,
+    ],
   );
 
   const uploadSessionStats = useCallback(async () => {
@@ -2967,7 +3231,7 @@ const AppContent: React.FC = () => {
     const interval = setInterval(() => {
       const backing = gameSettingsRef.current?.backingTrack;
       if (!backing || backing.type === 'none') return;
-      
+
       if (backing.type === 'mp3' || backing.type === 'link') {
         const audio = audioRef.current;
         if (audio && !audio.paused && audio.currentTime > 0) {
@@ -3112,7 +3376,12 @@ const AppContent: React.FC = () => {
       currentTimeRef.current = cl;
       prevMusicalTimeRef.current = cl;
       hasAudioStartedThisStretchRef.current = false;
-      setBackingTrackStatus("loading"); // Force "loading" until audio catches up
+      const currentBacking = gameSettingsRef.current?.backingTrack;
+      if (currentBacking && currentBacking.type !== "none" && currentBacking.url) {
+        setBackingTrackStatus("loading"); // Force "loading" until audio catches up
+      } else {
+        setBackingTrackStatus("playing");
+      }
       let ni = 0;
       while (ni < notesForGame.length && notesForGame[ni].timeMs < cl) ni++;
       nextNoteIndexRef.current = ni;
@@ -3133,7 +3402,7 @@ const AppContent: React.FC = () => {
           // Paused seeking
           const defaultOffset = backing.offsetMs || 0;
           const userMs = userAudioSyncOffsetRef.current;
-          const totalOffsetMs = -INITIAL_PLAYBACK_DELAY_MS + defaultOffset + userMs;
+          const totalOffsetMs = backingPlayheadMs(0, playbackTempoMultiplierRef.current, defaultOffset, userMs, backingOutputLatency());
           let clampedTime = 0;
           if (totalOffsetMs < 0) {
             const absDelayMs = Math.abs(totalOffsetMs);
@@ -3142,11 +3411,11 @@ const AppContent: React.FC = () => {
             clampedTime = (cl + totalOffsetMs) / 1000;
           }
           if ((backing.type === "mp3" || backing.type === "link") && audioRef.current) {
-              if (audioRef.current.readyState >= 1) {
-                  audioRef.current.currentTime = clampedTime;
-              }
+            if (audioRef.current.readyState >= 1) {
+              audioRef.current.currentTime = clampedTime;
+            }
           } else if (backing.type === "youtube" && youtubePlayerRef.current) {
-              try { youtubePlayerRef.current.seekTo(clampedTime, true); } catch(e) {}
+            try { youtubePlayerRef.current.seekTo(clampedTime, true); } catch (e) { }
           }
         }
       }
@@ -3254,6 +3523,8 @@ const AppContent: React.FC = () => {
   );
 
   const lastLiveSpeedUpdateRef = useRef<number>(0);
+  const lastLiveAccuracyUpdateRef = useRef<number>(0);
+  const lastLiveAccuracyValRef = useRef<number>(100);
   const lastTotalWaitTimeUpdateRef = useRef<number>(0);
   const lastMusicalTimeUpdateRef = useRef<number>(0);
 
@@ -3264,20 +3535,20 @@ const AppContent: React.FC = () => {
         (gameSettingsRef.current?.isNonStop ?? false) ||
         waitMode === "retical" ||
         waitMode === "off";
-      
+
       const backing = gameSettingsRef.current?.backingTrack;
       const isNoneBacking = !backing || backing.type === "none";
 
       if (isPlayingRef.current && !hasAudioStartedThisStretchRef.current) {
         if (isNoneBacking) {
-           hasAudioStartedThisStretchRef.current = true;
-           if (backingTrackStatus !== "playing") setBackingTrackStatus("playing");
+          hasAudioStartedThisStretchRef.current = true;
+          if (backingTrackStatus !== "playing") setBackingTrackStatus("playing");
         } else if (backing && !isWaitStateRef.current) {
-           const currentEstTime = pausedMusicalTimeRef.current + (performance.now() - performanceStartTimeRef.current) * currentPlaybackTempoMultiplier;
-           triggerBackingTrackPlay(currentEstTime);
+          const currentEstTime = pausedMusicalTimeRef.current + (performance.now() - performanceStartTimeRef.current) * currentPlaybackTempoMultiplier;
+          triggerBackingTrackPlay(currentEstTime);
         }
       }
-      
+
       const canWait =
         waitMode === "strict" ||
         waitMode === "rhythm" ||
@@ -3323,7 +3594,7 @@ const AppContent: React.FC = () => {
           nextBeatToScheduleIndexRef.current =
             startIndex !== -1 ? startIndex : allBeatTimesRef.current.length;
           prevConceptualTimeRef.current = loopStartMsRef.current!;
-          
+
           if (!isNoneBacking && backing) {
             triggerBackingTrackPlay(loopStartMsRef.current!);
           }
@@ -3332,7 +3603,7 @@ const AppContent: React.FC = () => {
 
       const realTimeElapsedSinceStartOrPause = performance.now() - performanceStartTimeRef.current;
       const conceptualMusicalTimeNoFreeze = pausedMusicalTimeRef.current + realTimeElapsedSinceStartOrPause * currentPlaybackTempoMultiplier;
-      
+
       const conceptualMusicalTime = conceptualMusicalTimeNoFreeze;
 
       // Initial sync (No more nudging)
@@ -3361,25 +3632,21 @@ const AppContent: React.FC = () => {
         playbackRequestRef.current = requestAnimationFrame(playbackLoop);
         return;
       }
-      
+
       // Unified Backing Track Sync Check (Periodic Auto-Sync)
       // Be more resilient: For MP3/Link, sync as long as it's not paused, even if the status is still 'loading'
       const isSeeking = (backing?.type === "mp3" || backing?.type === "link")
         ? (audioRef.current && audioRef.current.seeking)
         : false;
 
-      const isAudioActuallyPlaying = (backing?.type === "mp3" || backing?.type === "link") 
+      const isAudioActuallyPlaying = (backing?.type === "mp3" || backing?.type === "link")
         ? (audioRef.current && !audioRef.current.paused && !audioRef.current.seeking)
-        : (backingTrackStatus === "playing");
+        : (backingTrackStatusRef.current === "playing");
 
       if (isPlayingRef.current && !isInWaitState && backing && backing.type !== "none" && isAudioActuallyPlaying && !isSeeking) {
         let audioCurrentTimeSec = -1;
         if ((backing.type === "mp3" || backing.type === "link") && audioRef.current) {
           audioCurrentTimeSec = audioRef.current.currentTime;
-          // Guard against browser spontaneously dropping playbackRate
-          if (Math.abs(audioRef.current.playbackRate - currentPlaybackTempoMultiplier) > 0.02) {
-            applyAudioPlaybackRate(audioRef.current, currentPlaybackTempoMultiplier);
-          }
         } else if (backing.type === "youtube" && youtubePlayerRef.current) {
           if (typeof youtubePlayerRef.current.getCurrentTime === "function") {
             audioCurrentTimeSec = youtubePlayerRef.current.getCurrentTime();
@@ -3389,8 +3656,8 @@ const AppContent: React.FC = () => {
         if (audioCurrentTimeSec >= 0) {
           const defaultOffset = backing.offsetMs || 0;
           const userMs = userAudioSyncOffsetRef.current;
-          const totalOffsetMs = -INITIAL_PLAYBACK_DELAY_MS + defaultOffset + userMs;
-          
+          const totalOffsetMs = backingPlayheadMs(0, playbackTempoMultiplierRef.current, defaultOffset, userMs, backingOutputLatency());
+
           let expectedAudioTimeSec = 0;
           if (totalOffsetMs < 0) {
             expectedAudioTimeSec = Math.max(0, conceptualMusicalTime - Math.abs(totalOffsetMs)) / 1000;
@@ -3402,40 +3669,24 @@ const AppContent: React.FC = () => {
           const driftSec = Math.abs(rawDriftSec);
           const nowTime = performance.now();
           const isStuckAtZero = audioCurrentTimeSec < 0.1 && expectedAudioTimeSec > 0.6;
-          
+
           if ((backing.type === "mp3" || backing.type === "link") && audioRef.current) {
             const audio = audioRef.current;
-            // Major drift (> 350ms) or stuck at zero: hard seek
-            if (isStuckAtZero || (driftSec > 0.35 && nowTime - lastAudioSyncTimeRef.current > 1500)) {
-              lastAudioSyncTimeRef.current = nowTime;
-              audio.currentTime = Math.max(0, expectedAudioTimeSec);
-              applyAudioPlaybackRate(audio, currentPlaybackTempoMultiplier);
-            } 
-            // Moderate drift (35ms - 350ms): phase lock via gentle slew (nudge ±4% speed)
-            // Completely seamless and inaudible phase correction without audio cuts/clicks!
-            else if (driftSec > 0.035) {
-              const slewFactor = rawDriftSec > 0 ? 0.96 : 1.04;
-              const targetRate = currentPlaybackTempoMultiplier * slewFactor;
-              if (Math.abs(audio.playbackRate - targetRate) > 0.005) {
-                try {
-                  audio.playbackRate = Math.max(0.1, Math.min(4.0, targetRate));
-                } catch (e) {}
-              }
-            } else {
-              // Drift within 35ms: lock precisely to target multiplier
-              if (Math.abs(audio.playbackRate - currentPlaybackTempoMultiplier) > 0.005) {
-                applyAudioPlaybackRate(audio, currentPlaybackTempoMultiplier);
-              }
-            }
+            const correction = backingCorrection(audioCurrentTimeSec, expectedAudioTimeSec, currentPlaybackTempoMultiplier, lastAudioSyncTimeRef.current, nowTime);
+            if (correction.seek !== undefined) { lastAudioSyncTimeRef.current = nowTime; audio.currentTime = correction.seek; }
+            if (Math.abs(audio.playbackRate - correction.rate) > .003) applyAudioPlaybackRate(audio, correction.rate);
           } else if (backing.type === "youtube" && youtubePlayerRef.current) {
-            if (isStuckAtZero || (driftSec > 0.35 && nowTime - lastAudioSyncTimeRef.current > 2000)) {
+            if (isStuckAtZero || (driftSec > 1.2 && nowTime - lastAudioSyncTimeRef.current > 5000)) {
               lastAudioSyncTimeRef.current = nowTime;
               try {
                 youtubePlayerRef.current.seekTo(expectedAudioTimeSec, true);
                 if (typeof youtubePlayerRef.current.setPlaybackRate === "function") {
                   youtubePlayerRef.current.setPlaybackRate(currentPlaybackTempoMultiplier);
                 }
-              } catch (e) {}
+              } catch (e) { }
+            } else if (driftSec > 0.05 && typeof youtubePlayerRef.current.setPlaybackRate === "function") {
+              const ytNudge = driftSec > 0.4 ? (rawDriftSec > 0 ? 0.92 : 1.08) : (rawDriftSec > 0 ? 0.96 : 1.04);
+              youtubePlayerRef.current.setPlaybackRate(currentPlaybackTempoMultiplier * ytNudge);
             }
           }
         }
@@ -3457,14 +3708,14 @@ const AppContent: React.FC = () => {
               ) {
                 safePauseYoutube();
               }
-            } catch (e) {}
+            } catch (e) { }
           }
         }
-        
+
         if (currentRealTime - lastTotalWaitTimeUpdateRef.current > 100) {
           setTotalWaitTimeMs(
             accumulatedWaitTimeRef.current +
-              (currentRealTime - waitStartTimeRef.current),
+            (currentRealTime - waitStartTimeRef.current),
           );
           lastTotalWaitTimeUpdateRef.current = currentRealTime;
         }
@@ -3475,7 +3726,7 @@ const AppContent: React.FC = () => {
           setMusicalCurrentTimeMs(conceptualMusicalTime);
           lastMusicalTimeUpdateRef.current = currentRealTime;
         }
-        
+
         if (lastPushedTotalWaitTimeMsRef.current !== accumulatedWaitTimeRef.current) {
           setTotalWaitTimeMs(accumulatedWaitTimeRef.current);
           lastPushedTotalWaitTimeMsRef.current = accumulatedWaitTimeRef.current;
@@ -3507,7 +3758,10 @@ const AppContent: React.FC = () => {
           actualDurationSoFar > 500 && idealTimeElapsedSoFar > 0
             ? Math.min(100, (idealTimeElapsedSoFar / actualDurationSoFar) * 100)
             : 100;
-            
+        if (waitMode === "off" && !isCalibratingRef.current) {
+          calculatedLiveSpeed = 100;
+        }
+
         if (currentRealTime - lastLiveSpeedUpdateRef.current > 250) {
           setLiveSpeed(calculatedLiveSpeed);
           lastLiveSpeedUpdateRef.current = currentRealTime;
@@ -3537,7 +3791,7 @@ const AppContent: React.FC = () => {
           if (shouldScheduleSound) {
             const timeUntilBeatPlaysRealMs =
               beat.timeMs - idealCurrentTimeRealMs;
-            
+
             // Scheduling logic: Use a high-precision target time with Metronome & Piano Offset.
             const targetAudioContextTime =
               audioCtx.currentTime +
@@ -3616,7 +3870,11 @@ const AppContent: React.FC = () => {
               const soundVelocity = isSettingsPreviewActiveRef.current
                 ? note.velocity * 0.25
                 : note.velocity;
-              playSound(note.midi, note.durationMs, soundVelocity);
+              playSound(
+                note.midi,
+                getPianoPlaybackDurationMs(note),
+                soundVelocity,
+              );
               activeNoteInstancesRef.current.set(noteId, note);
 
               if (!hitNoteIdsRef.current.has(noteId) && !isCalibratingRef.current) {
@@ -3653,7 +3911,10 @@ const AppContent: React.FC = () => {
                 }),
               );
               const hd =
-                Math.min(note.durationMs, VISUAL_NOTE_CAP_MS) /
+                Math.min(
+                  tapOnlyMode ? getMajorNoteVisualDurationMs(getActiveTempoBpmAtOriginalTime(note.timeMs, tempoEvents, currentTempoBpm ?? DEFAULT_MUSICXML_TEMPO_BPM)) : note.durationMs,
+                  VISUAL_NOTE_CAP_MS,
+                ) /
                 playbackTempoMultiplier;
               scheduledNoteTimeoutsRef.current.set(
                 noteId,
@@ -3769,7 +4030,7 @@ const AppContent: React.FC = () => {
           const currentErrors = isAudioInputEnabledRef.current
             ? 0
             : errorCountRef.current;
-          
+
           // Old formula for non-stop disabled: hit / (hit + error)
           const totalAttempts = currentHits + currentErrors;
           calculatedLiveAccuracy =
@@ -3777,10 +4038,15 @@ const AppContent: React.FC = () => {
         }
         if (waitMode === "off" && !isCalibratingRef.current) {
           calculatedLiveAccuracy = 100;
-          calculatedLiveSpeed = 100;
         }
-        setLiveAccuracy(calculatedLiveAccuracy);
-        setLiveSpeed(calculatedLiveSpeed);
+        if (currentRealTime - lastLiveAccuracyUpdateRef.current > 250) {
+          const roundedAcc = Math.round(calculatedLiveAccuracy * 10) / 10;
+          if (roundedAcc !== lastLiveAccuracyValRef.current) {
+            setLiveAccuracy(roundedAcc);
+            lastLiveAccuracyValRef.current = roundedAcc;
+          }
+          lastLiveAccuracyUpdateRef.current = currentRealTime;
+        }
       }
 
       // 5-second chunk check removed so players only fail based on HP
@@ -3802,23 +4068,23 @@ const AppContent: React.FC = () => {
           isUserPausedRef.current = false;
           if (playbackRequestRef.current)
             cancelAnimationFrame(playbackRequestRef.current);
-          
-          const avg = Math.round(totalSessionHitCountForOffsetRef.current > 0 
-            ? (totalSessionOffsetSumRef.current / totalSessionHitCountForOffsetRef.current) 
+
+          const avg = Math.round(totalSessionHitCountForOffsetRef.current > 0
+            ? (totalSessionOffsetSumRef.current / totalSessionHitCountForOffsetRef.current)
             : 0);
-          
+
           setNoteOffsetMs(avg);
           localStorage.setItem("game_note_offset_ms", avg.toString());
-          
+
           isCalibratingRef.current = false;
           setIsCalibrating(false);
-          
+
           // Restore previous metronome mode
           if (previousMetronomeModeRef.current !== null) {
             setMetronomeMode(previousMetronomeModeRef.current);
             previousMetronomeModeRef.current = null;
           }
-          
+
           // Clean up the loaded calibration song and MIDI states
           setPlaybackNotes([]);
           setCurrentFileName(null);
@@ -3828,7 +4094,7 @@ const AppContent: React.FC = () => {
           setCurrentTempoBpm(null);
           setTempoEvents([]);
           setSignatureEvents([]);
-          
+
           alert(`Calibration Finished! Note Offset has been configured to: ${avg > 0 ? '+' : ''}${avg}ms based on your average input latency.`);
           setCurrentScreen("settings");
           return;
@@ -3848,12 +4114,12 @@ const AppContent: React.FC = () => {
           if (audioRef.current) {
             try {
               audioRef.current.pause();
-            } catch (e) {}
+            } catch (e) { }
           }
           if (youtubePlayerRef.current) {
             try {
               youtubePlayerRef.current.pauseVideo();
-            } catch (e) {}
+            } catch (e) { }
           }
 
           // Play menang.mp3 when finished
@@ -3898,7 +4164,7 @@ const AppContent: React.FC = () => {
             errorCount: number,
           ): { acc: number; spd: number } => {
             if (a) return { acc: 100, spd: 100 };
-            
+
             let acc = 100;
             if (isNonStopMode) {
               // Unified accuracy calculation (matches Admin Panel / Non-Stop style)
@@ -3998,6 +4264,7 @@ const AppContent: React.FC = () => {
     handleSeek,
     isPlayingRef,
     notesForGame,
+    currentTempoBpm,
     playbackTempoMultiplier,
     pausedMusicalTimeRef,
     waitMode,
@@ -4018,8 +4285,9 @@ const AppContent: React.FC = () => {
     safePlayYoutube,
     safePauseYoutube,
     instrumentMode,
+    tapOnlyMode,
+    tempoEvents,
     selectedMidiInputId,
-    backingTrackStatus,
     isBackingTrackOverlayDismissed,
   ]);
 
@@ -4082,7 +4350,7 @@ const AppContent: React.FC = () => {
               const buffer = isStrongBeat
                 ? metronomeBuffersRef.current.strong
                 : metronomeBuffersRef.current.weak;
-              
+
               const scheduleTime = Math.max(audioCtx.currentTime, targetAudioTime);
               if (
                 buffer &&
@@ -4147,8 +4415,8 @@ const AppContent: React.FC = () => {
     };
 
     // Preload backing track if it's an online link or YouTube to ensure smooth playback
-    if (finalSettings.backingTrack?.url && 
-        (finalSettings.backingTrack.type === 'link' || finalSettings.backingTrack.type === 'mp3' || finalSettings.backingTrack.type === 'youtube')) {
+    if (finalSettings.backingTrack?.url &&
+      (finalSettings.backingTrack.type === 'link' || finalSettings.backingTrack.type === 'mp3' || finalSettings.backingTrack.type === 'youtube')) {
       const originalUrl = finalSettings.backingTrack.url;
       if (!originalUrl.startsWith('blob:') && !originalUrl.startsWith('data:')) {
         setIsPreloading(true);
@@ -4158,10 +4426,10 @@ const AppContent: React.FC = () => {
           if (blobUrl !== originalUrl) {
             // Success: Switch to 'mp3' type so it uses the Audio element instead of YouTube IFrame
             // This fixes syncing issues as the Audio element is more reliable in this environment.
-            finalSettings.backingTrack = { 
-              ...finalSettings.backingTrack, 
+            finalSettings.backingTrack = {
+              ...finalSettings.backingTrack,
               url: blobUrl,
-              type: 'mp3' 
+              type: 'mp3'
             };
           }
         } catch (e) {
@@ -4176,10 +4444,10 @@ const AppContent: React.FC = () => {
     gameSettingsRef.current = finalSettings;
     setPlaybackTempoMultiplier(finalSettings.playbackTempoMultiplier);
     playbackTempoMultiplierRef.current = finalSettings.playbackTempoMultiplier;
-    
+
     // Default metronome mode to "beat" when starting standard in-game play
     setMetronomeMode("beat");
-    
+
     setCurrentScreen("inGame");
     initializeAudioContext();
     setPlaybackTempoMultiplierForPreview(1);
@@ -4240,9 +4508,11 @@ const AppContent: React.FC = () => {
   };
 
   const handlePlay = useCallback(async () => {
+    const previewAtStart = isSettingsPreviewActiveRef.current ? settingsPreviewRunRef.current : null;
     // Attempt to resume audio context, but don't hard-block the entire function
     // if it returns false (maybe it's still initializing).
     await initializeAudioContext();
+    if (previewAtStart !== null && (previewAtStart !== settingsPreviewRunRef.current || !isSettingsPreviewActiveRef.current || settingsScreenRef.current !== 'settings')) return;
 
     setIsRewinding(false);
     isRewindingRef.current = false;
@@ -4279,12 +4549,12 @@ const AppContent: React.FC = () => {
       if (audioRef.current) {
         try {
           audioRef.current.pause();
-        } catch (e) {}
+        } catch (e) { }
       }
       if (youtubePlayerRef.current) {
         try {
           youtubePlayerRef.current.pauseVideo();
-        } catch (e) {}
+        } catch (e) { }
       }
 
       performanceStartTimeRef.current = performance.now();
@@ -4341,7 +4611,7 @@ const AppContent: React.FC = () => {
     prevMusicalTimeRef.current = pausedMusicalTimeRef.current;
     hasAudioStartedThisStretchRef.current = false;
     setIsBackingTrackOverlayDismissed(false); // Reset dismissal on play
-    
+
     const backing = gameSettingsRef.current?.backingTrack;
     const isNoneBacking = !backing || backing.type === "none";
 
@@ -4512,7 +4782,7 @@ const AppContent: React.FC = () => {
   // Helper to get precise musical time for sub-frame accuracy (e.g. MIDI/Input events)
   const getPreciseMusicalTime = useCallback(() => {
     if (!isPlayingRef.current) return currentTimeRef.current;
-    
+
     // If waiting for a specific chord/note, time is frozen at that block
     const isW = notesCurrentlyWaitingForRef.current.size > 0 && waitingBlockTimeRef.current !== null;
     if (isW) return waitingBlockTimeRef.current!;
@@ -4520,7 +4790,7 @@ const AppContent: React.FC = () => {
     const now = performance.now();
     const currentPlaybackTempoMultiplier = playbackTempoMultiplierRef.current;
     const elapsedReal = now - performanceStartTimeRef.current;
-    
+
     // We must handle the case where conceptualMusicalTime was calculated at the start of the frame
     // This is essentially doing the same math as conceptualMusicalTime but with "current" now
     return pausedMusicalTimeRef.current + elapsedReal * currentPlaybackTempoMultiplier;
@@ -4529,7 +4799,7 @@ const AppContent: React.FC = () => {
   const processKeyPress = useCallback(
     (midi: number) => {
       if (waitMode === "off" && !isCalibratingRef.current) return;
-      
+
       const inputTime = getPreciseMusicalTime();
       if (isPlayingRef.current)
         lastPlayerInputRealTimeRef.current = performance.now();
@@ -4542,9 +4812,12 @@ const AppContent: React.FC = () => {
       // because the game is paused waiting for the specific note.
       // However, visual feedback logic or scoring (if added later for wait mode) might use it.
       if (isW) {
-        const wn = notesForGame.filter((n) =>
-          notesCurrentlyWaitingForIdsRef.current.has(n.noteId),
-        );
+        // Waiting notes always sit just before resumeIndexRef; scan only that window
+        // instead of the whole song (O(N) per key press caused progressive lag).
+        const resumeIdx = Math.min(resumeIndexRef.current, notesForGame.length);
+        const wn = notesForGame
+          .slice(Math.max(0, resumeIdx - 128), resumeIdx)
+          .filter((n) => notesCurrentlyWaitingForIdsRef.current.has(n.noteId));
 
         let m: MidiNotePlaybackItem | undefined;
         if (gameSettingsRef.current?.instrumentMode === "drum") {
@@ -4637,9 +4910,8 @@ const AppContent: React.FC = () => {
           // Adjust judgment calculation: 
           // noteOffsetMs is the physical hardware/device input delay in real milliseconds.
           // Scaled to musical time: (noteOffsetMs * currentMultiplier).
-          const compensatedNoteTime = n.timeMs - (noteOffsetMsRef.current * currentMultiplier); 
           // Real physical difference in ms between tap and note:
-          const realOffsetMs = (compensatedNoteTime - inputTime) / currentMultiplier;
+          const realOffsetMs = noteInputOffsetMs(n.timeMs, inputTime, currentMultiplier, noteOffsetMsRef.current);
 
           // Optimization: Skip notes more than 2.5 real seconds away
           if (Math.abs(realOffsetMs) > 2500)
@@ -4728,12 +5000,16 @@ const AppContent: React.FC = () => {
                 lastJudgmentRef.current = "good";
               }
               setLastHitOffset(bestOffset);
-              
-              // NEW: Update session average offset
+
+              // NEW: Update session average offset (throttled to avoid re-rendering every hit)
               totalSessionOffsetSumRef.current += bestOffset;
               totalSessionHitCountForOffsetRef.current += 1;
-              const newAvg = totalSessionOffsetSumRef.current / totalSessionHitCountForOffsetRef.current;
-              setUserAverageOffset(newAvg);
+              const nowRealTime = performance.now();
+              if (nowRealTime - lastAvgOffsetUpdateRef.current > 250) {
+                const newAvg = totalSessionOffsetSumRef.current / totalSessionHitCountForOffsetRef.current;
+                setUserAverageOffset(newAvg);
+                lastAvgOffsetUpdateRef.current = nowRealTime;
+              }
 
               hitNoteIdsRef.current.add(best.noteId);
               satisfyUpcomingNote(best);
@@ -4746,12 +5022,16 @@ const AppContent: React.FC = () => {
                 missCountRef.current += 1;
                 changeHp(-10.0);
                 setLastHitOffset(bestOffset);
-                
-                // NEW: Update session average offset (even for misses that were within 500ms)
+
+                // NEW: Update session average offset (throttled to avoid re-rendering every hit)
                 totalSessionOffsetSumRef.current += bestOffset;
                 totalSessionHitCountForOffsetRef.current += 1;
-                const newAvg = totalSessionOffsetSumRef.current / totalSessionHitCountForOffsetRef.current;
-                setUserAverageOffset(newAvg);
+                const nowRealTime = performance.now();
+                if (nowRealTime - lastAvgOffsetUpdateRef.current > 250) {
+                  const newAvg = totalSessionOffsetSumRef.current / totalSessionHitCountForOffsetRef.current;
+                  setUserAverageOffset(newAvg);
+                  lastAvgOffsetUpdateRef.current = nowRealTime;
+                }
 
                 setCombo(0);
                 comboRef.current = 0;
@@ -4773,6 +5053,8 @@ const AppContent: React.FC = () => {
           }
 
           playerInputTimesRef.current.push(performance.now());
+          if (playerInputTimesRef.current.length > 2000)
+            playerInputTimesRef.current.splice(0, 1000);
           if (firstInputRealTimeRef.current === null)
             firstInputRealTimeRef.current = performance.now();
           lastInputRealTimeRef.current = performance.now();
@@ -4924,7 +5206,8 @@ const AppContent: React.FC = () => {
         ns.delete(k);
         return ns;
       });
-      if (isSustainPedalActive) sustainedByPedalKeysRef.current.set(k, m);
+      if (isSustainPedalActiveRef.current)
+        sustainedByPedalKeysRef.current.set(k, m);
       else stopSustainedSound(k, m);
       if (isFreePlayMode) handleFreePlayKeyRelease(m);
     },
@@ -4932,7 +5215,6 @@ const AppContent: React.FC = () => {
       stopSustainedSound,
       isFreePlayMode,
       handleFreePlayKeyRelease,
-      isSustainPedalActive,
     ],
   );
 
@@ -4995,10 +5277,20 @@ const AppContent: React.FC = () => {
       bgUrl?: string | null,
       accLevel?: number | null,
     ) => {
+      annotationControllerRef.current?.abort(); annotationControllerRef.current = null;
+      fingeringAttemptedFileRef.current = null;
+      fingeringLoadController.current?.abort();
+      const controller = new AbortController();
+      fingeringLoadController.current = controller;
+      setFingeringError('');
+      setFingeringWarnings([]);
+      setCurrentFileName(null);
+      setFingeringLoadingMessage('Reading song file...');
       fileRef.current = f;
       setIsLoadingFile(true);
       handleStopPlayback();
       setPlaybackNotes([]);
+      setHandPoses([]);
       setCurrentOnlineSongId(id || null);
       setIsCurrentSongRanked(r || null);
       setCurrentMidiLink(mLink || null);
@@ -5013,41 +5305,46 @@ const AppContent: React.FC = () => {
       }
       try {
         const ext = f.name.split(".").pop()?.toLowerCase();
+        if (f.type !== "application/json" && ext !== "mid" && ext !== "midi" && !f.type.includes("midi")) {
+          throw new Error("Only MIDI files (.mid, .midi) are supported.");
+        }
         let res: any;
+        let notesWithF: MidiNotePlaybackItem[];
         if (f.type === "application/json") {
-          const text = await f.text();
-          res = JSON.parse(text);
+          res = JSON.parse(await f.text());
+          notesWithF = res.notes;
           setCurrentFileType(FileType.UNKNOWN);
-        } else if (ext === "mid" || ext === "midi")
-          res = await parseMidiData(await f.arrayBuffer(), midiNoteToNameMap);
-        else if (ext === "xml" || ext === "musicxml")
-          res = await parseMusicXmlData(await f.text(), midiNoteToNameMap);
-        else if (ext === "mxl") {
-          const zip = await new JSZip().loadAsync(await f.arrayBuffer());
-          let xml = await zip.file("META-INF/container.xml")?.async("string");
-          if (xml) {
-            const p = new DOMParser().parseFromString(xml, "application/xml");
-            const path = p
-              .getElementsByTagName("rootfile")[0]
-              ?.getAttribute("full-path");
-            if (path) xml = await zip.file(path)?.async("string");
-          }
-          if (!xml) {
-            for (const obj of Object.values(zip.files)) {
-              const z = obj as JSZipObject;
-              if (
-                !z.dir &&
-                (z.name.endsWith(".xml") || z.name.endsWith(".musicxml"))
-              ) {
-                xml = await z.async("string");
-                break;
-              }
+        } else if (!needsAutomaticFingering(noteLabelType, instrumentMode)) {
+          res = await parsePlaybackFile(f, midiNoteToNameMap);
+          notesWithF = res.notes;
+        } else {
+          fingeringAttemptedFileRef.current = f;
+          mainFingeringControllerRef.current = controller;
+          const native = await requestNativeFingering(f, { signal: controller.signal, onProgress: setFingeringLoadingMessage, preferences: fingeringPreferences });
+          if (mainFingeringControllerRef.current === controller) mainFingeringControllerRef.current = null;
+          if (controller.signal.aborted) return;
+          setFingeringWarnings(native.warnings || []);
+          setHandPoses(native.poses || []);
+          if (native.format === 'musicxml') {
+            res = await parseMusicXmlData(native.xml, midiNoteToNameMap);
+            notesWithF = res.notes;
+            setHandPoses(notesWithF.filter(n => n.handPositions).map(n => ({ hand: n.hand, onsetSeconds: (n.timeMs - INITIAL_PLAYBACK_DELAY_MS) / 1000, positions: n.handPositions! })).sort((a, b) => a.onsetSeconds - b.onsetSeconds));
+            if (notesWithF.some(n => !n.finger)) {
+              notesWithF = notesWithF.map(n => n.finger ? n : { ...n, finger: (n.hand === 'left' ? 5 : 1) as 1 | 2 | 3 | 4 | 5 });
             }
+            notesWithF = postProcessWideIntervalFingering(notesWithF);
+          } else {
+            const ext = f.name.split('.').pop()?.toLowerCase() || '';
+            if (ext === 'xml' || ext === 'musicxml') {
+              res = await parseMusicXmlData(await f.text(), midiNoteToNameMap);
+            } else {
+              res = await parseMidiData(await f.arrayBuffer(), midiNoteToNameMap);
+            }
+            notesWithF = applyNativeMidiFingering(res.notes, native);
           }
-          if (!xml) throw new Error();
-          res = await parseMusicXmlData(xml, midiNoteToNameMap);
-        } else throw new Error();
-        const notesWithF = assignFingering(res.notes);
+        }
+        if (controller.signal.aborted) return;
+        setFingeringLoadingMessage("Preparing audio...");
         setPlaybackNotes(notesWithF);
         setCurrentFileName(f.name);
         setInitialTimeSignature(res.timeSignature);
@@ -5062,42 +5359,98 @@ const AppContent: React.FC = () => {
         if (notesWithF.length > 0) await preloadSamplesForSong(notesWithF);
         else setIsPreloading(false);
       } catch (e) {
+        if (controller.signal.aborted) return;
         console.error(e);
-        alert("Error processing file.");
+        setFingeringError(e instanceof Error ? e.message : "Error processing file.");
       } finally {
-        setIsLoadingFile(false);
-        setSelectedOnlineSongIdForNavigation(null);
+        if (mainFingeringControllerRef.current === controller) mainFingeringControllerRef.current = null;
+        if (fingeringLoadController.current === controller) {
+          setIsLoadingFile(false);
+          setIsPreloading(false);
+          setFingeringLoadingMessage('');
+          setSelectedOnlineSongIdForNavigation(null);
+        }
       }
     },
-    [handleStopPlayback, preloadSamplesForSong, midiNoteToNameMap],
+    [handleStopPlayback, preloadSamplesForSong, midiNoteToNameMap, fingeringPreferences, noteLabelType, instrumentMode],
   );
+
+  useEffect(() => {
+    if (isSettingsPreviewActiveRef.current) return;
+    if (!needsAutomaticFingering(noteLabelType, instrumentMode)) {
+      if (annotationControllerRef.current) { annotationControllerRef.current.abort(); annotationControllerRef.current = null; fingeringAttemptedFileRef.current = null; setIsLoadingFile(false); setFingeringLoadingMessage(''); }
+      if (mainFingeringControllerRef.current && fileRef.current) {
+        mainFingeringControllerRef.current.abort(); mainFingeringControllerRef.current = null;
+        void loadFile(fileRef.current, currentOnlineSongId, isCurrentSongRanked, currentMidiLink, currentMidiOffset, currentSongBackgroundUrl, currentSongAccuracyLevel);
+      }
+      return;
+    }
+    const file = fileRef.current;
+    if (!file || file.type === 'application/json' || file.name.toLowerCase().endsWith('.json') || !currentFileName || isLoadingFile || !playbackNotes.length || fingeringAttemptedFileRef.current === file) return;
+    fingeringAttemptedFileRef.current = file;
+    const controller = new AbortController(); annotationControllerRef.current = controller;
+    setFingeringError(''); setIsLoadingFile(true); setFingeringLoadingMessage('Preparing fingering...');
+    void (async () => {
+      try {
+        const native = await requestNativeFingering(file, { signal: controller.signal, onProgress: setFingeringLoadingMessage, preferences: fingeringPreferences });
+        if (controller.signal.aborted || fileRef.current !== file) return;
+        if (native.format === 'midi') {
+          setPlaybackNotes(applyNativeMidiFingering(playbackNotes, native)); setHandPoses(native.poses || []);
+        } else {
+          const parsed = await parseMusicXmlData(native.xml, midiNoteToNameMap);
+          if (controller.signal.aborted || fileRef.current !== file) return;
+          const assignments = new Map(parsed.notes.map(n => [`${n.midi}:${n.timeMs}`, n]));
+          setPlaybackNotes(playbackNotes.map(n => {
+            const a = assignments.get(`${n.midi}:${n.timeMs}`);
+            const finger = a?.finger || n.finger || (n.hand === 'left' ? 5 : 1);
+            return { ...n, finger: finger as 1 | 2 | 3 | 4 | 5, hand: a?.hand || n.hand, handPositions: a?.handPositions || n.handPositions };
+          }));
+          setHandPoses(parsed.notes.filter(n => n.handPositions).map(n => ({ hand: n.hand, onsetSeconds: (n.timeMs - INITIAL_PLAYBACK_DELAY_MS) / 1000, positions: n.handPositions! })).sort((a, b) => a.onsetSeconds - b.onsetSeconds));
+        }
+        setFingeringWarnings(native.warnings || []);
+      } catch (error) { if (!controller.signal.aborted) setFingeringError(error instanceof Error ? error.message : String(error)); }
+      finally { if (annotationControllerRef.current === controller) { annotationControllerRef.current = null; setIsLoadingFile(false); setFingeringLoadingMessage(''); } }
+    })();
+  }, [noteLabelType, instrumentMode, currentFileName, isLoadingFile, loadFile]);
 
   const executeCalibrationStart = useCallback(async () => {
     try {
+      await handleExitSettingsPreviewRef.current();
       setIsLoadingFile(true);
       isCalibratingRef.current = true;
       setIsCalibrating(true);
-      
+      calibrationAutoplayPendingRef.current = true;
+
       // Save current metronome mode to restore later
       previousMetronomeModeRef.current = metronomeMode;
       setMetronomeMode("beat");
-      
-      // Automatically reset note offset to 0ms for accurate calibration results
-      setNoteOffsetMs(0);
-      noteOffsetMsRef.current = 0;
+
+      // Keep existing noteOffsetMs (Hitbox Shift) intact as set by the user
       setUserAudioSyncOffset(0);
       userAudioSyncOffsetRef.current = 0;
-      
+
       const response = await fetch("/sounds/offset.mid");
       if (!response.ok) {
         throw new Error("Failed to load /sounds/offset.mid");
       }
       const arrayBuffer = await response.arrayBuffer();
       const file = new File([arrayBuffer], "offset.mid", { type: "audio/midi" });
-      
-      // Load the file so playbackNotes are set
-      await loadFile(file, "calibration_offset_song", false, null, 0, null, 5);
-      
+      const parsed = await parseMidiData(arrayBuffer, midiNoteToNameMap);
+      fileRef.current = file;
+      setPlaybackNotes(parsed.notes);
+      setHandPoses([]);
+      setCurrentFileName(file.name);
+      setCurrentOnlineSongId("calibration_offset_song");
+      setIsCurrentSongRanked(false);
+      setCurrentFileType(FileType.MIDI);
+      setInitialTimeSignature(parsed.timeSignature);
+      setInitialKeySignature(parsed.keySignature);
+      setCurrentTempoBpm(parsed.initialTempoBpm);
+      setTempoEvents(parsed.tempoEvents);
+      setSignatureEvents(parsed.signatureEvents || []);
+      setBarLines(parsed.barLinesMs || []);
+      await preloadSamplesForSong(parsed.notes);
+
       // Start the game with calibration settings
       await handleStartGame({
         waitMode: "off",
@@ -5111,6 +5464,7 @@ const AppContent: React.FC = () => {
       });
     } catch (e) {
       console.error("Calibration load error:", e);
+      calibrationAutoplayPendingRef.current = false;
       alert("Error starting calibration. Please make sure public/sounds/offset.mid is accessible.");
       isCalibratingRef.current = false;
       setIsCalibrating(false);
@@ -5122,7 +5476,7 @@ const AppContent: React.FC = () => {
     } finally {
       setIsLoadingFile(false);
     }
-  }, [loadFile, instrumentMode, metronomeMode]);
+  }, [instrumentMode, metronomeMode, midiNoteToNameMap, preloadSamplesForSong]);
 
   const handleStartCalibration = useCallback(() => {
     setShowCalibrationTutorial(true);
@@ -5157,9 +5511,9 @@ const AppContent: React.FC = () => {
           setTimeout(() => {
             try {
               youtubePlayerRef.current.pauseVideo();
-            } catch (e) {}
+            } catch (e) { }
           }, 200);
-        } catch (e) {}
+        } catch (e) { }
       }
 
       // Prime MP3 audio if it exists
@@ -5171,9 +5525,9 @@ const AppContent: React.FC = () => {
               setTimeout(() => {
                 audioRef.current?.pause();
               }, 200);
-            }).catch(() => {});
+            }).catch(() => { });
           }
-        } catch (e) {}
+        } catch (e) { }
       }
 
       window.removeEventListener("click", unlock);
@@ -5206,6 +5560,7 @@ const AppContent: React.FC = () => {
         if (n === 64) {
           // Sustain Pedal
           const isPressed = v >= 64;
+          isSustainPedalActiveRef.current = isPressed;
           setIsSustainPedalActive(isPressed);
           if (!isPressed) {
             sustainedByPedalKeysRef.current.forEach((midiNote, keyName) => {
@@ -5294,7 +5649,7 @@ const AppContent: React.FC = () => {
           ns.delete(k!.name);
           return ns;
         });
-        if (isSustainPedalActive)
+        if (isSustainPedalActiveRef.current)
           sustainedByPedalKeysRef.current.set(k!.name, noteToProcess);
         else stopSustainedSound(k!.name, noteToProcess);
         if (isFreePlayMode) handleFreePlayKeyRelease(noteToProcess);
@@ -5309,7 +5664,6 @@ const AppContent: React.FC = () => {
       handleFreePlayKeyPress,
       handleFreePlayKeyRelease,
       viewMode,
-      isSustainPedalActive,
       instrumentMode,
       drumInputMode,
       antiDoubleTriggerEnabled,
@@ -5362,40 +5716,68 @@ const AppContent: React.FC = () => {
     }
   }, [midiOutputs, selectedMidiOutputId]);
   useEffect(() => {
+    handleMidiMessageRef.current = handleMidiMessage;
+  }, [handleMidiMessage]);
+
+  useEffect(() => {
     const ai = selectedMidiInputId ? midiInputs.get(selectedMidiInputId) : null;
-    if (activeMidiInputDeviceRef.current)
+    if (activeMidiInputDeviceRef.current && activeMidiInputDeviceRef.current !== ai) {
       activeMidiInputDeviceRef.current.onmidimessage = null;
+    }
     if (ai) {
-      ai.onmidimessage = handleMidiMessage;
+      ai.onmidimessage = (e: MIDIMessageEvent) => {
+        handleMidiMessageRef.current?.(e);
+      };
       activeMidiInputDeviceRef.current = ai;
+    } else {
+      activeMidiInputDeviceRef.current = null;
     }
     return () => {
-      if (activeMidiInputDeviceRef.current)
+      if (activeMidiInputDeviceRef.current) {
         activeMidiInputDeviceRef.current.onmidimessage = null;
+        activeMidiInputDeviceRef.current = null;
+      }
     };
-  }, [selectedMidiInputId, midiInputs, handleMidiMessage]);
+  }, [selectedMidiInputId, midiInputs]);
 
   const activeMidiNotesInfoForKeyboard = useMemo(() => {
     const notePerKey = new Map<string, ActiveMidiNoteInfo>();
     if (isFreePlayMode) return notePerKey;
     for (const info of activePlaybackNotesInfo.values())
       if (info.status === "user_played") notePerKey.set(info.name, info);
-    for (const n of notesForGame)
-      if (
-        musicalCurrentTimeMs >= n.timeMs &&
-        musicalCurrentTimeMs <
-          n.timeMs + Math.min(n.durationMs, VISUAL_NOTE_CAP_MS)
-      )
-        if (!notePerKey.has(n.name))
-          notePerKey.set(n.name, {
-            ...n,
-            status: activePlaybackNotesInfo.get(n.noteId)?.status || "playing",
-          });
+    const len = majorVisualNotesForGame.length;
+    if (len > 0) {
+      let low = 0, high = len - 1;
+      let startIdx = 0;
+      const minTime = musicalCurrentTimeMs - VISUAL_NOTE_CAP_MS;
+      while (low <= high) {
+        const mid = (low + high) >> 1;
+        if (majorVisualNotesForGame[mid].timeMs >= minTime) {
+          startIdx = mid;
+          high = mid - 1;
+        } else {
+          low = mid + 1;
+        }
+      }
+      for (let i = startIdx; i < len; i++) {
+        const n = majorVisualNotesForGame[i];
+        if (n.timeMs > musicalCurrentTimeMs) break;
+        const dur = Math.min(n.durationMs, VISUAL_NOTE_CAP_MS);
+        if (musicalCurrentTimeMs < n.timeMs + dur) {
+          if (!notePerKey.has(n.name)) {
+            notePerKey.set(n.name, {
+              ...n,
+              status: activePlaybackNotesInfo.get(n.noteId)?.status || "playing",
+            });
+          }
+        }
+      }
+    }
     return notePerKey;
   }, [
     activePlaybackNotesInfo,
     musicalCurrentTimeMs,
-    notesForGame,
+    majorVisualNotesForGame,
     isFreePlayMode,
   ]);
 
@@ -5411,6 +5793,7 @@ const AppContent: React.FC = () => {
       if (e.code === "Space" && !e.repeat) {
         setIsSustainPedalActive((prev) => {
           const isTurningOff = !prev;
+          isSustainPedalActiveRef.current = !prev;
           if (isTurningOff) {
             sustainedByPedalKeysRef.current.forEach((midiNote, keyName) => {
               stopSustainedSound(keyName, midiNote);
@@ -5657,6 +6040,15 @@ const AppContent: React.FC = () => {
         currentOnlineSongId &&
         isCurrentSongRanked === true
       ) {
+        // Enforce allowed ranked tempos (0.75x, 1x, 1.25x, 1.5x)
+        const allowedRankedTempos = [0.75, 1, 1.25, 1.5];
+        const tempoMultiplier = performanceSummary.playbackTempoMultiplier ?? 1;
+        const isValidRankedTempo = allowedRankedTempos.some(t => Math.abs(t - tempoMultiplier) < 0.01);
+        if (!isValidRankedTempo) {
+          console.warn("Score rejected for ranked submission: tempo multiplier " + tempoMultiplier + " is not in [0.75, 1, 1.25, 1.5]");
+          return;
+        }
+
         try {
           const currentMode = "retical";
 
@@ -5772,11 +6164,6 @@ const AppContent: React.FC = () => {
     isCurrentSongRanked,
   ]);
 
-  useEffect(() => {
-    if (activeMidiInputDeviceRef.current) {
-      activeMidiInputDeviceRef.current.onmidimessage = handleMidiMessage;
-    }
-  }, [handleMidiMessage]);
 
   useEffect(() => {
     if (!isFreePlayMode) {
@@ -5985,46 +6372,104 @@ const AppContent: React.FC = () => {
     instrumentMode,
   ]);
 
-  const handleExitSettingsPreview = useCallback(() => {
-    if (!isSettingsPreviewActiveRef.current) return;
-    handleStopPlayback();
-    setPlaybackNotes([]);
-    setCurrentFileName(null);
-    setAnalysisResult(null);
-    setInitialTimeSignature(DEFAULT_TIME_SIGNATURE);
-    setInitialKeySignature(DEFAULT_KEY_SIGNATURE);
-    setCurrentTempoBpm(null);
-    setTempoEvents([]);
-    setSignatureEvents([]);
-    setBarLines([]);
-    setTotalNoteCountForGame(0);
+  const settingsPreviewController = useRef<AbortController | null>(null);
+  const settingsPreviewSession = useRef<{
+    usesSong: boolean;
+    settings: GameSettings | null;
+    timeMs: number;
+    playbackNotes: MidiNotePlaybackItem[];
+    handPoses: HandPose[];
+    analysisResult: ExtendedResult | null;
+    initialTimeSignature: TimeSignatureInfo;
+    initialKeySignature: string;
+    currentTempoBpm: number | null;
+    tempoEvents: TempoEvent[];
+    signatureEvents: SignatureEvent[];
+    currentFileType: FileType;
+    barLines: number[];
+    totalNoteCountForGame: number;
+  } | null>(null);
+  const settingsPreviewData = useRef<{ file: File; parsed: Awaited<ReturnType<typeof parseMidiData>> } | null>(null);
+  const [settingsPreviewReady, setSettingsPreviewReady] = useState(false);
+  const [settingsPreviewError, setSettingsPreviewError] = useState('');
+  const handleExitSettingsPreview = useCallback(async () => {
+    settingsPreviewRunRef.current++;
+    settingsPreviewController.current?.abort();
+    settingsPreviewController.current = null;
+    const session = settingsPreviewSession.current;
+    settingsPreviewSession.current = null;
     isSettingsPreviewActiveRef.current = false;
-  }, [handleStopPlayback]);
+    setSettingsPreviewReady(false);
+    if (!session) return;
+    setIsLoadingFile(false);
+    audioPreloadJobRef.current++;
+    setIsPreloading(false);
+    await handleStopPlayback(true, false, true);
+    // A quick reentry owns playback now; an older exit must not restore it.
+    if (settingsPreviewSession.current) return;
+    setGameSettings(session.settings);
+    setPlaybackNotes(session.playbackNotes);
+    setHandPoses(session.handPoses);
+    setAnalysisResult(session.analysisResult);
+    setInitialTimeSignature(session.initialTimeSignature);
+    setInitialKeySignature(session.initialKeySignature);
+    setCurrentTempoBpm(session.currentTempoBpm);
+    setTempoEvents(session.tempoEvents);
+    setSignatureEvents(session.signatureEvents);
+    setCurrentFileType(session.currentFileType);
+    setBarLines(session.barLines);
+    setTotalNoteCountForGame(session.totalNoteCountForGame);
+    if (session.usesSong) await handleSeek(session.timeMs);
+  }, [handleStopPlayback, handleSeek]);
+  handleExitSettingsPreviewRef.current = handleExitSettingsPreview;
   const handleEnterSettingsPreview = useCallback(async () => {
-    if (currentFileName) return;
+    settingsPreviewRunRef.current++;
+    settingsPreviewController.current?.abort();
+    annotationControllerRef.current?.abort();
+    annotationControllerRef.current = null;
+    const controller = new AbortController();
+    settingsPreviewController.current = controller;
+    if (!settingsPreviewSession.current) {
+      settingsPreviewSession.current = {
+        usesSong: !!currentFileName && playbackNotes.length > 0,
+        settings: gameSettings,
+        timeMs: currentTimeRef.current,
+        playbackNotes,
+        handPoses,
+        analysisResult,
+        initialTimeSignature,
+        initialKeySignature,
+        currentTempoBpm,
+        tempoEvents,
+        signatureEvents,
+        currentFileType,
+        barLines,
+        totalNoteCountForGame,
+      };
+      await handleStopPlayback(true, false, true);
+      if (controller.signal.aborted) return;
+    }
     isSettingsPreviewActiveRef.current = true;
+    setSettingsPreviewReady(false);
+    setSettingsPreviewError('');
     setIsTopBarVisible(true);
-    setGameSettings({
-      waitMode: "off",
-      practiceHand: "both",
-      playbackTempoMultiplier: 1,
-      zoomDirection,
-      drumTyperPadOpacity,
-    });
+    setIsLoadingContent(false);
+    setGameSettings({ waitMode: 'off', practiceHand: 'both', playbackTempoMultiplier: 1, zoomDirection, drumTyperPadOpacity });
     setIsLoadingFile(true);
     try {
-      const response = await fetch("/sounds/test.mid");
-      if (!response.ok) throw new Error("Failed to fetch preview MIDI");
-      const blob = await response.blob();
-      const file = new File([blob], "Settings Preview.mid", {
-        type: "audio/midi",
-      });
-      const res = await parseMidiData(
-        await file.arrayBuffer(),
-        midiNoteToNameMap,
-      );
-      const notesWithF = assignFingering(res.notes);
-      setPlaybackNotes(notesWithF);
+      let data = settingsPreviewData.current;
+      if (!data) {
+        const response = await fetch('/sounds/test.mid', { signal: controller.signal });
+        if (!response.ok) throw new Error('The preview MIDI could not be loaded.');
+        const file = new File([await response.blob()], 'Settings Preview.mid', { type: 'audio/midi' });
+        data = { file, parsed: await parseMidiData(await file.arrayBuffer(), midiNoteToNameMap) };
+        if (controller.signal.aborted) return;
+        settingsPreviewData.current = data;
+      }
+      const { file, parsed: res } = data;
+      // Show and play the score immediately; Python annotates it in the background.
+      setPlaybackNotes(res.notes);
+      setHandPoses([]);
       setInitialTimeSignature(res.timeSignature);
       setInitialKeySignature(res.keySignature);
       setCurrentTempoBpm(res.initialTempoBpm);
@@ -6032,36 +6477,75 @@ const AppContent: React.FC = () => {
       setSignatureEvents(res.signatureEvents);
       setCurrentFileType(FileType.MIDI);
       setBarLines(res.barLinesMs);
-      await preloadSamplesForSong(notesWithF);
+      setTotalNoteCountForGame(res.notes.length);
+      await preloadSamplesForSong(res.notes);
+      if (controller.signal.aborted) return;
+      setSettingsPreviewReady(true);
+      let notes = res.notes;
+      let poses: HandPose[] = [];
+      if (needsAutomaticFingering(noteLabelType, instrumentMode)) {
+        try {
+          const native = await requestNativeFingering(file, { signal: controller.signal, preferences: fingeringPreferences });
+          if (controller.signal.aborted) return;
+          if (native.format !== 'midi') throw new Error('Unexpected preview format.');
+          notes = applyNativeMidiFingering(res.notes, native);
+          poses = native.poses || [];
+        } catch (error) {
+          if (controller.signal.aborted) return;
+          setSettingsPreviewError('Preview is playing without finger numbers. Select Restart preview to try again.');
+        }
+      }
+      if (controller.signal.aborted) return;
+      setPlaybackNotes(notes);
+      setHandPoses(poses);
     } catch (error) {
-      handleExitSettingsPreview();
+      if (!controller.signal.aborted) setSettingsPreviewError('Preview failed to load. Select Restart preview to try again.');
     } finally {
-      setIsLoadingFile(false);
+      if (settingsPreviewController.current === controller) setIsLoadingFile(false);
     }
-  }, [
-    currentFileName,
-    midiNoteToNameMap,
-    preloadSamplesForSong,
-    handleExitSettingsPreview,
-  ]);
+  }, [currentFileName, playbackNotes, handPoses, analysisResult, initialTimeSignature, initialKeySignature, currentTempoBpm, tempoEvents, signatureEvents, currentFileType, barLines, totalNoteCountForGame, gameSettings, handleStopPlayback, midiNoteToNameMap, preloadSamplesForSong, noteLabelType, instrumentMode, fingeringPreferences, zoomDirection, drumTyperPadOpacity]);
+
+  const previewOptionsKey = JSON.stringify([noteLabelType, instrumentMode, fingeringPreferences]);
+  const previousPreviewOptions = useRef(previewOptionsKey);
+  useEffect(() => {
+    const changed = previousPreviewOptions.current !== previewOptionsKey;
+    previousPreviewOptions.current = previewOptionsKey;
+    if (changed && currentScreen === 'settings' && settingsPreviewSession.current) {
+      void handleStopPlayback(true, false, true);
+      void handleEnterSettingsPreview();
+    }
+  }, [previewOptionsKey, currentScreen, handleEnterSettingsPreview, handleStopPlayback]);
 
   const prevScreenRef = useRef<Screen | undefined>(undefined);
   useEffect(() => {
     const previousScreen = prevScreenRef.current;
-    if (previousScreen === "settings" && currentScreen !== "settings")
-      handleExitSettingsPreview();
-    else if (currentScreen === "settings" && previousScreen !== "settings")
-      handleEnterSettingsPreview();
     prevScreenRef.current = currentScreen;
+    if (previousScreen === 'settings' && currentScreen !== 'settings') handleExitSettingsPreview();
+    else if (currentScreen === 'settings' && previousScreen !== 'settings') void handleEnterSettingsPreview();
   }, [currentScreen, handleEnterSettingsPreview, handleExitSettingsPreview]);
   useEffect(() => {
+    if (currentScreen === 'settings' && isSettingsPreviewActiveRef.current && settingsPreviewReady && playbackNotes.length > 0 && !isPlayingRef.current) {
+      void handlePlay();
+    }
+  }, [currentScreen, settingsPreviewReady, playbackNotes, isPlaying, viewMode, handlePlay]);
+  useEffect(() => {
     if (
-      isSettingsPreviewActiveRef.current &&
+      calibrationAutoplayPendingRef.current &&
+      currentScreen === 'inGame' &&
+      isCalibrating &&
       playbackNotes.length > 0 &&
+      !isLoadingFile &&
+      !isLoadingContent &&
       !isPlayingRef.current
-    )
-      handlePlay();
-  }, [playbackNotes, handlePlay]);
+    ) {
+      calibrationAutoplayPendingRef.current = false;
+      void handlePlay();
+    }
+  }, [currentScreen, isCalibrating, playbackNotes.length, isLoadingFile, isLoadingContent, isPlaying, handlePlay]);
+  const handleRestartSettingsPreview = () => {
+    handleSeek(0);
+    void handleEnterSettingsPreview();
+  };
   const handleExitGame = useCallback(() => {
     const wasInFreePlay = isFreePlayModeRef.current;
     handleStopPlayback(true, false, true); // exitFreePlay: true, shouldRewind: false, forceResetToZero: true
@@ -6083,15 +6567,16 @@ const AppContent: React.FC = () => {
     });
 
     if (isCalibratingRef.current) {
+      calibrationAutoplayPendingRef.current = false;
       isCalibratingRef.current = false;
       setIsCalibrating(false);
-      
+
       // Restore previous metronome mode
       if (previousMetronomeModeRef.current !== null) {
         setMetronomeMode(previousMetronomeModeRef.current);
         previousMetronomeModeRef.current = null;
       }
-      
+
       // Clean up the loaded calibration song and MIDI states
       setPlaybackNotes([]);
       setCurrentFileName(null);
@@ -6101,7 +6586,7 @@ const AppContent: React.FC = () => {
       setCurrentTempoBpm(null);
       setTempoEvents([]);
       setSignatureEvents([]);
-      
+
       setCurrentScreen("settings");
       return;
     }
@@ -6310,6 +6795,9 @@ const AppContent: React.FC = () => {
   const bgOpacity = themeSettings.backgroundOpacity ?? 0;
   const isImageActive = !!themeSettings.backgroundUrl && bgOpacity > 0;
   const sheetMusicBackgroundColor = isImageActive ? "transparent" : "#ffffff";
+  const sheetSceneColor = themeSettings.fallingNotesBackgroundColor || '#ffffff';
+  const sheetSceneBrightness = [1, 3, 5].reduce((sum, index, i) => sum + parseInt(sheetSceneColor.slice(index, index + 2), 16) * [.2126, .7152, .0722][i], 0);
+  const sheetNotationColor = sheetSceneBrightness < 128 ? '#e2e8f0' : '#1a1816';
   const fallingNotesBackgroundColor =
     bgOpacity === 0
       ? "#000000"
@@ -6382,16 +6870,19 @@ const AppContent: React.FC = () => {
         gameSettings?.backingTrack?.type === "link") &&
         gameSettings.backingTrack.url && (
           <audio
-            ref={audioRef}
+            key={gameSettings.backingTrack.url}
+            ref={setBackingAudioElement}
             src={gameSettings.backingTrack.url}
             preload="auto"
             onLoadedMetadata={(e) => {
+              connectBackingAudio(e.currentTarget);
               applyAudioPlaybackRate(e.currentTarget, playbackTempoMultiplierRef.current);
             }}
             onCanPlay={(e) => {
               applyAudioPlaybackRate(e.currentTarget, playbackTempoMultiplierRef.current);
             }}
             onPlay={(e) => {
+              connectBackingAudio(e.currentTarget);
               applyAudioPlaybackRate(e.currentTarget, playbackTempoMultiplierRef.current);
               if (backingTrackStatus !== 'playing') setBackingTrackStatus('playing');
             }}
@@ -6401,7 +6892,7 @@ const AppContent: React.FC = () => {
             }}
             onRateChange={(e) => {
               const audio = e.currentTarget;
-              const target = playbackTempoMultiplierRef.current;
+              const target = desiredBackingRateRef.current;
               if (Math.abs(audio.playbackRate - target) > 0.08) {
                 applyAudioPlaybackRate(audio, target);
               }
@@ -6413,8 +6904,8 @@ const AppContent: React.FC = () => {
               if (backingTrackStatus !== 'stalled') setBackingTrackStatus('stalled');
             }}
             onPause={() => {
-               // Only set to idle if the game is also paused or we are in wait state
-               if (!isPlayingRef.current) setBackingTrackStatus('idle');
+              // Only set to idle if the game is also paused or we are in wait state
+              if (!isPlayingRef.current) setBackingTrackStatus('idle');
             }}
             onError={() => {
               setBackingTrackStatus('error');
@@ -6447,85 +6938,85 @@ const AppContent: React.FC = () => {
               </div>
               <div className="absolute top-0 left-0 right-0 z-50 flex flex-col pointer-events-none pt-[14px]">
                 <div className="w-full pointer-events-auto">
-                {(() => {
-                  const accuracyLevel = gameSettings?.accuracyLevel ?? 5;
-                  const perfectWindow = 100 + (5 - accuracyLevel) * 20;
-                  const greatWindow = perfectWindow * 1.5;
-                  const goodWindow = perfectWindow * 2;
+                  {(() => {
+                    const accuracyLevel = gameSettings?.accuracyLevel ?? 5;
+                    const perfectWindow = 100 + (5 - accuracyLevel) * 20;
+                    const greatWindow = perfectWindow * 1.5;
+                    const goodWindow = perfectWindow * 2;
 
-                  return (
-                    <TopBar
-                      onPlay={handlePlay}
-                      onPause={handlePause}
-                      onStop={handleStopPlayback}
-                      onExit={handleExitGame}
-                      isPlaying={isPlaying}
-                      isFileLoaded={playbackNotes.length > 0}
-                      fileName={currentFileName}
-                      waitMode={waitMode}
-                      metronomeMode={metronomeMode}
-                      onCycleMetronomeMode={() => {
-                        if (isCalibrating) return; // Cannot cycle metronome mode during calibration
-                        setMetronomeMode((p) =>
-                          p === "off" ? "beat" : p === "beat" ? "bar" : "off",
-                        );
-                      }}
-                      isMetronomeAvailable={isMetronomeAvailable}
-                      liveAccuracy={liveAccuracy}
-                      liveSpeed={liveSpeed}
-                      perfectCount={perfectCount}
-                      greatCount={greatCount}
-                      goodCount={goodCount}
-                      missCount={missCount}
-                      isNonStop={gameSettings?.isNonStop ?? false}
-                      totalNoteCount={totalNoteCountForGame}
-                      currentTimeMs={
-                        musicalCurrentTimeMs / playbackTempoMultiplier
-                      }
-                      totalDurationMs={
-                        absoluteEndTimeMs / playbackTempoMultiplier
-                      }
-                      viewMode={viewMode}
-                      noteSpeedMultiplier={noteSpeedMultiplier}
-                      onNoteSpeedMultiplierChange={setNoteSpeedMultiplier}
-                      sheetMusicZoom={sheetMusicZoom}
-                      onSheetMusicZoomChange={setSheetMusicZoom}
-                      analysisResult={analysisResult}
-                      metronomeBeat={metronomeBeat}
-                      totalWaitTimeMs={totalWaitTimeMs}
-                      isFreePlayMode={isFreePlayMode}
-                      isMicEnabled={isAudioInputEnabled}
-                      isRecording={isRecording}
-                      onToggleRecording={handleToggleRecording}
-                      onSaveRecording={handleSaveRecording}
-                      showSaveButton={showSaveButton}
-                      isLooping={isLooping}
-                      onToggleLoop={handleToggleLoop}
-                      loopStartMs={loopStartMs}
-                      loopEndMs={loopEndMs}
-                      onSetLoopStart={handleSetLoopStart}
-                      onSetLoopEnd={handleSetLoopEnd}
-                      onClearLoop={handleClearLoop}
-                      barLines={barLines}
-                      isTopBarVisible={isTopBarVisible}
-                      onToggleVisibility={() =>
-                        setIsTopBarVisible(!isTopBarVisible)
-                      }
-                      instrumentMode={instrumentMode}
-                      lastHitOffset={lastHitOffset}
-                      perfectWindow={perfectWindow}
-                      greatWindow={greatWindow}
-                      goodWindow={goodWindow}
-                      combo={combo}
-                      lastJudgment={lastJudgment}
-                      userAudioSyncOffset={userAudioSyncOffset}
-                      onUserAudioSyncOffsetChange={setUserAudioSyncOffset}
-                      isCalibrationMode={gameSettings?.isCalibrationMode}
-                      userAverageOffset={userAverageOffset}
-                      hp={hp}
-                    />
-                  );
-                })()}
+                    return (
+                      <TopBar
+                        onPlay={handlePlay}
+                        onPause={handlePause}
+                        onStop={handleStopPlayback}
+                        onExit={handleExitGame}
+                        isPlaying={isPlaying}
+                        isFileLoaded={playbackNotes.length > 0}
+                        fileName={currentFileName}
+                        waitMode={waitMode}
+                        metronomeMode={metronomeMode}
+                        onCycleMetronomeMode={() => {
+                          if (isCalibrating) return; // Cannot cycle metronome mode during calibration
+                          setMetronomeMode((p) =>
+                            p === "off" ? "beat" : p === "beat" ? "bar" : "off",
+                          );
+                        }}
+                        isMetronomeAvailable={isMetronomeAvailable}
+                        liveAccuracy={liveAccuracy}
+                        liveSpeed={liveSpeed}
+                        perfectCount={perfectCount}
+                        greatCount={greatCount}
+                        goodCount={goodCount}
+                        missCount={missCount}
+                        isNonStop={gameSettings?.isNonStop ?? false}
+                        totalNoteCount={totalNoteCountForGame}
+                        currentTimeMs={
+                          musicalCurrentTimeMs / playbackTempoMultiplier
+                        }
+                        totalDurationMs={
+                          absoluteEndTimeMs / playbackTempoMultiplier
+                        }
+                        viewMode={viewMode}
+                        noteSpeedMultiplier={noteSpeedMultiplier}
+                        onNoteSpeedMultiplierChange={setNoteSpeedMultiplier}
+                        sheetMusicZoom={sheetMusicZoom}
+                        onSheetMusicZoomChange={setSheetMusicZoom}
+                        analysisResult={analysisResult}
+                        metronomeBeat={metronomeBeat}
+                        totalWaitTimeMs={totalWaitTimeMs}
+                        isFreePlayMode={isFreePlayMode}
+                        isMicEnabled={isAudioInputEnabled}
+                        isRecording={isRecording}
+                        onToggleRecording={handleToggleRecording}
+                        onSaveRecording={handleSaveRecording}
+                        showSaveButton={showSaveButton}
+                        isLooping={isLooping}
+                        onToggleLoop={handleToggleLoop}
+                        loopStartMs={loopStartMs}
+                        loopEndMs={loopEndMs}
+                        onSetLoopStart={handleSetLoopStart}
+                        onSetLoopEnd={handleSetLoopEnd}
+                        onClearLoop={handleClearLoop}
+                        barLines={barLines}
+                        isTopBarVisible={isTopBarVisible}
+                        onToggleVisibility={() =>
+                          setIsTopBarVisible(!isTopBarVisible)
+                        }
+                        instrumentMode={instrumentMode}
+                        lastHitOffset={lastHitOffset}
+                        perfectWindow={perfectWindow}
+                        greatWindow={greatWindow}
+                        goodWindow={goodWindow}
+                        combo={combo}
+                        lastJudgment={lastJudgment}
+                        userAudioSyncOffset={userAudioSyncOffset}
+                        onUserAudioSyncOffsetChange={setUserAudioSyncOffset}
+                        isCalibrationMode={gameSettings?.isCalibrationMode}
+                        userAverageOffset={userAverageOffset}
+                        hp={hp}
+                      />
+                    );
+                  })()}
                 </div>
               </div>
               <div
@@ -6550,12 +7041,11 @@ const AppContent: React.FC = () => {
                         className="absolute left-0 right-0 z-[70] pointer-events-none text-center select-none"
                         style={{ top: "68px" }}
                       >
-                        <span className={`text-2xl md:text-3xl font-extrabold italic uppercase tracking-wider drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)] filter ${
-                          displayJudgment.type === 'perfect' ? 'text-yellow-400 font-black' :
-                          displayJudgment.type === 'great' ? 'text-emerald-400 font-black' :
-                          displayJudgment.type === 'good' ? 'text-blue-400 font-black' :
-                          'text-rose-500 font-black'
-                        }`}>
+                        <span className={`text-2xl md:text-3xl font-extrabold italic uppercase tracking-wider drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)] filter ${displayJudgment.type === 'perfect' ? 'text-yellow-400 font-black' :
+                            displayJudgment.type === 'great' ? 'text-emerald-400 font-black' :
+                              displayJudgment.type === 'good' ? 'text-blue-400 font-black' :
+                                'text-rose-500 font-black'
+                          }`}>
                           {displayJudgment.type}
                         </span>
                       </motion.div>
@@ -6607,6 +7097,7 @@ const AppContent: React.FC = () => {
                       <QwertyManiaView
                         currentTimeMs={musicalCurrentTimeMs}
                         playbackData={notesForGame}
+                        visualDurationByNoteId={majorVisualDurationByNoteId}
                         activePlaybackNotes={activePlaybackNotesInfo}
                         userActiveKeys={userActiveMidiNotes}
                         noteSpeedMultiplier={noteSpeedMultiplier}
@@ -6625,6 +7116,7 @@ const AppContent: React.FC = () => {
                           initialKeySignature,
                         )}
                         activeBpm={activeBpmForDisplay}
+                        majorNoteVisualDurationMs={activeMajorNoteVisualDurationMs}
                         showOnlyMajorNotes={showOnlyMajorNotes}
                         resolutionScale={resolutionScale}
                         waitMode={waitMode}
@@ -6633,6 +7125,7 @@ const AppContent: React.FC = () => {
                       <FallingNotesArea
                         key={`falling-${viewMode}`}
                         notes={notesForFallingView}
+                        visualDurationByNoteId={majorVisualDurationByNoteId}
                         currentTimeMs={musicalCurrentTimeMs}
                         keyPositions={keyPositionsMap}
                         activeMidiNotesInfo={activePlaybackNotesInfo}
@@ -6653,6 +7146,7 @@ const AppContent: React.FC = () => {
                           initialKeySignature,
                         )}
                         activeTempoBpm={activeBpmForDisplay}
+                        majorNoteVisualDurationMs={activeMajorNoteVisualDurationMs}
                         showOnlyMajorNotes={showOnlyMajorNotes}
                         instrumentMode={instrumentMode}
                         showPianoTilesBackground={showPianoTilesBackground}
@@ -6665,10 +7159,11 @@ const AppContent: React.FC = () => {
                         resolutionScale={resolutionScale}
                       />
                     ) : (viewMode === "sheet-roll" ||
-                        viewMode === "sheet-qwerty") &&
+                      viewMode === "sheet-qwerty") &&
                       vexFlowData ? (
                       <HorizontalNotesView
                         currentTimeMs={musicalCurrentTimeMs}
+                        visualDurationByNoteId={majorVisualDurationByNoteId}
                         width={baseCalculatedPianoWidth}
                         height={contentAreaHeight}
                         pixelsPerMillisecond={
@@ -6694,6 +7189,7 @@ const AppContent: React.FC = () => {
                           initialKeySignature,
                         )}
                         activeBpmForDisplay={activeBpmForDisplay}
+                        majorNoteVisualDurationMs={activeMajorNoteVisualDurationMs}
                         qwertyLayout={qwertyLayout}
                         qwertyCurrentOctaveShift={qwertyCurrentOctaveShift}
                         mirpTranspose={mirpTranspose}
@@ -6724,7 +7220,8 @@ const AppContent: React.FC = () => {
                         onLayoutRendered={setRenderedLayoutId}
                         tempoEvents={tempoEvents}
                         playbackTempoMultiplier={playbackTempoMultiplier}
-                        backgroundColor={sheetMusicBackgroundColor}
+                        backgroundColor="transparent"
+                        notationColor={sheetNotationColor}
                         instrumentMode={instrumentMode}
                         resolutionScale={resolutionScale}
                         noteLabelType={noteLabelType}
@@ -6769,6 +7266,7 @@ const AppContent: React.FC = () => {
                         waitMode={waitMode}
                         resolutionScale={resolutionScale}
                       />
+                      {showHand3D && noteLabelType === 'fingering' && !isFreePlayMode && <HandFingering3D notes={fingeringHandNotes} poses={handPoses} timeMs={musicalCurrentTimeMs} handSize={fingeringPreferences.handSize} leftHandColor={themeSettings.leftHandColor} rightHandColor={themeSettings.rightHandColor} overlay={{ keyPositions: keyPositionsArray, width: baseCalculatedPianoWidth, whiteKeyHeight: layoutConfig.whiteKeyHeight, blackKeyHeight: layoutConfig.blackKeyHeight }} />}
                       <div className="absolute bottom-4 left-0 right-0 w-full flex justify-center z-50 pointer-events-none">
                         <OffsetIndicator
                           midiHitTiming={lastHitOffset}
@@ -6856,6 +7354,18 @@ const AppContent: React.FC = () => {
           loadedSongName={currentFileName}
           analysisResult={analysisResult}
           isLoading={isLoadingFile || isPreloading}
+          fingeringWarnings={fingeringWarnings}
+          fingeringError={fingeringError}
+          loadingMessage={isLoadingFile ? fingeringLoadingMessage : 'Preparing audio...'}
+          onCancelLoading={isLoadingFile ? () => {
+            fingeringLoadController.current?.abort();
+            audioPreloadJobRef.current++;
+            setIsLoadingFile(false);
+            setIsPreloading(false);
+            setFingeringLoadingMessage('');
+            setCurrentFileName(null);
+            setPlaybackNotes([]);
+          } : undefined}
           selectedOnlineSongIdForNavigation={selectedOnlineSongIdForNavigation}
           onGoToOnlineSong={(s) => {
             setSelectedOnlineSongIdForNavigation(s);
@@ -6869,42 +7379,48 @@ const AppContent: React.FC = () => {
         />
       )}
       {currentScreen === "modeSelection" && (
-          <ModeSelection
-            onStartGame={handleStartGame}
-            onBack={() => setCurrentScreen("songSelection")}
-            onOpenSettings={() => {
-              setSettingsScrollTarget("note-offset-section");
-              setCurrentScreen("settings");
-            }}
-            analysisResult={analysisResult}
-            analysisResultForPreview={previewAnalysisResult}
-            fileName={currentFileName}
-            initialTempoBpm={currentTempoBpm}
-            initialPlaybackTempoMultiplier={previewPlaybackTempoMultiplier}
-            onPlaybackTempoMultiplierChange={onPlaybackTempoMultiplierChange}
-            backingTrackFile={backingTrackFile}
-            onBackingTrackFileChange={setBackingTrackFile}
-            backingTrackOffset={backingTrackOffset}
-            onBackingTrackOffsetChange={setBackingTrackOffset}
-            isAudioInputEnabled={isAudioInputEnabled}
-            midiLink={currentMidiLink}
-            midiOffset={currentMidiOffset}
-            instrumentMode={instrumentMode}
-            onInstrumentModeChange={handleInstrumentModeChange}
-            currentSongAccuracyLevel={currentSongAccuracyLevel}
-            userAverageOffset={userAverageOffset}
-            userAudioSyncOffset={userAudioSyncOffset}
-            onUserAudioSyncOffsetChange={setUserAudioSyncOffset}
-          />
+        <ModeSelection
+          onStartGame={handleStartGame}
+          onBack={() => setCurrentScreen("songSelection")}
+          onOpenSettings={() => {
+            setSettingsScrollTarget("note-offset-section");
+            setCurrentScreen("settings");
+          }}
+          analysisResult={analysisResult}
+          analysisResultForPreview={previewAnalysisResult}
+          fileName={currentFileName}
+          initialTempoBpm={currentTempoBpm}
+          initialPlaybackTempoMultiplier={previewPlaybackTempoMultiplier}
+          onPlaybackTempoMultiplierChange={onPlaybackTempoMultiplierChange}
+          backingTrackFile={backingTrackFile}
+          onBackingTrackFileChange={setBackingTrackFile}
+          backingTrackOffset={backingTrackOffset}
+          onBackingTrackOffsetChange={setBackingTrackOffset}
+          isAudioInputEnabled={isAudioInputEnabled}
+          midiLink={currentMidiLink}
+          midiOffset={currentMidiOffset}
+          instrumentMode={instrumentMode}
+          onInstrumentModeChange={handleInstrumentModeChange}
+          currentSongAccuracyLevel={currentSongAccuracyLevel}
+          userAverageOffset={userAverageOffset}
+          userAudioSyncOffset={userAudioSyncOffset}
+          onUserAudioSyncOffsetChange={setUserAudioSyncOffset}
+        />
       )}
       {currentScreen === "settings" && (
         <div
-          className="fixed inset-0 bg-slate-950/60 flex items-center justify-center z-40 p-4"
+          className="fixed inset-0 bg-transparent flex items-center justify-center z-40 p-4"
           onClick={(e) =>
             e.target === e.currentTarget && setCurrentScreen("mainMenu")
           }
         >
           <Settings
+            previewStatus={settingsPreviewError || (!settingsPreviewReady ? 'Preparing test MIDI…' : isPlaying ? (isLoadingFile ? 'Test MIDI playing · calculating finger numbers…' : 'Test MIDI playing · changes appear immediately') : 'Test MIDI ready · select Restart preview to start audio')}
+            onRestartPreview={handleRestartSettingsPreview}
+            fingeringPreferences={fingeringPreferences}
+            onFingeringPreferencesChange={setFingeringPreferences}
+            showHand3D={showHand3D}
+            onShowHand3DChange={setShowHand3D}
             onBack={() => setCurrentScreen("mainMenu")}
             onStartCalibration={handleStartCalibration}
             initialScrollTarget={settingsScrollTarget}
@@ -7003,8 +7519,8 @@ const AppContent: React.FC = () => {
       )}
       {currentScreen === "finetune" && (
         user?.id === ADMIN_UUID ? (
-          <FineTunePanel 
-            onBack={() => setCurrentScreen("mainMenu")} 
+          <FineTunePanel
+            onBack={() => setCurrentScreen("mainMenu")}
             instrumentMode={instrumentMode}
           />
         ) : (
@@ -7012,8 +7528,8 @@ const AppContent: React.FC = () => {
             <div className="bg-slate-900 p-8 rounded-2xl border border-red-500/30 text-center max-w-md w-full">
               <h2 className="text-2xl font-bold text-red-500 mb-4">Access Denied</h2>
               <p className="text-slate-400 mb-6">You must be logged in as an administrator to access the Calibration Workbench.</p>
-              <button 
-                onClick={() => setCurrentScreen("mainMenu")} 
+              <button
+                onClick={() => setCurrentScreen("mainMenu")}
                 className="bg-slate-800 hover:bg-slate-700 text-slate-200 py-2 px-6 rounded-lg font-bold border border-slate-600 transition-colors"
               >
                 Return to Main Menu
@@ -7074,152 +7590,152 @@ const AppContent: React.FC = () => {
               </div>
             )}
             <AnimatePresence>
-              {isPlaying && 
-               gameSettings?.backingTrack?.type !== 'none' && 
-               !isBackingTrackOverlayDismissed && 
-               (backingTrackStatus === 'error' || backingTrackStatus === 'stalled' || (backingTrackStatus === 'loading' && musicalCurrentTimeMs > INITIAL_PLAYBACK_DELAY_MS + 200)) && (
-                <motion.div 
-                  initial={{ opacity: 0, y: -20, x: "-50%" }}
-                  animate={{ opacity: 1, y: 0, x: "-50%" }}
-                  exit={{ opacity: 0, y: -20, x: "-50%" }}
-                  onClick={() => {
-                    // Manual Unblock Action
-                    if (gameSettings?.backingTrack?.type === 'youtube') safePlayYoutube();
-                    else if (audioRef.current) safePlayAudio();
-                    setIsBackingTrackOverlayDismissed(true); // Hide it after attempt
-                  }}
-                  className={`absolute top-[80px] left-1/2 z-[70] bg-slate-900/95 border border-cyan-500/30 rounded-full px-5 py-2 flex items-center gap-3 shadow-2xl pointer-events-auto cursor-pointer hover:bg-slate-800 transition-colors`}
-                >
-                  <div className={`w-3.5 h-3.5 rounded-full border-2 ${
-                    backingTrackStatus === 'error' ? 'border-red-500 bg-red-500/20' : 
-                    backingTrackStatus === 'stalled' ? 'border-amber-500/20 border-t-amber-500 animate-spin' : 
-                    'border-cyan-500/20 border-t-cyan-500 animate-spin'
-                  }`} />
-                  <div className="flex flex-col">
-                    <span className={`text-[9px] font-black uppercase tracking-[0.2em] leading-none ${
-                        backingTrackStatus === 'error' ? 'text-red-400' : 
-                        (backingTrackStatus === 'stalled' || backingTrackStatus === 'loading') ? 'text-amber-400' : 'text-cyan-400'
-                    }`}>
-                      BACKING TRACK LOADING
-                    </span>
-                    <span className="text-[7px] text-slate-500 font-bold uppercase tracking-tight">
-                      Try to pause or restart
-                    </span>
-                  </div>
-                  {(
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setIsBackingTrackOverlayDismissed(true);
-                      }}
-                      className="ml-2 p-1 hover:bg-white/10 rounded-full transition-colors text-slate-500 hover:text-white pointer-events-auto"
-                    >
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  )}
-                </motion.div>
-              )}
+              {isPlaying &&
+                !!gameSettings?.backingTrack &&
+                gameSettings.backingTrack.type !== 'none' &&
+                !!gameSettings.backingTrack.url &&
+                !isBackingTrackOverlayDismissed &&
+                (backingTrackStatus === 'error' || backingTrackStatus === 'stalled' || (backingTrackStatus === 'loading' && musicalCurrentTimeMs > INITIAL_PLAYBACK_DELAY_MS + 200)) && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -20, x: "-50%" }}
+                    animate={{ opacity: 1, y: 0, x: "-50%" }}
+                    exit={{ opacity: 0, y: -20, x: "-50%" }}
+                    onClick={() => {
+                      // Manual Unblock Action
+                      if (gameSettings?.backingTrack?.type === 'youtube') safePlayYoutube();
+                      else if (audioRef.current) safePlayAudio();
+                      setIsBackingTrackOverlayDismissed(true); // Hide it after attempt
+                    }}
+                    className={`absolute top-[80px] left-1/2 z-[70] bg-slate-900/95 border border-cyan-500/30 rounded-full px-5 py-2 flex items-center gap-3 shadow-2xl pointer-events-auto cursor-pointer hover:bg-slate-800 transition-colors`}
+                  >
+                    <div className={`w-3.5 h-3.5 rounded-full border-2 ${backingTrackStatus === 'error' ? 'border-red-500 bg-red-500/20' :
+                        backingTrackStatus === 'stalled' ? 'border-amber-500/20 border-t-amber-500 animate-spin' :
+                          'border-cyan-500/20 border-t-cyan-500 animate-spin'
+                      }`} />
+                    <div className="flex flex-col">
+                      <span className={`text-[9px] font-black uppercase tracking-[0.2em] leading-none ${backingTrackStatus === 'error' ? 'text-red-400' :
+                          (backingTrackStatus === 'stalled' || backingTrackStatus === 'loading') ? 'text-amber-400' : 'text-cyan-400'
+                        }`}>
+                        BACKING TRACK LOADING
+                      </span>
+                      <span className="text-[7px] text-slate-500 font-bold uppercase tracking-tight">
+                        Try to pause or restart
+                      </span>
+                    </div>
+                    {(
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsBackingTrackOverlayDismissed(true);
+                        }}
+                        className="ml-2 p-1 hover:bg-white/10 rounded-full transition-colors text-slate-500 hover:text-white pointer-events-auto"
+                      >
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    )}
+                  </motion.div>
+                )}
             </AnimatePresence>
           </div>
           <div className="absolute top-0 left-0 right-0 z-50 flex flex-col pointer-events-none pt-[14px]">
             <div className="w-full pointer-events-auto">
               {(() => {
-              const accuracyLevel = gameSettings?.accuracyLevel ?? 5;
-              const perfectWindow = 100 + (5 - accuracyLevel) * 20;
-              const greatWindow = perfectWindow * 1.5;
-              const goodWindow = perfectWindow * 2;
+                const accuracyLevel = gameSettings?.accuracyLevel ?? 5;
+                const perfectWindow = 100 + (5 - accuracyLevel) * 20;
+                const greatWindow = perfectWindow * 1.5;
+                const goodWindow = perfectWindow * 2;
 
-              return (
-                <TopBar
-                  onPlay={handlePlay}
-                  onPause={handlePause}
-                  onStop={() => handleStopPlayback(!isFreePlayMode)}
-                  onExit={handleExitGame}
-                  isPlaying={isPlaying}
-                  isFileLoaded={playbackNotes.length > 0 || isFreePlayMode}
-                  fileName={isFreePlayMode ? "Free Play" : currentFileName}
-                  waitMode={waitMode}
-                  metronomeMode={
-                    isFreePlayMode ? freePlayMetronomeMode : metronomeMode
-                  }
-                  onCycleMetronomeMode={() => {
-                    if (isCalibrating) return; // Cannot cycle metronome mode during calibration
-                    if (isFreePlayMode)
-                      setFreePlayMetronomeMode((p) =>
-                        p === "off" ? "beat" : p === "beat" ? "bar" : "off",
-                      );
-                    else
-                      setMetronomeMode((p) =>
-                        p === "off" ? "beat" : p === "beat" ? "bar" : "off",
-                      );
-                  }}
-                  isMetronomeAvailable={isMetronomeAvailable}
-                  liveAccuracy={liveAccuracy}
-                  liveSpeed={liveSpeed}
-                  perfectCount={perfectCount}
-                  greatCount={greatCount}
-                  goodCount={goodCount}
-                  missCount={missCount}
-                  isNonStop={gameSettings?.isNonStop ?? false}
-                  totalNoteCount={totalNoteCountForGame}
-                  currentTimeMs={
-                    (isFreePlayMode
-                      ? freePlayElapsedTime
-                      : musicalCurrentTimeMs) /
-                    (isFreePlayMode ? 1 : playbackTempoMultiplier)
-                  }
-                  totalDurationMs={
-                    isFreePlayMode
-                      ? Infinity
-                      : absoluteEndTimeMs / playbackTempoMultiplier
-                  }
-                  viewMode={viewMode}
-                  noteSpeedMultiplier={noteSpeedMultiplier}
-                  onNoteSpeedMultiplierChange={setNoteSpeedMultiplier}
-                  sheetMusicZoom={sheetMusicZoom}
-                  onSheetMusicZoomChange={setSheetMusicZoom}
-                  analysisResult={analysisResult}
-                  metronomeBeat={metronomeBeat}
-                  totalWaitTimeMs={totalWaitTimeMs}
-                  isFreePlayMode={isFreePlayMode}
-                  isMicEnabled={isAudioInputEnabled}
-                  isRecording={isRecording}
-                  onToggleRecording={handleToggleRecording}
-                  onSaveRecording={handleSaveRecording}
-                  showSaveButton={showSaveButton}
-                  isLooping={isLooping}
-                  onToggleLoop={handleToggleLoop}
-                  loopStartMs={loopStartMs}
-                  loopEndMs={loopEndMs}
-                  onSetLoopStart={handleSetLoopStart}
-                  onSetLoopEnd={handleSetLoopEnd}
-                  onClearLoop={handleClearLoop}
-                  barLines={barLines}
-                  freePlayBpm={freePlayBpm}
-                  onFreePlayBpmChange={setFreePlayBpm}
-                  freePlayTimeSignature={freePlayTimeSignature}
-                  onFreePlayTimeSignatureChange={setFreePlayTimeSignature}
-                  isTopBarVisible={isTopBarVisible}
-                  onToggleVisibility={() =>
-                    setIsTopBarVisible(!isTopBarVisible)
-                  }
-                  instrumentMode={instrumentMode}
-                  lastHitOffset={lastHitOffset}
-                  perfectWindow={perfectWindow}
-                  greatWindow={greatWindow}
-                  goodWindow={goodWindow}
-                  combo={combo}
-                  lastJudgment={lastJudgment}
-                  userAudioSyncOffset={userAudioSyncOffset}
-                  onUserAudioSyncOffsetChange={handleUserAudioSyncOffsetChange}
-                  isCalibrationMode={gameSettings?.isCalibrationMode}
-                  userAverageOffset={userAverageOffset}
-                  hp={hp}
-                />
-              );
-            })()}
+                return (
+                  <TopBar
+                    onPlay={handlePlay}
+                    onPause={handlePause}
+                    onStop={() => handleStopPlayback(!isFreePlayMode)}
+                    onExit={handleExitGame}
+                    isPlaying={isPlaying}
+                    isFileLoaded={playbackNotes.length > 0 || isFreePlayMode}
+                    fileName={isFreePlayMode ? "Free Play" : currentFileName}
+                    waitMode={waitMode}
+                    metronomeMode={
+                      isFreePlayMode ? freePlayMetronomeMode : metronomeMode
+                    }
+                    onCycleMetronomeMode={() => {
+                      if (isCalibrating) return; // Cannot cycle metronome mode during calibration
+                      if (isFreePlayMode)
+                        setFreePlayMetronomeMode((p) =>
+                          p === "off" ? "beat" : p === "beat" ? "bar" : "off",
+                        );
+                      else
+                        setMetronomeMode((p) =>
+                          p === "off" ? "beat" : p === "beat" ? "bar" : "off",
+                        );
+                    }}
+                    isMetronomeAvailable={isMetronomeAvailable}
+                    liveAccuracy={liveAccuracy}
+                    liveSpeed={liveSpeed}
+                    perfectCount={perfectCount}
+                    greatCount={greatCount}
+                    goodCount={goodCount}
+                    missCount={missCount}
+                    isNonStop={gameSettings?.isNonStop ?? false}
+                    totalNoteCount={totalNoteCountForGame}
+                    currentTimeMs={
+                      (isFreePlayMode
+                        ? freePlayElapsedTime
+                        : musicalCurrentTimeMs) /
+                      (isFreePlayMode ? 1 : playbackTempoMultiplier)
+                    }
+                    totalDurationMs={
+                      isFreePlayMode
+                        ? Infinity
+                        : absoluteEndTimeMs / playbackTempoMultiplier
+                    }
+                    viewMode={viewMode}
+                    noteSpeedMultiplier={noteSpeedMultiplier}
+                    onNoteSpeedMultiplierChange={setNoteSpeedMultiplier}
+                    sheetMusicZoom={sheetMusicZoom}
+                    onSheetMusicZoomChange={setSheetMusicZoom}
+                    analysisResult={analysisResult}
+                    metronomeBeat={metronomeBeat}
+                    totalWaitTimeMs={totalWaitTimeMs}
+                    isFreePlayMode={isFreePlayMode}
+                    isMicEnabled={isAudioInputEnabled}
+                    isRecording={isRecording}
+                    onToggleRecording={handleToggleRecording}
+                    onSaveRecording={handleSaveRecording}
+                    showSaveButton={showSaveButton}
+                    isLooping={isLooping}
+                    onToggleLoop={handleToggleLoop}
+                    loopStartMs={loopStartMs}
+                    loopEndMs={loopEndMs}
+                    onSetLoopStart={handleSetLoopStart}
+                    onSetLoopEnd={handleSetLoopEnd}
+                    onClearLoop={handleClearLoop}
+                    barLines={barLines}
+                    freePlayBpm={freePlayBpm}
+                    onFreePlayBpmChange={setFreePlayBpm}
+                    freePlayTimeSignature={freePlayTimeSignature}
+                    onFreePlayTimeSignatureChange={setFreePlayTimeSignature}
+                    isTopBarVisible={isTopBarVisible}
+                    onToggleVisibility={() =>
+                      setIsTopBarVisible(!isTopBarVisible)
+                    }
+                    instrumentMode={instrumentMode}
+                    lastHitOffset={lastHitOffset}
+                    perfectWindow={perfectWindow}
+                    greatWindow={greatWindow}
+                    goodWindow={goodWindow}
+                    combo={combo}
+                    lastJudgment={lastJudgment}
+                    userAudioSyncOffset={userAudioSyncOffset}
+                    onUserAudioSyncOffsetChange={handleUserAudioSyncOffsetChange}
+                    isCalibrationMode={gameSettings?.isCalibrationMode}
+                    userAverageOffset={userAverageOffset}
+                    hp={hp}
+                  />
+                );
+              })()}
             </div>
           </div>
           {backingTrackError && (
@@ -7270,12 +7786,11 @@ const AppContent: React.FC = () => {
                       className="absolute left-0 right-0 z-[70] pointer-events-none text-center select-none"
                       style={{ top: "68px" }}
                     >
-                      <span className={`text-2xl md:text-3xl font-extrabold italic uppercase tracking-wider drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)] filter ${
-                        displayJudgment.type === 'perfect' ? 'text-yellow-400 font-black' :
-                        displayJudgment.type === 'great' ? 'text-emerald-400 font-black' :
-                        displayJudgment.type === 'good' ? 'text-blue-400 font-black' :
-                        'text-rose-500 font-black'
-                      }`}>
+                      <span className={`text-2xl md:text-3xl font-extrabold italic uppercase tracking-wider drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)] filter ${displayJudgment.type === 'perfect' ? 'text-yellow-400 font-black' :
+                          displayJudgment.type === 'great' ? 'text-emerald-400 font-black' :
+                            displayJudgment.type === 'good' ? 'text-blue-400 font-black' :
+                              'text-rose-500 font-black'
+                        }`}>
                         {displayJudgment.type}
                       </span>
                     </motion.div>
@@ -7283,32 +7798,32 @@ const AppContent: React.FC = () => {
                 </AnimatePresence>
                 <div className="relative flex-grow w-full">
                   {isFreePlayMode &&
-                  instrumentMode === "drum" &&
-                  viewMode === "drum_mania" ? (
-                      <DrumManiaView
-                        key="freeplay-drum-mania"
-                        currentTimeMs={freePlayElapsedTime}
-                        playbackData={recordedNotes}
-                        liveNotes={freePlayLiveNotes}
-                        activePlaybackNotes={activePlaybackNotesInfo}
-                        userActiveKeys={userActiveMidiNotes}
-                        noteSpeedMultiplier={noteSpeedMultiplier}
-                        drumInputMode={drumInputMode}
-                        onPadDown={handleDrumPadDown}
-                        onPadUp={handleDrumPadUp}
-                        themeSettings={themeSettings}
-                        zoomScale={zoomScale}
-                        barLines={barLines}
-                        pixelsPerMillisecond={
-                          BASE_PIXELS_PER_MILLISECOND * noteSpeedMultiplier * zoomScale * 2
-                        }
-                        isPaused={!isFreePlayMode} // Freeplay is always playing, but we can pass false
-                        onSeek={() => {}}
-                        showPianoTilesBackground={showPianoTilesBackground}
-                        pianoTilesOpacity={themeSettings.pianoTilesOpacity}
-                        waitMode={waitMode}
-                        resolutionScale={resolutionScale}
-                      />
+                    instrumentMode === "drum" &&
+                    viewMode === "drum_mania" ? (
+                    <DrumManiaView
+                      key="freeplay-drum-mania"
+                      currentTimeMs={freePlayElapsedTime}
+                      playbackData={recordedNotes}
+                      liveNotes={freePlayLiveNotes}
+                      activePlaybackNotes={activePlaybackNotesInfo}
+                      userActiveKeys={userActiveMidiNotes}
+                      noteSpeedMultiplier={noteSpeedMultiplier}
+                      drumInputMode={drumInputMode}
+                      onPadDown={handleDrumPadDown}
+                      onPadUp={handleDrumPadUp}
+                      themeSettings={themeSettings}
+                      zoomScale={zoomScale}
+                      barLines={barLines}
+                      pixelsPerMillisecond={
+                        BASE_PIXELS_PER_MILLISECOND * noteSpeedMultiplier * zoomScale * 2
+                      }
+                      isPaused={!isFreePlayMode} // Freeplay is always playing, but we can pass false
+                      onSeek={() => { }}
+                      showPianoTilesBackground={showPianoTilesBackground}
+                      pianoTilesOpacity={themeSettings.pianoTilesOpacity}
+                      waitMode={waitMode}
+                      resolutionScale={resolutionScale}
+                    />
                   ) : isFreePlayMode &&
                     instrumentMode === "drum" &&
                     viewMode === "falling" ? (
@@ -7327,7 +7842,7 @@ const AppContent: React.FC = () => {
                       zoomDirection={zoomDirection}
                       zoomScale={zoomScale}
                       isPaused={!isFreePlayMode}
-                      onSeek={() => {}}
+                      onSeek={() => { }}
                       drumTyperPadOpacity={drumTyperPadOpacity}
                       waitMode={waitMode}
                       resolutionScale={resolutionScale}
@@ -7346,12 +7861,13 @@ const AppContent: React.FC = () => {
                       zoomDirection={zoomDirection}
                       drumTyperPadOpacity={drumTyperPadOpacity}
                       isPaused={!isFreePlayMode}
-                      onSeek={() => {}}
+                      onSeek={() => { }}
                       qwertyLayout={qwertyLayout}
                       qwertyCurrentOctaveShift={qwertyCurrentOctaveShift}
                       mirpTranspose={mirpTranspose}
                       activeKeySignature={initialKeySignature}
                       activeBpm={currentTempoBpm || 120}
+                      majorNoteVisualDurationMs={activeMajorNoteVisualDurationMs}
                       showOnlyMajorNotes={showOnlyMajorNotes}
                       resolutionScale={resolutionScale}
                       waitMode={waitMode}
@@ -7445,6 +7961,7 @@ const AppContent: React.FC = () => {
                       key="game-qwerty-mania"
                       currentTimeMs={musicalCurrentTimeMs}
                       playbackData={notesForGame}
+                      visualDurationByNoteId={majorVisualDurationByNoteId}
                       liveNotes={gameLiveNotes}
                       activePlaybackNotes={activePlaybackNotesInfo}
                       userActiveKeys={userActiveMidiNotes}
@@ -7464,6 +7981,7 @@ const AppContent: React.FC = () => {
                         initialKeySignature,
                       )}
                       activeBpm={activeBpmForDisplay}
+                      majorNoteVisualDurationMs={activeMajorNoteVisualDurationMs}
                       showOnlyMajorNotes={showOnlyMajorNotes}
                       resolutionScale={resolutionScale}
                       waitMode={waitMode}
@@ -7472,6 +7990,7 @@ const AppContent: React.FC = () => {
                     <FallingNotesArea
                       key={`falling-freeplay-${viewMode}`}
                       notes={notesForFallingView}
+                      visualDurationByNoteId={majorVisualDurationByNoteId}
                       currentTimeMs={musicalCurrentTimeMs}
                       keyPositions={keyPositionsMap}
                       activeMidiNotesInfo={activePlaybackNotesInfo}
@@ -7492,6 +8011,7 @@ const AppContent: React.FC = () => {
                         initialKeySignature,
                       )}
                       activeTempoBpm={activeBpmForDisplay}
+                      majorNoteVisualDurationMs={activeMajorNoteVisualDurationMs}
                       showOnlyMajorNotes={showOnlyMajorNotes}
                       instrumentMode={instrumentMode}
                       showPianoTilesBackground={showPianoTilesBackground}
@@ -7505,10 +8025,11 @@ const AppContent: React.FC = () => {
                       resolutionScale={resolutionScale}
                     />
                   ) : (viewMode === "sheet-roll" ||
-                      viewMode === "sheet-qwerty") &&
+                    viewMode === "sheet-qwerty") &&
                     vexFlowData ? (
                     <HorizontalNotesView
                       currentTimeMs={musicalCurrentTimeMs}
+                      visualDurationByNoteId={majorVisualDurationByNoteId}
                       width={baseCalculatedPianoWidth}
                       height={contentAreaHeight}
                       pixelsPerMillisecond={
@@ -7532,6 +8053,7 @@ const AppContent: React.FC = () => {
                         initialKeySignature,
                       )}
                       activeBpmForDisplay={activeBpmForDisplay}
+                      majorNoteVisualDurationMs={activeMajorNoteVisualDurationMs}
                       qwertyLayout={qwertyLayout}
                       qwertyCurrentOctaveShift={qwertyCurrentOctaveShift}
                       mirpTranspose={mirpTranspose}
@@ -7561,7 +8083,8 @@ const AppContent: React.FC = () => {
                       onLayoutRendered={setRenderedLayoutId}
                       tempoEvents={tempoEvents}
                       playbackTempoMultiplier={playbackTempoMultiplier}
-                      backgroundColor={sheetMusicBackgroundColor}
+                      backgroundColor="transparent"
+                      notationColor={sheetNotationColor}
                       instrumentMode={instrumentMode}
                       lowDetailMode={lowDetailMode}
                       resolutionScale={resolutionScale}
@@ -7575,80 +8098,81 @@ const AppContent: React.FC = () => {
                     </div>
                   )}
                 </div>
-                  {instrumentMode !== "drum" ? (
-                    <div
-                      className="relative flex-shrink-0"
-                      style={{
-                        width: "100%",
-                        height: `${layoutConfig.whiteKeyHeight + layoutConfig.keyLabelHeight}px`,
-                      }}
-                    >
-                      <PianoKeyboard
-                        keyPositions={keyPositionsArray}
-                        userSustainedKeys={userSustainedKeys}
-                        userActiveKeys={userActiveKeys}
-                        activeMidiNotesInfo={activeMidiNotesInfoForKeyboard}
-                        onUiKeyPress={handleUiKeyPress}
-                        onUiKeyRelease={handleUiKeyRelease}
-                        rightHandColor={themeSettings.rightHandColor}
-                        leftHandColor={themeSettings.leftHandColor}
-                        hitNoteColor={themeSettings.hitNoteColor}
-                        showQwertyShortcuts={showQwertyShortcuts}
-                        qwertyCurrentOctaveShift={
-                          qwertyLayout === "mirp" ? 0 : qwertyCurrentOctaveShift
-                        }
-                        width={baseCalculatedPianoWidth}
-                        layoutConfig={layoutConfig}
-                        qwertyLayout={qwertyLayout}
-                        mirpTranspose={mirpTranspose}
-                        isInteractive={viewMode !== "sheet-qwerty"}
-                        lowDetailMode={lowDetailMode}
-                        gameplayStyle={gameplayStyle}
-                        waitMode={waitMode}
-                        resolutionScale={resolutionScale}
+                {instrumentMode !== "drum" ? (
+                  <div
+                    className="relative flex-shrink-0"
+                    style={{
+                      width: "100%",
+                      height: `${layoutConfig.whiteKeyHeight + layoutConfig.keyLabelHeight}px`,
+                    }}
+                  >
+                    <PianoKeyboard
+                      keyPositions={keyPositionsArray}
+                      userSustainedKeys={userSustainedKeys}
+                      userActiveKeys={userActiveKeys}
+                      activeMidiNotesInfo={activeMidiNotesInfoForKeyboard}
+                      onUiKeyPress={handleUiKeyPress}
+                      onUiKeyRelease={handleUiKeyRelease}
+                      rightHandColor={themeSettings.rightHandColor}
+                      leftHandColor={themeSettings.leftHandColor}
+                      hitNoteColor={themeSettings.hitNoteColor}
+                      showQwertyShortcuts={showQwertyShortcuts}
+                      qwertyCurrentOctaveShift={
+                        qwertyLayout === "mirp" ? 0 : qwertyCurrentOctaveShift
+                      }
+                      width={baseCalculatedPianoWidth}
+                      layoutConfig={layoutConfig}
+                      qwertyLayout={qwertyLayout}
+                      mirpTranspose={mirpTranspose}
+                      isInteractive={viewMode !== "sheet-qwerty"}
+                      lowDetailMode={lowDetailMode}
+                      gameplayStyle={gameplayStyle}
+                      waitMode={waitMode}
+                      resolutionScale={resolutionScale}
+                    />
+                    {showHand3D && noteLabelType === 'fingering' && !isFreePlayMode && <HandFingering3D notes={fingeringHandNotes} poses={handPoses} timeMs={musicalCurrentTimeMs} handSize={fingeringPreferences.handSize} leftHandColor={themeSettings.leftHandColor} rightHandColor={themeSettings.rightHandColor} overlay={{ keyPositions: keyPositionsArray, width: baseCalculatedPianoWidth, whiteKeyHeight: layoutConfig.whiteKeyHeight, blackKeyHeight: layoutConfig.blackKeyHeight }} />}
+                    <div className="absolute bottom-4 left-0 right-0 w-full flex justify-center z-50 pointer-events-none">
+                      <OffsetIndicator
+                        midiHitTiming={lastHitOffset}
+                        midiHitTimingOffset={noteOffsetMs}
+                        onMidiHitTimingOffsetChange={setNoteOffsetMs}
+                        mp3Offset={userAudioSyncOffset}
+                        onMp3OffsetChange={setUserAudioSyncOffset}
+                        metronomePianoOffset={metronomePianoOffsetMs}
+                        onMetronomePianoOffsetChange={setMetronomePianoOffsetMs}
+                        perfectWindow={100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20}
+                        greatWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 1.5}
+                        goodWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 2}
                       />
-                      <div className="absolute bottom-4 left-0 right-0 w-full flex justify-center z-50 pointer-events-none">
-                        <OffsetIndicator
-                          midiHitTiming={lastHitOffset}
-                          midiHitTimingOffset={noteOffsetMs}
-                          onMidiHitTimingOffsetChange={setNoteOffsetMs}
-                          mp3Offset={userAudioSyncOffset}
-                          onMp3OffsetChange={setUserAudioSyncOffset}
-                          metronomePianoOffset={metronomePianoOffsetMs}
-                          onMetronomePianoOffsetChange={setMetronomePianoOffsetMs}
-                          perfectWindow={100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20}
-                          greatWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 1.5}
-                          goodWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 2}
-                        />
-                      </div>
-                      {isSustainPedalActive && (
-                        <div
-                          className="absolute bottom-2 right-2 px-3 py-1 bg-yellow-400 text-black text-xs font-bold rounded shadow-lg animate-pulse"
-                          style={{ zIndex: 30 }}
-                          aria-live="polite"
-                        >
-                          SUSTAIN
-                        </div>
-                      )}
                     </div>
-                  ) : (
-                    <div className="absolute bottom-0 left-0 right-0 h-0 z-50 pointer-events-none">
-                      <div className="absolute bottom-4 left-0 right-0 w-full flex justify-center pointer-events-auto">
-                        <OffsetIndicator
-                          midiHitTiming={lastHitOffset}
-                          midiHitTimingOffset={noteOffsetMs}
-                          onMidiHitTimingOffsetChange={setNoteOffsetMs}
-                          mp3Offset={userAudioSyncOffset}
-                          onMp3OffsetChange={setUserAudioSyncOffset}
-                          metronomePianoOffset={metronomePianoOffsetMs}
-                          onMetronomePianoOffsetChange={setMetronomePianoOffsetMs}
-                          perfectWindow={100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20}
-                          greatWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 1.5}
-                          goodWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 2}
-                        />
+                    {isSustainPedalActive && (
+                      <div
+                        className="absolute bottom-2 right-2 px-3 py-1 bg-yellow-400 text-black text-xs font-bold rounded shadow-lg animate-pulse"
+                        style={{ zIndex: 30 }}
+                        aria-live="polite"
+                      >
+                        SUSTAIN
                       </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="absolute bottom-0 left-0 right-0 h-0 z-50 pointer-events-none">
+                    <div className="absolute bottom-4 left-0 right-0 w-full flex justify-center pointer-events-auto">
+                      <OffsetIndicator
+                        midiHitTiming={lastHitOffset}
+                        midiHitTimingOffset={noteOffsetMs}
+                        onMidiHitTimingOffsetChange={setNoteOffsetMs}
+                        mp3Offset={userAudioSyncOffset}
+                        onMp3OffsetChange={setUserAudioSyncOffset}
+                        metronomePianoOffset={metronomePianoOffsetMs}
+                        onMetronomePianoOffsetChange={setMetronomePianoOffsetMs}
+                        perfectWindow={100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20}
+                        greatWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 1.5}
+                        goodWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 2}
+                      />
                     </div>
-                  )}
+                  </div>
+                )}
               </div>
             </>
             {isLoadingContent && (
@@ -7675,10 +8199,14 @@ const AppContent: React.FC = () => {
                     ></path>
                   </svg>
                   <div className="flex flex-col">
-                    <span>{isPreloading ? "Downloading Backing Track..." : "Loading Game..."}</span>
-                    {isPreloading && (
+                    <span>
+                      {isPreloading && gameSettings?.backingTrack && gameSettings.backingTrack.type !== 'none' && gameSettings.backingTrack.url
+                        ? "Downloading Backing Track..."
+                        : "Loading Game..."}
+                    </span>
+                    {isPreloading && gameSettings?.backingTrack && gameSettings.backingTrack.type !== 'none' && gameSettings.backingTrack.url && (
                       <span className="text-xs text-slate-400 font-normal mt-1 max-w-xs leading-relaxed">
-                        Downloading YouTube audio to browser memory for 100% latency-free offline gameplay. Please wait...
+                        Downloading audio to browser memory for latency-free offline gameplay. Please wait...
                       </span>
                     )}
                   </div>
@@ -7733,11 +8261,11 @@ const AppContent: React.FC = () => {
           <div className="bg-slate-900 border border-slate-750 rounded-xl p-6 max-w-md w-full shadow-2xl space-y-5 text-slate-100">
             <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
               <div className="p-2 bg-amber-500/10 text-amber-400 rounded-lg">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-info"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-info"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></svg>
               </div>
               <h3 className="text-lg font-bold tracking-tight">Latency Calibration Guide</h3>
             </div>
-            
+
             <div className="space-y-4 text-sm text-slate-300 leading-relaxed">
               <p>
                 To get a highly precise and accurate calibration result:
@@ -7747,7 +8275,7 @@ const AppContent: React.FC = () => {
                   You must consistently <strong className="text-amber-400 font-semibold">click or press the piano keys in sync with the metronome ticks</strong>.
                 </li>
                 <li>
-                  The beat adjustment value (*note offset*) will be automatically reset to <strong className="text-emerald-400 font-semibold">0ms</strong> when calibration begins.
+                  Your currently active <strong className="text-emerald-400 font-semibold">MIDI Hit Timing Offset</strong> will be preserved and used during calibration.
                 </li>
                 <li>
                   The HP (*Health Points*) mechanic is <strong className="text-emerald-400 font-semibold">disabled</strong> during calibration so you can adjust your latency calmly without worrying about failing mid-song.
@@ -7757,7 +8285,7 @@ const AppContent: React.FC = () => {
                 After the song finishes, your average input offset will be saved automatically for all subsequent plays.
               </p>
             </div>
-            
+
             <div className="flex gap-3 pt-2">
               <button
                 id="cancel-calibration-tutorial"

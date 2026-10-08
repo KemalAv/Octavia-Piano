@@ -119,7 +119,7 @@ const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ song, onClose, onGo
   const formatDate = (dateString: string) => {
     if (!dateString) return '';
     try {
-        return new Date(dateString).toLocaleDateString(undefined, {
+        return new Date(dateString).toLocaleDateString('en-US', {
             month: 'short',
             day: 'numeric',
             year: 'numeric'
@@ -222,9 +222,9 @@ const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ song, onClose, onGo
                         onClick={() => handleOpenPerformanceSummary(score)}
                         tabIndex={0}
                         role="button"
-                        aria-label={`View performance summary for score ${Math.round(score.final_score).toLocaleString()}`}
+                        aria-label={`View performance summary for score ${Math.round(score.final_score).toLocaleString('en-US')}`}
                     >
-                        {Math.round(score.final_score).toLocaleString()}
+                        {Math.round(score.final_score).toLocaleString('en-US')}
                     </td>
                     <td 
                         className="p-2 font-bold text-lg text-right cursor-pointer hover:underline"

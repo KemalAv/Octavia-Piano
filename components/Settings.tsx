@@ -1,10 +1,17 @@
+import type { FingeringPreferences } from '../fingeringApi';
 import React, { useState, useEffect, useRef } from 'react';
 import { MidiAccessStatus, MIDIInput, MIDIOutput, NoteLabelType, ViewMode, ThemeSettings, DevicePreset, LayoutDimensions, QwertyLayout, MicThresholds } from '../types';
 import { DEVICE_LAYOUTS, DRUM_PADS } from '../constants'; // Import DEVICE_LAYOUTS
 import { DrumPadConfig } from '../types';
 
 interface SettingsProps {
+  fingeringPreferences: FingeringPreferences;
+  onFingeringPreferencesChange: (preferences: FingeringPreferences) => void;
+  showHand3D: boolean;
+  onShowHand3DChange: (show: boolean) => void;
   onBack: () => void;
+  previewStatus: string;
+  onRestartPreview: () => void;
   initialScrollTarget?: string;
   midiAccessStatus: MidiAccessStatus;
   midiInputs: Map<string, MIDIInput>;
@@ -105,7 +112,7 @@ interface SettingsProps {
 }
 
 const Section: React.FC<{ title: string; children: React.ReactNode; showInfoButton?: boolean; onInfoClick?: () => void }> = ({ title, children, showInfoButton, onInfoClick }) => (
-  <div>
+  <section id={`settings-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="scroll-mt-28">
     <h3 className="text-xl font-semibold text-violet-400 mb-4 border-b border-slate-700 pb-2 flex items-center justify-between">
       {title}
       {showInfoButton && (
@@ -119,7 +126,7 @@ const Section: React.FC<{ title: string; children: React.ReactNode; showInfoButt
       )}
     </h3>
     <div className="space-y-4">{children}</div>
-  </div>
+  </section>
 );
 
 const SettingRow: React.FC<{ label: string; htmlFor?: string; children: React.ReactNode }> = ({ label, htmlFor, children }) => (
@@ -366,7 +373,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
 
   return (
     <>
-      <div className={`p-6 md:p-8 rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto custom-scrollbar ring-1 ring-slate-700 transform transition-all duration-300 ease-in-out bg-slate-800/80 backdrop-blur-sm ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`} onClick={e => e.stopPropagation()}>
+      <div className={`p-6 md:p-8 rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto custom-scrollbar text-slate-100 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)] ring-1 ring-slate-700 transform transition-all duration-300 ease-in-out bg-slate-800/60 ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`} onClick={e => e.stopPropagation()}>
         <div className="flex justify-between items-center mb-6">
             <h2 className="text-3xl font-bold text-cyan-400">Settings</h2>
             <button onClick={onBack} className="text-slate-400 hover:text-white text-3xl leading-none" style={{ zIndex: 9999 }} aria-label="Close settings">&times;</button>
@@ -587,25 +594,54 @@ export const Settings: React.FC<SettingsProps> = (props) => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <SettingRow label="Game View" htmlFor="view-mode">
                   <select id="view-mode" value={viewMode} onChange={e => onViewModeChange(e.target.value as ViewMode)} className={`${selectStyles} max-w-xs`}>
-                    <option value="falling">{instrumentMode === 'drum' ? 'Drum Typer' : 'Falling Notes'}</option>
-                    {(instrumentMode === 'drum' || drumInputMode === 'midi') && <option value="drum_mania">Drum Mania</option>}
-                    <option value="qwerty_mania">Qwerty Typer</option>
-                    <option value="sheet">Sheet Music</option>
-                    <option value="sheet-roll">Sheet Music Roll</option>
-                    <option value="sheet-qwerty">Sheet Music QWERTY</option>
+                    {gameplayStyle === 'computer' ? (
+                      <>
+                        <option value="qwerty_mania">Qwerty Typer</option>
+                        <option value="sheet-qwerty">Sheet Music QWERTY</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="falling">{instrumentMode === 'drum' ? 'Drum Typer' : 'Falling Notes'}</option>
+                        {(instrumentMode === 'drum' || drumInputMode === 'midi') && <option value="drum_mania">Drum Mania</option>}
+                        <option value="sheet">Sheet Music</option>
+                        <option value="sheet-roll">Sheet Music Roll</option>
+                      </>
+                    )}
                   </select>
                 </SettingRow>
                 <SettingRow label="Note Labels" htmlFor="note-label">
                   <select id="note-label" value={noteLabelType} onChange={e => onNoteLabelTypeChange(e.target.value as NoteLabelType)} className={`${selectStyles} max-w-xs`} disabled={gameplayStyle === 'computer'}>
                     <option value="none">None</option>
-                    <option value="fingering">Fingering (Beta)</option>
+                    <option value="fingering">Fingering (BETA)</option>
                     <option value="noteName">Note Name</option>
                     {gameplayStyle !== 'piano' && <option value="qwerty">QWERTY Keys</option>}
                   </select>
                 </SettingRow>
+          {instrumentMode === 'piano' && noteLabelType === 'fingering' && <section id="fingering-section" className="rounded-xl border border-cyan-500/20 bg-slate-900/30 p-5">
+            <h3 className="text-xl font-semibold text-cyan-300 mb-4">Fingering Settings</h3>
+            <div className="flex flex-wrap gap-4 mb-4 text-slate-200">
+              <label className="flex flex-col gap-1">Fingering Engine
+                <select className="bg-slate-800 rounded p-2 text-cyan-300 font-medium" value={props.fingeringPreferences.engine || 'pianoplayer'}
+                  onChange={e=>props.onFingeringPreferencesChange({...props.fingeringPreferences,routing:'auto',engine:e.target.value as FingeringPreferences['engine']})}>
+                  <option value="pianoplayer">PianoPlayer Heuristic (Legacy)</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1">Hand size
+                <select  className="bg-slate-800 rounded p-2" value={props.fingeringPreferences.handSize}
+                  onChange={e=>props.onFingeringPreferencesChange({...props.fingeringPreferences,routing:'auto',handSize:e.target.value as FingeringPreferences['handSize']})}>
+                  {[['XXS','Extra extra small'],['XS','Extra small'],['S','Small'],['M','Medium'],['L','Large'],['XL','Extra large'],['XXL','Extra extra large']].map(([size,label])=><option key={size} value={size}>{size} — {label}</option>)}
+                </select>
+              </label>
+            </div>
+
+            <label className="flex items-center gap-3 text-slate-200 mb-4"><input type="checkbox" checked={props.showHand3D} onChange={e=>props.onShowHand3DChange(e.target.checked)}/>Show 3D hands during playback</label>
+            <p className="text-xs text-slate-400 mt-2">The 3D hands appear on the lower piano keys and match the left and right note colors. 1 thumb · 2 index · 3 middle · 4 ring · 5 little finger.</p>
+          </section>}
+
               </div>
             )}
             <ToggleRow id="major-notes-only" label="Show Only Major Notes" checked={instrumentMode === 'drum' ? true : showOnlyMajorNotes} onChange={onShowOnlyMajorNotesChange} disabled={instrumentMode === 'drum'}/>
+            <p className="-mt-3 mb-4 text-xs text-slate-400">Visual only: notes are drawn as eighth notes, including Fingering labels, while piano audio keeps its original duration. The Difficulty Meter always treats holds as taps for fair scoring.</p>
             <ToggleRow id="show-piano-tiles" label="Show Piano Tiles Background" checked={showPianoTilesBackground} onChange={onShowPianoTilesBackgroundChange} />
             {showPianoTilesBackground && (
                 <SettingRow label={`Piano Tiles Opacity (${themeSettings.pianoTilesOpacity || 50}%)`} htmlFor="piano-tiles-opacity">
@@ -724,12 +760,12 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                 <div>
                   <h4 className="text-md font-semibold text-cyan-400">MIDI & Audio Latency Offset</h4>
                   <p className="text-[11px] text-slate-400 mt-0.5">
-                    Kompensasi delay respons MIDI input & sinkronisasi audio antar device
+                    Compensate for MIDI input delay and audio timing differences between devices
                   </p>
                 </div>
                 {detectedLatencyMs > 0 && (
                   <span className="text-[10px] bg-cyan-950/80 text-cyan-300 px-2.5 py-1 rounded border border-cyan-700/50 font-mono">
-                    Hardware Delay: ~{detectedLatencyMs}ms (Auto-Compensated)
+                    Estimated output latency: ~{detectedLatencyMs}ms
                   </span>
                 )}
               </div>
@@ -805,7 +841,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                   </button>
                 </div>
                 <p className="text-[11px] text-slate-400 leading-relaxed">
-                  Offset waktu ketukan tombol / input MIDI terhadap balok not. Geser ke negatif (-) jika ketukan Anda konsisten telat (Late); geser ke positif (+) jika terlalu awal (Early).
+                  Adjust keyboard or MIDI input timing relative to the notes. Use a negative offset (-) if your hits are consistently late, or a positive offset (+) if they are early.
                 </p>
               </div>
 
@@ -871,7 +907,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                     </button>
                   </div>
                   <p className="text-[11px] text-slate-400 leading-relaxed">
-                    Menyelaraskan waktu pemutaran file musik MP3 atau video YouTube dengan balok not jatuh pada layar.
+                    Align MP3 or YouTube playback with the falling notes on screen.
                   </p>
                 </div>
               )}
@@ -938,7 +974,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                     </button>
                   </div>
                   <p className="text-[11px] text-slate-400 leading-relaxed">
-                    Menyelaraskan bunyi ketukan metronom jika terdengar mendahului atau tertinggal dari visual hitline.
+                    Adjust the metronome if its clicks sound earlier or later than the visual hitline.
                   </p>
                 </div>
               )}
@@ -1102,6 +1138,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
           </Section>
         </div>
 
+        <div className="mt-6 flex items-center justify-between gap-3 text-xs text-slate-400"><span role="status" aria-live="polite">{props.previewStatus}</span><button type="button" className="min-h-11 shrink-0 px-3 rounded-lg bg-slate-700 hover:bg-slate-600 text-white" onClick={props.onRestartPreview}>Restart preview</button></div>
         <div className="mt-8 flex justify-center space-x-4">
              <button onClick={onBack} className={`${commonButtonStyles} ${secondaryButtonStyles} w-32`} style={{ zIndex: 9999 }}>Back</button>
              <button onClick={() => { if(confirm('Reset all settings to default?')) onResetSettings(); }} className={`${commonButtonStyles} bg-red-600 hover:bg-red-700 text-white w-40`} style={{ zIndex: 9999 }}>Reset Settings</button>
@@ -1118,7 +1155,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
           aria-labelledby="info-modal-title"
         >
           <div
-            className={`bg-slate-800/80 backdrop-blur-sm p-8 rounded-xl shadow-2xl max-w-md w-full ring-1 ring-slate-700 transform transition-all duration-300 ease-in-out ${isInfoModalRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
+            className={`bg-slate-800/60 p-8 rounded-xl shadow-2xl max-w-md w-full ring-1 ring-slate-700 transform transition-all duration-300 ease-in-out ${isInfoModalRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
             onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside the modal
             role="document"
           >

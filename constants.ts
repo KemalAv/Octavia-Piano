@@ -506,6 +506,7 @@ export const DEFAULT_NOTE_LABEL_TYPE: NoteLabelType = 'none'; // Updated to 'non
 export const DEFAULT_SHOW_ONLY_MAJOR_NOTES = false;
 export const DEFAULT_SHOW_QWERTY_SHORTCUTS = false;
 export const DEFAULT_SHOW_PIANO_TILES_BACKGROUND = true; // New Default
+export const DEFAULT_SHOW_PERFECT_JUDGMENT = false;
 export const DEFAULT_ZOOM_DIRECTION: 'normal' | 'reverse' = 'normal';
 export const DEFAULT_THEME_SETTINGS: ThemeSettings = {
   rightHandColor: '#a000ff',

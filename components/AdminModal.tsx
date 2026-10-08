@@ -21,6 +21,7 @@ const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, lowDetailMode 
   const [progress, setProgress] = useState(0);
   const [total, setTotal] = useState(0);
   const [errorCount, setErrorCount] = useState(0);
+  const songCacheRef = React.useRef<Map<string, { notes: any[]; durationMs: number; basePS: number; instMode: 'piano' | 'drum'; title: string }>>(new Map());
 
   const midiNoteToNameMap = useMemo(() => {
     const map = new Map<number, string>();
@@ -39,7 +40,7 @@ const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, lowDetailMode 
   }, [isOpen]);
 
   const addLog = (message: string) => {
-    setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${message}`]);
+    setLogs(prev => [...prev, `[${new Date().toLocaleTimeString('en-US')}] ${message}`]);
   };
 
   const handleReanalyze = useCallback(async () => {
@@ -61,33 +62,56 @@ const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, lowDetailMode 
         let completed = 0;
         for (const song of songs as any[]) {
             try {
-                addLog(`Processing: ${song.title}`);
+                if (!song.file_path) {
+                    addLog(` -> Skipping ${song.title} (No file path)`);
+                    continue;
+                }
+                const instMode: 'piano' | 'drum' = song.instrument_mode === 'drum' ? 'drum' : 'piano';
+                addLog(`Processing: ${song.title} (${instMode})`);
                 const { data: blob, error: dlError } = await supabase.storage.from('midi-files').download(song.file_path);
                 if (dlError) throw dlError;
 
-                const file = new File([blob!], 'temp.mid');
-                const isDrum = (song as any).instrument_mode === 'drum';
+                const fileExt = song.file_path.split('.').pop() || 'mid';
+                const file = new File([blob!], `temp.${fileExt}`);
                 const currentMidiNoteToNameMap = new Map<number, string>();
                 PIANO_KEYS_CONFIG.forEach(key => currentMidiNoteToNameMap.set(key.midiNote, key.name));
-                if (isDrum) {
+                if (instMode === 'drum') {
                     Object.entries(DRUM_MIDI_TO_NAME_MAP).forEach(([midi, name]) => currentMidiNoteToNameMap.set(parseInt(midi), name));
                 }
 
                 const analysisData = await parseFileForAnalysis(file, currentMidiNoteToNameMap);
-                if (!analysisData) throw new Error("Parse failed");
+                if (!analysisData || analysisData.notes.length === 0) throw new Error("Parse failed or 0 notes found");
 
-                const result = analyzeMidi(analysisData.notes, analysisData.originalTotalMusicalDurationMs, undefined, analysisData.originalTotalMusicalDurationMs, (song as any).instrument_mode);
+                const result = analyzeMidi(
+                    analysisData.notes,
+                    analysisData.originalTotalMusicalDurationMs,
+                    undefined,
+                    analysisData.originalTotalMusicalDurationMs,
+                    instMode
+                );
                 const newPS = result?.performanceScore || 0;
 
-                const { error: upError } = await supabase.from('songs').update({
+                // Cache in memory for instant reuse in Step 2
+                songCacheRef.current.set(song.id, {
+                    notes: analysisData.notes,
+                    durationMs: analysisData.originalTotalMusicalDurationMs,
+                    basePS: newPS,
+                    instMode,
+                    title: song.title
+                });
+
+                const updatePayload: any = {
                     performance_score: newPS,
                     difficulty_level: result?.difficultyLevel,
                     total_notes: result?.meta.totalNotes,
-                    duration_sec: result?.meta.durationSec
-                }).eq('id', song.id);
+                    duration_sec: result?.meta.durationSec,
+                    total_nps: result?.parameters.totalNps,
+                };
+
+                const { error: upError } = await supabase.from('songs').update(updatePayload).eq('id', song.id);
 
                 if (upError) throw upError;
-                addLog(` -> Updated Base PS to ${newPS}`);
+                addLog(` -> Updated Base PS to ${newPS} (Level ${result?.difficultyLevel.toFixed(2)}, Notes: ${result?.meta.totalNotes})`);
             } catch (e: any) {
                 addLog(` -> ERROR: ${e.message}`);
                 setErrorCount(prev => prev + 1);
@@ -102,112 +126,217 @@ const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, lowDetailMode 
     } finally {
         setIsLoading(false);
     }
-  }, [midiNoteToNameMap]);
+  }, []);
 
-const handleRecalculatePlayerScores = useCallback(async () => {
-  if (!window.confirm("Step 2: Recalculate all player final scores using new Base PS. Proceed?")) return;
+  const handleRecalculatePlayerScores = useCallback(async () => {
+    if (!window.confirm("Step 2: Recalculate all player final scores using true Base PS at their played tempo multiplier. Proceed?")) return;
 
-  setIsLoading(true);
-  setLogs([]);
-  setProgress(0);
-  setErrorCount(0);
+    setIsLoading(true);
+    setLogs([]);
+    setProgress(0);
+    setErrorCount(0);
 
-  try {
-      addLog("Fetching player scores...");
-      const { data: rawScores, error: fetchError } = await supabase
-          .from('scores')
-          .select('*, songs(performance_score)');
+    try {
+        addLog("Fetching player scores and songs...");
+        const { data: rawScores, error: fetchError } = await supabase
+            .from('scores')
+            .select('*, songs(id, title, file_path, performance_score, instrument_mode)');
 
-      if (fetchError) throw fetchError;
-      if (!rawScores || rawScores.length === 0) {
-          addLog("No scores found to recalculate.");
-          return;
-      }
+        if (fetchError) throw fetchError;
+        if (!rawScores || rawScores.length === 0) {
+            addLog("No scores found to recalculate.");
+            return;
+        }
 
-      setTotal(rawScores.length);
-      addLog(`Found ${rawScores.length} entries.`);
+        setTotal(rawScores.length);
+        addLog(`Found ${rawScores.length} score entries.`);
 
-      let completed = 0;
-      for (const entry of rawScores as any[]) {
-          try {
-              // Ambil base Performance Score
-              let basePS = 0;
-              if (entry.songs) {
-                  basePS = Array.isArray(entry.songs) ? (entry.songs[0]?.performance_score || 0) : (entry.songs.performance_score || 0);
-              }
+        // Pre-fetch any missing songs to ensure songCacheRef has all required songs
+        const distinctSongIds = Array.from(new Set(rawScores.map((s: any) => s.song_id).filter(Boolean)));
+        const missingSongIds = distinctSongIds.filter(id => !songCacheRef.current.has(id));
 
-              // Fallback jika join gagal
-              if (!basePS) {
-                  const { data: songData } = await supabase.from('songs').select('performance_score').eq('id', entry.song_id).single();
-                  basePS = songData?.performance_score || 0;
-              }
+        if (missingSongIds.length > 0) {
+            addLog(`Pre-loading ${missingSongIds.length} songs for tempo analysis...`);
+            const { data: missingSongs } = await supabase
+                .from('songs')
+                .select('id, title, file_path, performance_score, instrument_mode')
+                .in('id', missingSongIds);
 
-              if (!basePS) {
-                  addLog(` -> Score ${entry.id.substring(0,8)}: SKIPPED (Base PS is 0 or Song not found)`);
-                  completed++;
-                  setProgress(completed);
-                  continue;
-              }
+            if (missingSongs) {
+                for (const song of missingSongs) {
+                    try {
+                        if (!song.file_path) continue;
+                        const { data: blob, error: dlError } = await supabase.storage.from('midi-files').download(song.file_path);
+                        if (dlError || !blob) continue;
 
-              const totalNotes = (entry.perfect_count || 0) + (entry.great_count || 0) + (entry.good_count || 0) + (entry.miss_count || 0);
-              const effectiveTotal = (entry.total_notes || 0) > 0 ? entry.total_notes : totalNotes;
+                        const fileExt = song.file_path.split('.').pop() || 'mid';
+                        const file = new File([blob], `song.${fileExt}`);
+                        const instMode: 'piano' | 'drum' = song.instrument_mode === 'drum' ? 'drum' : 'piano';
+                        const map = new Map<number, string>();
+                        PIANO_KEYS_CONFIG.forEach(k => map.set(k.midiNote, k.name));
+                        if (instMode === 'drum') {
+                            Object.entries(DRUM_MIDI_TO_NAME_MAP).forEach(([m, n]) => map.set(parseInt(m), n));
+                        }
+                        const analysisData = await parseFileForAnalysis(file, map);
+                        if (analysisData && analysisData.notes.length > 0) {
+                            songCacheRef.current.set(song.id, {
+                                notes: analysisData.notes,
+                                durationMs: analysisData.originalTotalMusicalDurationMs,
+                                basePS: song.performance_score || 0,
+                                instMode,
+                                title: song.title
+                            });
+                        }
+                    } catch (e) {
+                        console.warn(`Could not preload song ${song.title}:`, e);
+                    }
+                }
+            }
+        }
 
-              // Hitung akurasi % (Non-Stop mode style)
-              const score = ((entry.perfect_count || 0) * 1.0) + ((entry.great_count || 0) * 0.3333333333) + ((entry.good_count || 0) * 0.1666666667);
-              const accuracy = effectiveTotal > 0 ? (score / effectiveTotal) * 100 : 100;
+        // Cache for tempo-specific max scores: `${songId}_${tempoMultiplier}_${instMode}` -> maxScore
+        const tempoScoreCache = new Map<string, number>();
 
-              // Match App.tsx: caps speedEff at 100. Since we don't have duration/wait data, we assume no waiting.
-              const speedEff = 100; 
-              const gameplayPS = (accuracy + speedEff) / 2;
+        let completed = 0;
+        for (const entry of rawScores as any[]) {
+            try {
+                let song = entry.songs;
+                if (Array.isArray(song)) song = song[0];
 
-              let rank = "D";
-              if (gameplayPS >= 100) rank = "X";
-              else if (gameplayPS >= 97.5) rank = "SS";
-              else if (gameplayPS >= 95) rank = "S";
-              else if (gameplayPS >= 92.5) rank = "A";
-              else if (gameplayPS >= 90) rank = "B";
-              else if (gameplayPS >= 87.5) rank = "C";
-              else rank = "D";
+                if (!song && entry.song_id) {
+                    const cached = songCacheRef.current.get(entry.song_id);
+                    if (cached) {
+                        song = { id: entry.song_id, title: cached.title, performance_score: cached.basePS, instrument_mode: cached.instMode };
+                    } else {
+                        const { data: sData } = await supabase.from('songs').select('id, title, file_path, performance_score, instrument_mode').eq('id', entry.song_id).single();
+                        song = sData;
+                    }
+                }
 
-              const multiplier = calculateScoreMultiplier(gameplayPS);
-              const calculatedFinalScore = basePS * multiplier;
+                if (!song) {
+                    addLog(` -> Score ${entry.id.substring(0,8)}: SKIPPED (Song not found)`);
+                    completed++;
+                    setProgress(completed);
+                    continue;
+                }
 
-              const newFinalScore = Math.round(calculatedFinalScore);
+                const instMode: 'piano' | 'drum' = (entry.instrument_mode || (song.instrument_mode === 'drum' ? 'drum' : 'piano')) as 'piano' | 'drum';
+                const basePS100 = song.performance_score || 0;
+                
+                // Read and normalize tempo multiplier
+                let tempoMultiplier = Number(entry.tempo_multiplier) || 1.0;
+                if (tempoMultiplier > 10) {
+                    tempoMultiplier = tempoMultiplier / 100; // e.g. 75 -> 0.75
+                }
+                if (tempoMultiplier <= 0 || !Number.isFinite(tempoMultiplier)) {
+                    tempoMultiplier = 1.0;
+                }
 
-              if (isNaN(newFinalScore)) {
-                  addLog(` -> Score ${entry.id.substring(0,8)}: SKIPPED (Calculated score is NaN)`);
-                  completed++;
-                  setProgress(completed);
-                  continue;
-              }
+                // Compute exact MIDI Base PS at this specific tempo ("beda tempo beda score max")
+                let maxMidiScore = basePS100;
+                const tempoKey = `${song.id}_${tempoMultiplier.toFixed(3)}_${instMode}`;
 
-              // UPDATE
-              const { error: upError } = await supabase
-                  .from('scores')
-                  .update({ final_score: newFinalScore, rank, accuracy: parseFloat(accuracy.toFixed(2)) })
-                  .eq('id', entry.id);
+                if (tempoScoreCache.has(tempoKey)) {
+                    maxMidiScore = tempoScoreCache.get(tempoKey)!;
+                } else if (Math.abs(tempoMultiplier - 1.0) < 0.001) {
+                    maxMidiScore = basePS100;
+                    tempoScoreCache.set(tempoKey, maxMidiScore);
+                } else {
+                    const cachedSong = songCacheRef.current.get(song.id);
+                    if (cachedSong && cachedSong.notes.length > 0) {
+                        const scaledNotes = cachedSong.notes.map((n: any) => ({
+                            ...n,
+                            timeMs: n.timeMs / tempoMultiplier,
+                            durationMs: n.durationMs / tempoMultiplier
+                        }));
+                        const res = analyzeMidi(
+                            scaledNotes,
+                            cachedSong.durationMs / tempoMultiplier,
+                            undefined,
+                            cachedSong.durationMs,
+                            instMode
+                        );
+                        maxMidiScore = res?.performanceScore || basePS100;
+                    } else {
+                        maxMidiScore = basePS100;
+                    }
+                    tempoScoreCache.set(tempoKey, maxMidiScore);
+                }
 
-              if (upError) throw upError;
+                if (!maxMidiScore) {
+                    addLog(` -> Score ${entry.id.substring(0,8)}: SKIPPED (Max Score is 0)`);
+                    completed++;
+                    setProgress(completed);
+                    continue;
+                }
 
-              addLog(` -> Score ${entry.id.substring(0,8)}: Updated to ${newFinalScore} (Rank ${rank})`);
+                // Calculate player accuracy matching Performance Summary
+                const totalNotes = (entry.perfect_count || 0) + (entry.great_count || 0) + (entry.good_count || 0) + (entry.miss_count || 0);
+                const effectiveTotal = (entry.total_notes || 0) > 0 ? entry.total_notes : totalNotes;
 
-          } catch (e: any) {
-              addLog(` -> ERROR on ${entry.id.substring(0,8)}: ${e.message}`);
-              setErrorCount(prev => prev + 1);
-          } finally {
-              completed++;
-              setProgress(completed);
-              if (completed % 15 === 0) await new Promise(r => setTimeout(r, 100));
-          }
-      }
+                let accuracy = 100;
+                if (typeof entry.accuracy === 'number' && Number.isFinite(entry.accuracy) && entry.accuracy > 0) {
+                    accuracy = entry.accuracy;
+                } else if (effectiveTotal > 0) {
+                    const score = ((entry.perfect_count || 0) * 1.0) + ((entry.great_count || 0) * 0.3333333333) + ((entry.good_count || 0) * 0.1666666667);
+                    accuracy = (score / effectiveTotal) * 100;
+                }
 
-      addLog("Step 2 Finished.");
-  } catch (err: any) {
-      addLog(`FATAL: ${err.message}`);
-  } finally {
-      setIsLoading(false);
-  }
-}, []);
+                // Speed efficiency (matching App.tsx: 100% in non-stop/ranked gameplay)
+                const speedEff = 100;
+                const gameplayPS = (accuracy + speedEff) / 2;
+
+                let rank = "D";
+                if (gameplayPS >= 100) rank = "X";
+                else if (gameplayPS >= 97.5) rank = "SS";
+                else if (gameplayPS >= 95) rank = "S";
+                else if (gameplayPS >= 92.5) rank = "A";
+                else if (gameplayPS >= 90) rank = "B";
+                else if (gameplayPS >= 87.5) rank = "C";
+                else rank = "D";
+
+                const multiplier = calculateScoreMultiplier(gameplayPS);
+                const calculatedFinalScore = maxMidiScore * multiplier;
+                const newFinalScore = Math.round(calculatedFinalScore);
+
+                if (isNaN(newFinalScore)) {
+                    addLog(` -> Score ${entry.id.substring(0,8)}: SKIPPED (Calculated score is NaN)`);
+                    completed++;
+                    setProgress(completed);
+                    continue;
+                }
+
+                // UPDATE score record in database
+                const { error: upError } = await supabase
+                    .from('scores')
+                    .update({
+                        final_score: newFinalScore,
+                        rank,
+                        accuracy: parseFloat(accuracy.toFixed(2))
+                    })
+                    .eq('id', entry.id);
+
+                if (upError) throw upError;
+
+                addLog(` -> Score ${entry.id.substring(0,8)} (${song.title || 'Song'}, ${(tempoMultiplier * 100).toFixed(0)}% tempo): BasePS=${maxMidiScore} -> FinalScore=${newFinalScore} (Acc: ${accuracy.toFixed(2)}%, Rank: ${rank})`);
+
+            } catch (e: any) {
+                addLog(` -> ERROR on ${entry.id.substring(0,8)}: ${e.message}`);
+                setErrorCount(prev => prev + 1);
+            } finally {
+                completed++;
+                setProgress(completed);
+                if (completed % 15 === 0) await new Promise(r => setTimeout(r, 100));
+            }
+        }
+
+        addLog("Step 2 Finished.");
+    } catch (err: any) {
+        addLog(`FATAL: ${err.message}`);
+    } finally {
+        setIsLoading(false);
+    }
+  }, []);
 
 const handleCleanDuplicateScores = useCallback(async () => {
   if (!window.confirm("Step 3: Clean up all duplicate scores in Supabase, keeping ONLY the highest score per user per song? Proceed?")) return;

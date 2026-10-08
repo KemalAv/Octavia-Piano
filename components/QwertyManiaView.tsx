@@ -21,6 +21,8 @@ interface QwertyManiaViewProps {
     mirpTranspose?: number;
     activeKeySignature?: string;
     activeBpm?: number;
+    majorNoteVisualDurationMs?: number;
+    visualDurationByNoteId?: ReadonlyMap<string, number>;
     showOnlyMajorNotes?: boolean;
     resolutionScale?: number;
     waitMode?: string;
@@ -90,6 +92,8 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
     mirpTranspose = 0,
     activeKeySignature = 'C',
     activeBpm = 120,
+    majorNoteVisualDurationMs,
+    visualDurationByNoteId,
     showOnlyMajorNotes = false,
     resolutionScale = 1.0,
     waitMode = 'strict',
@@ -119,6 +123,8 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
     const qwertyCurrentOctaveShiftRef = useRef(qwertyCurrentOctaveShift);
     const mirpTransposeRef = useRef(mirpTranspose);
     const showOnlyMajorNotesRef = useRef(showOnlyMajorNotes);
+    const majorNoteVisualDurationMsRef = useRef(majorNoteVisualDurationMs ?? (60000 / activeBpm) / 2);
+    const visualDurationByNoteIdRef = useRef(visualDurationByNoteId);
     const waitModeRef = useRef(waitMode);
 
     useEffect(() => {
@@ -130,8 +136,10 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
         qwertyCurrentOctaveShiftRef.current = qwertyCurrentOctaveShift;
         mirpTransposeRef.current = mirpTranspose;
         showOnlyMajorNotesRef.current = showOnlyMajorNotes;
+        majorNoteVisualDurationMsRef.current = majorNoteVisualDurationMs ?? (60000 / activeBpm) / 2;
+        visualDurationByNoteIdRef.current = visualDurationByNoteId;
         waitModeRef.current = waitMode;
-    }, [currentTimeMs, playbackData, activePlaybackNotes, userActiveKeys, qwertyLayout, qwertyCurrentOctaveShift, mirpTranspose, showOnlyMajorNotes, waitMode]);
+    }, [currentTimeMs, playbackData, activePlaybackNotes, userActiveKeys, qwertyLayout, qwertyCurrentOctaveShift, mirpTranspose, showOnlyMajorNotes, majorNoteVisualDurationMs, visualDurationByNoteId, activeBpm, waitMode]);
 
     useEffect(() => {
         const updateDimensions = () => {
@@ -186,9 +194,12 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
         const totalKeyboardHeight = rows * (keySize + keyMargin);
         
         const startX = (dimensions.width - totalKeyboardWidth) / 2;
-        // Shift keyboard slightly downwards for better visibility
-        const verticalShift = Math.min(32, Math.max(10, (dimensions.height - totalKeyboardHeight) * 0.18));
-        const startY = (dimensions.height - totalKeyboardHeight) / 2 + verticalShift;
+        // Shift keyboard slightly downwards for better visibility, clamped so it never shifts offscreen
+        const rawShift = Math.max(0, (dimensions.height - totalKeyboardHeight) * 0.18);
+        const verticalShift = Math.min(32, rawShift);
+        // Ensure startY never goes below top margin (e.g. 50px below top bar) and doesn't get cut off
+        const minTopMargin = 45;
+        const startY = Math.max(minTopMargin, (dimensions.height - totalKeyboardHeight) / 2 + verticalShift);
 
         const currentLayout = qwertyLayoutRef.current;
         const currentOctaveShift = qwertyCurrentOctaveShiftRef.current;
@@ -421,7 +432,9 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
                     for (let i = hitStartIdx; i < currentPlaybackData.length; i++) {
                         const note = currentPlaybackData[i];
                         const rawDuration = note.durationMs || 100;
-                        const noteDuration = Math.min(rawDuration, VISUAL_NOTE_CAP_MS);
+                        const noteDuration = showOnlyMajorNotesRef.current
+                          ? (visualDurationByNoteIdRef.current?.get(note.noteId) ?? Math.min(rawDuration, majorNoteVisualDurationMsRef.current))
+                          : Math.min(rawDuration, VISUAL_NOTE_CAP_MS);
                         if (note.timeMs > currentMs + 100) break;
                         if (currentMs >= note.timeMs && currentMs < note.timeMs + noteDuration) {
                             const key = getNoteKey(note.midi);
@@ -452,7 +465,9 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
                     if (note.timeMs - currentMs > approachMs + 100) break;
                     const timeUntilHit = note.timeMs - currentMs;
                     const rawDuration = note.durationMs || 0;
-                    const noteDuration = Math.min(rawDuration, VISUAL_NOTE_CAP_MS);
+                    const noteDuration = isMajorCap
+                        ? (visualDurationByNoteIdRef.current?.get(note.noteId) ?? Math.min(rawDuration, majorNoteVisualDurationMsRef.current))
+                        : Math.min(rawDuration, VISUAL_NOTE_CAP_MS);
                     if (timeUntilHit <= approachMs && currentMs <= note.timeMs + noteDuration + 150) {
                         visibleNotes.push(note);
                     }
@@ -464,7 +479,9 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
                 if (key) {
                     const timeUntilHit = note.timeMs - currentMs;
                     const rawDuration = note.durationMs || 0;
-                    const noteDuration = Math.min(rawDuration, VISUAL_NOTE_CAP_MS);
+                    const noteDuration = isMajorCap
+                        ? (visualDurationByNoteIdRef.current?.get(note.noteId) ?? Math.min(rawDuration, majorNoteVisualDurationMsRef.current))
+                        : Math.min(rawDuration, VISUAL_NOTE_CAP_MS);
                     let progress = 0;
                     if (timeUntilHit > 0) {
                         progress = Math.max(0, Math.min(1, 1 - (timeUntilHit / approachMs)));
@@ -532,7 +549,9 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
 
                 const timeUntilHit = note.timeMs - currentMs;
                 const rawDuration = note.durationMs || 0;
-                const noteDuration = Math.min(rawDuration, VISUAL_NOTE_CAP_MS);
+                const noteDuration = isMajorCap
+                    ? (visualDurationByNoteIdRef.current?.get(note.noteId) ?? Math.min(rawDuration, majorNoteVisualDurationMsRef.current))
+                    : Math.min(rawDuration, VISUAL_NOTE_CAP_MS);
 
                 const isMirp = qwertyLayoutRef.current === 'mirp';
                 const targetBaseMidi = note.midi - mirpTransposeRef.current;

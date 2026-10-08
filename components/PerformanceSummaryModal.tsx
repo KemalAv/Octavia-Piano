@@ -77,11 +77,11 @@ const PerformanceSummaryModal: React.FC<PerformanceSummaryProps> = ({ isVisible,
                     <StatRow label="Miss" value={summary.missCount} valueColor="text-rose-400" />
                     <StatRow label="Max Combo" value={summary.maxCombo || 0} valueColor="text-orange-400" />
                     <StatRow label="Tempo" value={`${Math.round(summary.playbackTempoMultiplier * 100)}%`} valueColor="text-slate-300" />
-                    <StatRow label="Performance Score" value={Math.round(summary.finalScore).toLocaleString()} valueColor="text-white" />
+                    <StatRow label="Performance Score" value={Math.round(summary.finalScore).toLocaleString('en-US')} valueColor="text-white" />
                 </>
             ) : (
                 <>
-                    <StatRow label="Performance Score" value={Math.round(summary.finalScore).toLocaleString()} valueColor="text-white" />
+                    <StatRow label="Performance Score" value={Math.round(summary.finalScore).toLocaleString('en-US')} valueColor="text-white" />
                     <StatRow label="Accuracy" value={`${summary.accuracy.toFixed(2)}%`} valueColor="text-cyan-300" />
                     <StatRow label="Max Combo" value={summary.maxCombo || 0} valueColor="text-orange-400" />
                     <StatRow label="Speed Efficiency" value={`${(summary.speed || 0).toFixed(2)}%`} valueColor="text-cyan-300" />

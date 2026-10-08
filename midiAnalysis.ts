@@ -13,6 +13,10 @@ export interface FineTunedWeights {
   piano_finger_independence: number;
   piano_hand_collision: number;
   piano_stamina_fatigue: number;
+  piano_arpeggio_sweep: number;
+  piano_octave_staccato: number;
+  piano_unison_discount: number;
+  piano_chord_buff: number;
 
   drum_foot_kick: number;
   drum_stick_jackhammer: number;
@@ -27,28 +31,30 @@ export interface FineTunedWeights {
 }
 
 export const DEFAULT_FINE_TUNED_WEIGHTS: FineTunedWeights = {
-  piano_stretch_mult: 0.36812500000000004,
-  piano_internal_stretch: 0.15283956640624993,
-  piano_leap_strain: 0.4560993197265625,
-  piano_double_stop: 0.1122555697265625,
-  piano_jackhammer: 0.7839126060546876,
-  piano_finger_flow: 1.0514011568359374,
-  piano_hand_jump: 0.47048220488281245,
-  piano_black_key_awkward: 1.557178671875,
-  piano_finger_independence: 0.33163770195312503,
-  piano_hand_collision: 0.4709746294921875,
-  piano_stamina_fatigue: 0.1,
-
-  drum_foot_kick: 0.9242812499999999,
-  drum_stick_jackhammer: 1.1314078125,
-  drum_stick_move: 0.4968916757812501,
-  drum_crossed_arms: 1,
-  drum_polyrhythm: 0.11885472265625001,
-  drum_roll_fatigue: 1.1734003705078124,
-  drum_stamina_fatigue: 0.5875,
-
-  piano_global_factor: 0.6898643371093751,
-  drum_global_factor: 1.6742171875,
+  "piano_stretch_mult": 0.4,
+  "piano_internal_stretch": 0.3,
+  "piano_leap_strain": 0.25,
+  "piano_double_stop": 0.2,
+  "piano_jackhammer": 0.6,
+  "piano_finger_flow": 1.4,
+  "piano_hand_jump": 0.75,
+  "piano_black_key_awkward": 0.8,
+  "piano_finger_independence": 0.1,
+  "piano_hand_collision": 0.25,
+  "piano_stamina_fatigue": 0.1,
+  "piano_arpeggio_sweep": 2.6,
+  "piano_octave_staccato": 3.1,
+  "piano_unison_discount": 0.5,
+  "piano_chord_buff": 0.2,
+  "drum_foot_kick": 1.2,
+  "drum_stick_jackhammer": 2.,
+  "drum_stick_move": 1.3,
+  "drum_crossed_arms": 1.2,
+  "drum_polyrhythm": 0.3,
+  "drum_roll_fatigue": 2.7,
+  "drum_stamina_fatigue": 0.3,
+  "piano_global_factor": 0.6,
+  "drum_global_factor": 2.2
 };
 
 export const DEFAULT_ANALYSIS_CONFIG: AnalysisConfig = {
@@ -151,7 +157,7 @@ const norm = (v: number, min: number, max: number): number => {
 const avg = (arr: number[]): number =>
   arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
 
-function calculateDifficultyLevels(performanceScore: number): { difficultyLevel: number, starLevel: number } {
+function calculateDifficultyLevels(performanceScore: number): { difficultyLevel: number; starLevel: number } {
   let difficultyLevel = 1;
   if (performanceScore < 100)
     difficultyLevel = 1 + norm(performanceScore, 1, 100) * 2; // Range 1-3 (Novice)
@@ -163,13 +169,15 @@ function calculateDifficultyLevels(performanceScore: number): { difficultyLevel:
     difficultyLevel = 6 + norm(performanceScore, 550, 900) * 2; // Range 6-8 (Advanced)
   else if (performanceScore < 1400)
     difficultyLevel = 8 + norm(performanceScore, 900, 1400) * 2; // Range 8-10 (Virtuoso)
-  else 
+  else if (performanceScore < 10000)
     difficultyLevel = 10 + norm(performanceScore, 1400, 10000) * 10; // Range 10-20 (Legendary)
+  else
+    difficultyLevel = 20 + Math.log10(performanceScore / 10000) * 10;
 
   const starLevel = Math.max(1, difficultyLevel);
   return {
     difficultyLevel: +difficultyLevel.toFixed(2),
-    starLevel: +starLevel.toFixed(1)
+    starLevel: +starLevel.toFixed(1),
   };
 }
 
@@ -207,6 +215,8 @@ interface HandState {
   lastCenter: number;
   lastNotes: number[];
   noteTimes: Map<number, number>; // midi -> timeMs
+  emaDt: number; // smoothed sustained interval (ms)
+  recentPitches: { timeMs: number; midi: number }[]; // recent notes window for static hand-span box
 }
 
 interface DrumState {
@@ -215,6 +225,10 @@ interface DrumState {
   rhTime: number;
   rhCol: number;
   footTime: number;
+  lhEmaDt: number;
+  rhEmaDt: number;
+  footEmaDt: number;
+  stickEmaDt: number;
   noteTimes: Map<number, number>; // col -> timeMs
 }
 
@@ -225,19 +239,14 @@ export function analyzeMidi(
   notes: MidiNotePlaybackItem[],
   totalDurationMs: number,
   config: AnalysisConfig = DEFAULT_ANALYSIS_CONFIG,
-  originalDurationMsForChunking?: number,
+  _unusedOriginalDurationMs?: number,
   instrumentMode?: 'piano' | 'drum',
   customWeights?: FineTunedWeights
 ): ExtendedResult | null {
-  if (!notes.length || totalDurationMs <= 500) return null;
+  if (!notes.length || totalDurationMs <= 0) return null;
 
-  let weights = customWeights;
-  if (!weights) {
-    weights = DEFAULT_FINE_TUNED_WEIGHTS;
-  }
-
+  const weights = customWeights || DEFAULT_FINE_TUNED_WEIGHTS;
   const mode = instrumentMode || 'piano';
-  const durationSec = totalDurationMs / 1000;
 
   // Pre-process drum notes to keep primary drum mapping
   let processedNotes = notes;
@@ -246,31 +255,41 @@ export function analyzeMidi(
       .filter(n => DRUM_PRIMARY_MIDI_MAP[n.midi] !== undefined)
       .map(n => ({
         ...n,
-        midi: DRUM_PRIMARY_MIDI_MAP[n.midi]
+        midi: DRUM_PRIMARY_MIDI_MAP[n.midi],
       }));
   }
 
   if (processedNotes.length === 0) return null;
 
   // 1. Sort notes and map them
-  const sorted = [...processedNotes]
-    .sort((a, b) => a.timeMs - b.timeMs)
+  const sorted: NoteWithCol[] = [...processedNotes]
+    .sort((a, b) => (a.timeMs !== b.timeMs ? a.timeMs - b.timeMs : a.midi - b.midi))
     .map(n => ({
       id: n.noteId,
       midi: n.midi,
       timeMs: n.timeMs,
       durationMs: n.durationMs,
-      column: getColumn(n.midi, mode)
+      column: getColumn(n.midi, mode),
     }));
 
-  // 2. Group into discrete Chord Events (within a 30ms window)
+  const songStart = sorted[0].timeMs;
+  const songEnd = sorted[sorted.length - 1].timeMs;
+  const effectiveDurationMs = Math.max(totalDurationMs, songEnd - songStart, 1);
+  const durationSec = effectiveDurationMs / 1000;
+
+  // 2. Group into discrete Chord Events
+  const avgMsPerNote = (songEnd - songStart) / Math.max(1, sorted.length);
+  const chordWindowMs = Math.min(35, Math.max(2, avgMsPerNote * 0.25));
   const chordEvents: ChordEvent[] = [];
   for (const note of sorted) {
     if (chordEvents.length === 0) {
       chordEvents.push({ timeMs: note.timeMs, notes: [note] });
     } else {
       const lastEvent = chordEvents[chordEvents.length - 1];
-      if (note.timeMs - lastEvent.timeMs <= 30) {
+      const isSameKey = lastEvent.notes.some(
+        n => n.midi === note.midi || (mode === 'drum' && n.column === note.column)
+      );
+      if (!isSameKey && note.timeMs - lastEvent.timeMs <= chordWindowMs) {
         lastEvent.notes.push(note);
       } else {
         chordEvents.push({ timeMs: note.timeMs, notes: [note] });
@@ -279,9 +298,34 @@ export function analyzeMidi(
   }
 
   // 3. Physical State & Biomechanical Strain Simulation
-  const leftHand: HandState = { lastTime: -9999, lastCenter: 48, lastNotes: [], noteTimes: new Map() }; // LH center C3
-  const rightHand: HandState = { lastTime: -9999, lastCenter: 72, lastNotes: [], noteTimes: new Map() }; // RH center C5
-  const drumState: DrumState = { lhTime: -9999, lhCol: 1, rhTime: -9999, rhCol: 4, footTime: -9999, noteTimes: new Map() };
+  const leftHand: HandState = {
+    lastTime: -9999,
+    lastCenter: 48,
+    lastNotes: [],
+    noteTimes: new Map(),
+    emaDt: 250,
+    recentPitches: [],
+  };
+  const rightHand: HandState = {
+    lastTime: -9999,
+    lastCenter: 72,
+    lastNotes: [],
+    noteTimes: new Map(),
+    emaDt: 250,
+    recentPitches: [],
+  };
+  const drumState: DrumState = {
+    lhTime: -9999,
+    lhCol: 1,
+    rhTime: -9999,
+    rhCol: 4,
+    footTime: -9999,
+    lhEmaDt: 250,
+    rhEmaDt: 250,
+    footEmaDt: 350,
+    stickEmaDt: 200,
+    noteTimes: new Map(),
+  };
 
   const noteStrains = new Map<string, number>();
   const flowStrains: number[] = [];
@@ -290,13 +334,14 @@ export function analyzeMidi(
   let staircaseCount = 0;
   const colHistory: number[] = [];
 
-  // --- EXTENDED PHYSIOLOGICAL SIMULATION STATES ---
   const lhActiveNotes: { midi: number; endTime: number }[] = [];
   const rhActiveNotes: { midi: number; endTime: number }[] = [];
   let pianoFatigue = 0;
   let pianoLastTime = -9999;
   let drumFatigue = 0;
   let drumLastTime = -9999;
+
+  const isBlackKey = (m: number): boolean => [1, 3, 6, 8, 10].includes(m % 12);
 
   for (const event of chordEvents) {
     const t = event.timeMs;
@@ -306,28 +351,37 @@ export function analyzeMidi(
     if (mode === 'piano') {
       // ------------------------------------------------------------
       // PIANO PHYSICAL SIMULATION
-      // - 2 hands, 5 fingers each (max 10 total keys, max 5 per hand)
-      // - Stretch comfort limit: 12 semitones, absolute limit: 15 semitones
       // ------------------------------------------------------------
       const overloadPenalty = N > 10 ? 25.0 : 0;
-
-      // Sort notes by pitch to split between Left Hand (lower) and Right Hand (higher)
       const pitches = [...event.notes].sort((a, b) => a.midi - b.midi);
-      let lhNotes: typeof event.notes = [];
-      let rhNotes: typeof event.notes = [];
+      let lhNotes: NoteWithCol[] = [];
+      let rhNotes: NoteWithCol[] = [];
+
+      // Detect parallel octave unison across the keyboard (e.g. 2-hand practice scales and arpeggios)
+      const isParallelUnison =
+        pitches.length === 2 && [12, 24].includes(Math.abs(pitches[1].midi - pitches[0].midi));
+
+      // Gentle home-register relaxation when a hand has been idle (>300ms)
+      if (leftHand.lastTime > 0 && t - leftHand.lastTime > 300) {
+        leftHand.lastCenter = 0.8 * leftHand.lastCenter + 0.2 * 50;
+      }
+      if (rightHand.lastTime > 0 && t - rightHand.lastTime > 300) {
+        rightHand.lastCenter = 0.8 * rightHand.lastCenter + 0.2 * 70;
+      }
 
       if (N === 1) {
         const note = pitches[0];
-        // Dynamic hand selection based on center proximity
-        const distL = Math.abs(note.midi - leftHand.lastCenter) - 2.5; // LH bias lower
-        const distR = Math.abs(note.midi - rightHand.lastCenter) + 2.5; // RH bias higher
+        // Register gravity around C4 (60) prevents one hand from stealing the entire keyboard
+        // during rising broken chords (e.g. Bach Prelude in C Major)
+        const registerBias = (note.midi - 60) * 0.35;
+        const distL = Math.abs(note.midi - leftHand.lastCenter) + registerBias;
+        const distR = Math.abs(note.midi - rightHand.lastCenter) - registerBias;
         if (distL < distR) {
           lhNotes = [note];
         } else {
           rhNotes = [note];
         }
       } else {
-        // Optimize division boundary to minimize total strain
         let bestSplitIdx = 0;
         let minStrain = Infinity;
 
@@ -336,30 +390,26 @@ export function analyzeMidi(
           const rCand = pitches.slice(i);
           let candidateStrain = 0;
 
-          // Limit to physical 5-finger capacity
           if (lCand.length > 5) candidateStrain += 40;
           if (rCand.length > 5) candidateStrain += 40;
 
-          // Stretch spans
           if (lCand.length > 1) {
             const lSpan = lCand[lCand.length - 1].midi - lCand[0].midi;
             if (lSpan > 12) candidateStrain += (lSpan - 12) * 5;
-            if (lSpan > 15) candidateStrain += 100; // impossible stretch
+            if (lSpan > 15) candidateStrain += 100;
           }
           if (rCand.length > 1) {
             const rSpan = rCand[rCand.length - 1].midi - rCand[0].midi;
             if (rSpan > 12) candidateStrain += (rSpan - 12) * 5;
-            if (rSpan > 15) candidateStrain += 100; // impossible stretch
+            if (rSpan > 15) candidateStrain += 100;
           }
 
-          // Hands cross-over
           if (lCand.length > 0 && rCand.length > 0) {
             if (lCand[lCand.length - 1].midi >= rCand[0].midi) {
               candidateStrain += 70;
             }
           }
 
-          // Center jumps
           if (lCand.length > 0) {
             const lCenter = lCand.reduce((sum, n) => sum + n.midi, 0) / lCand.length;
             candidateStrain += Math.abs(lCenter - leftHand.lastCenter) * 0.4;
@@ -379,18 +429,14 @@ export function analyzeMidi(
         rhNotes = pitches.slice(bestSplitIdx);
       }
 
-      // Left Hand Strain Accumulation
-      const isBlackKey = (m: number): boolean => [1, 3, 6, 8, 10].includes(m % 12);
-
-      // Decelerate/recover piano fatigue during silence
       if (pianoLastTime > 0 && t > pianoLastTime) {
         const gap = t - pianoLastTime;
-        if (gap > 1500) {
-          pianoFatigue = Math.max(0, pianoFatigue * Math.exp(-(gap - 1500) / 1000));
+        const silenceThreshold = 1500;
+        if (gap > silenceThreshold) {
+          pianoFatigue = Math.max(0, pianoFatigue * Math.exp(-(gap - silenceThreshold) / 1000));
         }
       }
 
-      // Filter active holding notes for finger independence
       const lhActive = lhActiveNotes.filter(n => n.endTime > t);
       const rhActive = rhActiveNotes.filter(n => n.endTime > t);
 
@@ -405,7 +451,6 @@ export function analyzeMidi(
         currentCenterR = rhNotes.reduce((sum, n) => sum + n.midi, 0) / rhNotes.length;
       }
 
-      // Hand collision check
       if (lhNotes.length > 0 && rhNotes.length > 0) {
         const centerDistance = Math.abs(currentCenterR - currentCenterL);
         if (centerDistance < 6) {
@@ -413,262 +458,316 @@ export function analyzeMidi(
         }
       }
 
-      if (lhNotes.length > 0) {
-        const dtL = t - leftHand.lastTime;
-        const lhSpan = lhNotes.length > 1 ? (lhNotes[lhNotes.length - 1].midi - lhNotes[0].midi) : 0;
-        
-        // --- STRETCH MULTIPLIER ---
-        const stretchMultiplier = lhSpan > 12 ? 1.0 + Math.pow(lhSpan - 12, 1.15) * 0.20 * weights.piano_stretch_mult : 1.0;
+      const processPianoHand = (
+        hand: HandState,
+        hNotes: NoteWithCol[],
+        rawCenter: number,
+        activeList: { midi: number; endTime: number }[]
+      ) => {
+        if (hNotes.length === 0) return;
 
-        // --- INTERNAL STRETCH GAPS ---
+        const rawDt = t - hand.lastTime;
+        if (hand.lastTime > 0 && rawDt > 0) {
+          const clampedDt = Math.max(8, Math.min(1500, rawDt));
+          if (clampedDt < hand.emaDt) {
+            hand.emaDt = 0.35 * clampedDt + 0.65 * hand.emaDt;
+          } else {
+            hand.emaDt = 0.6 * clampedDt + 0.4 * hand.emaDt;
+          }
+        }
+        const effDt = Math.max(8, hand.emaDt);
+        const slowDecay =
+          effDt > 300
+            ? Math.pow(300 / effDt, 0.75)
+            : effDt < 150
+              ? Math.min(2.0, Math.pow(150 / effDt, 0.3))
+              : 1.0;
+
+        // Track recent 4-note pitch window within 800ms to detect static broken-chord hand box
+        // (e.g. Bach Prelude in C Major where fingers rock inside a fixed <=12-semitone chord position)
+        hand.recentPitches = hand.recentPitches
+          .filter(p => t - p.timeMs <= 800)
+          .slice(-4);
+        for (const n of hNotes) {
+          hand.recentPitches.push({ timeMs: t, midi: n.midi });
+        }
+        const winMidis = hand.recentPitches.map(p => p.midi);
+        const winSpan = winMidis.length ? Math.max(...winMidis) - Math.min(...winMidis) : 0;
+
+        let curCenter = rawCenter;
+        let inStaticArpeggioBox = false;
+        if (hNotes.length === 1 && winSpan <= 12 && winMidis.length >= 2) {
+          curCenter = 0.5 * (Math.min(...winMidis) + Math.max(...winMidis));
+          inStaticArpeggioBox = true;
+        }
+
+        const span =
+          hNotes.length > 1 ? hNotes[hNotes.length - 1].midi - hNotes[0].midi : 0;
+        const stretchMultiplier =
+          span > 12
+            ? 1.0 + Math.pow(span - 12, 1.15) * 0.2 * weights.piano_stretch_mult
+            : 1.0;
+
         let internalStretchPenalty = 0;
-        if (lhNotes.length > 1) {
-          for (let i = 0; i < lhNotes.length - 1; i++) {
-            const gap = lhNotes[i + 1].midi - lhNotes[i].midi;
+        if (hNotes.length > 1) {
+          for (let i = 0; i < hNotes.length - 1; i++) {
+            const gap = hNotes[i + 1].midi - hNotes[i].midi;
             if (gap > 6) {
-              internalStretchPenalty += (gap - 6) * 0.8 * weights.piano_internal_stretch;
+              internalStretchPenalty +=
+                (gap - 6) * 0.8 * weights.piano_internal_stretch * slowDecay;
             }
             if (gap > 10) {
-              internalStretchPenalty += (gap - 10) * 2.5 * weights.piano_internal_stretch;
+              internalStretchPenalty +=
+                (gap - 10) * 2.5 * weights.piano_internal_stretch * slowDecay;
             }
           }
         }
 
         let jumpStrain = 0;
-        if (leftHand.lastTime > 0 && dtL > 0) {
-          const dist = Math.abs(currentCenterL - leftHand.lastCenter);
+        if (hand.lastTime > 0 && rawDt > 0) {
+          const dist = Math.abs(curCenter - hand.lastCenter);
           if (dist > 1.5) {
-            jumpStrain = Math.pow(dist, 1.3) * Math.pow(150 / Math.max(40, dtL), 1.1) * 0.18 * weights.piano_hand_jump;
+            jumpStrain =
+              Math.pow(dist, 1.3) *
+              Math.pow(150 / effDt, 1.1) *
+              0.18 *
+              weights.piano_hand_jump;
           }
         }
 
-        // --- CONSECUTIVE DOUBLE STOPS / DOUBLE NOTES ---
         let doubleStopStrain = 0;
-        if (lhNotes.length >= 2 && leftHand.lastNotes.length >= 2 && dtL > 0 && dtL <= 450) {
-          const sizeFactor = (lhNotes.length + leftHand.lastNotes.length) / 2;
-          doubleStopStrain = Math.pow(450 / Math.max(40, dtL), 1.4) * sizeFactor * 2.5 * weights.piano_double_stop;
+        if (hNotes.length >= 2 && hand.lastNotes.length >= 2 && hand.lastTime > 0 && rawDt > 0) {
+          const sizeFactor = (hNotes.length + hand.lastNotes.length) / 2;
+          if (effDt <= 450) {
+            doubleStopStrain =
+              Math.pow(450 / effDt, 1.4) * sizeFactor * 2.5 * weights.piano_double_stop;
+          } else {
+            doubleStopStrain =
+              Math.pow(450 / effDt, 2.0) * sizeFactor * 2.5 * weights.piano_double_stop;
+          }
         }
 
-        // Finger independence tension
-        const fingerIndependenceStrain = lhActive.length * 0.8 * weights.piano_finger_independence;
+        // 1. Extreme Arpeggio Lateral Sweep (Waterfall Op. 10 No. 1)
+        // Multi-octave arpeggio sweep in RH at high speed (effDt <= 95ms) spanning >= 16 semitones
+        let arpeggioSweepStrain = 0;
+        if (hNotes.length === 1 && hand === rightHand && effDt <= 95) {
+          const recentSub = hand.recentPitches
+            .filter(p => t - p.timeMs <= 450)
+            .map(p => p.midi);
+          if (recentSub.length >= 4) {
+            const subSpan = Math.max(...recentSub) - Math.min(...recentSub);
+            const netDisp = Math.abs(recentSub[recentSub.length - 1] - recentSub[0]);
+            if (subSpan >= 16 && netDisp >= 12) {
+              const clampedSpan = Math.min(19.0, subSpan);
+              const rawArp =
+                Math.pow(clampedSpan - 14, 1.25) *
+                Math.pow(90 / effDt, 1.35) *
+                weights.piano_arpeggio_sweep;
+              arpeggioSweepStrain = Math.min(11.0, rawArp);
+            }
+          }
+        }
 
-        for (const note of lhNotes) {
-          // Same finger rapid key tap rate (Jackhammer)
+        // 2. Detached Leaping Octaves (Butterfly Etude Op. 25 No. 9)
+        // Right-hand rapid staccato octaves (span >= 12, avgDur <= 75ms, effDt <= 180ms)
+        let butterflyOctaveStrain = 0;
+        const avgDur = hNotes.reduce((sum, n) => sum + n.durationMs, 0) / hNotes.length;
+        const leapDist = Math.abs(curCenter - hand.lastCenter);
+        if (hand === rightHand && span >= 12 && avgDur <= 75 && effDt <= 180) {
+          butterflyOctaveStrain =
+            Math.pow(150 / effDt, 1.3) *
+            (1.0 + (span - 12) * 0.1) *
+            (1.0 + leapDist * 0.08) *
+            weights.piano_octave_staccato;
+        }
+
+        // Count unique held pitches excluding currently struck keys, capped at 3 fingers
+        // to avoid sustain-pedal / arpeggio-hold inflation
+        const currentMidis = new Set(hNotes.map(n => n.midi));
+        const uniqueHeldSet = new Set<number>();
+        for (const a of activeList) {
+          if (!currentMidis.has(a.midi)) uniqueHeldSet.add(a.midi);
+        }
+        const effectiveHeld = Math.min(3, uniqueHeldSet.size);
+        const heldBoxFactor = inStaticArpeggioBox ? 0.35 : 1.0;
+        const fingerIndependenceStrain =
+          effectiveHeld *
+          0.8 *
+          weights.piano_finger_independence *
+          slowDecay *
+          heldBoxFactor;
+
+        for (const note of hNotes) {
           let jackStrain = 0;
-          const lastNoteT = leftHand.noteTimes.get(note.midi);
+          const lastNoteT = hand.noteTimes.get(note.midi);
+          // True jackhammer only when the same pitch is struck consecutively OR repeated within <=250ms
+          const isConsecutiveSame = hand.lastNotes.includes(note.midi);
           if (lastNoteT !== undefined) {
             const dtN = t - lastNoteT;
-            if (dtN > 0 && dtN <= 800) {
-              jackStrain = Math.pow(150 / Math.max(40, dtN), 1.5) * 1.5 * weights.piano_jackhammer;
+            if (dtN > 0 && dtN <= 800 && (isConsecutiveSame || dtN <= 250)) {
+              const smoothDtN = Math.max(8, 0.5 * dtN + 0.5 * effDt);
+              jackStrain =
+                Math.pow(150 / smoothDtN, 1.5) * 1.5 * weights.piano_jackhammer;
             }
           }
 
-          // Finger movement transition / stream flow
           let flowStrain = 0;
           let leapStrain = 0;
           let blackKeyStrain = 0;
 
-          if (leftHand.lastNotes.length > 0 && dtL > 0) {
-            const closestDist = Math.min(...leftHand.lastNotes.map(prevMidi => Math.abs(note.midi - prevMidi)));
+          if (hand.lastNotes.length > 0 && hand.lastTime > 0 && rawDt > 0) {
+            const closestDist = Math.min(
+              ...hand.lastNotes.map(prevMidi => Math.abs(note.midi - prevMidi))
+            );
             if (closestDist > 0) {
-              flowStrain = (1.0 + closestDist * 0.15) * Math.pow(120 / Math.max(40, dtL), 1.2) * 0.4 * weights.piano_finger_flow;
+              const effClosestDist = inStaticArpeggioBox
+                ? Math.min(closestDist, 4)
+                : closestDist;
+              flowStrain =
+                (1.0 + effClosestDist * 0.15) *
+                Math.pow(120 / effDt, 1.2) *
+                0.4 *
+                weights.piano_finger_flow;
               flowStrains.push(flowStrain);
             }
 
-            // --- ARPEGGIO / SEQUENTIAL LEAP STRAIN ---
-            const lastMidi = leftHand.lastNotes[leftHand.lastNotes.length - 1];
+            const lastMidi = hand.lastNotes[hand.lastNotes.length - 1];
             const successiveInterval = Math.abs(note.midi - lastMidi);
-            if (successiveInterval > 5) {
-              leapStrain = Math.pow(successiveInterval - 5, 1.15) * Math.pow(150 / Math.max(40, dtL), 1.1) * 0.15 * weights.piano_leap_strain;
+            if (successiveInterval > 5 && !inStaticArpeggioBox) {
+              leapStrain =
+                Math.pow(successiveInterval - 5, 1.15) *
+                Math.pow(150 / effDt, 1.1) *
+                0.15 *
+                weights.piano_leap_strain;
             }
 
-            // Black key awkward transition
             if (isBlackKey(note.midi) !== isBlackKey(lastMidi)) {
-              blackKeyStrain = Math.pow(120 / Math.max(40, dtL), 1.1) * 0.45 * weights.piano_black_key_awkward;
+              blackKeyStrain =
+                Math.pow(120 / effDt, 1.1) * 0.45 * weights.piano_black_key_awkward;
             }
           }
 
-          const chordSizeBonus = (lhNotes.length - 1) * 0.9;
-          
-          // Apply fatigue multiplier
+          const chordBuffEff = effDt >= 350 ? weights.piano_chord_buff : 0;
+          const chordSizeBonus = (hNotes.length - 1) * (0.9 * slowDecay + chordBuffEff);
           const fatigueMult = 1.0 + pianoFatigue * 0.005 * weights.piano_stamina_fatigue;
 
-          const totalStrain = (jackStrain + flowStrain + leapStrain + jumpStrain + chordSizeBonus + doubleStopStrain + internalStretchPenalty + fingerIndependenceStrain + handCollisionStrain + blackKeyStrain + overloadPenalty) * stretchMultiplier * fatigueMult;
-          noteStrains.set(note.id, totalStrain);
-          leftHand.noteTimes.set(note.midi, t);
+          let totalStrain =
+            (jackStrain +
+              flowStrain +
+              leapStrain +
+              jumpStrain +
+              chordSizeBonus +
+              doubleStopStrain +
+              internalStretchPenalty +
+              fingerIndependenceStrain +
+              handCollisionStrain * slowDecay +
+              blackKeyStrain +
+              arpeggioSweepStrain +
+              butterflyOctaveStrain +
+              overloadPenalty) *
+            stretchMultiplier *
+            fatigueMult;
 
-          // Accumulate fatigue
+          if (isParallelUnison) {
+            totalStrain *= weights.piano_unison_discount;
+          }
+
+          noteStrains.set(note.id, totalStrain);
+          hand.noteTimes.set(note.midi, t);
           pianoFatigue += Math.min(10, totalStrain * 0.05);
         }
 
-        leftHand.lastTime = t;
-        leftHand.lastCenter = currentCenterL;
-        leftHand.lastNotes = lhNotes.map(n => n.midi);
+        hand.lastTime = t;
+        hand.lastCenter = curCenter;
+        hand.lastNotes = hNotes.map(n => n.midi);
 
-        // Register active holding notes
-        lhNotes.forEach(n => {
-          lhActiveNotes.push({ midi: n.midi, endTime: t + n.durationMs });
+        hNotes.forEach(n => {
+          activeList.push({ midi: n.midi, endTime: t + n.durationMs });
         });
-      }
+      };
 
-      // Right Hand Strain Accumulation
-      if (rhNotes.length > 0) {
-        const dtR = t - rightHand.lastTime;
-        const rhSpan = rhNotes.length > 1 ? (rhNotes[rhNotes.length - 1].midi - rhNotes[0].midi) : 0;
-        
-        // --- STRETCH MULTIPLIER ---
-        const stretchMultiplier = rhSpan > 12 ? 1.0 + Math.pow(rhSpan - 12, 1.15) * 0.20 * weights.piano_stretch_mult : 1.0;
+      processPianoHand(leftHand, lhNotes, currentCenterL, lhActive);
+      processPianoHand(rightHand, rhNotes, currentCenterR, rhActive);
 
-        // --- INTERNAL STRETCH GAPS ---
-        let internalStretchPenalty = 0;
-        if (rhNotes.length > 1) {
-          for (let i = 0; i < rhNotes.length - 1; i++) {
-            const gap = rhNotes[i + 1].midi - rhNotes[i].midi;
-            if (gap > 6) {
-              internalStretchPenalty += (gap - 6) * 0.8 * weights.piano_internal_stretch;
-            }
-            if (gap > 10) {
-              internalStretchPenalty += (gap - 10) * 2.5 * weights.piano_internal_stretch;
-            }
-          }
-        }
-
-        let jumpStrain = 0;
-        if (rightHand.lastTime > 0 && dtR > 0) {
-          const dist = Math.abs(currentCenterR - rightHand.lastCenter);
-          if (dist > 1.5) {
-            jumpStrain = Math.pow(dist, 1.3) * Math.pow(150 / Math.max(40, dtR), 1.1) * 0.18 * weights.piano_hand_jump;
-          }
-        }
-
-        // --- CONSECUTIVE DOUBLE STOPS / DOUBLE NOTES ---
-        let doubleStopStrain = 0;
-        if (rhNotes.length >= 2 && rightHand.lastNotes.length >= 2 && dtR > 0 && dtR <= 450) {
-          const sizeFactor = (rhNotes.length + rightHand.lastNotes.length) / 2;
-          doubleStopStrain = Math.pow(450 / Math.max(40, dtR), 1.4) * sizeFactor * 2.5 * weights.piano_double_stop;
-        }
-
-        // Finger independence tension
-        const fingerIndependenceStrain = rhActive.length * 0.8 * weights.piano_finger_independence;
-
-        for (const note of rhNotes) {
-          // Same finger rapid key tap rate (Jackhammer)
-          let jackStrain = 0;
-          const lastNoteT = rightHand.noteTimes.get(note.midi);
-          if (lastNoteT !== undefined) {
-            const dtN = t - lastNoteT;
-            if (dtN > 0 && dtN <= 800) {
-              jackStrain = Math.pow(150 / Math.max(40, dtN), 1.5) * 1.5 * weights.piano_jackhammer;
-            }
-          }
-
-          // Finger movement transition / stream flow
-          let flowStrain = 0;
-          let leapStrain = 0;
-          let blackKeyStrain = 0;
-
-          if (rightHand.lastNotes.length > 0 && dtR > 0) {
-            const closestDist = Math.min(...rightHand.lastNotes.map(prevMidi => Math.abs(note.midi - prevMidi)));
-            if (closestDist > 0) {
-              flowStrain = (1.0 + closestDist * 0.15) * Math.pow(120 / Math.max(40, dtR), 1.2) * 0.4 * weights.piano_finger_flow;
-              flowStrains.push(flowStrain);
-            }
-
-            // --- ARPEGGIO / SEQUENTIAL LEAP STRAIN ---
-            const lastMidi = rightHand.lastNotes[rightHand.lastNotes.length - 1];
-            const successiveInterval = Math.abs(note.midi - lastMidi);
-            if (successiveInterval > 5) {
-              leapStrain = Math.pow(successiveInterval - 5, 1.15) * Math.pow(150 / Math.max(40, dtR), 1.1) * 0.15 * weights.piano_leap_strain;
-            }
-
-            // Black key awkward transition
-            if (isBlackKey(note.midi) !== isBlackKey(lastMidi)) {
-              blackKeyStrain = Math.pow(120 / Math.max(40, dtR), 1.1) * 0.45 * weights.piano_black_key_awkward;
-            }
-          }
-
-          const chordSizeBonus = (rhNotes.length - 1) * 0.9;
-
-          // Apply fatigue multiplier
-          const fatigueMult = 1.0 + pianoFatigue * 0.005 * weights.piano_stamina_fatigue;
-
-          const totalStrain = (jackStrain + flowStrain + leapStrain + jumpStrain + chordSizeBonus + doubleStopStrain + internalStretchPenalty + fingerIndependenceStrain + handCollisionStrain + blackKeyStrain + overloadPenalty) * stretchMultiplier * fatigueMult;
-          noteStrains.set(note.id, totalStrain);
-          rightHand.noteTimes.set(note.midi, t);
-
-          // Accumulate fatigue
-          pianoFatigue += Math.min(10, totalStrain * 0.05);
-        }
-
-        rightHand.lastTime = t;
-        rightHand.lastCenter = currentCenterR;
-        rightHand.lastNotes = rhNotes.map(n => n.midi);
-
-        // Register active holding notes
-        rhNotes.forEach(n => {
-          rhActiveNotes.push({ midi: n.midi, endTime: t + n.durationMs });
-        });
-      }
+      lhActiveNotes.length = 0;
+      lhActiveNotes.push(...lhActive);
+      rhActiveNotes.length = 0;
+      rhActiveNotes.push(...rhActive);
 
       pianoLastTime = t;
 
-      // Staircase & Trills
       for (const note of event.notes) {
         colHistory.push(note.column);
         if (colHistory.length > 4) colHistory.shift();
         if (colHistory.length === 4) {
           const [c0, c1, c2, c3] = colHistory;
           if (c0 === c2 && c1 === c3 && c0 !== c1) trillCount++;
-          if ((c0 < c1 && c1 < c2 && c2 < c3) || (c0 > c1 && c1 > c2 && c2 > c3)) staircaseCount++;
+          if ((c0 < c1 && c1 < c2 && c2 < c3) || (c0 > c1 && c1 > c2 && c2 > c3))
+            staircaseCount++;
         }
       }
-
     } else {
       // ------------------------------------------------------------
       // DRUM PHYSICAL SIMULATION
-      // - 2 hands (sticks), 2 feet (pedals)
-      // - Column 0 = Foot pedal (Kick). 1-4 = Stick pads Snare/Hihat/Tom/Cymbal.
-      // - Max 2 simultaneous stick triggers (since we only have 2 sticks/hands)
       // ------------------------------------------------------------
       const footNotes = event.notes.filter(n => n.column === 0);
       const stickNotes = event.notes.filter(n => n.column > 0);
 
       const footOverloaded = footNotes.length > 1;
-      const sticksOverloaded = stickNotes.length > 2; // Impossible 3+ simultaneous hits with 2 sticks
+      const sticksOverloaded = stickNotes.length > 2;
       const overloadPenalty = (sticksOverloaded ? 30.0 : 0) + (footOverloaded ? 12.0 : 0);
 
-      // Decelerate/recover drum fatigue during silence
       if (drumLastTime > 0 && t > drumLastTime) {
         const gap = t - drumLastTime;
-        if (gap > 1200) {
-          drumFatigue = Math.max(0, drumFatigue * Math.exp(-(gap - 1200) / 1000));
+        const silenceThreshold = 1200;
+        if (gap > silenceThreshold) {
+          drumFatigue = Math.max(0, drumFatigue * Math.exp(-(gap - silenceThreshold) / 1000));
         }
       }
 
-      // Polyrhythm limb independence strain
-      let polyrhythmStrain = 0;
-      if (footNotes.length > 0 && stickNotes.length > 0) {
-        polyrhythmStrain = 1.5 * weights.drum_polyrhythm;
-      }
-
-      // Roll fatigue detector
-      let rollFatigue = 0;
       const lastStickTime = Math.max(drumState.lhTime, drumState.rhTime);
       const dtStick = t - lastStickTime;
-      if (dtStick > 0 && dtStick < 120) {
-        rollFatigue = Math.pow(120 / dtStick, 1.5) * 0.8 * weights.drum_roll_fatigue;
+      if (stickNotes.length > 0 && lastStickTime > 0 && dtStick > 0) {
+        const clampedDt = Math.max(8, Math.min(1500, dtStick));
+        drumState.stickEmaDt =
+          clampedDt < drumState.stickEmaDt
+            ? 0.35 * clampedDt + 0.65 * drumState.stickEmaDt
+            : 0.6 * clampedDt + 0.4 * drumState.stickEmaDt;
+      }
+      const effStickDt = Math.max(8, drumState.stickEmaDt);
+      const slowDecay = effStickDt > 300 ? Math.pow(300 / effStickDt, 0.75) : 1.0;
+
+      let polyrhythmStrain = 0;
+      if (footNotes.length > 0 && stickNotes.length > 0) {
+        polyrhythmStrain = 1.5 * weights.drum_polyrhythm * slowDecay;
+      }
+
+      let rollFatigue = 0;
+      if (stickNotes.length > 0 && lastStickTime > 0 && effStickDt > 0 && effStickDt < 120) {
+        rollFatigue =
+          Math.pow(120 / effStickDt, 1.35) *
+          ((120 - effStickDt) / 120) *
+          0.8 *
+          weights.drum_roll_fatigue;
       }
 
       const fatigueMult = 1.0 + drumFatigue * 0.005 * weights.drum_stamina_fatigue;
 
-      // Foot Pedal Strain (Right Foot Kick)
       for (const fn of footNotes) {
         const dtF = t - drumState.footTime;
-        let footStrain = 0.5; // Base kick movement effort
-        if (dtF > 0 && dtF <= 1200) {
-          footStrain = Math.pow(150 / Math.max(45, dtF), 1.45) * 1.6 * weights.drum_foot_kick;
+        if (drumState.footTime > 0 && dtF > 0) {
+          const clampedDt = Math.max(8, Math.min(1500, dtF));
+          drumState.footEmaDt =
+            clampedDt < drumState.footEmaDt
+              ? 0.35 * clampedDt + 0.65 * drumState.footEmaDt
+              : 0.6 * clampedDt + 0.4 * drumState.footEmaDt;
         }
-        
+        const effDtF = Math.max(8, drumState.footEmaDt);
+        const footStrain =
+          effDtF <= 1200
+            ? Math.pow(150 / effDtF, 1.35) * 1.6 * weights.drum_foot_kick
+            : 0.5 * (1200 / effDtF);
+
         const totalStrain = (footStrain + polyrhythmStrain + overloadPenalty) * fatigueMult;
         noteStrains.set(fn.id, totalStrain);
         drumState.footTime = t;
@@ -676,15 +775,13 @@ export function analyzeMidi(
         drumFatigue += Math.min(8, totalStrain * 0.04);
       }
 
-      // Stick Assignment (L-Stick vs R-Stick)
-      let lhHits: typeof event.notes = [];
-      let rhHits: typeof event.notes = [];
+      let lhHits: NoteWithCol[] = [];
+      let rhHits: NoteWithCol[] = [];
 
       if (stickNotes.length === 1) {
         const note = stickNotes[0];
         const lhIdle = t - drumState.lhTime;
         const rhIdle = t - drumState.rhTime;
-        // Alternate sticks or bias based on column positions
         if (Math.abs(lhIdle - rhIdle) > 150) {
           if (lhIdle > rhIdle) lhHits = [note];
           else rhHits = [note];
@@ -701,28 +798,49 @@ export function analyzeMidi(
         rhHits = stickNotes.slice(Math.floor(stickNotes.length / 2));
       }
 
-      // Crossed arm coordination penalty
       let crossedArmStrain = 0;
       if (lhHits.length > 0 && rhHits.length > 0) {
         if (lhHits[0].column > rhHits[0].column) {
-          crossedArmStrain = 4.0 * weights.drum_crossed_arms;
+          crossedArmStrain = 4.0 * weights.drum_crossed_arms * slowDecay;
         }
       }
 
-      // LH Stick Strain
       for (const note of lhHits) {
         const dtL = t - drumState.lhTime;
+        if (drumState.lhTime > 0 && dtL > 0) {
+          const clampedDt = Math.max(8, Math.min(1500, dtL));
+          drumState.lhEmaDt =
+            clampedDt < drumState.lhEmaDt
+              ? 0.35 * clampedDt + 0.65 * drumState.lhEmaDt
+              : 0.6 * clampedDt + 0.4 * drumState.lhEmaDt;
+        }
+        const effDtL = Math.max(8, drumState.lhEmaDt);
         let jackStrain = 0;
         let moveStrain = 0;
 
-        if (note.column === drumState.lhCol && dtL > 0) {
-          jackStrain = Math.pow(140 / Math.max(45, dtL), 1.4) * 1.3 * weights.drum_stick_jackhammer;
-        } else if (dtL > 0) {
-          const dist = Math.abs(note.column - drumState.lhCol);
-          moveStrain = Math.pow(dist, 1.1) * Math.pow(120 / Math.max(45, dtL), 1.1) * 0.45 * weights.drum_stick_move;
+        if (drumState.lhTime > 0 && dtL > 0) {
+          if (note.column === drumState.lhCol) {
+            jackStrain = Math.pow(140 / effDtL, 1.35) * 1.3 * weights.drum_stick_jackhammer;
+          } else {
+            const dist = Math.abs(note.column - drumState.lhCol);
+            moveStrain =
+              Math.pow(dist, 1.1) *
+              Math.pow(120 / effDtL, 1.1) *
+              0.45 *
+              weights.drum_stick_move;
+            flowStrains.push(moveStrain);
+          }
         }
 
-        const totalStrain = (jackStrain + moveStrain + rollFatigue + polyrhythmStrain + crossedArmStrain + 0.6 + overloadPenalty) * fatigueMult;
+        const totalStrain =
+          (jackStrain +
+            moveStrain +
+            rollFatigue +
+            polyrhythmStrain +
+            crossedArmStrain +
+            0.6 * slowDecay +
+            overloadPenalty) *
+          fatigueMult;
         noteStrains.set(note.id, totalStrain);
         drumState.lhTime = t;
         drumState.lhCol = note.column;
@@ -730,20 +848,42 @@ export function analyzeMidi(
         drumFatigue += Math.min(8, totalStrain * 0.04);
       }
 
-      // RH Stick Strain
       for (const note of rhHits) {
         const dtR = t - drumState.rhTime;
+        if (drumState.rhTime > 0 && dtR > 0) {
+          const clampedDt = Math.max(8, Math.min(1500, dtR));
+          drumState.rhEmaDt =
+            clampedDt < drumState.rhEmaDt
+              ? 0.35 * clampedDt + 0.65 * drumState.rhEmaDt
+              : 0.6 * clampedDt + 0.4 * drumState.rhEmaDt;
+        }
+        const effDtR = Math.max(8, drumState.rhEmaDt);
         let jackStrain = 0;
         let moveStrain = 0;
 
-        if (note.column === drumState.rhCol && dtR > 0) {
-          jackStrain = Math.pow(140 / Math.max(45, dtR), 1.4) * 1.3 * weights.drum_stick_jackhammer;
-        } else if (dtR > 0) {
-          const dist = Math.abs(note.column - drumState.rhCol);
-          moveStrain = Math.pow(dist, 1.1) * Math.pow(120 / Math.max(45, dtR), 1.1) * 0.45 * weights.drum_stick_move;
+        if (drumState.rhTime > 0 && dtR > 0) {
+          if (note.column === drumState.rhCol) {
+            jackStrain = Math.pow(140 / effDtR, 1.35) * 1.3 * weights.drum_stick_jackhammer;
+          } else {
+            const dist = Math.abs(note.column - drumState.rhCol);
+            moveStrain =
+              Math.pow(dist, 1.1) *
+              Math.pow(120 / effDtR, 1.1) *
+              0.45 *
+              weights.drum_stick_move;
+            flowStrains.push(moveStrain);
+          }
         }
 
-        const totalStrain = (jackStrain + moveStrain + rollFatigue + polyrhythmStrain + crossedArmStrain + 0.6 + overloadPenalty) * fatigueMult;
+        const totalStrain =
+          (jackStrain +
+            moveStrain +
+            rollFatigue +
+            polyrhythmStrain +
+            crossedArmStrain +
+            0.6 * slowDecay +
+            overloadPenalty) *
+          fatigueMult;
         noteStrains.set(note.id, totalStrain);
         drumState.rhTime = t;
         drumState.rhCol = note.column;
@@ -753,57 +893,106 @@ export function analyzeMidi(
 
       drumLastTime = t;
 
-      // Trill & Alternating pattern check
       for (const note of event.notes) {
         colHistory.push(note.column);
         if (colHistory.length > 4) colHistory.shift();
         if (colHistory.length === 4) {
           const [c0, c1, c2, c3] = colHistory;
           if (c0 === c2 && c1 === c3 && c0 !== c1) trillCount++;
-          if ((c0 < c1 && c1 < c2 && c2 < c3) || (c0 > c1 && c1 > c2 && c2 > c3)) staircaseCount++;
+          if ((c0 < c1 && c1 < c2 && c2 < c3) || (c0 > c1 && c1 > c2 && c2 > c3))
+            staircaseCount++;
         }
       }
     }
   }
 
-  // 4. Slidings & Segment Strain Evaluation (400ms intervals)
-  const songStart = sorted[0].timeMs;
-  const songEnd = sorted[sorted.length - 1].timeMs;
+  // 4. Segment Strain Evaluation (400ms sections with logarithmic event-density scaling)
   const segmentDuration = 400;
   const segmentStrains: number[] = [];
   const localDensities: number[] = [];
 
-  for (let tSeg = songStart; tSeg < songEnd; tSeg += segmentDuration) {
-    const segmentNotes = sorted.filter(n => n.timeMs >= tSeg && n.timeMs < tSeg + segmentDuration);
-    if (segmentNotes.length > 0) {
+  if (songEnd - songStart <= segmentDuration) {
+    let maxS = 0;
+    for (const n of sorted) {
+      const sVal = noteStrains.get(n.id) || 0;
+      if (sVal > maxS) maxS = sVal;
+    }
+    const densityMult = 1 + 0.18 * Math.log2(Math.max(1, chordEvents.length / 2));
+    segmentStrains.push(maxS * densityMult);
+    localDensities.push(sorted.length / Math.max(0.05, (songEnd - songStart) / 1000));
+  } else {
+    let noteIdx = 0;
+    let evIdx = 0;
+    for (let tSeg = songStart; tSeg < songEnd; tSeg += segmentDuration) {
+      const segEnd = tSeg + segmentDuration;
       let maxS = 0;
-      for (const n of segmentNotes) {
-        const sVal = noteStrains.get(n.id) || 0;
-        if (sVal > maxS) maxS = sVal;
+      let countInSeg = 0;
+
+      while (noteIdx < sorted.length && sorted[noteIdx].timeMs < segEnd) {
+        if (sorted[noteIdx].timeMs >= tSeg) {
+          countInSeg++;
+          const sVal = noteStrains.get(sorted[noteIdx].id) || 0;
+          if (sVal > maxS) maxS = sVal;
+        }
+        noteIdx++;
       }
-      segmentStrains.push(maxS);
-      localDensities.push(segmentNotes.length / (segmentDuration / 1000));
-    } else {
-      segmentStrains.push(0);
-      localDensities.push(0);
+
+      let evCountInSeg = 0;
+      while (evIdx < chordEvents.length && chordEvents[evIdx].timeMs < segEnd) {
+        if (chordEvents[evIdx].timeMs >= tSeg) evCountInSeg++;
+        evIdx++;
+      }
+
+      if (countInSeg > 0) {
+        const densityMult = 1 + 0.18 * Math.log2(Math.max(1, evCountInSeg / 2));
+        segmentStrains.push(maxS * densityMult);
+        localDensities.push(countInSeg / (segmentDuration / 1000));
+      } else {
+        segmentStrains.push(0);
+        localDensities.push(0);
+      }
     }
   }
 
-  // 5. Exponential decay weighting over all segments (valuing highest peak moments most)
-  const sortedStrains = [...segmentStrains].sort((a, b) => b - a);
-  let decayedSum = 0;
-  for (let r = 0; r < sortedStrains.length; r++) {
-    decayedSum += sortedStrains[r] * Math.pow(0.94, r);
+  // 5. Pattern Repetition & Exponential Decay Weighting Over All Segments
+  let patternRepPenalty = 0;
+  if (sorted.length >= 8) {
+    const window = 4;
+    const patterns = new Map<string, number>();
+    for (let i = 0; i <= sorted.length - window; i++) {
+      const pattern = sorted
+        .slice(i, i + window)
+        .map(n => n.column)
+        .join(',');
+      patterns.set(pattern, (patterns.get(pattern) || 0) + 1);
+    }
+    const repeats = [...patterns.values()].reduce((sum, c) => sum + (c > 1 ? c - 1 : 0), 0);
+    patternRepPenalty = repeats / (sorted.length - window);
   }
 
-  // Calibration factor ensuring non-inflated difficulty scaling (max ~1000 - 1500 for virtuoso)
-  const calibrationFactor = mode === 'drum' ? weights.drum_global_factor : weights.piano_global_factor;
+  const sortedStrains = [...segmentStrains].sort((a, b) => b - a);
+  let decayedSum = 0;
+  let weightSum = 0;
+  for (let r = 0; r < sortedStrains.length; r++) {
+    const w = Math.pow(0.94, r);
+    decayedSum += sortedStrains[r] * w;
+    weightSum += w;
+  }
+
+  // Compensate only when high speed compresses many chord events into fewer 400ms segments
+  const expectedSegments = Math.max(sortedStrains.length, Math.floor(chordEvents.length / 2.5));
+  if (expectedSegments > sortedStrains.length && weightSum > 0) {
+    const targetWeightSum = (1 - Math.pow(0.94, expectedSegments)) / (1 - 0.94);
+    decayedSum = decayedSum * (targetWeightSum / weightSum);
+  }
+
+  const calibrationFactor =
+    mode === 'drum' ? weights.drum_global_factor : weights.piano_global_factor;
   let performanceScore = Math.max(1, Math.round(calibrationFactor * Math.pow(decayedSum, 1.22)));
 
-  // Dynamic Scale-down for short files / tests to avoid high scores on 5-second or few-note clips
   const totalNotes = sorted.length;
   if (totalNotes < 30) {
-    performanceScore = Math.round(performanceScore * (totalNotes / 30));
+    performanceScore = Math.max(1, Math.round(performanceScore * (totalNotes / 30)));
   }
 
   // 6. Calculate level & stars from the final score
@@ -820,28 +1009,17 @@ export function analyzeMidi(
   const pitches = sorted.map(n => n.midi);
   const highestNote = pitches.length ? Math.max(...pitches) : 0;
   const lowestNote = pitches.length ? Math.min(...pitches) : 0;
-  const rangeIntensity = mode === 'piano'
-    ? (highestNote && lowestNote ? (highestNote - lowestNote) / 88 : 0)
-    : (new Set(sorted.map(n => n.column)).size) / 5;
+  const rangeIntensity =
+    mode === 'piano'
+      ? highestNote && lowestNote
+        ? (highestNote - lowestNote) / 88
+        : 0
+      : new Set(sorted.map(n => n.column)).size / 5;
 
   const chordMobility = norm(avg(flowStrains), 0, 5);
   const avgSpeed = totalNotes / (durationSec || 1);
   const arpeggioVirtuosity = norm((staircaseCount / totalNotes) * (avgSpeed / 10), 0, 0.4);
   const trillRatio = trillCount / totalNotes;
-
-  // Repetition multiplier
-  let patternRepPenalty = 0;
-  if (sorted.length >= 8) {
-    const window = 4;
-    const patterns = new Map<string, number>();
-    for (let i = 0; i <= sorted.length - window; i++) {
-      const pattern = sorted.slice(i, i + window).map(n => n.column).join(',');
-      patterns.set(pattern, (patterns.get(pattern) || 0) + 1);
-    }
-    const repeats = [...patterns.values()].reduce((sum, c) => sum + (c > 1 ? c - 1 : 0), 0);
-    patternRepPenalty = repeats / (sorted.length - window);
-  }
-
   const arpeggioRepetition = 1 - patternRepPenalty;
   const polyphony = avg(chordSizes);
 
@@ -869,7 +1047,6 @@ export function analyzeMidi(
   const gapAvg = avg(gaps);
   const gapVar = gaps.length ? Math.sqrt(avg(gaps.map(g => (g - gapAvg) ** 2))) : 0;
 
-  // Track fast burst sections
   const burstThreshold = avgDensity * 1.8 + 2;
   let burstSections = 0;
   let inBurst = false;
@@ -899,6 +1076,6 @@ export function analyzeMidi(
 
   return {
     ...analysis,
-    meta
+    meta,
   };
 }

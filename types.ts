@@ -66,6 +66,7 @@ export interface MidiNotePlaybackItem {
   hand: 'left' | 'right';
   originalTrackSourceInfo: string;
   finger?: 1 | 2 | 3 | 4 | 5;
+  handPositions?: number[];
   ticks?: number;
   durationTicks?: number;
   isRepeatStart?: boolean;
