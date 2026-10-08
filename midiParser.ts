@@ -359,6 +359,7 @@ export async function parseMusicXmlData(
             const voiceOffsetsMs = new Map<string, number>();
             const voiceOffsetsTicks = new Map<string, number>();
             let currentVoice = '1';
+            const chordOnsets = new Map<string, {ms: number; ticks: number}>();
 
             const elements = Array.from(measure.children);
             elements.forEach(element => {
@@ -454,8 +455,10 @@ export async function parseMusicXmlData(
                     }
 
                     const durationMs = musicXmlDurationToMs(durationTicks, divisions, currentTempoBpm);
-                    const noteStartTimeMs = measureStartMs + vMs;
-                    const noteStartTicks = measureStartTicks + vTicks;
+                    const chordOnset = isChord ? chordOnsets.get(currentVoice) : undefined;
+                    const noteStartTimeMs = chordOnset?.ms ?? measureStartMs + vMs;
+                    const noteStartTicks = chordOnset?.ticks ?? measureStartTicks + vTicks;
+                    if (!isChord) chordOnsets.set(currentVoice, {ms: noteStartTimeMs, ticks: noteStartTicks});
 
                     if (!isRest) {
                         const pitchEl = element.getElementsByTagName('pitch')[0];
@@ -475,7 +478,17 @@ export async function parseMusicXmlData(
                                     hand = midiNote < HAND_SPLIT_MIDI_NOTE ? 'left' : 'right';
                                 }
 
+                                const nativeHand = element.getAttribute('data-octavia-hand');
+                                if (nativeHand === 'left' || nativeHand === 'right') hand = nativeHand;
+                                const nativeFinger = Number(element.getAttribute('data-octavia-finger'));
+                                let handPositions: number[] | undefined;
+                                try {
+                                    const positions=JSON.parse(element.getAttribute('data-octavia-positions') || 'null');
+                                    if (Array.isArray(positions) && positions.length===5 && positions.every(p=>typeof p==='number' && Number.isFinite(p))) handPositions=positions;
+                                } catch { /* Optional display pose; keep parsing the score. */ }
                                 const newNote = {
+                                    handPositions,
+                                    finger: nativeFinger >= 1 && nativeFinger <= 5 ? nativeFinger as 1|2|3|4|5 : undefined,
                                     midi: midiNote,
                                     timeMs: noteStartTimeMs,
                                     durationMs: durationMs,
@@ -635,7 +648,8 @@ export async function parseFileForAnalysis(
             const arrayBuffer = await file.arrayBuffer();
             const loadedZip = await zip.loadAsync(arrayBuffer);
 
-            const containerFile = loadedZip.file("META-INF/container.xml");
+            const containerFile = loadedZip.file("META-INF/container.xml") ||
+                Object.values(loadedZip.files).find(f => !f.dir && f.name.toLowerCase().replace(/\\/g, '/') === 'meta-inf/container.xml');
             let xmlText: string | null = null;
 
             if (containerFile) {
@@ -646,7 +660,9 @@ export async function parseFileForAnalysis(
                 if (rootFileEl) {
                     const fullPath = rootFileEl.getAttribute("full-path");
                     if (fullPath) {
-                        const scoreFile = loadedZip.file(fullPath);
+                        const cleanPath = fullPath.replace(/^\.\//, '').replace(/\\/g, '/');
+                        const scoreFile = loadedZip.file(cleanPath) ||
+                            Object.values(loadedZip.files).find(f => f.name.replace(/\\/g, '/') === cleanPath);
                         if (scoreFile) xmlText = await scoreFile.async("string");
                     }
                 }
@@ -654,9 +670,9 @@ export async function parseFileForAnalysis(
 
             if (!xmlText) {
                 for (const fileInZip of Object.values(loadedZip.files)) {
-                    // FIX: Cast fileInZip to JSZipObject to access its properties.
                     const zipObject = fileInZip as JSZipObject;
-                    if (!zipObject.dir && (zipObject.name.endsWith('.xml') || zipObject.name.endsWith('.musicxml'))) {
+                    const normName = zipObject.name.toLowerCase().replace(/\\/g, '/');
+                    if (!zipObject.dir && !normName.startsWith('meta-inf/') && (normName.endsWith('.xml') || normName.endsWith('.musicxml'))) {
                         xmlText = await zipObject.async("string");
                         break;
                     }

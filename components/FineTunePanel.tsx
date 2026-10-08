@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
-import { 
-  analyzeMidi, 
-  DEFAULT_FINE_TUNED_WEIGHTS, 
-  FineTunedWeights 
+import {
+  analyzeMidi,
+  DEFAULT_FINE_TUNED_WEIGHTS,
+  FineTunedWeights
 } from '../midiAnalysis';
 import { parseFileForAnalysis } from '../midiParser';
 import { PIANO_KEYS_CONFIG, DRUM_MIDI_TO_NAME_MAP } from '../constants';
@@ -87,7 +87,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
         .from('songs')
         .select('*')
         .eq('instrument_mode', activeTab);
-      
+
       if (error) throw error;
 
       if (data) {
@@ -143,12 +143,12 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
     const { data: blob, error } = await supabase.storage
       .from('midi-files')
       .download(song.file_path);
-    
+
     if (error) throw error;
 
     const file = new File([blob!], 'temp.mid');
     const isDrum = song.instrument_mode === 'drum';
-    
+
     const songMidiNoteToNameMap = new Map<number, string>();
     PIANO_KEYS_CONFIG.forEach(key => songMidiNoteToNameMap.set(key.midiNote, key.name));
     if (isDrum) {
@@ -157,7 +157,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
 
     const analysisData = await parseFileForAnalysis(file, songMidiNoteToNameMap);
     if (!analysisData) throw new Error("Could not parse MIDI content");
-    
+
     return {
       notes: analysisData.notes,
       durationMs: analysisData.originalTotalMusicalDurationMs
@@ -244,9 +244,9 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
   const handleSaveWeights = () => {
     try {
       navigator.clipboard.writeText(JSON.stringify(weights, null, 2));
-      alert("JSON Bobot telah disalin ke clipboard! Silakan tempelkan (paste) ke DEFAULT_FINE_TUNED_WEIGHTS di midiAnalysis.ts untuk menerapkannya secara permanen ke kode.");
+      alert("Weights JSON copied to the clipboard! Paste it into DEFAULT_FINE_TUNED_WEIGHTS in midiAnalysis.ts to apply it permanently.");
     } catch (e) {
-      alert("Gagal menyalin: " + e);
+      alert("Copy failed: " + e);
     }
   };
 
@@ -257,10 +257,11 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
     }
   };
 
-  // Calculate Mean Absolute Percentage Error (MAPE)
+  // Multi-objective Balanced Loss:
+  // Combines Mean Absolute Percentage Error (MAPE), Max/Worst-case Outlier Penalty (L_inf),
+  // and Variance/Dispersion of errors across all songs to prevent sacrificing one song for another.
   const calculateTotalError = (activeWeights: FineTunedWeights, targetSongs: CalibrationSong[]): number => {
-    let sumPercentageError = 0;
-    let counted = 0;
+    const songErrors: number[] = [];
 
     for (const s of targetSongs) {
       if (!s.notesData) continue;
@@ -272,21 +273,37 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
         s.instrument_mode as 'piano' | 'drum',
         activeWeights
       );
-      if (res) {
-        const error = Math.abs(res.performanceScore - s.targetPS) / s.targetPS;
-        sumPercentageError += error;
-        counted++;
+      if (res && s.targetPS > 0) {
+        // Individual percentage error (e.g., 0.05 = 5%)
+        const errorPct = (Math.abs(res.performanceScore - s.targetPS) / s.targetPS) * 100;
+        songErrors.push(errorPct);
       }
     }
 
-    return counted > 0 ? (sumPercentageError / counted) * 100 : 0;
-  };
+    if (songErrors.length === 0) return 0;
 
+    // 1. Mean Absolute Percentage Error (MAPE)
+    const mape = songErrors.reduce((acc, e) => acc + e, 0) / songErrors.length;
+
+    // 2. Max Error (Penalizes isolated songs that get sacrificed or left far from target)
+    const maxError = Math.max(...songErrors);
+
+    // 3. Error Standard Deviation / Spread (Ensures error is evenly and uniformly distributed)
+    const variance = songErrors.reduce((acc, e) => acc + Math.pow(e - mape, 2), 0) / songErrors.length;
+    const stdDev = Math.sqrt(variance);
+
+    // Balanced Composite Loss:
+    // - 50% Mean error
+    // - 30% Max outlier penalty (forces worst songs closer to target)
+    // - 20% Uniformity/Balance penalty (keeps all errors balanced together)
+    const compositeBalancedScore = (mape * 0.50) + (maxError * 0.30) + (stdDev * 0.20);
+    return compositeBalancedScore;
+  };
   // Automatic Tuning Optimizer using Coordinate Descent over weight parameters
   const handleRunCalibration = async () => {
     setCalibrating(true);
     setProgressLog(["Initializing song midi caches..."]);
-    
+
     try {
       // 1. Ensure all included songs are downloaded & cached in memory
       const activeSet = [...songs];
@@ -319,31 +336,31 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
       setProgressLog(prev => [...prev, `Starting Coordinate Descent calibration on ${songsToTune.length} songs...`]);
 
       // 2. Setup parameter weight list to optimize based on active tab
-      const paramsToTune: (keyof FineTunedWeights)[] = activeTab === 'piano' 
+      const paramsToTune: (keyof FineTunedWeights)[] = activeTab === 'piano'
         ? [
-            'piano_stretch_mult',
-            'piano_internal_stretch',
-            'piano_leap_strain',
-            'piano_double_stop',
-            'piano_jackhammer',
-            'piano_finger_flow',
-            'piano_hand_jump',
-            'piano_black_key_awkward',
-            'piano_finger_independence',
-            'piano_hand_collision',
-            'piano_stamina_fatigue',
-            'piano_global_factor'
-          ]
+          'piano_stretch_mult',
+          'piano_internal_stretch',
+          'piano_leap_strain',
+          'piano_double_stop',
+          'piano_jackhammer',
+          'piano_finger_flow',
+          'piano_hand_jump',
+          'piano_black_key_awkward',
+          'piano_finger_independence',
+          'piano_hand_collision',
+          'piano_stamina_fatigue',
+          'piano_global_factor'
+        ]
         : [
-            'drum_foot_kick',
-            'drum_stick_jackhammer',
-            'drum_stick_move',
-            'drum_crossed_arms',
-            'drum_polyrhythm',
-            'drum_roll_fatigue',
-            'drum_stamina_fatigue',
-            'drum_global_factor'
-          ];
+          'drum_foot_kick',
+          'drum_stick_jackhammer',
+          'drum_stick_move',
+          'drum_crossed_arms',
+          'drum_polyrhythm',
+          'drum_roll_fatigue',
+          'drum_stamina_fatigue',
+          'drum_global_factor'
+        ];
 
       let bestWeights = { ...weights };
       const startError = calculateTotalError(bestWeights, songsToTune);
@@ -361,7 +378,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
 
         for (const param of paramsToTune) {
           const currentVal = bestWeights[param];
-          
+
           // Test perturb up
           const testUp = { ...bestWeights, [param]: Math.max(0.1, Math.min(4.0, currentVal + stepSize)) };
           const errUp = calculateTotalError(testUp, songsToTune);
@@ -383,7 +400,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
 
         // Decay search step size for progressive convergence
         stepSize *= 0.65;
-        
+
         setProgressLog(prev => [...prev, ` -> Mean Absolute Error reduced to: ${bestError.toFixed(2)}%`]);
         if (!modified && stepSize < 0.01) break;
       }
@@ -391,9 +408,9 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
       setWeights(bestWeights);
       setErrorStats({ startError, endError: bestError });
       setProgressLog(prev => [...prev, `🎉 Calibration finished successfully!`]);
-      
+
       // Calibration finished: keep weights in state for live workbench display
-      setProgressLog(prev => [...prev, `💡 Silakan salin bobot lewat tombol "Copy Weights JSON" untuk diterapkan ke kode.`]);
+      setProgressLog(prev => [...prev, `💡 Use "Copy Weights JSON" to copy the weights into your code.`]);
 
       // Recalculate scores for local display list
       const finalSongs = [...activeSet];
@@ -424,13 +441,13 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
   // Upload/Apply Calibrated Scores directly to Database
   const handleApplyToDatabase = async () => {
     if (!window.confirm("Write these calibrated scores & levels back to the database for this set? This changes scores globally for players!")) return;
-    
+
     setIsLoadingSongs(true);
     let successCount = 0;
     try {
       for (const s of songs) {
         if (!s.included) continue;
-        
+
         const { error } = await supabase
           .from('songs')
           .update({
@@ -438,7 +455,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
             difficulty_level: s.difficulty_level
           })
           .eq('id', s.id);
-        
+
         if (error) {
           console.error(`Failed to update DB for ${s.title}`, error);
         } else {
@@ -465,8 +482,8 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
             Tune physiological parameters to balance Chopin etudes, rapid kick drums, limb coordination, and physical exhaustion scores.
           </p>
         </div>
-        <button 
-          onClick={onBack} 
+        <button
+          onClick={onBack}
           className="mt-4 md:mt-0 bg-slate-800 hover:bg-slate-700 hover:text-white px-5 py-2.5 rounded-lg text-sm font-bold border border-slate-700 transition"
         >
           &larr; Back to Main Menu
@@ -491,7 +508,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
 
       {/* Main Layout Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        
+
         {/* Left Column - Weights sliders */}
         <div className="lg:col-span-5 bg-slate-900 border border-slate-800/80 p-6 rounded-2xl shadow-xl space-y-6">
           <div className="flex justify-between items-center border-b border-slate-800 pb-3">
@@ -499,7 +516,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
               <span>🦾</span> Biomechanical Coefficients
             </h2>
             <div className="flex gap-2">
-              <button 
+              <button
                 onClick={handleResetWeights}
                 className="text-xs font-bold text-slate-400 hover:text-slate-200"
               >
@@ -517,7 +534,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
                     <span>Octave/Chord Stretch Multiplier</span>
                     <span className="text-yellow-400 font-bold font-mono">{weights.piano_stretch_mult.toFixed(2)}x</span>
                   </div>
-                  <input 
+                  <input
                     type="range" min="0.1" max="3.0" step="0.05"
                     value={weights.piano_stretch_mult}
                     onChange={(e) => handleWeightChange('piano_stretch_mult', parseFloat(e.target.value))}
@@ -531,7 +548,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
                     <span>Internal Stretch Gap Tension</span>
                     <span className="text-yellow-400 font-bold font-mono">{weights.piano_internal_stretch.toFixed(2)}x</span>
                   </div>
-                  <input 
+                  <input
                     type="range" min="0.1" max="3.0" step="0.05"
                     value={weights.piano_internal_stretch}
                     onChange={(e) => handleWeightChange('piano_internal_stretch', parseFloat(e.target.value))}
@@ -545,7 +562,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
                     <span>Sequential Leap Strain</span>
                     <span className="text-yellow-400 font-bold font-mono">{weights.piano_leap_strain.toFixed(2)}x</span>
                   </div>
-                  <input 
+                  <input
                     type="range" min="0.1" max="3.0" step="0.05"
                     value={weights.piano_leap_strain}
                     onChange={(e) => handleWeightChange('piano_leap_strain', parseFloat(e.target.value))}
@@ -559,7 +576,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
                     <span>Double Stop / Chopin Chord Buff</span>
                     <span className="text-yellow-400 font-bold font-mono">{weights.piano_double_stop.toFixed(2)}x</span>
                   </div>
-                  <input 
+                  <input
                     type="range" min="0.1" max="3.0" step="0.05"
                     value={weights.piano_double_stop}
                     onChange={(e) => handleWeightChange('piano_double_stop', parseFloat(e.target.value))}
@@ -573,7 +590,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
                     <span>Rapid Jackhammer Re-tap Rate</span>
                     <span className="text-yellow-400 font-bold font-mono">{weights.piano_jackhammer.toFixed(2)}x</span>
                   </div>
-                  <input 
+                  <input
                     type="range" min="0.1" max="3.0" step="0.05"
                     value={weights.piano_jackhammer}
                     onChange={(e) => handleWeightChange('piano_jackhammer', parseFloat(e.target.value))}
@@ -587,7 +604,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
                     <span>Linear Stream Flow Tension</span>
                     <span className="text-yellow-400 font-bold font-mono">{weights.piano_finger_flow.toFixed(2)}x</span>
                   </div>
-                  <input 
+                  <input
                     type="range" min="0.1" max="3.0" step="0.05"
                     value={weights.piano_finger_flow}
                     onChange={(e) => handleWeightChange('piano_finger_flow', parseFloat(e.target.value))}
@@ -601,7 +618,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
                     <span>Hand Center Jumping Leap</span>
                     <span className="text-yellow-400 font-bold font-mono">{weights.piano_hand_jump.toFixed(2)}x</span>
                   </div>
-                  <input 
+                  <input
                     type="range" min="0.1" max="3.0" step="0.05"
                     value={weights.piano_hand_jump}
                     onChange={(e) => handleWeightChange('piano_hand_jump', parseFloat(e.target.value))}
@@ -615,7 +632,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
                     <span>Black Key Awkward Shifts</span>
                     <span className="text-yellow-400 font-bold font-mono">{weights.piano_black_key_awkward.toFixed(2)}x</span>
                   </div>
-                  <input 
+                  <input
                     type="range" min="0.1" max="3.0" step="0.05"
                     value={weights.piano_black_key_awkward}
                     onChange={(e) => handleWeightChange('piano_black_key_awkward', parseFloat(e.target.value))}
@@ -629,7 +646,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
                     <span>Finger Independence Hold</span>
                     <span className="text-yellow-400 font-bold font-mono">{weights.piano_finger_independence.toFixed(2)}x</span>
                   </div>
-                  <input 
+                  <input
                     type="range" min="0.1" max="3.0" step="0.05"
                     value={weights.piano_finger_independence}
                     onChange={(e) => handleWeightChange('piano_finger_independence', parseFloat(e.target.value))}
@@ -643,7 +660,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
                     <span>Hand Collision Overlap</span>
                     <span className="text-yellow-400 font-bold font-mono">{weights.piano_hand_collision.toFixed(2)}x</span>
                   </div>
-                  <input 
+                  <input
                     type="range" min="0.1" max="3.0" step="0.05"
                     value={weights.piano_hand_collision}
                     onChange={(e) => handleWeightChange('piano_hand_collision', parseFloat(e.target.value))}
@@ -657,7 +674,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
                     <span>Stamina Fatigue Decay</span>
                     <span className="text-yellow-400 font-bold font-mono">{weights.piano_stamina_fatigue.toFixed(2)}x</span>
                   </div>
-                  <input 
+                  <input
                     type="range" min="0.1" max="3.0" step="0.05"
                     value={weights.piano_stamina_fatigue}
                     onChange={(e) => handleWeightChange('piano_stamina_fatigue', parseFloat(e.target.value))}
@@ -666,12 +683,68 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
                   <span className="text-[10px] text-slate-500">Progressive muscular fatigue accumulation under high continuous notes.</span>
                 </div>
 
+                <div>
+                  <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1.5">
+                    <span>Extreme Arpeggio Sweep (Waterfall)</span>
+                    <span className="text-yellow-400 font-bold font-mono">{weights.piano_arpeggio_sweep.toFixed(2)}x</span>
+                  </div>
+                  <input
+                    type="range" min="0.1" max="5.0" step="0.05"
+                    value={weights.piano_arpeggio_sweep}
+                    onChange={(e) => handleWeightChange('piano_arpeggio_sweep', parseFloat(e.target.value))}
+                    className="w-full accent-yellow-500"
+                  />
+                  <span className="text-[10px] text-slate-500">Multi-octave rapid right-hand arpeggio runs (Chopin Op. 10 No. 1).</span>
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1.5">
+                    <span>Detached Staccato Octaves (Butterfly)</span>
+                    <span className="text-yellow-400 font-bold font-mono">{weights.piano_octave_staccato.toFixed(2)}x</span>
+                  </div>
+                  <input
+                    type="range" min="0.1" max="5.0" step="0.05"
+                    value={weights.piano_octave_staccato}
+                    onChange={(e) => handleWeightChange('piano_octave_staccato', parseFloat(e.target.value))}
+                    className="w-full accent-yellow-500"
+                  />
+                  <span className="text-[10px] text-slate-500">Rapid right-hand detached staccato octave bouncing (Chopin Op. 25 No. 9).</span>
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1.5">
+                    <span>Parallel Octave Unison Discount</span>
+                    <span className="text-yellow-400 font-bold font-mono">{weights.piano_unison_discount.toFixed(2)}x</span>
+                  </div>
+                  <input
+                    type="range" min="0.1" max="1.0" step="0.01"
+                    value={weights.piano_unison_discount}
+                    onChange={(e) => handleWeightChange('piano_unison_discount', parseFloat(e.target.value))}
+                    className="w-full accent-yellow-500"
+                  />
+                  <span className="text-[10px] text-slate-500">Coordination discount for 2-hand parallel octave unison drills.</span>
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1.5">
+                    <span>Static Chord Voicing Buff</span>
+                    <span className="text-yellow-400 font-bold font-mono">{weights.piano_chord_buff.toFixed(2)}</span>
+                  </div>
+                  <input
+                    type="range" min="0.0" max="1.0" step="0.02"
+                    value={weights.piano_chord_buff}
+                    onChange={(e) => handleWeightChange('piano_chord_buff', parseFloat(e.target.value))}
+                    className="w-full accent-yellow-500"
+                  />
+                  <span className="text-[10px] text-slate-500">Tension buff for sustained static chord positions in practice mode.</span>
+                </div>
+
                 <div className="pt-2 border-t border-slate-800">
                   <div className="flex justify-between text-xs font-bold text-slate-200 mb-1.5">
                     <span>Global Scaling Factor (Piano)</span>
                     <span className="text-yellow-400 font-bold font-mono">{weights.piano_global_factor.toFixed(2)}</span>
                   </div>
-                  <input 
+                  <input
                     type="range" min="0.2" max="5.0" step="0.05"
                     value={weights.piano_global_factor}
                     onChange={(e) => handleWeightChange('piano_global_factor', parseFloat(e.target.value))}
@@ -688,7 +761,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
                     <span>Foot Pedal Kick Effort</span>
                     <span className="text-yellow-400 font-bold font-mono">{weights.drum_foot_kick.toFixed(2)}x</span>
                   </div>
-                  <input 
+                  <input
                     type="range" min="0.1" max="3.0" step="0.05"
                     value={weights.drum_foot_kick}
                     onChange={(e) => handleWeightChange('drum_foot_kick', parseFloat(e.target.value))}
@@ -702,7 +775,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
                     <span>Stick Pad Jackhammer Speed</span>
                     <span className="text-yellow-400 font-bold font-mono">{weights.drum_stick_jackhammer.toFixed(2)}x</span>
                   </div>
-                  <input 
+                  <input
                     type="range" min="0.1" max="3.0" step="0.05"
                     value={weights.drum_stick_jackhammer}
                     onChange={(e) => handleWeightChange('drum_stick_jackhammer', parseFloat(e.target.value))}
@@ -716,7 +789,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
                     <span>Stick Lateral Movement Leap</span>
                     <span className="text-yellow-400 font-bold font-mono">{weights.drum_stick_move.toFixed(2)}x</span>
                   </div>
-                  <input 
+                  <input
                     type="range" min="0.1" max="3.0" step="0.05"
                     value={weights.drum_stick_move}
                     onChange={(e) => handleWeightChange('drum_stick_move', parseFloat(e.target.value))}
@@ -730,7 +803,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
                     <span>Crossed-Arm Coordination</span>
                     <span className="text-yellow-400 font-bold font-mono">{weights.drum_crossed_arms.toFixed(2)}x</span>
                   </div>
-                  <input 
+                  <input
                     type="range" min="0.1" max="3.0" step="0.05"
                     value={weights.drum_crossed_arms}
                     onChange={(e) => handleWeightChange('drum_crossed_arms', parseFloat(e.target.value))}
@@ -744,7 +817,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
                     <span>Limb Polyrhythm Independence</span>
                     <span className="text-yellow-400 font-bold font-mono">{weights.drum_polyrhythm.toFixed(2)}x</span>
                   </div>
-                  <input 
+                  <input
                     type="range" min="0.1" max="3.0" step="0.05"
                     value={weights.drum_polyrhythm}
                     onChange={(e) => handleWeightChange('drum_polyrhythm', parseFloat(e.target.value))}
@@ -758,7 +831,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
                     <span>Roll Speed Fatigue</span>
                     <span className="text-yellow-400 font-bold font-mono">{weights.drum_roll_fatigue.toFixed(2)}x</span>
                   </div>
-                  <input 
+                  <input
                     type="range" min="0.1" max="3.0" step="0.05"
                     value={weights.drum_roll_fatigue}
                     onChange={(e) => handleWeightChange('drum_roll_fatigue', parseFloat(e.target.value))}
@@ -772,7 +845,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
                     <span>Limb Stamina Fatigue</span>
                     <span className="text-yellow-400 font-bold font-mono">{weights.drum_stamina_fatigue.toFixed(2)}x</span>
                   </div>
-                  <input 
+                  <input
                     type="range" min="0.1" max="3.0" step="0.05"
                     value={weights.drum_stamina_fatigue}
                     onChange={(e) => handleWeightChange('drum_stamina_fatigue', parseFloat(e.target.value))}
@@ -786,7 +859,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
                     <span>Global Scaling Factor (Drum)</span>
                     <span className="text-yellow-400 font-bold font-mono">{weights.drum_global_factor.toFixed(2)}</span>
                   </div>
-                  <input 
+                  <input
                     type="range" min="0.2" max="5.0" step="0.05"
                     value={weights.drum_global_factor}
                     onChange={(e) => handleWeightChange('drum_global_factor', parseFloat(e.target.value))}
@@ -817,7 +890,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
 
         {/* Right Column - Song Calibration Matrix & Optimizer */}
         <div className="lg:col-span-7 space-y-6">
-          
+
           {/* Automatic Calibration Engine console */}
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl">
             <div className="flex justify-between items-center mb-4">
@@ -878,7 +951,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
               <p className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
                 <span>📋</span> Clipboard & Sync Tools
               </p>
-              
+
               <div className="grid grid-cols-2 gap-3">
                 <button
                   onClick={() => {
@@ -1029,13 +1102,13 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
                   </thead>
                   <tbody>
                     {displayedSongs.map((song) => (
-                      <tr 
-                        key={song.id} 
+                      <tr
+                        key={song.id}
                         className={`border-b border-slate-800/40 hover:bg-slate-800/20 transition-colors ${song.included ? 'opacity-100' : 'opacity-40'}`}
                       >
                         <td className="py-3 px-2 text-center">
-                          <input 
-                            type="checkbox" 
+                          <input
+                            type="checkbox"
                             checked={song.included}
                             onChange={(e) => {
                               const checked = e.target.checked;
@@ -1082,7 +1155,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
                           )}
                         </td>
                         <td className="py-3 px-2 text-center">
-                          <input 
+                          <input
                             type="number"
                             min="10"
                             max="5000"

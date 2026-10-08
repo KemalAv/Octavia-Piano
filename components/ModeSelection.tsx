@@ -107,23 +107,23 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
     const modeButtonBase = "p-4 rounded-lg border-2 transition-all cursor-pointer h-full flex flex-col";
     const modeButtonUnselected = "bg-slate-700/50 border-slate-600 hover:bg-slate-700 hover:border-slate-500";
 
+    const RANKED_TEMPOS = [0.75, 1, 1.25, 1.5];
     const minTempoPercentage = selectedMode === 'retical' ? 75 : 10;
     const maxTempoPercentage = selectedMode === 'retical' ? 150 : 400;
 
     useEffect(() => {
         if (selectedMode === 'retical') {
             const currentMultiplier = initialPlaybackTempoMultiplier;
-            const minAllowed = minTempoPercentage / 100;
-            const maxAllowed = maxTempoPercentage / 100;
-
-            if (currentMultiplier < minAllowed || currentMultiplier > maxAllowed) {
-                const newMultiplier = Math.max(minAllowed, Math.min(maxAllowed, currentMultiplier));
-                if (newMultiplier !== currentMultiplier) {
-                    onPlaybackTempoMultiplierChange(newMultiplier);
-                }
+            const isRankedValid = RANKED_TEMPOS.some(t => Math.abs(t - currentMultiplier) < 0.001);
+            if (!isRankedValid) {
+                // Snap to nearest allowed ranked preset
+                const closest = RANKED_TEMPOS.reduce((prev, curr) =>
+                    Math.abs(curr - currentMultiplier) < Math.abs(prev - currentMultiplier) ? curr : prev
+                , 1);
+                onPlaybackTempoMultiplierChange(closest);
             }
         }
-    }, [selectedMode, initialPlaybackTempoMultiplier, onPlaybackTempoMultiplierChange, minTempoPercentage, maxTempoPercentage]);
+    }, [selectedMode, initialPlaybackTempoMultiplier, onPlaybackTempoMultiplierChange]);
 
     const handleModeSelect = (mode: Mode) => {
         if (mode === 'retical' && isAudioInputEnabled) return;
@@ -511,8 +511,8 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
                             )}
                             <label className="flex items-center justify-between cursor-pointer">
                                 <div>
-                                    <span className="text-lg font-medium text-slate-300">Aktifkan Darah (HP Bar)</span>
-                                    <p className="text-xs text-slate-400 font-normal mt-1">Jika dinonaktifkan (No-Fail), HP Anda tidak akan berkurang dan Anda tidak bisa gagal.</p>
+                                    <span className="text-lg font-medium text-slate-300">Enable Health Bar (HP)</span>
+                                    <p className="text-xs text-slate-400 font-normal mt-1">When disabled (No-Fail), your HP stays full and the song continues even if you miss notes.</p>
                                 </div>
                                 <div className="relative inline-flex items-center">
                                     <input type="checkbox" checked={isHpEnabled} onChange={e => setIsHpEnabled(e.target.checked)} className="sr-only peer" />
@@ -527,54 +527,79 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
                             Tempo: <span className="font-bold text-white">{displayedPlaybackPercentage}%</span>
                             {initialTempoBpm && <span className="text-slate-400"> ({displayedBpm} BPM)</span>}
                         </label>
-                        <div className="flex flex-wrap justify-center gap-2 mb-4">
-                            {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 2].map(rate => {
-                                const isAllowed = rate * 100 >= minTempoPercentage && rate * 100 <= maxTempoPercentage;
-                                return (
-                                    <button
-                                        key={rate}
-                                        onClick={() => isAllowed && onPlaybackTempoMultiplierChange(rate)}
-                                        disabled={!isAllowed}
-                                        className={`px-3 py-1 rounded text-sm font-bold transition-colors ${initialPlaybackTempoMultiplier === rate ? 'bg-cyan-600 text-white shadow-md' : isAllowed ? 'bg-slate-700 text-slate-300 hover:bg-slate-600' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}
-                                    >
-                                        {rate}x
-                                    </button>
-                                );
-                            })}
-                        </div>
-                        <input
-                            type="range"
-                            min={minTempoPercentage}
-                            max={maxTempoPercentage}
-                            step="1"
-                            value={displayedPlaybackPercentage}
-                            onChange={(e) => onPlaybackTempoMultiplierChange(parseInt(e.target.value, 10) / 100)}
-                            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer mb-2"
-                        />
-                        {/* Advanced Tempo Input */}
-                        <div className="flex justify-center items-center gap-2 mt-4">
-                            <span className="text-xs text-slate-400 uppercase font-bold">Advanced:</span>
-                            <div className="flex items-center">
-                                <input
-                                    type="number"
-                                    min={0.1}
-                                    max={4}
-                                    step="0.01"
-                                    value={initialPlaybackTempoMultiplier}
-                                    onChange={(e) => {
-                                        const val = parseFloat(e.target.value);
-                                        if (!isNaN(val)) {
-                                            const clamped = Math.max(0.1, Math.min(4, val));
-                                            onPlaybackTempoMultiplierChange(clamped);
-                                        }
-                                    }}
-                                    className="bg-slate-800 border border-slate-600 text-white text-sm rounded px-2 py-1 w-20 text-center focus:border-cyan-500 focus:outline-none"
-                                />
-                                <span className="ml-2 text-xs text-slate-500">
-                                    (Range: 0.1 - 4)
-                                </span>
+                        {selectedMode === 'retical' ? (
+                            <div className="space-y-3">
+                                <div className="flex flex-wrap justify-center gap-2.5 my-2">
+                                    {RANKED_TEMPOS.map(rate => (
+                                        <button
+                                            key={rate}
+                                            onClick={() => onPlaybackTempoMultiplierChange(rate)}
+                                            className={`px-4 py-2 rounded-lg text-sm font-bold transition-all transform active:scale-95 ${
+                                                Math.abs(initialPlaybackTempoMultiplier - rate) < 0.001
+                                                    ? 'bg-amber-500 text-slate-900 shadow-lg shadow-amber-500/20 font-extrabold ring-2 ring-amber-300'
+                                                    : 'bg-slate-700/80 text-slate-200 hover:bg-slate-600 hover:text-white'
+                                            }`}
+                                        >
+                                            {rate}x
+                                        </button>
+                                    ))}
+                                </div>
+                                <p className="text-xs text-center text-amber-400/90 font-medium">
+                                    Mode Ranked hanya mengizinkan 4 pilihan tempo: 0.75x, 1x, 1.25x, dan 1.5x.
+                                </p>
                             </div>
-                        </div>
+                        ) : (
+                            <>
+                                <div className="flex flex-wrap justify-center gap-2 mb-4">
+                                    {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 2].map(rate => {
+                                        const isAllowed = rate * 100 >= minTempoPercentage && rate * 100 <= maxTempoPercentage;
+                                        return (
+                                            <button
+                                                key={rate}
+                                                onClick={() => isAllowed && onPlaybackTempoMultiplierChange(rate)}
+                                                disabled={!isAllowed}
+                                                className={`px-3 py-1 rounded text-sm font-bold transition-colors ${initialPlaybackTempoMultiplier === rate ? 'bg-cyan-600 text-white shadow-md' : isAllowed ? 'bg-slate-700 text-slate-300 hover:bg-slate-600' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}
+                                            >
+                                                {rate}x
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                                <input
+                                    type="range"
+                                    min={minTempoPercentage}
+                                    max={maxTempoPercentage}
+                                    step="1"
+                                    value={displayedPlaybackPercentage}
+                                    onChange={(e) => onPlaybackTempoMultiplierChange(parseInt(e.target.value, 10) / 100)}
+                                    className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer mb-2"
+                                />
+                                {/* Advanced Tempo Input */}
+                                <div className="flex justify-center items-center gap-2 mt-4">
+                                    <span className="text-xs text-slate-400 uppercase font-bold">Advanced:</span>
+                                    <div className="flex items-center">
+                                        <input
+                                            type="number"
+                                            min={0.1}
+                                            max={4}
+                                            step="0.01"
+                                            value={initialPlaybackTempoMultiplier}
+                                            onChange={(e) => {
+                                                const val = parseFloat(e.target.value);
+                                                if (!isNaN(val)) {
+                                                    const clamped = Math.max(0.1, Math.min(4, val));
+                                                    onPlaybackTempoMultiplierChange(clamped);
+                                                }
+                                            }}
+                                            className="bg-slate-800 border border-slate-600 text-white text-sm rounded px-2 py-1 w-20 text-center focus:border-cyan-500 focus:outline-none"
+                                        />
+                                        <span className="ml-2 text-xs text-slate-500">
+                                            (Range: 0.1 - 4)
+                                        </span>
+                                    </div>
+                                </div>
+                            </>
+                        )}
                     </div>
 
                     <div className="grid grid-cols-5 gap-4">

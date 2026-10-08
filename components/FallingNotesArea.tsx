@@ -22,6 +22,8 @@ interface FallingNotesAreaProps {
   backgroundColor: string;
   activeKeySignature: string;
   activeTempoBpm: number;
+  majorNoteVisualDurationMs?: number;
+  visualDurationByNoteId?: ReadonlyMap<string, number>;
   showOnlyMajorNotes: boolean;
   instrumentMode?: 'piano' | 'drum';
   showPianoTilesBackground: boolean;
@@ -76,6 +78,8 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
   backgroundColor,
   activeKeySignature,
   activeTempoBpm,
+  majorNoteVisualDurationMs,
+  visualDurationByNoteId,
   showOnlyMajorNotes,
   instrumentMode = 'piano',
   showPianoTilesBackground,
@@ -117,8 +121,10 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
   const isDrum = instrumentMode === 'drum';
   const effectiveShowOnlyMajorNotes = isDrum ? true : showOnlyMajorNotes;
   const bpm = activeTempoBpm || 120;
-  const thirtySecondNoteMs = (60000 / bpm) / 8;
-  const noteCap = isDrum ? thirtySecondNoteMs : VISUAL_NOTE_CAP_MS;
+  const eighthNoteMs = (60000 / bpm) / 2;
+  const noteCap = effectiveShowOnlyMajorNotes
+    ? (majorNoteVisualDurationMs ?? eighthNoteMs)
+    : VISUAL_NOTE_CAP_MS;
 
   // Background Caching Effect
   useEffect(() => {
@@ -357,7 +363,9 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
       for (let i = startIdx; i < notes.length; i++) {
         const note = notes[i];
         const timeDelta = note.timeMs - currentTimeMs;
-        const durationForHeight = effectiveShowOnlyMajorNotes ? Math.min(note.durationMs, noteCap) : note.durationMs;
+        const durationForHeight = effectiveShowOnlyMajorNotes
+          ? (visualDurationByNoteId?.get(note.noteId) ?? Math.min(note.durationMs, noteCap))
+          : note.durationMs;
         const noteHeightPx = Math.max(3, durationForHeight * pixelsPerMillisecond);
 
         // High-speed element culling (Mandate B)

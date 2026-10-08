@@ -364,7 +364,7 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong, ins
                                                     {entry.avatar_url ? <img src={entry.avatar_url} alt={entry.username} className="w-12 h-12 rounded-full object-cover" /> : <PlaceholderAvatar />}
                                                     <span className="font-semibold text-white truncate">{entry.username}</span>
                                                 </td>
-                                                <td className="p-3 font-mono text-cyan-300 text-right">{Math.round(entry.total_score).toLocaleString()}</td>
+                                                <td className="p-3 font-mono text-cyan-300 text-right">{Math.round(entry.total_score).toLocaleString('en-US')}</td>
                                             </tr>
                                         ))}
                                     </tbody>

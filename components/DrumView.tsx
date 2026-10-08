@@ -84,10 +84,10 @@ export const DrumView: React.FC<DrumViewProps> = React.memo(({
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
 
-    const approachDurationMsRef = useRef(1000);
+    const approachDurationMsRef = useRef(1000 / (noteSpeedMultiplier * 1.8));
 
     useEffect(() => {
-        approachDurationMsRef.current = 1000 / noteSpeedMultiplier;
+        approachDurationMsRef.current = 1000 / (noteSpeedMultiplier * 1.8);
     }, [noteSpeedMultiplier]);
 
     const currentTimeMsRef = useRef(currentTimeMs);

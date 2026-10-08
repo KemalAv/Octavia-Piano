@@ -467,7 +467,7 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
                   <div className="flex flex-col items-center justify-center w-12">
                       <span className="text-[9px] font-bold uppercase text-slate-400 leading-tight">ZOOM</span>
                       <span className="text-xs font-bold tabular-nums text-slate-200 leading-tight">
-                          {instrumentMode === 'drum' ? noteSpeedMultiplier.toFixed(1) : `${Math.round(noteSpeedMultiplier * 100)}%`}
+                          {`${Math.round(noteSpeedMultiplier * 100)}%`}
                       </span>
                   </div>
                   <button onClick={() => adjustZoom(true, true)} className={`${iconButtonStyles} w-7 h-7 bg-transparent hover:bg-slate-700 text-slate-400 hover:text-white`}>+</button>
@@ -492,7 +492,7 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
             <div className="flex flex-col items-center justify-center w-12">
                 <span className="text-[9px] font-bold uppercase text-slate-400 leading-tight">ZOOM</span>
                 <span className="text-xs font-bold tabular-nums text-slate-200 leading-tight">
-                    {isSpeedControl ? (instrumentMode === 'drum' ? value.toFixed(1) : `${Math.round(value * 100)}%`) : `${Math.round(value * 100)}%`}
+                    {`${Math.round(value * 100)}%`}
                 </span>
             </div>
             <button onClick={() => adjustZoom(isSpeedControl, true)} disabled={!isFileLoaded} className={`${iconButtonStyles} w-7 h-7 bg-transparent hover:bg-slate-700 text-slate-400 hover:text-white disabled:opacity-30`} aria-label="Increase zoom">+</button>

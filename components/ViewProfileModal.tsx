@@ -152,7 +152,7 @@ const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onC
   const formatScoreDate = (dateString: string) => {
     if (!dateString) return 'N/A';
     try {
-        return new Date(dateString).toLocaleDateString(undefined, {
+        return new Date(dateString).toLocaleDateString('en-US', {
             month: 'short',
             day: 'numeric',
         });
@@ -164,7 +164,7 @@ const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onC
   const formatDate = (dateString: string | null) => {
     if (!dateString) return 'N/A';
     try {
-        return new Date(dateString).toLocaleDateString(undefined, {
+        return new Date(dateString).toLocaleDateString('en-US', {
             year: 'numeric',
             month: 'long',
             day: 'numeric',
@@ -251,7 +251,7 @@ const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onC
                         </div>
                         <div>
                             <span className="text-sm">Total Notes Hit</span>
-                            <p className="text-2xl font-bold text-white">{(profile?.total_notes_hit || 0).toLocaleString()}</p>
+                            <p className="text-2xl font-bold text-white">{(profile?.total_notes_hit || 0).toLocaleString('en-US')}</p>
                         </div>
                     </div>
                 )}
@@ -265,11 +265,11 @@ const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onC
                         <div className="flex items-baseline gap-4 mt-1">
                             <div>
                                 <span className="text-[10px] uppercase tracking-wider text-slate-500">Global Rank</span>
-                                <p className="text-lg font-bold text-white">#{profileRank ? profileRank.toLocaleString() : 'N/A'}</p>
+                                <p className="text-lg font-bold text-white">#{profileRank ? profileRank.toLocaleString('en-US') : 'N/A'}</p>
                             </div>
                             <div>
                                 <span className="text-[10px] uppercase tracking-wider text-slate-500">Total Score</span>
-                                <p className="text-lg font-bold text-white">{profileTotalScore !== null ? Math.round(profileTotalScore).toLocaleString() : '...'}</p>
+                                <p className="text-lg font-bold text-white">{profileTotalScore !== null ? Math.round(profileTotalScore).toLocaleString('en-US') : '...'}</p>
                             </div>
                         </div>
                     </div>
@@ -326,7 +326,7 @@ const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onC
                                             tabIndex={0}
                                             role="button"
                                         >
-                                            {Math.round(score.final_score).toLocaleString()}
+                                            {Math.round(score.final_score).toLocaleString('en-US')}
                                         </td>
                                         <td 
                                             className="p-2 font-bold text-lg text-center cursor-pointer hover:underline"

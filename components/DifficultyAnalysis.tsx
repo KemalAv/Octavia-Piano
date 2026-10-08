@@ -94,7 +94,7 @@ const DifficultyAnalysis: React.FC<DifficultyAnalysisProps> = ({ analysisResult,
             {difficultyLabel} {difficultyLevel.toFixed(1)}
             </div>
             <div className="text-sm font-semibold text-sky-300 tabular-nums">
-            PS: {performanceScore.toLocaleString()}
+            PS: {performanceScore.toLocaleString('en-US')}
             </div>
         </div>
         {isInteractive && (

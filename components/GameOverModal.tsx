@@ -74,7 +74,7 @@ const GameOverModal: React.FC<GameOverModalProps> = ({
         </h2>
 
         <p className="text-base text-slate-300 mb-4">
-          Darah Anda habis (HP 0). Performa Anda tidak mencukupi untuk melanjutkan lagu saat ini.
+          Your health has reached zero (0 HP). Retry the song to continue practicing.
         </p>
 
         {reason && (
@@ -90,10 +90,10 @@ const GameOverModal: React.FC<GameOverModalProps> = ({
             <Repeat className="w-5 h-5 text-cyan-400 mt-0.5 shrink-0 animate-spin" style={{ animationDuration: "4s" }} />
             <div>
               <div className="text-xs font-bold uppercase tracking-wider text-cyan-300">
-                Mode Loop Aktif
+                Loop Mode Active
               </div>
               <p className="text-xs text-slate-300 mt-0.5">
-                Pengulangan akan otomatis kembali ke <strong>Titik A ({formatTime(loopStartMs)})</strong> dengan darah (HP) penuh.
+                Playback will automatically return to <strong>Point A ({formatTime(loopStartMs)})</strong> with full health (HP).
               </p>
             </div>
           </div>
@@ -104,10 +104,10 @@ const GameOverModal: React.FC<GameOverModalProps> = ({
             <button
               onClick={onRetry}
               className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-400 hover:to-teal-400 text-slate-950 font-black py-3.5 px-6 rounded-xl text-lg transition-all duration-150 ease-in-out transform hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-cyan-500/20"
-              aria-label={isLoopActive ? "Ulangi dari Titik A" : "Coba Lagi"}
+              aria-label={isLoopActive ? "Retry from Point A" : "Try Again"}
             >
               <RotateCcw className="w-5 h-5" />
-              <span>{isLoopActive ? "Ulangi dari Titik A" : "Coba Lagi"}</span>
+              <span>{isLoopActive ? "Retry from Point A" : "Try Again"}</span>
             </button>
           )}
 
@@ -118,10 +118,10 @@ const GameOverModal: React.FC<GameOverModalProps> = ({
                 ? "bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700"
                 : "bg-cyan-500 hover:bg-cyan-600 text-white text-lg font-bold"
             }`}
-            aria-label="Tutup dan kembali"
+            aria-label="Close and return"
           >
             <X className="w-4 h-4" />
-            <span>{isLoopActive ? "Tutup (Tetap di Titik A)" : "Tutup"}</span>
+            <span>{isLoopActive ? "Close (Stay at Point A)" : "Close"}</span>
           </button>
         </div>
       </div>

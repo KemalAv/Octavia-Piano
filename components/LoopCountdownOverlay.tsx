@@ -115,14 +115,14 @@ export const LoopCountdownOverlay: React.FC<LoopCountdownOverlayProps> = ({
           <div className="flex items-center gap-2 mb-0.5">
             <Repeat className="w-4 h-4 text-cyan-400 animate-spin" style={{ animationDuration: "3s" }} />
             <span className="text-xs font-black uppercase tracking-wider text-cyan-400">
-              Ulangi Loop
+              Repeat Loop
             </span>
             <span className="px-1.5 py-0.5 text-[10px] font-bold bg-cyan-500/20 text-cyan-300 rounded border border-cyan-500/30">
-              Titik A: {formatDisplayTime(loopDelayInfo.targetTimeMs)}
+              Point A: {formatDisplayTime(loopDelayInfo.targetTimeMs)}
             </span>
           </div>
           <p className="text-xs text-slate-300 font-medium">
-            {isEnding ? "Mulai bermain sekarang!" : "Bersiap untuk memainkan not..."}
+            {isEnding ? "Start playing now!" : "Get ready to play..."}
           </p>
           <div className="w-full bg-slate-800 h-1.5 rounded-full mt-1.5 overflow-hidden border border-slate-700/50">
             <div

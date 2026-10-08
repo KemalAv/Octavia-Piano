@@ -504,7 +504,7 @@ function computeMinWidthFromNotes(
 ): number {
     const noteZoom = getNoteZoom(zoom, isRollView);
     const layoutZoom = getLayoutZoom(zoom, isRollView);
-    if (fragmentsInMeasure.length === 0) return 150 * layoutZoom * UNIVERSAL_SCALE;
+    if (fragmentsInMeasure.length === 0) return 140 * layoutZoom * UNIVERSAL_SCALE;
 
     let total = 0;
     const timestamps = [...new Set(fragmentsInMeasure.map(f => f.timeMs))].sort((a,b)=>a-b);
@@ -518,17 +518,17 @@ function computeMinWidthFromNotes(
         const localMsPerQuarterNote = 60000 / bpm;
         const distanceQN = distanceMs > 0 ? distanceMs / localMsPerQuarterNote : 0;
 
-        let baseWidth = 60;
-        if (distanceQN >= 1) baseWidth = 70;          
-        else if (distanceQN >= 0.5) baseWidth = 85;   
-        else if (distanceQN >= 0.25) baseWidth = 100;  
-        else baseWidth = 115;                        
+        let baseWidth = 55;
+        if (distanceQN >= 1) baseWidth = 65;          
+        else if (distanceQN >= 0.5) baseWidth = 80;   
+        else if (distanceQN >= 0.25) baseWidth = 95;  
+        else baseWidth = 110;                        
         
         baseWidth += (group.length - 1) * 12;
         if (group.some(n => n.pitchClass.includes("#") || n.pitchClass.includes("b"))) baseWidth += 16;
         total += baseWidth * UNIVERSAL_SCALE * noteZoom;
     }
-    return Math.max(150 * layoutZoom * UNIVERSAL_SCALE, total);
+    return Math.max(140 * layoutZoom * UNIVERSAL_SCALE, total);
 }
 
 export const getVexFlowRenderData = (

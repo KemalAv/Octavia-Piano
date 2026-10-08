@@ -13,6 +13,10 @@ interface SongSelectionProps {
   loadedSongName: string | null;
   analysisResult: ExtendedResult | null;
   isLoading: boolean;
+  loadingMessage?: string;
+  fingeringError?: string;
+  fingeringWarnings?: string[];
+  onCancelLoading?: () => void;
   selectedOnlineSongIdForNavigation: string | null;
   onGoToOnlineSong: (songId: string) => void;
   onStartFreePlay: () => void;
@@ -28,6 +32,10 @@ const SongSelection: React.FC<SongSelectionProps> = memo(({
   loadedSongName,
   analysisResult,
   isLoading,
+  loadingMessage,
+  fingeringError,
+  fingeringWarnings,
+  onCancelLoading,
   selectedOnlineSongIdForNavigation,
   onGoToOnlineSong,
   onStartFreePlay,
@@ -55,6 +63,7 @@ const SongSelection: React.FC<SongSelectionProps> = memo(({
   const [localImportMidiOffset, setLocalImportMidiOffset] = useState('');
   const [localImportBackgroundUrl, setLocalImportBackgroundUrl] = useState('');
   const [localImportAccuracyLevel, setLocalImportAccuracyLevel] = useState<number>(5);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => setIsRendered(true), 10);
@@ -89,7 +98,8 @@ const SongSelection: React.FC<SongSelectionProps> = memo(({
         if (downloadError) throw downloadError;
         if (!fileData) throw new Error("No file data received for online song.");
 
-        const file = new File([fileData], songMetadata.title + '.mid', { type: fileData?.type || 'audio/midi' });
+        const onlineExt = songMetadata.file_path.split('.').pop() || 'mid';
+        const file = new File([fileData], `${songMetadata.title}.${onlineExt}`, { type: fileData?.type || (onlineExt === 'mid' ? 'audio/midi' : 'application/octet-stream') });
         await onFileLoaded(file, songMetadata.id, songMetadata.is_ranked, songMetadata.midi_link, songMetadata.midi_offset, songMetadata.background_url); 
         setActiveTab('online'); 
       } catch (err: unknown) {
@@ -107,30 +117,34 @@ const SongSelection: React.FC<SongSelectionProps> = memo(({
   }, [selectedOnlineSongIdForNavigation, isLoading, isOnlineLoading, loadedSongName, onFileLoaded]);
 
 
+  const processSelectedFile = (file: File) => {
+    const fileName = file.name.toLowerCase();
+    const isMidi = fileName.endsWith('.mid') || fileName.endsWith('.midi');
+
+    if (isMidi) {
+      setLocalImportFile(file);
+      
+      // Pre-fill title from filename
+      const nameWithoutExt = file.name.replace(/\.[^/.]+$/, "");
+      setLocalImportTitle(nameWithoutExt.substring(0, 50));
+      setLocalImportArtist('');
+      setLocalImportArranger('');
+      setLocalImportDescription('');
+      setLocalImportMidiLink('');
+      setLocalImportMidiOffset('');
+      setLocalImportBackgroundUrl('');
+      setLocalImportAccuracyLevel(5);
+      
+      setIsLocalImportModalOpen(true);
+    } else {
+      alert('File not supported. Please upload a MIDI file (.mid, .midi).');
+    }
+  };
+
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      const fileName = file.name.toLowerCase();
-      const isMidi = fileName.endsWith('.mid') || fileName.endsWith('.midi');
-
-      if (isMidi) {
-        setLocalImportFile(file);
-        
-        // Pre-fill title from filename
-        const nameWithoutExt = file.name.replace(/\.[^/.]+$/, "");
-        setLocalImportTitle(nameWithoutExt.substring(0, 50));
-        setLocalImportArtist('');
-        setLocalImportArranger('');
-        setLocalImportDescription('');
-        setLocalImportMidiLink('');
-        setLocalImportMidiOffset('');
-        setLocalImportBackgroundUrl('');
-        setLocalImportAccuracyLevel(5);
-        
-        setIsLocalImportModalOpen(true);
-      } else {
-        alert('File not supported. Please upload a MIDI file (.mid or .midi).');
-      }
+      processSelectedFile(file);
     }
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -143,7 +157,8 @@ const SongSelection: React.FC<SongSelectionProps> = memo(({
 
     let finalFile = localImportFile;
     if (localImportTitle || localImportArtist) {
-      const newName = `${localImportTitle || 'Unknown'}${localImportArtist ? ` - ${localImportArtist}` : ''}.mid`;
+      const ext = localImportFile.name.split('.').pop() || 'mid';
+      const newName = `${localImportTitle || 'Unknown'}${localImportArtist ? ` - ${localImportArtist}` : ''}.${ext}`;
       finalFile = new File([localImportFile], newName, { type: localImportFile.type });
     }
 
@@ -216,6 +231,7 @@ const SongSelection: React.FC<SongSelectionProps> = memo(({
                 {activeTab === 'online' ? 'Select a Track' : activeTab === 'practice' ? 'Technical Drills' : 'Upload Your File'}
             </h2>
 
+            {fingeringError && <div role="alert" className="mb-4 rounded-xl border border-red-500/30 bg-red-950/30 p-4 text-red-200">{fingeringError}</div>}
             <div className="bg-slate-800/40 p-6 rounded-xl mb-8 min-h-[120px] flex flex-col items-center justify-center border border-white/5 shadow-inner flex-shrink-0 relative overflow-hidden group">
                 <div className="absolute top-0 left-0 w-full h-1 bg-cyan-500 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
                 
@@ -227,7 +243,8 @@ const SongSelection: React.FC<SongSelectionProps> = memo(({
                                 <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse"></div>
                             </div>
                         </div>
-                        <span className="text-cyan-300 font-medium text-lg animate-pulse">{isOnlineLoading ? 'Fetching Track Data...' : 'Preparing Audio Engine...'}</span>
+                        <span className="text-cyan-300 font-medium text-lg animate-pulse">{loadingMessage || (isOnlineLoading ? 'Fetching Track Data...' : 'Preparing Audio Engine...')}</span>
+                        {onCancelLoading && <button type="button" onClick={onCancelLoading} className="text-slate-300 underline">Cancel</button>}
                     </div>
                 ) : loadedSongName ? (
                     <div className="text-center w-full">
@@ -333,7 +350,23 @@ const SongSelection: React.FC<SongSelectionProps> = memo(({
                         </div>
                     </div>
                 ) : (
-                    <div className="flex flex-col items-center justify-center h-full gap-6 p-8 border-2 border-dashed border-slate-700 rounded-xl bg-slate-900/20">
+                    <div 
+                        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingOver(true); }}
+                        onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingOver(true); }}
+                        onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingOver(false); }}
+                        onDrop={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setIsDraggingOver(false);
+                            const file = e.dataTransfer.files?.[0];
+                            if (file) processSelectedFile(file);
+                        }}
+                        className={`flex flex-col items-center justify-center h-full gap-6 p-8 border-2 border-dashed rounded-xl transition-all ${
+                            isDraggingOver 
+                                ? 'border-cyan-400 bg-cyan-950/30 scale-[1.01]' 
+                                : 'border-slate-700 bg-slate-900/20'
+                        }`}
+                    >
                         <input
                             type="file"
                             accept=".mid,.midi,audio/mid,audio/midi,audio/x-midi,application/x-midi"
@@ -372,8 +405,8 @@ const SongSelection: React.FC<SongSelectionProps> = memo(({
                             </button>
                         </div>
 
-                        <p className="text-xs text-slate-600 mt-4 max-w-xs text-center">
-                            Only MIDI files (.mid) are supported. <br/>For best results, use MIDI files (.mid) that have been converted from MusicXML files.
+                        <p className="text-xs text-slate-400 mt-4 max-w-sm text-center">
+                            Supports MIDI (.mid, .midi).
                         </p>
                     </div>
                 )}
@@ -386,7 +419,7 @@ const SongSelection: React.FC<SongSelectionProps> = memo(({
         <div className="fixed inset-0 bg-slate-950/80 flex items-center justify-center z-50 p-4">
           <div className="bg-slate-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-700">
             <div className="p-6 border-b border-slate-700 flex justify-between items-center bg-slate-800/50">
-              <h2 className="text-2xl font-bold text-white">Local MIDI Import</h2>
+              <h2 className="text-2xl font-bold text-white">Local Song Import</h2>
               <button onClick={() => setIsLocalImportModalOpen(false)} className="text-slate-400 hover:text-white transition-colors">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
               </button>

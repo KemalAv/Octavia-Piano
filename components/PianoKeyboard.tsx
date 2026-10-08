@@ -227,8 +227,12 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = memo(({
     if (!ctx) return;
 
     const dpr = (window.devicePixelRatio || 1) * (resolutionScale || 1.0);
-    canvas.width = Math.floor(width * dpr);
-    canvas.height = Math.floor(totalHeight * dpr);
+    const targetW = Math.floor(width * dpr);
+    const targetH = Math.floor(totalHeight * dpr);
+    if (canvas.width !== targetW || canvas.height !== targetH) {
+      canvas.width = targetW;
+      canvas.height = targetH;
+    }
 
     ctx.save();
     ctx.scale(dpr, dpr);

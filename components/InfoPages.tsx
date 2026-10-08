@@ -69,6 +69,7 @@ export const AboutUs: React.FC<InfoPageProps> = ({ onBack }) => (
 
     <section>
       <h3 className="text-xl font-bold text-white mb-2">The Technology Behind the Music</h3>
+      <p className="mb-4">Automatic fingering uses <strong>Pianoplayer</strong>, with its geometric hand model and sequence optimization adapted to run in the browser through Pyodide. Hand size and hand assignment guide the suggested finger numbers and the 3D hands on the keyboard.</p>
       <p className="mb-4">
         Unlike traditional training applications, Octavia is built on a foundation of zero-latency rhythmic analysis. Utilizing the <strong>Web MIDI API</strong>, we communicate directly with your digital piano or MIDI controller, ensuring that every note you play is captured with millisecond precision.
       </p>

@@ -34,6 +34,8 @@ interface HorizontalNotesViewProps {
   isQwertyView?: boolean;
   isMixedHandView?: boolean;
   activeBpmForDisplay?: number;
+  majorNoteVisualDurationMs?: number;
+  visualDurationByNoteId?: ReadonlyMap<string, number>;
   lowDetailMode?: boolean;
   instrumentMode?: 'piano' | 'drum';
   isPaused?: boolean;
@@ -362,6 +364,8 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
   isQwertyView = false,
   isMixedHandView = false,
   activeBpmForDisplay,
+  majorNoteVisualDurationMs,
+  visualDurationByNoteId,
   lowDetailMode = false,
   instrumentMode = 'piano',
   isPaused = false,
@@ -413,8 +417,14 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
   const isDrum = instrumentMode === 'drum';
   const effectiveShowOnlyMajorNotes = isDrum ? true : showOnlyMajorNotes;
   const bpm = vexFlowData?.tempoMarkings[0]?.bpm || activeBpmForDisplay || 120;
-  const thirtySecondNoteMs = (60000 / bpm) / 8;
-  const noteCap = isDrum ? thirtySecondNoteMs : VISUAL_NOTE_CAP_MS;
+  const eighthNoteMs = (60000 / bpm) / 2;
+  const noteCap = effectiveShowOnlyMajorNotes
+    ? (majorNoteVisualDurationMs ?? eighthNoteMs)
+    : VISUAL_NOTE_CAP_MS;
+  const visualDuration = (note: NoteFragment) =>
+    effectiveShowOnlyMajorNotes
+      ? (visualDurationByNoteId?.get(note.originalNoteId) ?? Math.min(note.durationMs, noteCap))
+      : note.durationMs;
 
   const visibleNotes = useMemo(() => {
     if (!vexFlowData || pixelsPerMillisecond <= 0 || !vexFlowData.fragments || vexFlowData.fragments.length === 0) return [];
@@ -437,7 +447,7 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
       if (n.timeMs > maxTimeMs) break;
 
       const sp = (n.timeMs - firstMeasureStartTime) * pixelsPerMillisecond;
-      const duration = effectiveShowOnlyMajorNotes ? Math.min(n.durationMs, noteCap) : n.durationMs;
+      const duration = visualDuration(n);
       const ep = sp + (duration * pixelsPerMillisecond);
       if (ep > startPx && sp < endPx) {
         result.push(n);
@@ -445,7 +455,7 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
     }
     
     return result;
-  }, [vexFlowData, currentTimeMs, pixelsPerMillisecond, width, PLAY_LINE_X, firstMeasureStartTime, isDrum, effectiveShowOnlyMajorNotes, noteCap]);
+  }, [vexFlowData, currentTimeMs, pixelsPerMillisecond, width, PLAY_LINE_X, firstMeasureStartTime, isDrum, effectiveShowOnlyMajorNotes, noteCap, visualDurationByNoteId]);
 
   const notesGroupedByTimeAndHand = useMemo(() => {
     if (!isQwertyView && !isMixedHandView) return null;
@@ -467,8 +477,12 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
     if (!ctx) return;
 
     const dpr = (window.devicePixelRatio || 1) * (resolutionScale || 1.0);
-    canvas.width = Math.floor(width * dpr);
-    canvas.height = Math.floor(height * dpr);
+    const targetW = Math.floor(width * dpr);
+    const targetH = Math.floor(height * dpr);
+    if (canvas.width !== targetW || canvas.height !== targetH) {
+      canvas.width = targetW;
+      canvas.height = targetH;
+    }
 
     const isBlackKey = (midi: number) => [1, 3, 6, 8, 10].includes(midi % 12);
 
@@ -745,7 +759,7 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
           }
 
           const xPos = (((note.timeMs - firstMeasureStartTime) * pixelsPerMillisecond) + HORIZONTAL_PADDING) | 0;
-          const durationForHeight = effectiveShowOnlyMajorNotes ? Math.min(note.durationMs, noteCap) : note.durationMs;
+          const durationForHeight = visualDuration(note);
           const noteWidth = Math.max(28, durationForHeight * pixelsPerMillisecond) | 0;
 
           ctx.save();
@@ -892,7 +906,7 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
 
           for (let j = 0; j < group.length; j++) {
             const note = group[j];
-            const durationForHeight = effectiveShowOnlyMajorNotes ? Math.min(note.durationMs, noteCap) : note.durationMs;
+            const durationForHeight = visualDuration(note);
             const noteWidth = Math.max(NOTE_HEAD_WIDTH, durationForHeight * pixelsPerMillisecond) | 0;
             
             // Equal spacing stacking

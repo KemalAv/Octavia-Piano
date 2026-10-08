@@ -460,6 +460,13 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
     let durationSec: number | null = null;
     let totalNps: number | null = null;
 
+    const uploadExt = uploadFile.name.toLowerCase().split('.').pop();
+    if (uploadExt !== 'mid' && uploadExt !== 'midi') {
+      setUploadMessage({ type: 'error', text: 'Please upload a MIDI file (.mid, .midi).' });
+      setIsUploading(false);
+      return;
+    }
+
     try {
       const analysisData = await parseFileForAnalysis(uploadFile, midiNoteToNameMap);
       if (analysisData && analysisData.notes.length > 0) {
@@ -603,6 +610,13 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
 
       // If file is being replaced
       if (editFile) {
+        const editExt = editFile.name.toLowerCase().split('.').pop();
+        if (editExt !== 'mid' && editExt !== 'midi') {
+          setEditMessage({ type: 'error', text: 'Please upload a MIDI file (.mid, .midi).' });
+          setIsEditing(false);
+          return;
+        }
+
         // 1. Re-analyze the new file
         const analysisData = await parseFileForAnalysis(editFile, midiNoteToNameMap);
         if (analysisData && analysisData.notes.length > 0) {
@@ -796,7 +810,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
     setSelectedPerformanceSummary(null);
   };
 
-  const formatDate = (dateString: string) => new Date(dateString).toLocaleDateString();
+  const formatDate = (dateString: string) => new Date(dateString).toLocaleDateString('en-US');
 
   const currentUserIsUploader = (uploaderId: string) => session?.user?.id === uploaderId;
   const isAdmin = user?.id === ADMIN_UUID;
@@ -993,7 +1007,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                       className="mt-2 text-sm text-yellow-300 bg-yellow-900/30 border border-yellow-700/50 rounded-md px-2 py-1 inline-block cursor-pointer hover:bg-yellow-800/50"
                       onClick={() => handleOpenPerformanceSummary(personalBestScore)}
                     >
-                      <strong>Best:</strong> {Math.round(personalBestScore.final_score).toLocaleString()}
+                      <strong>Best:</strong> {Math.round(personalBestScore.final_score).toLocaleString('en-US')}
                     </div>
                   )}
 
@@ -1287,12 +1301,12 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">MIDI File</label>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Song File (MIDI)</label>
                   <input
                     type="file"
                     required
                     ref={fileInputRef}
-                    accept=".mid,.midi"
+                    accept=".mid,.midi,audio/mid,audio/midi"
                     onChange={e => setUploadFile(e.target.files?.[0] || null)}
                     className="w-full text-slate-300 text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-600 file:text-white hover:file:bg-violet-700"
                   />
@@ -1479,11 +1493,11 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                     </div>
                   </div>
                   <div className="pt-4 border-t border-slate-700">
-                    <label className="block text-sm font-medium text-slate-300 mb-1">Replace MIDI File (Optional)</label>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">Replace Song File (Optional, MIDI only)</label>
                     <input
                       type="file"
                       ref={editFileInputRef}
-                      accept=".mid,.midi"
+                      accept=".mid,.midi,audio/mid,audio/midi"
                       onChange={e => setEditFile(e.target.files?.[0] || null)}
                       className="w-full text-slate-300 text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-600 file:text-white hover:file:bg-violet-700"
                       disabled={isEditing}
