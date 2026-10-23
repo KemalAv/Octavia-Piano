@@ -227,7 +227,7 @@ export async function parseMidiData(
             if (noteName) {
                 let hand: 'left' | 'right';
                 if (tracksWithNotes.length === 2 && noteTrackIndex !== -1) {
-                    hand = noteTrackIndex === 0 ? 'right' : 'left';
+                    hand = (noteTrackIndex === 0 && note.midi >= 48) ? 'right' : (noteTrackIndex === 0 ? 'left' : 'left');
                 } else {
                     hand = note.midi < HAND_SPLIT_MIDI_NOTE ? 'left' : 'right';
                 }
@@ -473,7 +473,7 @@ export async function parseMusicXmlData(
                             if (noteName) {
                                 let hand: 'left' | 'right';
                                 if (parts.length > 1) {
-                                    hand = (partIndex === 0) ? 'right' : 'left';
+                                    hand = (partIndex === 0 && midiNote >= 48) ? 'right' : (partIndex === 0 ? 'left' : 'left');
                                 } else {
                                     hand = midiNote < HAND_SPLIT_MIDI_NOTE ? 'left' : 'right';
                                 }

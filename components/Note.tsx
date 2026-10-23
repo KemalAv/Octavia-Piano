@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { KeyPosition, MidiNotePlaybackItem, ActiveMidiNoteInfo, NoteLabelType, QwertyLayout } from '../types';
-import { SHARP_KEYS, FLAT_KEYS, NEUTRAL_KEYS, ENHARMONIC_MAP_TO_SHARP, ENHARMONIC_MAP_TO_FLAT, darkenHex, hexToRgba, lightenHex } from '../utils'; // Import enharmonic constants and color utils
+import { SHARP_KEYS, FLAT_KEYS, NEUTRAL_KEYS, ENHARMONIC_MAP_TO_SHARP, ENHARMONIC_MAP_TO_FLAT, darkenHex, hexToRgba, lightenHex, getDynamicFromVelocity, getVelocityOutlineColor } from '../utils'; // Import enharmonic constants and color utils
 import { QWERTY_MINI_KEYBOARD_MAPPING, MIRP_KEYBOARD_MAPPING, KEY_CODES_TO_DISPLAY, USER_PLAY_COLOR } from '../constants'; // Import USER_PLAY_COLOR
 
 interface NoteProps {
@@ -19,6 +19,7 @@ interface NoteProps {
   qwertyCurrentOctaveShift?: number;
   mirpTranspose?: number;
   lowDetailMode?: boolean;
+  showDynamics?: boolean;
 }
 
 const Note: React.FC<NoteProps> = ({ 
@@ -35,20 +36,23 @@ const Note: React.FC<NoteProps> = ({
   qwertyCurrentOctaveShift = 0,
   mirpTranspose = 0,
   lowDetailMode = false,
+  showDynamics = false,
 }) => {
   const isWhiteKey = keyPosition.type === 'white';
-  let dynamicStyle: React.CSSProperties = {};
   let baseColor = noteItem.hand === 'left' ? leftHandColor : rightHandColor;
-
-  let borderStyle: React.CSSProperties = lowDetailMode ? {} : {
-    borderTop: '1px solid rgba(255,255,255,0.6)',
-    borderLeft: '1px solid rgba(255,255,255,0.4)',
-    borderRight: '1px solid rgba(0,0,0,0.3)',
-    borderBottom: '1px solid rgba(0,0,0,0.5)',
-  };
+  let dynamicStyle: React.CSSProperties = {};
+  const velocityOutline = showDynamics ? getVelocityOutlineColor(noteItem.velocity) : null;
+  let borderStyle: React.CSSProperties = velocityOutline ? {
+    border: `1.5px solid ${velocityOutline}`,
+  } : {};
 
   if (status === 'playing') {
-    borderStyle = {};
+    borderStyle = velocityOutline ? {
+      border: `2px solid ${velocityOutline}`,
+      boxShadow: `0 0 6px ${velocityOutline}`,
+    } : {
+      border: `2px solid ${USER_PLAY_COLOR}`
+    };
   } else if (status === 'user_played') {
     borderStyle = {
       border: `2px solid ${USER_PLAY_COLOR}`

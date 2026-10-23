@@ -11,6 +11,8 @@
 export const getNoteZoom = (zoom: number, isRollView: boolean = false): number => {
   if (isRollView) return zoom; // Use linear zoom for roll view to keep sync
   if (zoom <= 0) return 0;
+  // Non-linear scaling for zoom < 1.0 ensures notes don't bunch up or overlap while staying compact
+  if (zoom < 1.0) return Math.max(0.65, Math.pow(zoom, 0.5));
   return zoom;
 };
 
@@ -19,7 +21,7 @@ export const getNoteZoom = (zoom: number, isRollView: boolean = false): number =
  * This function makes the zoom effect less pronounced at lower values, preventing
  * the layout from becoming too compressed.
  * - For zoom >= 1.0 (100%), scaling is linear.
- * - For zoom < 1.0, scaling follows `zoom^0.25`.
+ * - For zoom < 1.0, scaling follows `zoom^0.5`.
  *
  * @param zoom The raw zoom factor (e.g., 1.0 for 100%, 0.5 for 50%).
  * @param isRollView If true, returns a linear zoom factor. Defaults to false.
@@ -28,6 +30,7 @@ export const getNoteZoom = (zoom: number, isRollView: boolean = false): number =
 export const getLayoutZoom = (zoom: number, isRollView: boolean = false): number => {
   if (isRollView) return zoom; // Use linear zoom for roll view to keep sync
   if (zoom <= 0) return 0;
+  if (zoom < 1.0) return Math.max(0.65, Math.pow(zoom, 0.5));
   return zoom;
 };
 
@@ -121,6 +124,56 @@ export const formatKeySignatureForDisplay = (key: string): string => {
   const rootNote = isMinor ? key.slice(0, -1) : key;
 
   return isMinor ? `${rootNote}min` : `${rootNote}maj`;
+};
+
+/**
+ * Calculates optimal semitone transpose for a given key signature to minimize accidental distance (closest to C major).
+ * Examples:
+ * - D major (2 semitones up from C) -> +2
+ * - B major (11 semitones up, or 1 down from C) -> -1
+ * - G major -> -5 or +7 -> -5 (or +7 depending on tie, typically -5 is closer)
+ */
+export const getOptimalKeyTranspose = (keySignature?: string): number => {
+  if (!keySignature) return 0;
+  const majorRoot = KEY_SIGNATURE_TO_RELATIVE_PAIR[keySignature]?.major || 
+    (keySignature.endsWith('m') ? (KEY_SIGNATURE_TO_RELATIVE_PAIR[keySignature] ? KEY_SIGNATURE_TO_RELATIVE_PAIR[keySignature].major : keySignature.slice(0, -1)) : keySignature);
+
+  // Semitone distance of major roots from C (0)
+  const rootSemitonesFromC: Record<string, number> = {
+    'C': 0, 'B#': 0,
+    'C#': 1, 'Db': 1,
+    'D': 2,
+    'D#': 3, 'Eb': 3,
+    'E': 4, 'Fb': 4,
+    'F': 5, 'E#': 5,
+    'F#': 6, 'Gb': 6,
+    'G': 7,
+    'G#': 8, 'Ab': 8,
+    'A': 9,
+    'A#': 10, 'Bb': 10,
+    'B': 11, 'Cb': 11,
+  };
+
+  const semitones = rootSemitonesFromC[majorRoot];
+  if (semitones === undefined) return 0;
+
+  // Convert to closest range [-5, +6] so that:
+  // C -> 0
+  // C# / Db -> +1
+  // D -> +2
+  // D# / Eb -> +3
+  // E -> +4
+  // F -> +5 (or -7)
+  // F# / Gb -> +6 (or -6)
+  // G -> -5 (since 7 - 12 = -5)
+  // G# / Ab -> -4 (since 8 - 12 = -4)
+  // A -> -3 (since 9 - 12 = -3)
+  // A# / Bb -> -2 (since 10 - 12 = -2)
+  // B / Cb -> -1 (since 11 - 12 = -1)
+  if (semitones > 6) {
+    return semitones - 12;
+  }
+  return semitones;
 };
 
 /**
@@ -240,7 +293,7 @@ export const getBeatTimesInWindow = (
   }
   
   // If no specific bar lines, but there are notes, use a virtual bar line at 0 scaled time.
-  let currentRelevantBarLines = relevantBarLines;
+  let currentRelevantBarLines = [...relevantBarLines];
   if (currentRelevantBarLines.length === 0 && scaledBarLinesMs.length === 0) {
       currentRelevantBarLines = [0]; // Assume a measure starts at time 0
   } else if (currentRelevantBarLines.length === 0 && scaledBarLinesMs.length > 0) {
@@ -248,6 +301,13 @@ export const getBeatTimesInWindow = (
       const closestPrevBar = scaledBarLinesMs.reduce((prev, curr) => 
           (curr <= windowStartScaledTimeMs && curr > prev) ? curr : prev, 0);
       currentRelevantBarLines = [closestPrevBar];
+  } else if (scaledBarLinesMs.length > 0 && scaledBarLinesMs[0] > 100 && windowStartScaledTimeMs <= 0) {
+      // Prepend virtual lead-in bar at 0 (or before first bar line) so lead-in has beats
+      const firstBarDur = scaledBarLinesMs.length > 1 ? (scaledBarLinesMs[1] - scaledBarLinesMs[0]) : scaledBarLinesMs[0];
+      const leadInStart = Math.max(0, scaledBarLinesMs[0] - firstBarDur);
+      if (!currentRelevantBarLines.some(b => Math.abs(b - leadInStart) < 10)) {
+          currentRelevantBarLines.unshift(leadInStart);
+      }
   }
 
 
@@ -676,3 +736,87 @@ export const calculateScoreMultiplier = (gameplayPS: number): number => {
     return 0.0;
   }
 };
+
+/**
+ * Converts a MIDI velocity (either 0.0 - 1.0 float or 0 - 127 integer) to musical dynamic markings:
+ * ppp, pp, p, mp, mf, f, ff, fff
+ */
+export const getDynamicFromVelocity = (velocity: number | undefined | null): string => {
+  if (velocity === undefined || velocity === null || velocity <= 0) return 'p';
+  const v = velocity > 1 ? velocity / 127 : velocity;
+  if (v <= 0.20) return 'ppp';
+  if (v <= 0.36) return 'pp';
+  if (v <= 0.50) return 'p';
+  if (v <= 0.63) return 'mp';
+  if (v <= 0.76) return 'mf';
+  if (v <= 0.88) return 'f';
+  if (v <= 0.98) return 'ff';
+  return 'fff';
+};
+
+/**
+ * Returns Tailwind text color classes for dynamic markings
+ */
+export const getDynamicTextColor = (dynamic: string): string => {
+  switch (dynamic.toLowerCase()) {
+    case 'ppp':
+      return 'text-sky-300';
+    case 'pp':
+      return 'text-sky-400';
+    case 'p':
+      return 'text-cyan-400';
+    case 'mp':
+      return 'text-emerald-400';
+    case 'mf':
+      return 'text-lime-400';
+    case 'f':
+      return 'text-amber-400';
+    case 'ff':
+      return 'text-orange-400';
+    case 'fff':
+      return 'text-rose-500 font-extrabold';
+    default:
+      return 'text-slate-300';
+  }
+};
+
+/**
+ * Calculates outline color based on note velocity:
+ * White (rgb(255, 255, 255)) for max velocity (very loud / fortissimo, 127 / 1.0),
+ * Black (rgb(0, 0, 0)) for min velocity (very soft / pianissimo, 0),
+ * with smooth grayscale interpolation in between.
+ */
+export const getVelocityOutlineColor = (velocity: number | undefined | null, alpha?: number): string => {
+  if (velocity === undefined || velocity === null) {
+    return alpha !== undefined && alpha < 1 ? `rgba(180, 180, 180, ${alpha})` : 'rgb(180, 180, 180)';
+  }
+  const v = velocity > 1 ? velocity / 127 : velocity;
+  const clamped = Math.max(0, Math.min(1, v));
+  const gray = Math.round(clamped * 255);
+  return alpha !== undefined && alpha < 1 ? `rgba(${gray}, ${gray}, ${gray}, ${alpha})` : `rgb(${gray}, ${gray}, ${gray})`;
+};
+
+/**
+ * Binary search helper to find starting note index in O(log N) time
+ */
+export function findNoteStartIndex<T extends { timeMs: number; durationMs?: number }>(
+  noteList: T[],
+  targetMinTimeMs: number
+): number {
+  let low = 0;
+  let high = noteList.length - 1;
+  let result = 0;
+
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    const note = noteList[mid];
+    const duration = note.durationMs || 0;
+    if (note.timeMs + duration >= targetMinTimeMs) {
+      result = mid;
+      high = mid - 1;
+    } else {
+      low = mid + 1;
+    }
+  }
+  return result;
+}

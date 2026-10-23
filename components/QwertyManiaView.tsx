@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ActiveMidiNoteInfo, MidiNotePlaybackItem, ThemeSettings, FreePlayLiveNote, QwertyLayout } from '../types';
 import { FULL_KEYBOARD_LAYOUT, FULL_KEYBOARD_MAPPING, QWERTY_MINI_KEYBOARD_MAPPING, MIRP_KEYBOARD_MAPPING, KEY_CODES_TO_DISPLAY, VISUAL_NOTE_CAP_MS } from '../constants';
-import { formatKeySignatureForDisplay } from '../utils';
+import { formatKeySignatureForDisplay, getVelocityOutlineColor, getOptimalKeyTranspose } from '../utils';
 
 interface QwertyManiaViewProps {
     currentTimeMs: number;
@@ -26,6 +26,7 @@ interface QwertyManiaViewProps {
     showOnlyMajorNotes?: boolean;
     resolutionScale?: number;
     waitMode?: string;
+    showDynamics?: boolean;
 }
 
 // Helper for drawing rounded rectangle shapes matching keyboard keys
@@ -97,6 +98,7 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
     showOnlyMajorNotes = false,
     resolutionScale = 1.0,
     waitMode = 'strict',
+    showDynamics = false,
 }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
@@ -416,13 +418,6 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
                     const key = getNoteKey(activeInfo.midi);
                     if (key) {
                         activeKeyCodes.add(key.code);
-                        // If MIRP and requires shift, also light up Left Shift
-                        const isMirp = qwertyLayoutRef.current === 'mirp';
-                        const targetBaseMidi = activeInfo.midi - mirpTransposeRef.current;
-                        const match = isMirp ? MIRP_KEYBOARD_MAPPING.find(m => m.midi === targetBaseMidi) : null;
-                        if (match && match.shift) {
-                            activeKeyCodes.add('ShiftLeft');
-                        }
                     }
                 });
 
@@ -440,13 +435,6 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
                             const key = getNoteKey(note.midi);
                             if (key) {
                                 activeKeyCodes.add(key.code);
-                                // If MIRP and requires shift, also light up Left Shift
-                                const isMirp = qwertyLayoutRef.current === 'mirp';
-                                const targetBaseMidi = note.midi - mirpTransposeRef.current;
-                                const match = isMirp ? MIRP_KEYBOARD_MAPPING.find(m => m.midi === targetBaseMidi) : null;
-                                if (match && match.shift) {
-                                    activeKeyCodes.add('ShiftLeft');
-                                }
                             }
                         }
                     }
@@ -493,15 +481,6 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
                     }
                     const existing = keyApproachingProgressMap.get(key.code) || 0;
                     keyApproachingProgressMap.set(key.code, Math.max(existing, progress));
-
-                    // If MIRP and requires shift, also update the Shift key approaching progress!
-                    const isMirp = qwertyLayoutRef.current === 'mirp';
-                    const targetBaseMidi = note.midi - mirpTransposeRef.current;
-                    const match = isMirp ? MIRP_KEYBOARD_MAPPING.find(m => m.midi === targetBaseMidi) : null;
-                    if (match && match.shift) {
-                        const existingShift = keyApproachingProgressMap.get('ShiftLeft') || 0;
-                        keyApproachingProgressMap.set('ShiftLeft', Math.max(existingShift, progress));
-                    }
                 }
             });
 
@@ -582,7 +561,8 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
 
                         const opacity = Math.min(1, progress * 1.5);
                         drawRoundedRect(ctx, boxX, boxY, boxW, boxH, cornerR);
-                        ctx.strokeStyle = strokeColor || `rgba(34,211,238,${opacity})`;
+                        const defaultStroke = showDynamics ? getVelocityOutlineColor(note.velocity, opacity) : `rgba(34,211,238,${opacity})`;
+                        ctx.strokeStyle = strokeColor || (requiresShift ? (showDynamics ? getVelocityOutlineColor(note.velocity, opacity) : `rgba(244,63,94,${opacity})`) : defaultStroke);
                         ctx.lineWidth = 3;
                         ctx.stroke();
 
@@ -605,7 +585,7 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
                         const cornerR = 6;
 
                         drawRoundedRect(ctx, boxX, boxY, boxW, boxH, cornerR);
-                        ctx.strokeStyle = strokeColor || themeSettings.hitNoteColor;
+                        ctx.strokeStyle = strokeColor || (requiresShift ? '#f43f5e' : themeSettings.hitNoteColor);
                         ctx.lineWidth = 3;
                         ctx.stroke();
                     } else {
@@ -627,22 +607,8 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
                     }
                 };
 
-                // Draw note on its specific key
+                // Draw note on its specific key (with red outline if requiresShift)
                 drawNoteOnKey(key);
-
-                // If it requires Shift, also draw the ShiftLeft key approaching note!
-                if (requiresShift) {
-                    const shiftKey = keys.find(k => k.code === 'ShiftLeft');
-                    if (shiftKey) {
-                        const opacity = timeUntilHit > 0 
-                            ? Math.min(1, Math.max(0, Math.min(1, 1 - (timeUntilHit / approachMs))) * 1.5)
-                            : 1;
-                        const shiftStroke = timeUntilHit > 0 
-                            ? `rgba(244,63,94,${opacity})`
-                            : 'rgba(244,63,94,1)';
-                        drawNoteOnKey(shiftKey, shiftStroke);
-                    }
-                }
             });
 
             animationFrameId = requestAnimationFrame(render);
@@ -700,11 +666,25 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
                     <span className="text-slate-400 text-[10px] font-sans">
                         {qwertyLayout === 'mirp' ? 'Transpose' : 'Octave Shift'}
                     </span>
-                    <span className="text-amber-400 font-bold drop-shadow-[0_0_8px_rgba(245,158,11,0.4)]">
-                        {qwertyLayout === 'mirp' 
-                            ? (mirpTranspose >= 0 ? `+${mirpTranspose}` : mirpTranspose)
-                            : (qwertyCurrentOctaveShift >= 0 ? `+${qwertyCurrentOctaveShift}` : qwertyCurrentOctaveShift)
-                        }
+                    <span className="text-amber-400 font-bold drop-shadow-[0_0_8px_rgba(245,158,11,0.4)] flex items-center gap-1.5">
+                        <span>
+                            {qwertyLayout === 'mirp' 
+                                ? (mirpTranspose >= 0 ? `+${mirpTranspose}` : mirpTranspose)
+                                : (qwertyCurrentOctaveShift >= 0 ? `+${qwertyCurrentOctaveShift}` : qwertyCurrentOctaveShift)
+                            }
+                        </span>
+                        {qwertyLayout === 'mirp' && (() => {
+                            const suggested = getOptimalKeyTranspose(activeKeySignature);
+                            const formattedSuggested = suggested >= 0 ? `+${suggested}` : `${suggested}`;
+                            return (
+                                <span 
+                                    className="text-[9px] font-normal text-cyan-400/90 bg-cyan-950/60 px-1 py-0.5 rounded border border-cyan-500/30 font-mono tracking-tight"
+                                    title="Saran transpose otomatis untuk Key Signature saat ini"
+                                >
+                                    ({formattedSuggested})
+                                </span>
+                            );
+                        })()}
                     </span>
                 </div>
 

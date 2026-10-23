@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ActiveMidiNoteInfo, MidiNotePlaybackItem, DrumPadConfig, ThemeSettings, FreePlayLiveNote } from '../types';
 import { DRUM_KEYBOARD_MAP, DRUM_PADS } from '../constants';
+import { getDynamicFromVelocity, getVelocityOutlineColor } from '../utils';
 
 
 interface DrumViewProps {
@@ -21,6 +22,7 @@ interface DrumViewProps {
     drumTyperPadOpacity?: number;
     waitMode?: string;
     resolutionScale?: number;
+    showDynamics?: boolean;
 }
 
 // Binary search helper to find starting note index in O(log N) time
@@ -64,6 +66,7 @@ export const DrumView: React.FC<DrumViewProps> = React.memo(({
     drumTyperPadOpacity = 100,
     waitMode = 'strict',
     resolutionScale = 1.0,
+    showDynamics = false,
 }) => {
     const MIDI_TO_PAD_MAP = new Map<number, DrumPadConfig>();
     DRUM_PADS.forEach(pad => {
@@ -552,10 +555,9 @@ export const DrumView: React.FC<DrumViewProps> = React.memo(({
 
                     ctx.beginPath();
                     ctx.arc(cx, cy, currentR, 0, Math.PI * 2);
-                    ctx.strokeStyle = `rgba(34,211,238,${opacity})`;
+                    ctx.strokeStyle = showDynamics ? getVelocityOutlineColor(note.velocity, opacity) : `rgba(34,211,238,${opacity})`;
                     ctx.lineWidth = 3;
                     ctx.stroke();
-
                 }
 
             });

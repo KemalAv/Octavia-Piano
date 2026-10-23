@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
-import { OnlineSong, ExtendedResult, Score, PerformanceSummary } from '../types';
+import { OnlineSong, ExtendedResult, Score, PerformanceSummary, AppLanguage } from '../types';
+import { translations } from '../translations';
 import { useAuth } from '../AuthContext';
 import { parseFileForAnalysis } from '../midiParser'; // Reusable parser for analysis
 import { analyzeMidi } from '../midiAnalysis'; // For analyzing uploaded files
@@ -19,6 +20,7 @@ interface OnlineSongBrowserProps {
   setLoadingState: (loading: boolean) => void;
   onGoToOnlineSong: (songId: string) => void;
   instrumentMode: 'piano' | 'drum';
+  appLanguage?: AppLanguage;
 }
 
 // Admin UUID - IMPORTANT: Replace with the actual UUID of your admin user in Supabase
@@ -30,7 +32,8 @@ const PAGE_SIZE = 20;
 
 type SortOrder = 'newest_desc' | 'newest_asc' | 'difficulty_desc' | 'difficulty_asc' | 'alphabetical_asc' | 'alphabetical_desc' | 'mostLiked_desc' | 'mostLiked_asc';
 
-const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isLoading, setLoadingState, onGoToOnlineSong, instrumentMode }) => {
+const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isLoading, setLoadingState, onGoToOnlineSong, instrumentMode, appLanguage = 'en' }) => {
+  const t = translations[appLanguage] || translations.en;
   const { session, user } = useAuth();
   const [songs, setSongs] = useState<OnlineSong[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -840,118 +843,181 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
 
   return (
     <div className="w-full h-full flex flex-col">
-      <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
-        <input
-          type="text"
-          placeholder="Search MIDI title, artist, or Supabase ID..."
-          value={searchQuery}
-          onChange={handleSearch}
-          className="w-full sm:w-2/3 p-3 rounded-lg bg-slate-700 text-white border border-slate-600 focus:ring-violet-500 focus:border-violet-500"
-        />
+      {/* Search and Upload Header */}
+      <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-3">
+        <div className="relative w-full sm:flex-grow">
+          <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8"/>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+          </span>
+          <input
+            type="text"
+            placeholder={t.searchPlaceholder}
+            value={searchQuery}
+            onChange={handleSearch}
+            className="w-full pl-10 pr-9 py-2.5 rounded-xl bg-slate-900/90 text-white placeholder-slate-500 border border-slate-700/80 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none text-sm shadow-inner transition-all"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => {
+                setSearchQuery('');
+                const event = { target: { value: '' } } as React.ChangeEvent<HTMLInputElement>;
+                handleSearch(event);
+              }}
+              className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-white"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+
         <button
           onClick={handleUploadClick}
-          className="w-full sm:w-auto bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg whitespace-nowrap"
+          className="w-full sm:w-auto bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold py-2.5 px-5 rounded-xl shadow-lg shadow-cyan-500/20 whitespace-nowrap text-sm flex items-center justify-center gap-2 transition-all active:scale-95"
         >
-          Upload MIDI
+          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+          </svg>
+          <span>{t.uploadMidiBtn}</span>
         </button>
       </div>
 
-      {/* Sorting and Filtering Controls */}
-      <div className="flex flex-wrap items-center gap-4 mb-6 p-4 bg-slate-800/50 rounded-lg ring-1 ring-slate-700">
-        {/* Sort By */}
-        <div className="flex items-center gap-2">
-          <span className="text-slate-300 text-sm font-semibold">Sort By:</span>
-          <div className="flex gap-2">
+      {/* Sorting and Filtering Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4 p-3 bg-slate-900/80 rounded-2xl border border-white/10 text-xs">
+        {/* Sort Controls */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">{t.sortByLabel}</span>
+          <div className="flex gap-1.5 flex-wrap">
             <button
               onClick={() => handleSortChange('newest')}
-              className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${sortOrder.startsWith('newest') ? 'bg-cyan-600 text-white' : 'bg-slate-700 hover:bg-slate-600'}`}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition-all flex items-center gap-1.5 ${
+                sortOrder.startsWith('newest') 
+                  ? 'bg-cyan-600 text-white shadow-sm' 
+                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
             >
-              {sortOrder.startsWith('newest') && sortOrder.endsWith('asc') ? 'Oldest' : 'Newest'}
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              <span>{sortOrder.startsWith('newest') && sortOrder.endsWith('asc') ? t.sortOldest : t.sortNewest}</span>
             </button>
             <button
               onClick={() => handleSortChange('difficulty')}
-              className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${sortOrder.startsWith('difficulty') ? 'bg-cyan-600 text-white' : 'bg-slate-700 hover:bg-slate-600'}`}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition-all flex items-center gap-1.5 ${
+                sortOrder.startsWith('difficulty') 
+                  ? 'bg-cyan-600 text-white shadow-sm' 
+                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
             >
-              {sortOrder.startsWith('difficulty') && sortOrder.endsWith('asc') ? 'Easiest' : 'Hardest'}
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+              <span>{sortOrder.startsWith('difficulty') && sortOrder.endsWith('asc') ? t.sortEasiest : t.sortHardest}</span>
             </button>
             <button
               onClick={() => handleSortChange('alphabetical')}
-              className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${sortOrder.startsWith('alphabetical') ? 'bg-cyan-600 text-white' : 'bg-slate-700 hover:bg-slate-600'}`}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition-all flex items-center gap-1.5 ${
+                sortOrder.startsWith('alphabetical') 
+                  ? 'bg-cyan-600 text-white shadow-sm' 
+                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
             >
-              {sortOrder.startsWith('alphabetical') && sortOrder.endsWith('desc') ? 'Z-A' : 'A-Z'}
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 6h7M4 12h5M4 18h3M15 15l3 3 3-3M18 6v12"/></svg>
+              <span>{sortOrder.startsWith('alphabetical') && sortOrder.endsWith('desc') ? t.sortZA : t.sortAZ}</span>
             </button>
             <button
               onClick={() => handleSortChange('mostLiked')}
-              className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${sortOrder.startsWith('mostLiked') ? 'bg-cyan-600 text-white' : 'bg-slate-700 hover:bg-slate-600'}`}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition-all flex items-center gap-1.5 ${
+                sortOrder.startsWith('mostLiked') 
+                  ? 'bg-cyan-600 text-white shadow-sm' 
+                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
             >
-              {sortOrder.startsWith('mostLiked') && sortOrder.endsWith('asc') ? 'Least Liked' : 'Most Liked'}
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+              <span>{sortOrder.startsWith('mostLiked') && sortOrder.endsWith('asc') ? t.sortLeastLiked : t.sortMostLiked}</span>
             </button>
           </div>
         </div>
 
-        {/* Filter By */}
-        <div className="flex items-center gap-2 ml-auto">
-          <span className="text-slate-300 text-sm font-semibold">Show:</span>
-          <div className="flex gap-2 flex-wrap">
-            <label className="flex items-center">
-              <input
-                type="radio"
-                name="rankedFilter"
-                value="all"
-                checked={rankedFilter === 'all'}
-                onChange={() => setRankedFilter('all')}
-                className="form-radio text-violet-500 focus:ring-violet-400"
-              />
-              <span className="ml-1 text-slate-300 text-sm">All</span>
-            </label>
-            <label className="flex items-center">
-              <input
-                type="radio"
-                name="rankedFilter"
-                value="ranked"
-                checked={rankedFilter === 'ranked'}
-                onChange={() => setRankedFilter('ranked')}
-                className="form-radio text-violet-500 focus:ring-violet-400"
-              />
-              <span className="ml-1 text-slate-300 text-sm">Ranked Only</span>
-            </label>
-            <label className="flex items-center">
-              <input
-                type="radio"
-                name="rankedFilter"
-                value="nonRanked"
-                checked={rankedFilter === 'nonRanked'}
-                onChange={() => setRankedFilter('nonRanked')}
-                className="form-radio text-violet-500 focus:ring-violet-400"
-              />
-              <span className="ml-1 text-slate-300 text-sm">Non-Ranked Only</span>
-            </label>
-            <label className={`flex items-center ${!user ? 'cursor-not-allowed' : ''}`}>
-              <input
-                type="radio"
-                name="rankedFilter"
-                value="liked"
-                checked={rankedFilter === 'liked'}
-                onChange={() => setRankedFilter('liked')}
-                className="form-radio text-violet-500 focus:ring-violet-400 disabled:opacity-50"
-                disabled={!user}
-              />
-              <span className={`ml-1 text-sm ${!user ? 'text-slate-500' : 'text-slate-300'}`}>Liked by Me</span>
-            </label>
+        {/* Filter Pills */}
+        <div className="flex items-center gap-2 flex-wrap ml-auto">
+          <span className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">{t.filterLabel}</span>
+          <div className="flex bg-slate-950/60 p-0.5 rounded-xl border border-white/5 gap-1">
+            <button
+              onClick={() => setRankedFilter('all')}
+              className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
+                rankedFilter === 'all' 
+                  ? 'bg-slate-800 text-white shadow-sm' 
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {t.filterAll}
+            </button>
+            <button
+              onClick={() => setRankedFilter('ranked')}
+              className={`px-2.5 py-1 rounded-lg font-bold transition-all flex items-center gap-1 ${
+                rankedFilter === 'ranked' 
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm' 
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6M18 9h1.5a2.5 2.5 0 0 0 0-5H18M4 22h16M18 2H6v7a6 6 0 0 0 12 0V2z"/></svg>
+              <span>{t.filterRanked}</span>
+            </button>
+            <button
+              onClick={() => setRankedFilter('nonRanked')}
+              className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
+                rankedFilter === 'nonRanked' 
+                  ? 'bg-slate-800 text-white shadow-sm' 
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {t.filterNonRanked}
+            </button>
+            <button
+              onClick={() => user && setRankedFilter('liked')}
+              disabled={!user}
+              className={`px-2.5 py-1 rounded-lg font-bold transition-all flex items-center gap-1 ${
+                !user 
+                  ? 'opacity-40 cursor-not-allowed text-slate-500' 
+                  : rankedFilter === 'liked' 
+                    ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-sm' 
+                    : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <svg className="w-3 h-3 fill-current" viewBox="0 0 24 24"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
+              <span>{t.filterLiked}</span>
+            </button>
           </div>
         </div>
       </div>
 
-
-      <div className="flex-grow overflow-y-auto custom-scrollbar bg-slate-900/30 rounded-lg p-2 ring-1 ring-slate-700/50">
-        {fetchError && <div className="text-red-400 text-center p-4">{fetchError}</div>}
-        {deleteError && <div className="text-red-400 text-center p-4">{deleteError}</div>}
-
-        {!isLoading && songs.length === 0 && !fetchError && (
-          <div className="text-slate-400 text-center p-8">No MIDIs found matching your criteria.</div>
+      {/* Song Grid List */}
+      <div className="flex-grow overflow-y-auto custom-scrollbar bg-slate-950/40 rounded-2xl p-2 border border-white/5">
+        {fetchError && (
+          <div className="text-red-400 text-center p-4 bg-red-950/20 rounded-xl border border-red-500/30 text-sm mb-3">
+            <span className="mr-1.5 inline-block">!</span>{fetchError}
+          </div>
+        )}
+        {deleteError && (
+          <div className="text-red-400 text-center p-4 bg-red-950/20 rounded-xl border border-red-500/30 text-sm mb-3">
+            <span className="mr-1.5 inline-block">!</span>{deleteError}
+          </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {!isLoading && songs.length === 0 && !fetchError && (
+          <div className="flex flex-col items-center justify-center p-12 text-center text-slate-400">
+            <div className="w-16 h-16 rounded-2xl bg-slate-800/80 flex items-center justify-center text-slate-500 mb-4">
+              <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            </div>
+            <p className="text-base font-bold text-slate-300 mb-1">
+              {t.noSongsFoundTitle}
+            </p>
+            <p className="text-xs text-slate-500 max-w-sm">
+              {t.noSongsFoundDesc}
+            </p>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
           {songs.map((song) => {
             const personalBestScore = personalBests.get(song.id);
             const userLikeStatus = userLikes.get(song.id);
@@ -959,60 +1025,91 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
             return (
               <div
                 key={song.id}
-                className="bg-slate-800 p-4 rounded-lg shadow-md border border-slate-700 hover:border-violet-500 transition-all group flex flex-col justify-between"
+                className="bg-slate-900/80 hover:bg-slate-900 p-4 rounded-2xl border border-slate-800 hover:border-cyan-500/50 shadow-md hover:shadow-[0_0_20px_rgba(6,182,212,0.15)] transition-all flex flex-col justify-between group"
               >
                 <div>
-                  <div className="flex items-start justify-between gap-2 mb-1">
-                    <h3 className="text-lg font-bold text-white group-hover:text-cyan-300 truncate" title={song.title}>{song.title}</h3>
-                    <div className="flex gap-1 flex-shrink-0">
-                        {song.is_ranked && (
-                        <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-yellow-500 text-yellow-900" title="This is a ranked MIDI">RANKED</span>
-                        )}
-                        {song.midi_link && (
-                        <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-cyan-500 text-cyan-900" title="Has Backing Track">BACKING TRACK</span>
-                        )}
+                  {/* Title & Badges */}
+                  <div className="flex items-start justify-between gap-2 mb-1.5">
+                    <h4 
+                      className="text-base font-black text-white group-hover:text-cyan-300 transition-colors truncate" 
+                      title={song.title}
+                    >
+                      {song.title}
+                    </h4>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      {song.is_ranked && (
+                        <span 
+                          className="px-2 py-0.5 text-[10px] font-black rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1 shadow-sm"
+                        >
+                          <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6M18 9h1.5a2.5 2.5 0 0 0 0-5H18M4 22h16M18 2H6v7a6 6 0 0 0 12 0V2z"/></svg>
+                          <span>RANKED</span>
+                        </span>
+                      )}
+                      {song.midi_link && (
+                        <span 
+                          className="px-2 py-0.5 text-[10px] font-black rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 flex items-center gap-1"
+                        >
+                          <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 18v-6a9 9 0 0 1 18 0v6M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>
+                          <span>BACKING</span>
+                        </span>
+                      )}
                     </div>
                   </div>
-                  <p className="text-sm text-slate-400 truncate" title={song.artist}>{song.artist}</p>
-                  {song.arranger && (
-                    <p className="text-xs text-slate-400 mt-1" title={`Arranged by ${song.arranger}`}>Arr. by {song.arranger}</p>
-                  )}
+
+                  {/* Artist & Arranger */}
+                  <div className="flex items-center gap-2 text-xs text-slate-400 mb-2">
+                    <span className="font-semibold text-slate-300 truncate max-w-[200px]" title={song.artist}>
+                      {song.artist || 'Unknown Artist'}
+                    </span>
+                    {song.arranger && (
+                      <>
+                        <span className="text-slate-600">•</span>
+                        <span className="text-slate-400 truncate max-w-[150px]" title={`Arr. by ${song.arranger}`}>
+                          Arr. {song.arranger}
+                        </span>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Description if present */}
                   {song.description && (
-                    <p className="text-xs text-slate-400 mt-2 italic border-l-2 border-slate-600 pl-2 leading-tight">
+                    <p className="text-[11px] text-slate-400 italic bg-slate-950/40 p-2 rounded-lg border-l-2 border-cyan-500/50 mb-2 line-clamp-2">
                       {song.description}
                     </p>
                   )}
-                  {song.uploader_id && (
-                    <p className="text-xs text-slate-500 mt-1">
-                      Uploaded by {userUsernameCache.get(song.uploader_id) || song.uploader_id.substring(0, 8)} on {formatDate(song.created_at)}
-                    </p>
-                  )}
 
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigator.clipboard.writeText(song.id);
-                      const btn = e.currentTarget;
-                      const oldText = btn.innerHTML;
-                      btn.innerHTML = '<span class="text-green-400 font-bold">✓ Copied!</span>';
-                      setTimeout(() => btn.innerHTML = oldText, 2000);
-                    }}
-                    className="mt-2 inline-flex items-center gap-1 text-[10px] text-cyan-400/80 hover:text-cyan-300 font-medium bg-slate-800/60 hover:bg-slate-800 border border-slate-700/50 py-1 px-2.5 rounded transition-all"
-                  >
-                    Copy ID
-                  </button>
+                  {/* Difficulty & Personal Best */}
+                  <div className="flex flex-wrap items-center gap-2 mb-2">
+                    {personalBestScore && (
+                      <div
+                        className="text-xs text-amber-300 bg-amber-950/30 border border-amber-500/30 rounded-lg px-2.5 py-1 flex items-center gap-1.5 cursor-pointer hover:bg-amber-900/40 transition-colors shadow-sm"
+                        onClick={() => handleOpenPerformanceSummary(personalBestScore)}
+                      >
+                        <svg className="w-3.5 h-3.5 text-amber-400 shrink-0" viewBox="0 0 24 24" fill="currentColor"><path d="M2 4l3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14v2H5z"/></svg>
+                        <span>{t.personalBestLabel}</span>
+                        <strong className="font-mono text-white">{Math.round(personalBestScore.final_score).toLocaleString('en-US')}</strong>
+                      </div>
+                    )}
 
-                  {personalBestScore && (
-                    <div
-                      className="mt-2 text-sm text-yellow-300 bg-yellow-900/30 border border-yellow-700/50 rounded-md px-2 py-1 inline-block cursor-pointer hover:bg-yellow-800/50"
-                      onClick={() => handleOpenPerformanceSummary(personalBestScore)}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigator.clipboard.writeText(song.id);
+                        const btn = e.currentTarget;
+                        const oldText = btn.innerHTML;
+                        btn.innerHTML = `<span class="text-green-400 font-bold">${t.copiedBadge}</span>`;
+                        setTimeout(() => btn.innerHTML = oldText, 2000);
+                      }}
+                      className="text-[10px] text-slate-400 hover:text-cyan-300 font-medium bg-slate-800/60 hover:bg-slate-800 border border-slate-700/50 py-1 px-2 rounded-lg transition-all"
+                      title={t.copyIdTooltip}
                     >
-                      <strong>Best:</strong> {Math.round(personalBestScore.final_score).toLocaleString('en-US')}
-                    </div>
-                  )}
+                      {t.copyIdTooltip}
+                    </button>
+                  </div>
 
+                  {/* Difficulty Analysis Bar */}
                   {(song.difficulty_level != null && song.performance_score != null) && (
-                    <div className="mt-2">
+                    <div className="mb-2">
                       <DifficultyAnalysis
                         analysisResult={{
                           difficultyLevel: song.difficulty_level,
@@ -1020,7 +1117,6 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                           parameters: {
                             starLevel: Math.round(song.difficulty_level),
                             density: 0,
-                            // FIX: The property 'patternComplexity' does not exist on the 'parameters' type. Renamed to 'intervalComplexity' and removed obsolete properties to match the type definition.
                             intervalComplexity: 0,
                             physicalEffort: 0,
                             chordMobility: 0,
@@ -1043,49 +1139,108 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                       />
                     </div>
                   )}
+
+                  {song.uploader_id && (
+                    <p className="text-[10px] text-slate-500">
+                      {t.uploadedBy} {userUsernameCache.get(song.uploader_id) || song.uploader_id.substring(0, 8)} • {formatDate(song.created_at)}
+                    </p>
+                  )}
                 </div>
-                <div className="mt-4 flex flex-wrap justify-between gap-2 items-center">
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => handleLikeDislike(song, 'like')} disabled={!user} className={`flex items-center justify-center text-xs px-2 py-1 rounded-lg transition-colors ${userLikeStatus === 1 ? 'bg-green-600 text-white' : 'bg-slate-700 hover:bg-slate-600 text-slate-300 disabled:opacity-50'}`} title="Like MIDI">
-                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M2 10.5a1.5 1.5 0 113 0v6a1.5 1.5 0 01-3 0v-6zM6 10.333v5.43a2 2 0 001.106 1.79l.05.025A4 4 0 008.943 18h5.416a2 2 0 001.962-1.608l1.2-6A2 2 0 0015.562 8H12V4a2 2 0 00-2-2 1 1 0 00-1 1v.667a4 4 0 01-.8 2.4L6.8 7.933a4 4 0 00-.8 2.4z"></path></svg>
+
+                {/* Card Action Footer */}
+                <div className="mt-3 pt-3 border-t border-white/5 flex flex-wrap justify-between items-center gap-2">
+                  {/* Left: Reaction score */}
+                  <div className="flex items-center gap-1 bg-slate-950/60 p-1 rounded-xl border border-white/5">
+                    <button 
+                      onClick={() => handleLikeDislike(song, 'like')} 
+                      disabled={!user} 
+                      className={`w-7 h-7 flex items-center justify-center rounded-lg transition-colors ${
+                        userLikeStatus === 1 
+                          ? 'bg-emerald-600 text-white' 
+                          : 'hover:bg-slate-800 text-slate-400 hover:text-emerald-400 disabled:opacity-30'
+                      }`} 
+                    >
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="18 15 12 9 6 15"/></svg>
                     </button>
-                    <span className={`text-sm font-bold w-8 text-center tabular-nums ${netScore > 0 ? 'text-green-400' : netScore < 0 ? 'text-red-400' : 'text-slate-400'}`}>
+                    <span className={`text-xs font-mono font-bold px-1 tabular-nums ${
+                      netScore > 0 ? 'text-emerald-400' : netScore < 0 ? 'text-rose-400' : 'text-slate-400'
+                    }`}>
                       {netScore}
                     </span>
-                    <button onClick={() => handleLikeDislike(song, 'dislike')} disabled={!user} className={`flex items-center justify-center text-xs px-2 py-1 rounded-lg transition-colors ${userLikeStatus === -1 ? 'bg-red-600 text-white' : 'bg-slate-700 hover:bg-slate-600 text-slate-300 disabled:opacity-50'}`} title="Dislike MIDI">
-                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M18 9.5a1.5 1.5 0 11-3 0v-6a1.5 1.5 0 013 0v6zM14 9.667v-5.43a2 2 0 00-1.106-1.79l-.05-.025A4 4 0 0011.057 2H5.642a2 2 0 00-1.962 1.608l-1.2 6A2 2 0 004.438 12H8v4a2 2 0 002 2 1 1 0 001-1v-.667a4 4 0 01.8-2.4l1.2-2.8a4 4 0 00.8-2.4z"></path></svg>
+                    <button 
+                      onClick={() => handleLikeDislike(song, 'dislike')} 
+                      disabled={!user} 
+                      className={`w-7 h-7 flex items-center justify-center rounded-lg transition-colors ${
+                        userLikeStatus === -1 
+                          ? 'bg-rose-600 text-white' 
+                          : 'hover:bg-slate-800 text-slate-400 hover:text-rose-400 disabled:opacity-30'
+                      }`} 
+                    >
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="6 9 12 15 18 9"/></svg>
                     </button>
                   </div>
-                  <div className="flex gap-2 items-center">
+
+                  {/* Right: Management & Play */}
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     {(currentUserIsUploader(song.uploader_id) || isAdmin) && (
                       <>
-                        <button onClick={() => openEditModal(song)} className="text-xs bg-orange-600 hover:bg-orange-700 text-white px-3 py-1 rounded-lg" title="Edit MIDI details / Replace file">Edit</button>
-                        <button onClick={() => handleDownloadMidi(song)} className="text-xs bg-cyan-600 hover:bg-cyan-700 text-white px-3 py-1 rounded-lg" title="Download MIDI file">Download</button>
+                        <button 
+                          onClick={() => openEditModal(song)} 
+                          className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1.5 rounded-lg border border-slate-700 transition-colors" 
+                          title="Edit"
+                        >
+                          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                        </button>
+                        <button 
+                          onClick={() => handleDownloadMidi(song)} 
+                          className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1.5 rounded-lg border border-slate-700 transition-colors" 
+                          title="Download"
+                        >
+                          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteSong(song.id)} 
+                          className="text-xs bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-500/30 px-2.5 py-1.5 rounded-lg transition-colors" 
+                          title="Delete"
+                        >
+                          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                        </button>
                       </>
                     )}
-                    {(currentUserIsUploader(song.uploader_id) || isAdmin) && (
-                      <button onClick={() => handleDeleteSong(song.id)} className="text-xs bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded-lg" title="Delete MIDI">Delete</button>
-                    )}
+
                     {isAdmin && (
                       <button
                         onClick={() => handleToggleRanked(song.id, !!song.is_ranked)}
-                        className={`text-xs px-3 py-1 rounded-lg ${song.is_ranked ? 'bg-gray-600 hover:bg-gray-700 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'
-                          }`}
-                        title={song.is_ranked ? 'Mark as Unranked MIDI' : 'Mark as Ranked MIDI'}
+                        className={`text-xs px-2.5 py-1.5 rounded-lg font-bold transition-colors ${
+                          song.is_ranked 
+                            ? 'bg-slate-700 hover:bg-slate-600 text-slate-300' 
+                            : 'bg-amber-600 hover:bg-amber-500 text-white'
+                        }`}
                       >
                         {song.is_ranked ? 'Unrank' : 'Rank'}
                       </button>
                     )}
-                    {song.is_ranked && <button onClick={() => setLeaderboardSong(song)} className="text-xs bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1 rounded-lg" title="View Leaderboard for MIDI">Leaderboard</button>}
+
+                    {song.is_ranked && (
+                      <button 
+                        onClick={() => setLeaderboardSong(song)} 
+                        className="text-xs bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 transition-colors" 
+                      >
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6M18 9h1.5a2.5 2.5 0 0 0 0-5H18M4 22h16M18 2H6v7a6 6 0 0 0 12 0V2z"/></svg>
+                        <span className="hidden sm:inline">Leaderboard</span>
+                      </button>
+                    )}
+
                     <button
                       onClick={() => handlePlaySong(song)}
-                      className="text-sm bg-slate-700 text-slate-300 px-4 py-2 rounded-lg group-hover:bg-violet-600 group-hover:text-white transition-colors"
-                      title="Play MIDI"
+                      className="text-xs md:text-sm font-bold bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white px-4 py-1.5 rounded-xl shadow-md shadow-cyan-500/20 hover:scale-105 active:scale-95 transition-all flex items-center gap-1.5"
                     >
-                      Play
+                      <span>{t.selectSongBtn}</span>
+                      <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 20 20"><path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z"/></svg>
                     </button>
                   </div>
                 </div>
+
               </div>
             );
           })}
@@ -1093,22 +1248,25 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
 
         {/* Load More Button */}
         {hasMore && !isLoading && songs.length > 0 && (
-          <div className="mt-4 flex justify-center pb-2">
+          <div className="mt-6 flex justify-center pb-4">
             <button
               onClick={handleLoadMore}
               disabled={isLoadingMore}
-              className="px-6 py-2 bg-slate-700 hover:bg-slate-600 text-white font-semibold rounded-lg shadow-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl border border-white/10 shadow-md transition-all disabled:opacity-50 flex items-center gap-2 text-sm"
             >
               {isLoadingMore ? (
                 <>
-                  <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <svg className="animate-spin h-4 w-4 text-cyan-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                   </svg>
-                  Loading...
+                  <span>{t.loadingMore}</span>
                 </>
               ) : (
-                'Load More'
+                <>
+                  <span>{t.loadMoreSongs}</span>
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
+                </>
               )}
             </button>
           </div>
@@ -1264,42 +1422,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                     {uploadBackgroundUrl.length} / 300
                   </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">
-                    Accuracy Level (3-7)
-                    <span className="block text-xs text-slate-400 font-normal mt-0.5">
-                      3 = Very Lenient, 5 = Normal, 7 = Very Strict
-                    </span>
-                  </label>
-                  <input
-                    type="range"
-                    min="3"
-                    max="7"
-                    step="1"
-                    value={uploadAccuracyLevel}
-                    onChange={e => setUploadAccuracyLevel(parseInt(e.target.value, 10))}
-                    className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
-                  />
-                  <div className="text-center mt-2 space-y-1">
-                    <div className="text-cyan-400 font-bold">
-                      Level {uploadAccuracyLevel}
-                    </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      <div className="flex flex-col items-center p-1 bg-slate-700/50 rounded border border-emerald-500/30">
-                        <span className="text-[10px] text-emerald-400 font-bold uppercase">Perfect</span>
-                        <span className="text-xs text-white font-mono">±{100 + (5 - uploadAccuracyLevel) * 20}ms</span>
-                      </div>
-                      <div className="flex flex-col items-center p-1 bg-slate-700/50 rounded border border-sky-500/30">
-                        <span className="text-[10px] text-sky-400 font-bold uppercase">Great</span>
-                        <span className="text-xs text-white font-mono">±{Math.round((100 + (5 - uploadAccuracyLevel) * 20) * 1.5)}ms</span>
-                      </div>
-                      <div className="flex flex-col items-center p-1 bg-slate-700/50 rounded border border-amber-500/30">
-                        <span className="text-[10px] text-amber-400 font-bold uppercase">Good</span>
-                        <span className="text-xs text-white font-mono">±{(100 + (5 - uploadAccuracyLevel) * 20) * 2}ms</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-1">Song File (MIDI)</label>
                   <input
@@ -1455,43 +1578,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                       {editBackgroundUrl.length} / 300
                     </div>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">
-                      Accuracy Level (3-7)
-                      <span className="block text-xs text-slate-400 font-normal mt-0.5">
-                        3 = Very Lenient, 5 = Normal, 7 = Very Strict
-                      </span>
-                    </label>
-                    <input
-                      type="range"
-                      min="3"
-                      max="7"
-                      step="1"
-                      value={editAccuracyLevel}
-                      onChange={e => setEditAccuracyLevel(parseInt(e.target.value, 10))}
-                      disabled={isEditing}
-                      className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 disabled:opacity-50"
-                    />
-                    <div className="text-center mt-2 space-y-1">
-                      <div className="text-cyan-400 font-bold">
-                        Level {editAccuracyLevel}
-                      </div>
-                      <div className="grid grid-cols-3 gap-2">
-                        <div className="flex flex-col items-center p-1 bg-slate-700/50 rounded border border-emerald-500/30">
-                          <span className="text-[10px] text-emerald-400 font-bold uppercase">Perfect</span>
-                          <span className="text-xs text-white font-mono">±{100 + (5 - editAccuracyLevel) * 20}ms</span>
-                        </div>
-                        <div className="flex flex-col items-center p-1 bg-slate-700/50 rounded border border-sky-500/30">
-                          <span className="text-[10px] text-sky-400 font-bold uppercase">Great</span>
-                          <span className="text-xs text-white font-mono">±{Math.round((100 + (5 - editAccuracyLevel) * 20) * 1.5)}ms</span>
-                        </div>
-                        <div className="flex flex-col items-center p-1 bg-slate-700/50 rounded border border-amber-500/30">
-                          <span className="text-[10px] text-amber-400 font-bold uppercase">Good</span>
-                          <span className="text-xs text-white font-mono">±{(100 + (5 - editAccuracyLevel) * 20) * 2}ms</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+
                   <div className="pt-4 border-t border-slate-700">
                     <label className="block text-sm font-medium text-slate-300 mb-1">Replace Song File (Optional, MIDI only)</label>
                     <input

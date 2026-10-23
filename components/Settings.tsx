@@ -1,10 +1,12 @@
-import type { FingeringPreferences } from '../fingeringApi';
 import React, { useState, useEffect, useRef } from 'react';
-import { MidiAccessStatus, MIDIInput, MIDIOutput, NoteLabelType, ViewMode, ThemeSettings, DevicePreset, LayoutDimensions, QwertyLayout, MicThresholds } from '../types';
+import { MidiAccessStatus, MIDIInput, MIDIOutput, NoteLabelType, ViewMode, ThemeSettings, DevicePreset, LayoutDimensions, QwertyLayout, MicThresholds, FingeringPreferences, AppLanguage } from '../types';
 import { DEVICE_LAYOUTS, DRUM_PADS } from '../constants'; // Import DEVICE_LAYOUTS
 import { DrumPadConfig } from '../types';
+import { translations } from '../translations';
 
 interface SettingsProps {
+  appLanguage?: AppLanguage;
+  onLanguageChange?: (lang: AppLanguage) => void;
   fingeringPreferences: FingeringPreferences;
   onFingeringPreferencesChange: (preferences: FingeringPreferences) => void;
   showHand3D: boolean;
@@ -109,21 +111,16 @@ interface SettingsProps {
   userAudioSyncOffset?: number;
   onUserAudioSyncOffsetChange?: (offset: number) => void;
   detectedLatencyMs?: number;
+  hidePianoKeyboardNonFalling?: boolean;
+  onHidePianoKeyboardNonFallingChange?: (value: boolean) => void;
+  showDynamics?: boolean;
+  onShowDynamicsChange?: (value: boolean) => void;
 }
 
 const Section: React.FC<{ title: string; children: React.ReactNode; showInfoButton?: boolean; onInfoClick?: () => void }> = ({ title, children, showInfoButton, onInfoClick }) => (
   <section id={`settings-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="scroll-mt-28">
     <h3 className="text-xl font-semibold text-violet-400 mb-4 border-b border-slate-700 pb-2 flex items-center justify-between">
       {title}
-      {showInfoButton && (
-        <button
-          onClick={onInfoClick}
-          className="ml-2 px-3 py-1 text-sm rounded-lg font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-300 focus:ring-opacity-75 bg-slate-700 hover:bg-slate-600 text-slate-100"
-          aria-label="Read information about Device & UI settings"
-        >
-          Read This
-        </button>
-      )}
     </h3>
     <div className="space-y-4">{children}</div>
   </section>
@@ -187,10 +184,29 @@ export const Settings: React.FC<SettingsProps> = (props) => {
     onStartCalibration,
     userAudioSyncOffset = 0,
     onUserAudioSyncOffsetChange,
-    detectedLatencyMs = 0
+    detectedLatencyMs = 0,
+    hidePianoKeyboardNonFalling = true,
+    onHidePianoKeyboardNonFallingChange,
+    showDynamics = false,
+    onShowDynamicsChange,
+    appLanguage = 'en',
+    onLanguageChange
   } = props;
 
+  const t = translations[appLanguage] || translations.en;
+
   const [isRendered, setIsRendered] = useState(false);
+
+  useEffect(() => {
+    if (instrumentMode === 'drum' && gameplayStyle === 'computer') {
+      onGameplayStyleChange('piano');
+      if (viewMode === 'qwerty_mania' || viewMode === 'sheet-qwerty') {
+        onViewModeChange('drum_mania');
+      }
+    } else if (instrumentMode === 'piano' && viewMode === 'drum_mania') {
+      onViewModeChange(gameplayStyle === 'computer' ? 'qwerty_mania' : 'falling');
+    }
+  }, [instrumentMode, gameplayStyle, viewMode, onGameplayStyleChange, onViewModeChange]);
   const [isInfoModalOpen, setIsInfoModalOpen] = useState(false); // NEW state for info modal
   const [isInfoModalRendered, setIsInfoModalRendered] = useState(false); // For info modal animations
   const [mappingPadId, setMappingPadId] = useState<string | null>(null);
@@ -357,7 +373,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
       }
       onShowQwertyShortcutsChange(false);
     } else { // computer
-      onViewModeChange('sheet-qwerty');
+      onViewModeChange('qwerty_mania');
       onNoteLabelTypeChange('qwerty');
       onShowQwertyShortcutsChange(true);
     }
@@ -367,35 +383,177 @@ export const Settings: React.FC<SettingsProps> = (props) => {
   const gameplayPresetSelected = "bg-violet-500/80 border-violet-400 shadow-lg scale-105 ring-2 ring-violet-400";
   const gameplayPresetUnselected = "bg-slate-700/50 border-slate-600 hover:bg-slate-700 hover:border-slate-500";
 
+  const [activeSettingsTab, setActiveSettingsTab] = useState<'gameplay' | 'midi' | 'audio' | 'theme' | 'all'>('gameplay');
+  const [settingsSearch, setSettingsSearch] = useState('');
+
+  useEffect(() => {
+    if (initialScrollTarget) {
+      if (initialScrollTarget.includes('offset') || initialScrollTarget.includes('audio') || initialScrollTarget.includes('latency')) {
+        setActiveSettingsTab('audio');
+      } else {
+        setActiveSettingsTab('all');
+      }
+    }
+  }, [initialScrollTarget]);
+
   const handleThresholdChange = (key: keyof MicThresholds, value: number) => {
     onMicThresholdsChange({ ...micThresholds, [key]: value });
   };
 
   return (
     <>
-      <div className={`p-6 md:p-8 rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto custom-scrollbar text-slate-100 [text-shadow:0_1px_3px_rgba(0,0,0,0.95)] ring-1 ring-slate-700 transform transition-all duration-300 ease-in-out bg-slate-800/60 ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`} onClick={e => e.stopPropagation()}>
-        <div className="flex justify-between items-center mb-6">
-            <h2 className="text-3xl font-bold text-cyan-400">Settings</h2>
-            <button onClick={onBack} className="text-slate-400 hover:text-white text-3xl leading-none" style={{ zIndex: 9999 }} aria-label="Close settings">&times;</button>
+      <div className={`p-6 md:p-8 rounded-3xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto custom-scrollbar text-slate-100 border border-white/10 transform transition-all duration-300 ease-in-out bg-slate-900/95 backdrop-blur-md ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`} onClick={e => e.stopPropagation()}>
+        {/* Header Bar */}
+        <div className="flex items-center justify-between pb-4 border-b border-white/10 mb-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-300">
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-2xl font-black text-white tracking-wide">{t.settingsTitle}</h2>
+              <p className="text-xs text-slate-400">{t.settingsSubtitle}</p>
+            </div>
+          </div>
+          <button 
+            onClick={onBack} 
+            className="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center text-lg transition-colors border border-white/5 active:scale-95" 
+            style={{ zIndex: 9999 }} 
+            aria-label={t.closeSettings}
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
         </div>
-        
-        <div className="space-y-8">
-          <Section title="Gameplay Style">
+
+        {/* Search Bar */}
+        <div className="relative mb-4">
+          <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8"/>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+          </span>
+          <input
+            type="text"
+            placeholder={t.settingsSearchPlaceholder}
+            value={settingsSearch}
+            onChange={e => setSettingsSearch(e.target.value)}
+            className="w-full pl-10 pr-9 py-2.5 rounded-xl bg-slate-800/80 text-white placeholder-slate-500 border border-slate-700/80 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none text-xs md:text-sm shadow-inner transition-all"
+          />
+          {settingsSearch && (
+            <button
+              onClick={() => setSettingsSearch('')}
+              className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-white"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+
+        {/* Category Tabs with SVGs */}
+        {!settingsSearch && (
+          <div className="flex items-center gap-1.5 p-1 bg-slate-950/60 rounded-2xl border border-white/5 mb-6 overflow-x-auto custom-scrollbar">
+            <button
+              onClick={() => setActiveSettingsTab('gameplay')}
+              className={`flex-1 min-w-[120px] py-2 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 ${
+                activeSettingsTab === 'gameplay'
+                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+              }`}
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 12h4M8 10v4M15 13h.01M18 11h.01"/></svg>
+              <span>{t.tabGameplay}</span>
+            </button>
+
+            <button
+              onClick={() => setActiveSettingsTab('midi')}
+              className={`flex-1 min-w-[120px] py-2 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 ${
+                activeSettingsTab === 'midi'
+                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+              }`}
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><path d="M6 4v8h2V4M11 4v8h2V4M16 4v8h2V4"/></svg>
+              <span>{t.tabMidi}</span>
+            </button>
+
+            <button
+              onClick={() => setActiveSettingsTab('audio')}
+              className={`flex-1 min-w-[120px] py-2 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 ${
+                activeSettingsTab === 'audio'
+                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+              }`}
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+              <span>{t.tabAudio}</span>
+            </button>
+
+            <button
+              onClick={() => setActiveSettingsTab('theme')}
+              className={`flex-1 min-w-[120px] py-2 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 ${
+                activeSettingsTab === 'theme'
+                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+              }`}
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>
+              <span>{t.tabVisuals}</span>
+            </button>
+
+            <button
+              onClick={() => setActiveSettingsTab('all')}
+              className={`py-2 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1 ${
+                activeSettingsTab === 'all'
+                  ? 'bg-slate-800 text-white'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+              <span>{t.tabAll}</span>
+            </button>
+          </div>
+        )}
+
+        <div className="space-y-6">
+          {(activeSettingsTab === 'all' || activeSettingsTab === 'gameplay' || settingsSearch.trim() !== '') && (
+            <>
+          <Section title={t.languageSectionTitle}>
+            <SettingRow label={t.appLanguageLabel} htmlFor="app-language">
+              <select
+                id="app-language"
+                value={appLanguage}
+                onChange={e => onLanguageChange && onLanguageChange(e.target.value as AppLanguage)}
+                className={`${selectStyles} max-w-xs`}
+              >
+                <option value="en">English (US / UK)</option>
+                <option value="id">Bahasa Indonesia</option>
+                <option value="es">Español</option>
+              </select>
+            </SettingRow>
+          </Section>
+
+          <Section title={t.gameplayStyleSection}>
             {instrumentMode === 'piano' ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <button
                   onClick={() => handleGameplayStyleChange('piano')}
                   className={`${gameplayPresetButtonBase} ${gameplayStyle === 'piano' ? gameplayPresetSelected : gameplayPresetUnselected}`}
                 >
-                  <h4 className="font-bold text-lg text-violet-300">Piano</h4>
-                  <p className="text-xs text-slate-300 mt-1">Optimized for MIDI keyboards and visual learning.</p>
+                  <h4 className="font-bold text-lg text-violet-300">{t.pianoStyleTitle}</h4>
+                  <p className="text-xs text-slate-300 mt-1">{t.pianoStyleDesc}</p>
                 </button>
                 <button
                   onClick={() => handleGameplayStyleChange('computer')}
                   className={`${gameplayPresetButtonBase} ${gameplayStyle === 'computer' ? gameplayPresetSelected : gameplayPresetUnselected}`}
                 >
-                  <h4 className="font-bold text-lg text-violet-300">Keyboard Computer</h4>
-                  <p className="text-xs text-slate-300 mt-1">Optimized for playing with your computer keyboard.</p>
+                  <h4 className="font-bold text-lg text-violet-300">{t.computerStyleTitle}</h4>
+                  <p className="text-xs text-slate-300 mt-1">{t.computerStyleDesc}</p>
                 </button>
               </div>
             ) : (
@@ -404,22 +562,189 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                   onClick={() => onDrumInputModeChange('non-midi')}
                   className={`${gameplayPresetButtonBase} ${drumInputMode === 'non-midi' ? gameplayPresetSelected : gameplayPresetUnselected}`}
                 >
-                  <h4 className="font-bold text-lg text-violet-300">Keyboard/Touchscreen</h4>
-                  <p className="text-xs text-slate-300 mt-1">Play drums using your computer keyboard or by clicking/touching the drum kit.</p>
+                  <h4 className="font-bold text-lg text-violet-300">{t.drumNonMidiTitle}</h4>
+                  <p className="text-xs text-slate-300 mt-1">{t.drumNonMidiDesc}</p>
                 </button>
                 <button
                   onClick={() => onDrumInputModeChange('midi')}
                   className={`${gameplayPresetButtonBase} ${drumInputMode === 'midi' ? gameplayPresetSelected : gameplayPresetUnselected}`}
                 >
-                  <h4 className="font-bold text-lg text-violet-300">Drum MIDI</h4>
-                  <p className="text-xs text-slate-300 mt-1">Play drums using a connected MIDI drum kit or controller.</p>
+                  <h4 className="font-bold text-lg text-violet-300">{t.drumMidiTitle}</h4>
+                  <p className="text-xs text-slate-300 mt-1">{t.drumMidiDesc}</p>
                 </button>
               </div>
             )}
           </Section>
 
-          <Section title="Device & UI" showInfoButton={true} onInfoClick={() => setIsInfoModalOpen(true)}>
-            <SettingRow label={`UI Zoom (${uiZoom}%)`} htmlFor="ui-zoom">
+          <Section title={t.visualsSection}>
+            {(instrumentMode === 'piano' || instrumentMode === 'drum') && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <SettingRow label={t.gameViewLabel} htmlFor="view-mode">
+                  <div id="view-mode" role="radiogroup" className="flex flex-wrap gap-2">
+                    {((instrumentMode === 'piano' && gameplayStyle === 'computer')
+                      ? [
+                          { value: 'qwerty_mania', label: 'Qwerty Typer' },
+                          { value: 'sheet-qwerty', label: 'Sheet Music QWERTY' },
+                        ]
+                      : [
+                          { value: 'falling', label: instrumentMode === 'drum' ? 'Drum Typer' : 'Falling Notes' },
+                          ...(instrumentMode === 'drum' ? [{ value: 'drum_mania', label: 'Drum Mania' }] : []),
+                          { value: 'sheet', label: 'Sheet Music' },
+                          { value: 'sheet-roll', label: 'Sheet Music Roll' },
+                        ]
+                    ).map(opt => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={viewMode === opt.value}
+                        onClick={() => onViewModeChange(opt.value as ViewMode)}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-semibold border transition-all ${viewMode === opt.value ? 'bg-cyan-600 border-cyan-400 text-white shadow-sm' : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'}`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </SettingRow>
+                <SettingRow label={t.noteLabelsLabel} htmlFor="note-label">
+                  <div id="note-label" role="radiogroup" className="flex flex-wrap gap-2">
+                    {[
+                      { value: 'none', label: 'None' },
+                      { value: 'fingering', label: 'Fingering' },
+                      { value: 'noteName', label: 'Note Name' },
+                      ...(gameplayStyle !== 'piano' ? [{ value: 'qwerty', label: 'QWERTY Keys' }] : []),
+                    ].map(opt => {
+                      const locked = instrumentMode === 'piano' && gameplayStyle === 'computer';
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          role="radio"
+                          aria-checked={noteLabelType === opt.value}
+                          disabled={locked}
+                          onClick={() => onNoteLabelTypeChange(opt.value as NoteLabelType)}
+                          className={`px-3 py-1.5 rounded-lg text-sm font-semibold border transition-all ${locked ? 'opacity-50 cursor-not-allowed' : ''} ${noteLabelType === opt.value ? 'bg-cyan-600 border-cyan-400 text-white shadow-sm' : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'}`}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </SettingRow>
+          {instrumentMode === 'piano' && noteLabelType === 'fingering' && <section id="fingering-section" className="rounded-xl border border-cyan-500/20 bg-slate-900/30 p-5">
+            <h3 className="text-xl font-semibold text-cyan-300 mb-4">{t.fingeringSettingsTitle}</h3>
+
+
+            <label className="flex items-center gap-3 text-slate-200 mb-4"><input type="checkbox" checked={props.showHand3D} onChange={e=>props.onShowHand3DChange(e.target.checked)}/>{t.showHand3DLabel}</label>
+            <p className="text-xs text-slate-400 mt-2">{t.showHand3DDesc}</p>
+          </section>}
+
+              </div>
+            )}
+            <ToggleRow id="major-notes-only" label={t.showMajorNotesOnly} checked={instrumentMode === 'drum' ? true : showOnlyMajorNotes} onChange={onShowOnlyMajorNotesChange} disabled={instrumentMode === 'drum'}/>
+            <p className="-mt-3 mb-4 text-xs text-slate-400">{t.showMajorNotesOnlyDesc}</p>
+            <ToggleRow id="show-piano-tiles" label={t.showPianoTilesBg} checked={showPianoTilesBackground} onChange={onShowPianoTilesBackgroundChange} />
+            {showPianoTilesBackground && (
+                <SettingRow label={`${t.pianoTilesOpacity} (${themeSettings.pianoTilesOpacity || 50}%)`} htmlFor="piano-tiles-opacity">
+                    <input 
+                        id="piano-tiles-opacity" 
+                        type="range" 
+                        min="10" 
+                        max="100" 
+                        step="1" 
+                        value={themeSettings.pianoTilesOpacity || 50} 
+                        onChange={e => onThemeSettingsChange({ ...themeSettings, pianoTilesOpacity: parseInt(e.target.value, 10) })} 
+                        className={`${rangeSliderStyle} max-w-xs`} 
+                    />
+                </SettingRow>
+            )}
+            <ToggleRow id="show-perfect-judgment" label={t.showPerfectText} checked={showPerfectJudgment} onChange={onShowPerfectJudgmentChange} />
+            {onHidePianoKeyboardNonFallingChange && (
+              <>
+                <ToggleRow
+                  id="hide-piano-keyboard-non-falling"
+                  label={t.hidePianoKeyboardNonFalling}
+                  checked={hidePianoKeyboardNonFalling}
+                  onChange={onHidePianoKeyboardNonFallingChange}
+                />
+                <p className="-mt-3 mb-4 text-xs text-slate-400">
+                  {t.hidePianoKeyboardNonFallingDesc}
+                </p>
+              </>
+            )}
+            {onShowDynamicsChange && (
+              <>
+                <ToggleRow
+                  id="show-dynamics"
+                  label={t.showDynamics}
+                  checked={showDynamics}
+                  onChange={onShowDynamicsChange}
+                />
+                <p className="-mt-3 mb-4 text-xs text-slate-400">
+                  {t.showDynamicsDesc}
+                </p>
+              </>
+            )}
+            {onResolutionScaleChange && (
+              <SettingRow label={t.inGameResolution} htmlFor="resolution-scale">
+                <select
+                  id="resolution-scale"
+                  value={resolutionScale}
+                  onChange={e => onResolutionScaleChange(parseFloat(e.target.value))}
+                  className={`${selectStyles} max-w-xs`}
+                >
+                  <option value={1.0}>100% (Normal)</option>
+                  <option value={0.75}>75% (Medium)</option>
+                  <option value={0.5}>50% (Low - Half Resolution)</option>
+                  <option value={0.25}>25% (Very Low - Quarter Resolution)</option>
+                  <option value={0.125}>12.5% (Ultra Low - Eighth Resolution)</option>
+                  <option value={0.0625}>6.25% (Extreme Low - Sixteenth Resolution)</option>
+                </select>
+              </SettingRow>
+            )}
+            
+            {(viewMode === 'qwerty_mania' || (viewMode === 'falling' && instrumentMode === 'drum')) && (
+              <div className="bg-slate-900/50 p-4 rounded-lg mt-4 space-y-4 ring-1 ring-slate-700">
+                <h4 className="text-md font-semibold text-slate-200 border-b border-slate-700 pb-2">Typer & Circle Visual Settings</h4>
+                
+                <SettingRow label="Zoom Direction (AR)" htmlFor="zoom-direction">
+                  <select 
+                    id="zoom-direction" 
+                    value={zoomDirection} 
+                    onChange={e => onZoomDirectionChange(e.target.value as 'normal' | 'reverse')} 
+                    className={selectStyles}
+                  >
+                    <option value="normal">Normal (Outside to Inside)</option>
+                    <option value="reverse">Reverse (Inside to Outside)</option>
+                  </select>
+                </SettingRow>
+
+                <SettingRow label={t.appearingKeysOpacity} htmlFor="drum-typer-opacity">
+                  <div className="flex items-center gap-3 w-full">
+                    <span className="text-[10px] text-cyan-400 font-mono w-10 text-right">{drumTyperPadOpacity}%</span>
+                    <input 
+                      type="range" 
+                      id="drum-typer-opacity"
+                      min="0" 
+                      max="100" 
+                      step="1" 
+                      value={drumTyperPadOpacity} 
+                      onChange={e => onDrumTyperPadOpacityChange(parseInt(e.target.value))} 
+                      className={`${rangeSliderStyle} flex-grow focus:ring-cyan-500`} 
+                    />
+                  </div>
+                </SettingRow>
+                <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
+                  {t.appearingKeysOpacityDesc}
+                </p>
+              </div>
+            )}
+
+            <ToggleRow id="qwerty-shortcuts" label={t.showQwertyShortcuts} checked={showQwertyShortcuts} onChange={onShowQwertyShortcutsChange} disabled={true} />
+          </Section>
+
+          <Section title={t.deviceUiSection} showInfoButton={true} onInfoClick={() => setIsInfoModalOpen(true)}>
+            <SettingRow label={`${t.uiZoomLabel} (${uiZoom}%)`} htmlFor="ui-zoom">
               <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-3">
                   <button
@@ -457,15 +782,15 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                     onChange={(e) => onUiZoomAutoChange(e.target.checked)}
                     className="w-4 h-4 text-cyan-600 bg-slate-700 border-slate-600 rounded focus:ring-cyan-500 focus:ring-2"
                   />
-                  <span className="text-sm text-slate-300">Auto Fit Screen</span>
+                  <span className="text-sm text-slate-300">{t.autoZoomLabel}</span>
                 </label>
               </div>
             </SettingRow>
           </Section>
 
           {instrumentMode === 'piano' && (
-            <Section title="Piano Display">
-              <SettingRow label="Visible Keys" htmlFor="piano-range-mode">
+            <Section title={t.pianoDisplaySection}>
+              <SettingRow label={t.visibleKeysLabel} htmlFor="piano-range-mode">
                 <select id="piano-range-mode" value={pianoRangeMode} onChange={e => onPianoRangeModeChange(e.target.value as any)} className={selectStyles}>
                   <option value="full">Full (88 keys)</option>
                   <option value="61-key">Compact (61 keys)</option>
@@ -477,8 +802,8 @@ export const Settings: React.FC<SettingsProps> = (props) => {
 
               {pianoRangeMode === 'custom' && (
                 <div className="bg-slate-900/50 p-4 rounded-lg space-y-3 ring-1 ring-slate-700">
-                  <h4 className="text-md font-semibold text-slate-200">Custom Key Range</h4>
-                  <SettingRow label="Start Note (e.g., C3)" htmlFor="custom-start-note">
+                  <h4 className="text-md font-semibold text-slate-200">{t.customKeyRangeTitle}</h4>
+                  <SettingRow label={t.startNoteLabel} htmlFor="custom-start-note">
                     <input
                       id="custom-start-note"
                       type="text"
@@ -488,7 +813,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                       placeholder="e.g., A0"
                     />
                   </SettingRow>
-                  <SettingRow label="End Note (e.g., C5)" htmlFor="custom-end-note">
+                  <SettingRow label={t.endNoteLabel} htmlFor="custom-end-note">
                     <input
                       id="custom-end-note"
                       type="text"
@@ -503,29 +828,34 @@ export const Settings: React.FC<SettingsProps> = (props) => {
             </Section>
           )}
 
-          {instrumentMode === 'piano' && (
-            <Section title="Controls">
-              <SettingRow label="QWERTY Keyboard Layout" htmlFor="qwerty-layout">
+            </>
+          )}
+
+          {(activeSettingsTab === 'all' || activeSettingsTab === 'midi' || settingsSearch.trim() !== '') && (
+            <>
+              {instrumentMode === 'piano' && (
+                <Section title={t.controlsSection}>
+              <SettingRow label={t.qwertyLayoutLabel} htmlFor="qwerty-layout">
                 <select id="qwerty-layout" value={qwertyLayout} onChange={e => onQwertyLayoutChange(e.target.value as QwertyLayout)} className={selectStyles}>
-                  <option value="mirp">Layout 1 (Roblox): Shift = black keys, ↑/↓ = ±1 semitones</option>
-                  <option value="default">Layout 2 (Standard): ↑/↓ = ±1 octave</option>
+                  <option value="mirp">{t.qwertyLayoutRoblox}</option>
+                  <option value="default">{t.qwertyLayoutStandard}</option>
                 </select>
               </SettingRow>
             </Section>
           )}
 
-          <Section title="MIDI">
-            <SettingRow label="Status">{renderMidiConnectButton()}</SettingRow>
+          <Section title={t.midiSection}>
+            <SettingRow label={t.midiStatusLabel}>{renderMidiConnectButton()}</SettingRow>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label htmlFor="midi-input" className="block mb-2 text-sm font-medium text-slate-300">Input Device</label>
+                <label htmlFor="midi-input" className="block mb-2 text-sm font-medium text-slate-300">{t.inputDeviceLabel}</label>
                 <select id="midi-input" value={selectedMidiInputId || ""} onChange={e => onSelectMidiInput(e.target.value || null)} className={selectStyles} disabled={midiAccessStatus !== 'granted'}>
-                    <option value="">{midiInputs.size === 0 ? 'No Inputs Found' : 'Disconnect'}</option>
+                    <option value="">{midiInputs.size === 0 ? 'No Inputs Found' : t.disconnectMidi}</option>
                     {Array.from(midiInputs.values()).map((input: MIDIInput) => <option key={input.id} value={input.id}>{input.name}</option>)}
                 </select>
               </div>
               <div>
-                <label htmlFor="midi-output" className="block mb-2 text-sm font-medium text-slate-300">Output Device</label>
+                <label htmlFor="midi-output" className="block mb-2 text-sm font-medium text-slate-300">{t.outputDeviceLabel}</label>
                 <select id="midi-output" value={selectedMidiOutputId || ""} onChange={e => onSelectMidiOutput(e.target.value || null)} className={selectStyles} disabled={midiAccessStatus !== 'granted'}>
                     <option value="">{midiOutputs.size === 0 ? 'Internal Synth (No MIDI Outputs)' : 'Internal Synth (Default)'}</option>
                     {Array.from(midiOutputs.values()).map((output: MIDIOutput) => <option key={output.id} value={output.id}>{output.name}</option>)}
@@ -534,15 +864,51 @@ export const Settings: React.FC<SettingsProps> = (props) => {
             </div>
             {midiAccessStatus === 'granted' && midiInputs.size === 0 && midiOutputs.size === 0 && (
               <p className="text-xs text-amber-400 mt-2 text-center">
-                No MIDI devices detected. Try clicking "Rescan Devices" or reconnecting your device.
+                {t.noMidiDevices}
               </p>
             )}
           </Section>
           
           {instrumentMode === 'piano' && (
-            <Section title="Acoustic Piano Input (Beta)">
-              <ToggleRow id="audio-input-enabled" label="Enable Microphone Input" checked={isAudioInputEnabled} onChange={onIsAudioInputEnabledChange} />
-              <SettingRow label="Input Device" htmlFor="audio-input-device">
+            <Section title={t.acousticSection}>
+              {/* 100% Direct In-Browser Audio to MIDI Status Card */}
+              <div className="p-4 bg-slate-900/90 rounded-2xl border border-cyan-500/30 mb-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2.5 h-2.5 rounded-full ${isAudioInputEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`} />
+                    <span className="text-xs font-bold text-white tracking-wide">
+                      {appLanguage === 'id' ? 'Audio-to-MIDI Langsung di Browser' : appLanguage === 'es' ? 'Audio-a-MIDI Directo en Navegador' : 'Direct In-Browser Audio-to-MIDI'}
+                    </span>
+                  </div>
+                  <span className={`text-[10px] uppercase font-black px-2 py-0.5 rounded-full border ${
+                    isAudioInputEnabled 
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' 
+                      : 'bg-slate-800 text-slate-400 border-slate-700'
+                  }`}>
+                    {isAudioInputEnabled 
+                      ? (appLanguage === 'id' ? 'Aktif (Langsung di Browser)' : appLanguage === 'es' ? 'Activo (En Navegador)' : 'Active (In-Browser)') 
+                      : (appLanguage === 'id' ? 'Nonaktif' : appLanguage === 'es' ? 'Inactivo' : 'Disabled')}
+                  </span>
+                </div>
+
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  {appLanguage === 'id'
+                    ? 'Ubah nada piano akustik asli Anda langsung menjadi not MIDI secara real-time melalui mikrofon browser. 100% terintegrasi langsung di Octavia tanpa perlu memasang aplikasi, berkas zip, atau server tambahan apa pun.'
+                    : appLanguage === 'es'
+                    ? 'Convierta notas de piano acústico directamente en notas MIDI en tiempo real a través del micrófono del navegador. 100% integrado directamente en Octavia sin descargas ni servidores externos.'
+                    : 'Transcribe your real acoustic piano into live MIDI notes directly in your browser. 100% natively integrated into Octavia with zero downloads or external servers required.'}
+                </p>
+
+                {isAudioInputEnabled && (
+                  <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400 bg-emerald-950/30 p-2 rounded-xl border border-emerald-500/30">
+                    <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                    <span>{appLanguage === 'id' ? 'Mikrofon aktif mendengarkan nada tuts piano Anda' : appLanguage === 'es' ? 'Micrófono activo escuchando las notas del piano' : 'Microphone actively listening to piano keys'}</span>
+                  </div>
+                )}
+              </div>
+
+              <ToggleRow id="audio-input-enabled" label={t.enableMicInput} checked={isAudioInputEnabled} onChange={onIsAudioInputEnabledChange} />
+              <SettingRow label={t.micInputDevice} htmlFor="audio-input-device">
                   <select 
                       id="audio-input-device" 
                       value={selectedAudioInputId || ""} 
@@ -559,12 +925,29 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                       )}
                   </select>
               </SettingRow>
-              {audioInputError && <p className="text-xs text-red-400 text-center">{audioInputError}</p>}
+              {audioInputError && (
+                <div className="bg-red-950/40 p-3 rounded-xl border border-red-500/30 text-xs text-red-200 text-center space-y-2 mt-2">
+                  <p>{audioInputError}</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.mediaDevices?.getUserMedia({ audio: true }).then(() => {
+                        onIsAudioInputEnabledChange(true);
+                      }).catch(() => {
+                        alert("Microphone permission denied. Please allow microphone access in your browser settings.");
+                      });
+                    }}
+                    className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-bold transition-all shadow-sm"
+                  >
+                    {appLanguage === 'id' ? 'Beri Izin Mikrofon' : appLanguage === 'es' ? 'Permitir Micrófono' : 'Allow Microphone'}
+                  </button>
+                </div>
+              )}
               
               {isAudioInputEnabled && (
                   <div className="bg-slate-900/50 p-4 rounded-lg mt-4 space-y-4 ring-1 ring-slate-700">
-                      <h4 className="text-md font-semibold text-slate-200 border-b border-slate-700 pb-2">Detection Sensitivity</h4>
-                      <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-2">Adjust dB thresholds per range (Lower = More Sensitive)</p>
+                      <h4 className="text-md font-semibold text-slate-200 border-b border-slate-700 pb-2">{t.detectionSensitivity}</h4>
+                      <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-2">{t.adjustDbThresholds}</p>
                       
                       {(Object.keys(micThresholds) as Array<keyof MicThresholds>).map(key => (
                           <SettingRow key={key} label={`${key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())} (${micThresholds[key]} dB)`} htmlFor={`mic-thresh-${key}`}>
@@ -589,135 +972,13 @@ export const Settings: React.FC<SettingsProps> = (props) => {
             </Section>
           )}
 
-          <Section title="Visuals & Gameplay">
-            {(instrumentMode === 'piano' || instrumentMode === 'drum') && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <SettingRow label="Game View" htmlFor="view-mode">
-                  <select id="view-mode" value={viewMode} onChange={e => onViewModeChange(e.target.value as ViewMode)} className={`${selectStyles} max-w-xs`}>
-                    {gameplayStyle === 'computer' ? (
-                      <>
-                        <option value="qwerty_mania">Qwerty Typer</option>
-                        <option value="sheet-qwerty">Sheet Music QWERTY</option>
-                      </>
-                    ) : (
-                      <>
-                        <option value="falling">{instrumentMode === 'drum' ? 'Drum Typer' : 'Falling Notes'}</option>
-                        {(instrumentMode === 'drum' || drumInputMode === 'midi') && <option value="drum_mania">Drum Mania</option>}
-                        <option value="sheet">Sheet Music</option>
-                        <option value="sheet-roll">Sheet Music Roll</option>
-                      </>
-                    )}
-                  </select>
-                </SettingRow>
-                <SettingRow label="Note Labels" htmlFor="note-label">
-                  <select id="note-label" value={noteLabelType} onChange={e => onNoteLabelTypeChange(e.target.value as NoteLabelType)} className={`${selectStyles} max-w-xs`} disabled={gameplayStyle === 'computer'}>
-                    <option value="none">None</option>
-                    <option value="fingering">Fingering (BETA)</option>
-                    <option value="noteName">Note Name</option>
-                    {gameplayStyle !== 'piano' && <option value="qwerty">QWERTY Keys</option>}
-                  </select>
-                </SettingRow>
-          {instrumentMode === 'piano' && noteLabelType === 'fingering' && <section id="fingering-section" className="rounded-xl border border-cyan-500/20 bg-slate-900/30 p-5">
-            <h3 className="text-xl font-semibold text-cyan-300 mb-4">Fingering Settings</h3>
-            <div className="flex flex-wrap gap-4 mb-4 text-slate-200">
-              <label className="flex flex-col gap-1">Fingering Engine
-                <select className="bg-slate-800 rounded p-2 text-cyan-300 font-medium" value={props.fingeringPreferences.engine || 'pianoplayer'}
-                  onChange={e=>props.onFingeringPreferencesChange({...props.fingeringPreferences,routing:'auto',engine:e.target.value as FingeringPreferences['engine']})}>
-                  <option value="pianoplayer">PianoPlayer Heuristic (Legacy)</option>
-                </select>
-              </label>
-              <label className="flex flex-col gap-1">Hand size
-                <select  className="bg-slate-800 rounded p-2" value={props.fingeringPreferences.handSize}
-                  onChange={e=>props.onFingeringPreferencesChange({...props.fingeringPreferences,routing:'auto',handSize:e.target.value as FingeringPreferences['handSize']})}>
-                  {[['XXS','Extra extra small'],['XS','Extra small'],['S','Small'],['M','Medium'],['L','Large'],['XL','Extra large'],['XXL','Extra extra large']].map(([size,label])=><option key={size} value={size}>{size} — {label}</option>)}
-                </select>
-              </label>
-            </div>
+          </>
+          )}
 
-            <label className="flex items-center gap-3 text-slate-200 mb-4"><input type="checkbox" checked={props.showHand3D} onChange={e=>props.onShowHand3DChange(e.target.checked)}/>Show 3D hands during playback</label>
-            <p className="text-xs text-slate-400 mt-2">The 3D hands appear on the lower piano keys and match the left and right note colors. 1 thumb · 2 index · 3 middle · 4 ring · 5 little finger.</p>
-          </section>}
-
-              </div>
-            )}
-            <ToggleRow id="major-notes-only" label="Show Only Major Notes" checked={instrumentMode === 'drum' ? true : showOnlyMajorNotes} onChange={onShowOnlyMajorNotesChange} disabled={instrumentMode === 'drum'}/>
-            <p className="-mt-3 mb-4 text-xs text-slate-400">Visual only: notes are drawn as eighth notes, including Fingering labels, while piano audio keeps its original duration. The Difficulty Meter always treats holds as taps for fair scoring.</p>
-            <ToggleRow id="show-piano-tiles" label="Show Piano Tiles Background" checked={showPianoTilesBackground} onChange={onShowPianoTilesBackgroundChange} />
-            {showPianoTilesBackground && (
-                <SettingRow label={`Piano Tiles Opacity (${themeSettings.pianoTilesOpacity || 50}%)`} htmlFor="piano-tiles-opacity">
-                    <input 
-                        id="piano-tiles-opacity" 
-                        type="range" 
-                        min="10" 
-                        max="100" 
-                        step="1" 
-                        value={themeSettings.pianoTilesOpacity || 50} 
-                        onChange={e => onThemeSettingsChange({ ...themeSettings, pianoTilesOpacity: parseInt(e.target.value, 10) })} 
-                        className={`${rangeSliderStyle} max-w-xs`} 
-                    />
-                </SettingRow>
-            )}
-            <ToggleRow id="show-perfect-judgment" label="Show PERFECT Rating Text" checked={showPerfectJudgment} onChange={onShowPerfectJudgmentChange} />
-            {onResolutionScaleChange && (
-              <SettingRow label="In-Game View Resolution" htmlFor="resolution-scale">
-                <select
-                  id="resolution-scale"
-                  value={resolutionScale}
-                  onChange={e => onResolutionScaleChange(parseFloat(e.target.value))}
-                  className={`${selectStyles} max-w-xs`}
-                >
-                  <option value={1.0}>100% (Normal)</option>
-                  <option value={0.75}>75% (Medium)</option>
-                  <option value={0.5}>50% (Low - Half Resolution)</option>
-                  <option value={0.25}>25% (Very Low - Quarter Resolution)</option>
-                  <option value={0.125}>12.5% (Ultra Low - Eighth Resolution)</option>
-                  <option value={0.0625}>6.25% (Extreme Low - Sixteenth Resolution)</option>
-                </select>
-              </SettingRow>
-            )}
-            
-            {(viewMode === 'qwerty_mania' || (viewMode === 'falling' && instrumentMode === 'drum')) && (
-              <div className="bg-slate-900/50 p-4 rounded-lg mt-4 space-y-4 ring-1 ring-slate-700">
-                <h4 className="text-md font-semibold text-slate-200 border-b border-slate-700 pb-2">Typer & Circle Visual Settings</h4>
-                
-                <SettingRow label="Zoom Direction (AR)" htmlFor="zoom-direction">
-                  <select 
-                    id="zoom-direction" 
-                    value={zoomDirection} 
-                    onChange={e => onZoomDirectionChange(e.target.value as 'normal' | 'reverse')} 
-                    className={selectStyles}
-                  >
-                    <option value="normal">Normal (Outside to Inside)</option>
-                    <option value="reverse">Reverse (Inside to Outside)</option>
-                  </select>
-                </SettingRow>
-
-                <SettingRow label="Appearing Keys Opacity" htmlFor="drum-typer-opacity">
-                  <div className="flex items-center gap-3 w-full">
-                    <span className="text-[10px] text-cyan-400 font-mono w-10 text-right">{drumTyperPadOpacity}%</span>
-                    <input 
-                      type="range" 
-                      id="drum-typer-opacity"
-                      min="0" 
-                      max="100" 
-                      step="1" 
-                      value={drumTyperPadOpacity} 
-                      onChange={e => onDrumTyperPadOpacityChange(parseInt(e.target.value))} 
-                      className={`${rangeSliderStyle} flex-grow focus:ring-cyan-500`} 
-                    />
-                  </div>
-                </SettingRow>
-                <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
-                  Controls the base visibility of keys/pads in Qwerty Typer & Drum Typer. 0% hides keys entirely until notes approach — perfect for that "OSU-style" challenge.
-                </p>
-              </div>
-            )}
-
-            <ToggleRow id="qwerty-shortcuts" label="Show QWERTY Shortcuts on Keys" checked={showQwertyShortcuts} onChange={onShowQwertyShortcutsChange} disabled={true} />
-          </Section>
-          
-          <Section title="Audio">
-            <SettingRow label={`Piano Volume (${Math.round(masterVolume*100)}%)`} htmlFor="master-volume">
+          {(activeSettingsTab === 'all' || activeSettingsTab === 'audio' || settingsSearch.trim() !== '') && (
+            <>
+          <Section title={t.audioSection}>
+            <SettingRow label={`${t.pianoVolume} (${Math.round(masterVolume*100)}%)`} htmlFor="master-volume">
               <input 
                 id="master-volume" 
                 type="range" 
@@ -729,8 +990,8 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                 className={`${rangeSliderStyle} max-w-xs`} 
               />
             </SettingRow>
-            {(isAudioInputEnabled || selectedMidiInputId) && <p className="text-xs text-amber-400 mt-1">Piano volume defaulted to 10% because MIDI/Mic is active. You can still adjust it manually.</p>}
-            <SettingRow label={`Metronome Volume (${Math.round(metronomeVolume*100)}%)`} htmlFor="metronome-volume">
+            {(isAudioInputEnabled || selectedMidiInputId) && <p className="text-xs text-amber-400 mt-1">{t.pianoVolumeMidiActiveDesc}</p>}
+            <SettingRow label={`${t.metronomeVolume} (${Math.round(metronomeVolume*100)}%)`} htmlFor="metronome-volume">
               <input 
                 id="metronome-volume" 
                 type="range" 
@@ -742,7 +1003,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                 className={`${rangeSliderStyle} max-w-xs`} 
               />
             </SettingRow>
-            <SettingRow label={`Backing Track Volume (${Math.round(mp3Volume*100)}%)`} htmlFor="mp3-volume">
+            <SettingRow label={`${t.backingTrackVolume} (${Math.round(mp3Volume*100)}%)`} htmlFor="mp3-volume">
               <input 
                 id="mp3-volume" 
                 type="range" 
@@ -758,9 +1019,9 @@ export const Settings: React.FC<SettingsProps> = (props) => {
             <div id="note-offset-section" className="bg-slate-900/50 p-4 rounded-lg space-y-4 ring-1 ring-slate-700">
               <div className="flex items-center justify-between border-b border-slate-700 pb-2">
                 <div>
-                  <h4 className="text-md font-semibold text-cyan-400">MIDI & Audio Latency Offset</h4>
+                  <h4 className="text-md font-semibold text-cyan-400">{t.latencyOffsetTitle}</h4>
                   <p className="text-[11px] text-slate-400 mt-0.5">
-                    Compensate for MIDI input delay and audio timing differences between devices
+                    {t.latencyOffsetDesc}
                   </p>
                 </div>
                 {detectedLatencyMs > 0 && (
@@ -776,7 +1037,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                   <div className="flex items-center gap-2">
                     <span className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-400 font-bold text-xs flex items-center justify-center border border-cyan-500/30">1</span>
                     <label htmlFor="note-offset" className="text-sm font-semibold text-slate-200">
-                      MIDI Hit Timing Offset (Hitbox Shift)
+                      {t.midiHitTimingOffset}
                     </label>
                   </div>
                   <span className="font-mono font-bold text-sm text-cyan-400">
@@ -801,14 +1062,14 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                       className={`${commonButtonStyles} ${secondaryButtonStyles} whitespace-nowrap text-xs py-1.5`}
                       title="Run automatic latency calibration with test beats"
                     >
-                      Calibrate
+                      {t.calibrateBtn}
                     </button>
                   )}
                 </div>
 
                 {/* Quick step buttons */}
                 <div className="flex items-center gap-1.5 pt-1">
-                  <span className="text-[10px] uppercase font-bold text-slate-500 mr-1">Quick:</span>
+                  <span className="text-[10px] uppercase font-bold text-slate-500 mr-1">{t.quickStep}</span>
                   <button 
                     onClick={() => onMetronomeOffsetChange(Math.max(-500, metronomeOffsetMs - 50))}
                     className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-2 py-0.5 rounded border border-slate-700 transition-colors"
@@ -841,7 +1102,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                   </button>
                 </div>
                 <p className="text-[11px] text-slate-400 leading-relaxed">
-                  Adjust keyboard or MIDI input timing relative to the notes. Use a negative offset (-) if your hits are consistently late, or a positive offset (+) if they are early.
+                  {t.midiHitTimingDesc}
                 </p>
               </div>
 
@@ -852,7 +1113,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                     <div className="flex items-center gap-2">
                       <span className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 font-bold text-xs flex items-center justify-center border border-amber-500/30">2</span>
                       <label htmlFor="audio-sync-offset" className="text-sm font-semibold text-slate-200">
-                        MP3 Audio Offset (Backing Track Sync)
+                        {t.mp3AudioOffset}
                       </label>
                     </div>
                     <span className="font-mono font-bold text-sm text-amber-400">
@@ -874,7 +1135,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                   </div>
 
                   <div className="flex items-center gap-1.5 pt-1">
-                    <span className="text-[10px] uppercase font-bold text-slate-500 mr-1">Quick:</span>
+                    <span className="text-[10px] uppercase font-bold text-slate-500 mr-1">{t.quickStep}</span>
                     <button 
                       onClick={() => onUserAudioSyncOffsetChange(Math.max(-500, userAudioSyncOffset - 50))}
                       className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-2 py-0.5 rounded border border-slate-700 transition-colors"
@@ -907,7 +1168,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                     </button>
                   </div>
                   <p className="text-[11px] text-slate-400 leading-relaxed">
-                    Align MP3 or YouTube playback with the falling notes on screen.
+                    {t.mp3AudioOffsetDesc}
                   </p>
                 </div>
               )}
@@ -919,7 +1180,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                     <div className="flex items-center gap-2">
                       <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-xs flex items-center justify-center border border-emerald-500/30">3</span>
                       <label htmlFor="metro-piano-offset" className="text-sm font-semibold text-slate-200">
-                        Metronome Offset
+                        {t.metronomeOffset}
                       </label>
                     </div>
                     <span className="font-mono font-bold text-sm text-emerald-400">
@@ -941,7 +1202,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                   </div>
 
                   <div className="flex items-center gap-1.5 pt-1">
-                    <span className="text-[10px] uppercase font-bold text-slate-500 mr-1">Quick:</span>
+                    <span className="text-[10px] uppercase font-bold text-slate-500 mr-1">{t.quickStep}</span>
                     <button 
                       onClick={() => onMetronomePianoOffsetChange(Math.max(-500, metronomePianoOffsetMs - 50))}
                       className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-2 py-0.5 rounded border border-slate-700 transition-colors"
@@ -974,7 +1235,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                     </button>
                   </div>
                   <p className="text-[11px] text-slate-400 leading-relaxed">
-                    Adjust the metronome if its clicks sound earlier or later than the visual hitline.
+                    {t.metronomeOffsetDesc}
                   </p>
                 </div>
               )}
@@ -985,13 +1246,13 @@ export const Settings: React.FC<SettingsProps> = (props) => {
               <div id="anti-double-trigger-section" className="bg-slate-900/50 p-4 rounded-lg mt-4 space-y-4 ring-1 ring-slate-700">
                 <ToggleRow 
                   id="anti-double-trigger-enabled" 
-                  label="Anti Double Trigger" 
+                  label={t.antiDoubleTrigger} 
                   checked={antiDoubleTriggerEnabled} 
                   onChange={onAntiDoubleTriggerEnabledChange} 
                 />
                 {antiDoubleTriggerEnabled && (
                   <div className="space-y-2">
-                    <SettingRow label={`Minimum Interval (${antiDoubleTriggerInterval.toFixed(2)}ms)`} htmlFor="anti-double-trigger-interval">
+                    <SettingRow label={`${t.minimumInterval} (${antiDoubleTriggerInterval.toFixed(2)}ms)`} htmlFor="anti-double-trigger-interval">
                       <input 
                         id="anti-double-trigger-interval" 
                         type="range" 
@@ -1004,7 +1265,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                       />
                     </SettingRow>
                     <p className="text-[10px] text-slate-400">
-                      Prevents a single hit from triggering multiple inputs due to vibration. Range: 5ms - 200ms.
+                      {t.antiDoubleTriggerDesc}
                     </p>
                   </div>
                 )}
@@ -1015,23 +1276,23 @@ export const Settings: React.FC<SettingsProps> = (props) => {
             {instrumentMode === 'drum' && (
               <div id="drum-mapping-section" className="bg-slate-900/50 p-4 rounded-lg mt-4 space-y-4 ring-1 ring-slate-700 text-left">
                 <div className="flex items-center justify-between border-b border-slate-700 pb-2 mb-2">
-                  <h4 className="text-md font-semibold text-cyan-400">Drum MIDI Mapping</h4>
+                  <h4 className="text-md font-semibold text-cyan-400">{t.drumMidiMappingTitle}</h4>
                   <div className="flex gap-2">
                     <button 
                       onClick={handleResetDrumMapping}
                       className={`${commonButtonStyles} bg-slate-700 hover:bg-slate-600 text-slate-100 ring-1 ring-slate-600`}
                     >
-                      Reset
+                      {t.resetBtn}
                     </button>
                     {/* Visual indicator that it's auto-saved */}
                     <div className="flex items-center px-4 bg-emerald-900/30 text-emerald-400 rounded ring-1 ring-emerald-500/50 text-[10px] font-bold uppercase tracking-wider">
-                       Auto-Saved
+                       {t.autoSavedBadge}
                     </div>
                   </div>
                 </div>
                 
                 <p className="text-[10px] text-slate-400 leading-relaxed">
-                  Select a drum kit component and hit your MIDI drum to assign it. You can map multiple MIDI notes to one component.
+                  {t.drumMidiMappingDesc}
                 </p>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
@@ -1046,12 +1307,12 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                           onClick={() => setMappingPadId(mappingPadId === pad.id ? null : pad.id)}
                           className={`h-8 px-4 rounded font-bold text-[10px] transition-all transform active:scale-95 ${mappingPadId === pad.id ? 'bg-amber-500 text-white animate-pulse shadow-lg shadow-amber-900/40' : 'bg-slate-700 hover:bg-slate-600 text-slate-100 shadow-sm border border-slate-600'}`}
                         >
-                          {mappingPadId === pad.id ? 'HIT DRUM!' : 'MAP'}
+                          {mappingPadId === pad.id ? t.hitDrumBtn : t.mapBtn}
                         </button>
                       </div>
                       <div className="flex flex-wrap gap-1.5 mt-2.5">
                         {pad.midiNotes.length === 0 ? (
-                          <span className="text-[9px] text-slate-600 italic">No notes mapped</span>
+                          <span className="text-[9px] text-slate-600 italic">{t.noNotesMapped}</span>
                         ) : (
                           pad.midiNotes.sort((a,b) => a-b).map(note => (
                             <div key={note} className="flex items-center gap-1.5 px-2 py-0.5 bg-slate-900/80 rounded border border-slate-700 text-[10px] text-cyan-300 group">
@@ -1074,22 +1335,27 @@ export const Settings: React.FC<SettingsProps> = (props) => {
             )}
           </Section>
 
-          <Section title="Appearance">
-            <SettingRow label="Right Hand Color" htmlFor="rh-color">
+          </>
+          )}
+
+          {(activeSettingsTab === 'all' || activeSettingsTab === 'theme' || settingsSearch.trim() !== '') && (
+            <>
+          <Section title={t.appearanceSection}>
+            <SettingRow label={t.rightHandColor} htmlFor="rh-color">
               <input type="color" id="rh-color" value={themeSettings.rightHandColor} onChange={e => onThemeSettingsChange({...themeSettings, rightHandColor: e.target.value})} className={colorInputStyle} />
             </SettingRow>
-            <SettingRow label="Left Hand Color" htmlFor="lh-color">
+            <SettingRow label={t.leftHandColor} htmlFor="lh-color">
               <input type="color" id="lh-color" value={themeSettings.leftHandColor} onChange={e => onThemeSettingsChange({...themeSettings, leftHandColor: e.target.value})} className={colorInputStyle} />
             </SettingRow>
-            <SettingRow label="Falling Notes Background" htmlFor="bg-color">
+            <SettingRow label={t.fallingNotesBgColor} htmlFor="bg-color">
               <input type="color" id="bg-color" value={themeSettings.fallingNotesBackgroundColor} onChange={e => onThemeSettingsChange({...themeSettings, fallingNotesBackgroundColor: e.target.value})} className={colorInputStyle} />
             </SettingRow>
-            <SettingRow label="Hit Note Color" htmlFor="hit-note-color">
+            <SettingRow label={t.hitNoteColor} htmlFor="hit-note-color">
               <input type="color" id="hit-note-color" value={themeSettings.hitNoteColor} onChange={e => onThemeSettingsChange({...themeSettings, hitNoteColor: e.target.value})} className={colorInputStyle} />
             </SettingRow>
             
             <div className="mt-4 pt-4 border-t border-slate-700 space-y-4">
-              <h4 className="text-md font-semibold text-violet-400">Background Image / Video</h4>
+              <h4 className="text-md font-semibold text-violet-400">{t.bgMediaTitle}</h4>
               <div className="flex flex-col gap-3">
                 <div className="flex items-center gap-3">
                   <input
@@ -1103,7 +1369,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                     onClick={() => fileInputRef.current?.click()}
                     className={`${commonButtonStyles} ${secondaryButtonStyles}`}
                   >
-                    Upload
+                    {t.uploadBtn}
                   </button>
                   <input
                     type="file"
@@ -1117,11 +1383,11 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                       onClick={handleClearBackground}
                       className={`${commonButtonStyles} bg-red-600/50 hover:bg-red-600 text-white`}
                     >
-                      Clear
+                      {t.clearBtn}
                     </button>
                   )}
                 </div>
-                <SettingRow label={`Background Opacity (${Math.round((themeSettings.backgroundOpacity ?? 0.1) * 100)}%)`} htmlFor="bg-opacity">
+                <SettingRow label={`${t.bgOpacity} (${Math.round((themeSettings.backgroundOpacity ?? 0.1) * 100)}%)`} htmlFor="bg-opacity">
                   <input
                     id="bg-opacity"
                     type="range"
@@ -1136,12 +1402,14 @@ export const Settings: React.FC<SettingsProps> = (props) => {
               </div>
             </div>
           </Section>
+            </>
+          )}
         </div>
 
-        <div className="mt-6 flex items-center justify-between gap-3 text-xs text-slate-400"><span role="status" aria-live="polite">{props.previewStatus}</span><button type="button" className="min-h-11 shrink-0 px-3 rounded-lg bg-slate-700 hover:bg-slate-600 text-white" onClick={props.onRestartPreview}>Restart preview</button></div>
+        <div className="mt-6 flex items-center justify-between gap-3 text-xs text-slate-400"><span role="status" aria-live="polite">{props.previewStatus}</span><button type="button" className="min-h-11 shrink-0 px-3 rounded-lg bg-slate-700 hover:bg-slate-600 text-white" onClick={props.onRestartPreview}>{t.restartPreviewBtn}</button></div>
         <div className="mt-8 flex justify-center space-x-4">
-             <button onClick={onBack} className={`${commonButtonStyles} ${secondaryButtonStyles} w-32`} style={{ zIndex: 9999 }}>Back</button>
-             <button onClick={() => { if(confirm('Reset all settings to default?')) onResetSettings(); }} className={`${commonButtonStyles} bg-red-600 hover:bg-red-700 text-white w-40`} style={{ zIndex: 9999 }}>Reset Settings</button>
+             <button onClick={onBack} className={`${commonButtonStyles} ${secondaryButtonStyles} w-32`} style={{ zIndex: 9999 }}>{t.backBtn}</button>
+             <button onClick={() => { if(confirm(t.resetConfirm)) onResetSettings(); }} className={`${commonButtonStyles} bg-red-600 hover:bg-red-700 text-white w-40`} style={{ zIndex: 9999 }}>{t.resetSettingsBtn}</button>
         </div>
 
       </div>

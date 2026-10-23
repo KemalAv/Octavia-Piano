@@ -21,22 +21,23 @@ export function backingCorrection(actualSec:number,expectedSec:number,rate:numbe
  const r=tempoRate(rate),realDrift=(actualSec-expectedSec)/r;
  const absDrift=Math.abs(realDrift);
 
- // Only seek if catastrophic drift (> 1.2s) or stuck at start, with minimum 5-second cooldown
- if((absDrift>1.2||(actualSec<0.1&&expectedSec>1.0))&&nowMs-lastCorrectionMs>5000){
+ // Avoid hard seeks unless drift is significant (> 1.2s) or track is stuck at zero while playback has progressed significantly.
+ // This prevents the choppy/stuttering audio ("putus-putus") caused by repeated seeking during initial ramp-up.
+ if((absDrift > 1.2 || (actualSec < 0.05 && expectedSec > 1.5)) && nowMs - lastCorrectionMs > 2000){
   return {seek:Math.max(0,expectedSec),rate:r};
  }
 
- // Smooth progressive speed steering without seeking
+ // Smooth progressive speed steering without seeking for timing variations
  let speedMultiplier=1.0;
- if(absDrift>0.40){
-  // Significant drift (400ms - 1200ms): 8% nudge smoothly closes ~80ms gap per second
-  speedMultiplier=realDrift>0?0.92:1.08;
- }else if(absDrift>0.15){
-  // Moderate drift (150ms - 400ms): 4% nudge smoothly closes ~40ms gap per second
+ if(absDrift > 0.25){
+  // 250ms - 1.2s: 4% smooth tempo nudge
   speedMultiplier=realDrift>0?0.96:1.04;
- }else if(absDrift>0.035){
-  // Minor drift (35ms - 150ms): 1.5% nudge (completely imperceptible)
-  speedMultiplier=realDrift>0?0.985:1.015;
+ }else if(absDrift > 0.08){
+  // 80ms - 250ms: 2% nudge
+  speedMultiplier=realDrift>0?0.98:1.02;
+ }else if(absDrift > 0.03){
+  // 30ms - 80ms: 0.8% subtle nudge
+  speedMultiplier=realDrift>0?0.992:1.008;
  }
 
  return {seek:undefined,rate:tempoRate(r*speedMultiplier)};

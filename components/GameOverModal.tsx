@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { RotateCcw, X, Repeat } from "lucide-react";
+import { AppLanguage } from "../types";
+import { translations } from "../translations";
 
 interface GameOverModalProps {
   isVisible: boolean;
@@ -10,6 +12,7 @@ interface GameOverModalProps {
   loopStartMs?: number | null;
   loopEndMs?: number | null;
   lowDetailMode?: boolean;
+  appLanguage?: AppLanguage;
 }
 
 const formatTime = (ms: number | null) => {
@@ -29,7 +32,9 @@ const GameOverModal: React.FC<GameOverModalProps> = ({
   loopStartMs = null,
   loopEndMs = null,
   lowDetailMode = false,
+  appLanguage = "en",
 }) => {
+  const t = translations[appLanguage] || translations.en;
   const [isRendered, setIsRendered] = useState(false);
 
   useEffect(() => {
@@ -70,11 +75,11 @@ const GameOverModal: React.FC<GameOverModalProps> = ({
           id="game-over-title"
           className="text-4xl md:text-5xl font-black text-red-400 mb-3 tracking-wide"
         >
-          Game Over
+          {t.gameOver}
         </h2>
 
         <p className="text-base text-slate-300 mb-4">
-          Your health has reached zero (0 HP). Retry the song to continue practicing.
+          {t.gameOverHpDesc}
         </p>
 
         {reason && (
@@ -90,10 +95,10 @@ const GameOverModal: React.FC<GameOverModalProps> = ({
             <Repeat className="w-5 h-5 text-cyan-400 mt-0.5 shrink-0 animate-spin" style={{ animationDuration: "4s" }} />
             <div>
               <div className="text-xs font-bold uppercase tracking-wider text-cyan-300">
-                Loop Mode Active
+                {t.loopActive}
               </div>
               <p className="text-xs text-slate-300 mt-0.5">
-                Playback will automatically return to <strong>Point A ({formatTime(loopStartMs)})</strong> with full health (HP).
+                {t.loopActiveDesc} ({formatTime(loopStartMs)})
               </p>
             </div>
           </div>
@@ -104,10 +109,10 @@ const GameOverModal: React.FC<GameOverModalProps> = ({
             <button
               onClick={onRetry}
               className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-400 hover:to-teal-400 text-slate-950 font-black py-3.5 px-6 rounded-xl text-lg transition-all duration-150 ease-in-out transform hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-cyan-500/20"
-              aria-label={isLoopActive ? "Retry from Point A" : "Try Again"}
+              aria-label={isLoopActive ? t.retry : t.tryAgain}
             >
               <RotateCcw className="w-5 h-5" />
-              <span>{isLoopActive ? "Retry from Point A" : "Try Again"}</span>
+              <span>{isLoopActive ? t.retry : t.tryAgain}</span>
             </button>
           )}
 
@@ -118,10 +123,10 @@ const GameOverModal: React.FC<GameOverModalProps> = ({
                 ? "bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700"
                 : "bg-cyan-500 hover:bg-cyan-600 text-white text-lg font-bold"
             }`}
-            aria-label="Close and return"
+            aria-label={t.close}
           >
             <X className="w-4 h-4" />
-            <span>{isLoopActive ? "Close (Stay at Point A)" : "Close"}</span>
+            <span>{t.close}</span>
           </button>
         </div>
       </div>

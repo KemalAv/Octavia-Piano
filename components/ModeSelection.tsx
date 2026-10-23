@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, memo } from 'react';
-import { motion } from 'motion/react';
-import { ExtendedResult, WaitMode, GameSettings, PracticeHand } from '../types';
+import { ExtendedResult, WaitMode, GameSettings, PracticeHand, AppLanguage } from '../types';
 import DifficultyAnalysis from './DifficultyAnalysis';
 import { normalizeYoutubeUrl } from '../utils';
+import { translations } from '../translations';
 
 type Mode = 'practice_lenient' | 'practice_strict' | 'autoplay' | 'retical';
 type BackingType = 'none' | 'mp3' | 'online';
@@ -30,17 +30,8 @@ interface ModeSelectionProps {
     userAverageOffset: number;
     userAudioSyncOffset: number;
     onUserAudioSyncOffsetChange: (offset: number) => void;
+    appLanguage?: AppLanguage;
 }
-
-const tutorials = [
-    { title: 'Sheet Music', url: 'https://youtu.be/yltCkCy1DeM' },
-    { title: 'Music Theory', url: 'https://youtu.be/_VvKeiwddPI' },
-    { title: 'Scales', url: 'https://youtu.be/1OPWJ4WOuLU' },
-    { title: 'Chord', url: 'https://youtu.be/EMj0LrMQDKs' },
-    { title: 'Hand Placement', url: 'https://youtu.be/a_kVafB-0C4?si' },
-    { title: 'Only for Nerds', url: 'https://youtu.be/Yv-W4ezHvH0' },
-    { title: 'Computer Keyboard', url: 'https://youtu.be/LM-aAcYtKg4?si' },
-];
 
 const ModeSelection: React.FC<ModeSelectionProps> = memo(({
     onStartGame,
@@ -65,16 +56,20 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
     userAverageOffset,
     userAudioSyncOffset,
     onUserAudioSyncOffsetChange,
+    appLanguage = 'en',
 }) => {
+    const t = translations[appLanguage] || translations.en;
     const [selectedMode, setSelectedMode] = useState<Mode>('practice_lenient');
     const [practiceHand, setPracticeHand] = useState<PracticeHand>('both');
     const [accuracyLevel, setAccuracyLevel] = useState<number>(currentSongAccuracyLevel || 5);
     const [isRendered, setIsRendered] = useState(false);
-    const [isTutorialModalOpen, setIsTutorialModalOpen] = useState(false);
-    const [isTutorialModalRendered, setIsTutorialModalRendered] = useState(false);
+
+    useEffect(() => {
+        setAccuracyLevel(currentSongAccuracyLevel || 5);
+    }, [currentSongAccuracyLevel]);
+
     const [isNonStop, setIsNonStop] = useState(false);
     const [isHpEnabled, setIsHpEnabled] = useState(true);
-
     const [backingType, setBackingType] = useState<BackingType>('none');
     const mp3InputRef = useRef<HTMLInputElement>(null);
 
@@ -83,29 +78,15 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
             setBackingType('mp3');
         } else if (midiLink) {
             setBackingType('online');
+        } else {
+            setBackingType('none');
         }
     }, [backingTrackFile, midiLink]);
 
     useEffect(() => {
-        const timer = setTimeout(() => setIsRendered(true), 10);
+        const timer = setTimeout(() => setIsRendered(true), 20);
         return () => clearTimeout(timer);
     }, []);
-
-    useEffect(() => {
-        if (isTutorialModalOpen) {
-            const timer = setTimeout(() => setIsTutorialModalRendered(true), 10);
-            return () => clearTimeout(timer);
-        } else {
-            setIsTutorialModalRendered(false);
-        }
-    }, [isTutorialModalOpen]);
-
-    const buttonBaseStyle = "w-full font-bold py-3 px-6 rounded-lg text-lg transition-all duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-opacity-50 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100 shadow-md";
-    const primaryButtonStyle = "bg-cyan-500 hover:bg-cyan-600 text-white focus:ring-cyan-400";
-    const tertiaryButtonStyle = "bg-slate-600 hover:bg-slate-700 text-slate-200 focus:ring-slate-500";
-
-    const modeButtonBase = "p-4 rounded-lg border-2 transition-all cursor-pointer h-full flex flex-col";
-    const modeButtonUnselected = "bg-slate-700/50 border-slate-600 hover:bg-slate-700 hover:border-slate-500";
 
     const RANKED_TEMPOS = [0.75, 1, 1.25, 1.5];
     const minTempoPercentage = selectedMode === 'retical' ? 75 : 10;
@@ -114,9 +95,8 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
     useEffect(() => {
         if (selectedMode === 'retical') {
             const currentMultiplier = initialPlaybackTempoMultiplier;
-            const isRankedValid = RANKED_TEMPOS.some(t => Math.abs(t - currentMultiplier) < 0.001);
+            const isRankedValid = RANKED_TEMPOS.some(rate => Math.abs(rate - currentMultiplier) < 0.001);
             if (!isRankedValid) {
-                // Snap to nearest allowed ranked preset
                 const closest = RANKED_TEMPOS.reduce((prev, curr) =>
                     Math.abs(curr - currentMultiplier) < Math.abs(prev - currentMultiplier) ? curr : prev
                 , 1);
@@ -128,8 +108,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
     const handleModeSelect = (mode: Mode) => {
         if (mode === 'retical' && isAudioInputEnabled) return;
         setSelectedMode(mode);
-        
-        if (mode === 'retical') {
+        if (mode === 'retical' || mode === 'autoplay') {
             setAccuracyLevel(currentSongAccuracyLevel || 5);
             setIsNonStop(true);
         } else if (mode === 'practice_lenient' || mode === 'practice_strict') {
@@ -149,9 +128,8 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
         let waitMode: WaitMode;
         let noteToleranceMs: number;
 
-        const finalAccuracyLevel = (selectedMode === 'practice_lenient' || selectedMode === 'practice_strict') 
-            ? accuracyLevel 
-            : (currentSongAccuracyLevel || 5);
+        const isEffectivelyNonStop = selectedMode === 'retical' || selectedMode === 'autoplay' || (selectedMode === 'practice_lenient' && isNonStop);
+        const finalAccuracyLevel = 5;
 
         const perfectWindow = 100 + (5 - finalAccuracyLevel) * 20;
         const goodWindow = perfectWindow * 2;
@@ -167,7 +145,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
                 break;
             case 'autoplay':
                 waitMode = 'off';
-                noteToleranceMs = instrumentMode === 'drum' ? 100 : 200;
+                noteToleranceMs = goodWindow;
                 break;
             case 'retical':
                 waitMode = 'retical';
@@ -200,10 +178,11 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
             practiceHand: (selectedMode === 'practice_lenient' || selectedMode === 'practice_strict') ? practiceHand : 'both',
             noteToleranceMs,
             accuracyLevel: finalAccuracyLevel as any,
-            isNonStop: selectedMode === 'retical' ? true : (selectedMode === 'practice_lenient' ? isNonStop : false),
+            isNonStop: (selectedMode === 'retical' || selectedMode === 'autoplay') ? true : (selectedMode === 'practice_lenient' ? isNonStop : false),
             isHpEnabled: (selectedMode === 'practice_lenient' || selectedMode === 'practice_strict') ? isHpEnabled : true,
             backingTrack: backingConfig,
             instrumentMode,
+            isAutoplay: selectedMode === 'autoplay',
         });
     };
 
@@ -211,125 +190,487 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
     const displayedPlaybackPercentage = Math.round(initialPlaybackTempoMultiplier * 100);
     const isPractice = selectedMode === 'practice_lenient' || selectedMode === 'practice_strict';
 
-    const getYoutubeId = (url: string) => {
-        if (url.includes('youtu.be/')) return url.split('youtu.be/')[1].split('?')[0];
-        if (url.includes('v=')) return url.split('v=')[1].split('&')[0];
-        return '';
-    };
-
     return (
-        <>
-            <div className={`fixed inset-0 bg-slate-900/40 flex flex-col items-center justify-center z-40 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'opacity-100' : 'opacity-0'}`}>
-                <div className="absolute top-4 left-4" style={{ zIndex: 9999 }}>
-                    <button onClick={onBack} className={`${tertiaryButtonStyle} py-2 px-4 text-base shadow-sm inline-flex items-center gap-2`}>
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
-                        Back
+        <div className={`fixed inset-0 bg-slate-950/85 backdrop-blur-md flex flex-col z-40 p-3 md:p-6 transition-opacity duration-300 ease-in-out ${isRendered ? 'opacity-100' : 'opacity-0'}`}>
+            
+            {/* Header Navigation */}
+            <header className="max-w-7xl w-full mx-auto flex flex-col md:flex-row items-center justify-between gap-4 pb-4 border-b border-white/10 flex-shrink-0">
+                <div className="flex items-center gap-3 w-full md:w-auto">
+                    <button 
+                        onClick={onBack} 
+                        className="flex items-center gap-2 text-slate-300 hover:text-white transition-all px-4 py-2 rounded-xl border border-white/10 bg-slate-900/90 hover:bg-slate-800 shadow-md active:scale-95 text-sm font-semibold"
+                    >
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M19 12H5M12 19l-7-7 7-7"/>
+                        </svg>
+                        <span>{t.changeSongBtn}</span>
                     </button>
+                    <div>
+                        <h2 className="text-xl md:text-2xl font-black text-white tracking-tight">
+                            {t.gameMode}
+                        </h2>
+                        {fileName && (
+                            <p className="text-xs text-cyan-400 font-semibold truncate max-w-sm md:max-w-md flex items-center gap-1.5 mt-0.5">
+                                <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+                                <span>{fileName}</span>
+                            </p>
+                        )}
+                    </div>
                 </div>
-                <div className={`bg-slate-800/90 p-8 md:p-12 rounded-xl shadow-xl max-w-5xl w-full ring-1 ring-slate-700 max-h-[90vh] overflow-y-auto custom-scrollbar transform transition-transform duration-300 ease-in-out ${isRendered ? 'scale-100' : 'scale-95'}`}>
-                    <div className="text-center mb-6">
-                        <h2 className="text-4xl font-bold text-cyan-400 mb-2">Game Mode</h2>
-                        {fileName && <p className="text-lg text-slate-300 truncate">{fileName}</p>}
-                        {analysisResultForPreview && <div className="mt-2 flex justify-center"><DifficultyAnalysis analysisResult={analysisResultForPreview} /></div>}
+
+                {analysisResultForPreview && (
+                    <div className="flex items-center">
+                        <DifficultyAnalysis analysisResult={analysisResultForPreview} />
+                    </div>
+                )}
+            </header>
+
+            {/* Main Scrollable Configuration Area */}
+            <main className="max-w-7xl w-full mx-auto flex-grow overflow-y-auto custom-scrollbar my-4 pr-1 space-y-6 pb-24">
+                
+                {/* Step 1: Mode Selection Cards */}
+                <div>
+                    <div className="flex items-center gap-2 mb-3">
+                        <span className="w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 flex items-center justify-center text-xs font-bold">1</span>
+                        <h3 className="text-lg font-bold text-white tracking-wide">
+                            {t.step1Title}
+                        </h3>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        
+                        {/* Mode 1: Lenient Practice */}
                         <div
                             onClick={() => handleModeSelect('practice_lenient')}
-                            className={`${modeButtonBase} ${selectedMode === 'practice_lenient' ? 'bg-emerald-600/80 border-emerald-400 shadow-md scale-105' : modeButtonUnselected}`}
+                            className={`p-5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
+                                selectedMode === 'practice_lenient'
+                                    ? 'bg-gradient-to-b from-emerald-950/60 to-slate-900/90 border-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.3)] scale-[1.02]'
+                                    : 'bg-slate-900/60 border-slate-700/80 hover:border-slate-600'
+                            }`}
                         >
-                            <h3 className="font-bold text-xl mb-1 text-emerald-300">Lenient Practice</h3>
-                            <p className="text-sm text-slate-300 flex-grow">The song plays continuously, but will pause if you don't play a key.</p>
+                            <div>
+                                <div className="flex items-center justify-between mb-3">
+                                    {/* Sprout / Learning SVG */}
+                                    <div className="w-9 h-9 rounded-xl bg-emerald-500/20 flex items-center justify-center text-emerald-300">
+                                        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <path d="M7 20h10"/>
+                                            <path d="M10 20c0-4.5 1.5-7 6-8"/>
+                                            <path d="M16 12c-4.5 0-7-1.5-8-6 4.5 0 7 1.5 8 6z"/>
+                                        </svg>
+                                    </div>
+                                    {selectedMode === 'practice_lenient' && (
+                                        <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                            {t.activeBadge}
+                                        </span>
+                                    )}
+                                </div>
+                                <h4 className="font-black text-lg text-emerald-300 mb-1">
+                                    {t.lenientPracticeTitle}
+                                </h4>
+                                <p className="text-xs text-slate-400 leading-relaxed mb-4">
+                                    {t.lenientPracticeDesc}
+                                </p>
+                            </div>
+                            <div className="pt-3 border-t border-white/5 text-[11px] font-semibold text-emerald-400/80">
+                                {t.lenientBadgeDesc}
+                            </div>
                         </div>
 
+                        {/* Mode 2: Strict Practice */}
                         <div
                             onClick={() => handleModeSelect('practice_strict')}
-                            className={`${modeButtonBase} ${selectedMode === 'practice_strict' ? 'bg-rose-600/80 border-rose-400 shadow-md scale-105' : modeButtonUnselected}`}
+                            className={`p-5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
+                                selectedMode === 'practice_strict'
+                                    ? 'bg-gradient-to-b from-rose-950/60 to-slate-900/90 border-rose-400 shadow-[0_0_20px_rgba(244,63,94,0.3)] scale-[1.02]'
+                                    : 'bg-slate-900/60 border-slate-700/80 hover:border-slate-600'
+                            }`}
                         >
-                            <h3 className="font-bold text-xl mb-1 text-rose-300">Strict Practice</h3>
-                            <p className="text-sm text-slate-300 flex-grow">The song pauses and waits for you to play the correct notes.</p>
+                            <div>
+                                <div className="flex items-center justify-between mb-3">
+                                    {/* Target / Precision SVG */}
+                                    <div className="w-9 h-9 rounded-xl bg-rose-500/20 flex items-center justify-center text-rose-300">
+                                        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <circle cx="12" cy="12" r="10"/>
+                                            <circle cx="12" cy="12" r="6"/>
+                                            <circle cx="12" cy="12" r="2"/>
+                                        </svg>
+                                    </div>
+                                    {selectedMode === 'practice_strict' && (
+                                        <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                            {t.activeBadge}
+                                        </span>
+                                    )}
+                                </div>
+                                <h4 className="font-black text-lg text-rose-300 mb-1">
+                                    {t.strictPracticeTitle}
+                                </h4>
+                                <p className="text-xs text-slate-400 leading-relaxed mb-4">
+                                    {t.strictPracticeDesc}
+                                </p>
+                            </div>
+                            <div className="pt-3 border-t border-white/5 text-[11px] font-semibold text-rose-400/80">
+                                {t.strictBadgeDesc}
+                            </div>
                         </div>
 
-                        <div
-                            onClick={() => handleModeSelect('autoplay')}
-                            className={`${modeButtonBase} ${selectedMode === 'autoplay' ? 'bg-sky-600/80 border-sky-400 shadow-md scale-105' : modeButtonUnselected}`}
-                        >
-                            <h3 className="font-bold text-xl mb-1 text-sky-300">Autoplay</h3>
-                            <p className="text-sm text-slate-300 flex-grow">Sit back and listen. The song will play itself automatically.</p>
-                        </div>
-
+                        {/* Mode 3: Ranked Retical */}
                         <div
                             onClick={() => handleModeSelect('retical')}
-                            className={`${modeButtonBase} ${isAudioInputEnabled
-                                ? 'opacity-50 cursor-not-allowed bg-slate-800 border-slate-700'
-                                : selectedMode === 'retical'
-                                    ? 'bg-amber-600/80 border-amber-400 shadow-md scale-105'
-                                    : modeButtonUnselected
-                                }`}
+                            className={`p-5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
+                                isAudioInputEnabled 
+                                    ? 'opacity-50 cursor-not-allowed bg-slate-900/40 border-slate-800'
+                                    : selectedMode === 'retical'
+                                        ? 'bg-gradient-to-b from-amber-950/60 to-slate-900/90 border-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.3)] scale-[1.02]'
+                                        : 'bg-slate-900/60 border-slate-700/80 hover:border-slate-600'
+                            }`}
                         >
-                            <h3 className={`font-bold text-xl mb-1 ${isAudioInputEnabled ? 'text-slate-500' : 'text-amber-300'}`}>Retical Mode</h3>
-                            <p className="text-sm text-slate-300 flex-grow">Scores are recorded on the leaderboard only when the MIDI is in Ranked status.</p>
-                            {isAudioInputEnabled && (
-                                <p className="text-xs text-red-400 mt-2 font-bold">
-                                    Disabled when Microphone Input is active.
+                            <div>
+                                <div className="flex items-center justify-between mb-3">
+                                    {/* Trophy SVG */}
+                                    <div className="w-9 h-9 rounded-xl bg-amber-500/20 flex items-center justify-center text-amber-300">
+                                        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/>
+                                            <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/>
+                                            <path d="M4 22h16"/>
+                                            <path d="M10 14.66V17c0 .55-.45 1-1 1H7"/>
+                                            <path d="M14 14.66V17c0 .55.45 1 1 1h2"/>
+                                            <path d="M18 2H6v7a6 6 0 0 0 12 0V2z"/>
+                                        </svg>
+                                    </div>
+                                    {selectedMode === 'retical' && (
+                                        <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                            {t.activeBadge}
+                                        </span>
+                                    )}
+                                </div>
+                                <h4 className={`font-black text-lg mb-1 ${isAudioInputEnabled ? 'text-slate-500' : 'text-amber-300'}`}>
+                                    {t.reticalModeTitle}
+                                </h4>
+                                <p className="text-xs text-slate-400 leading-relaxed mb-4">
+                                    {t.reticalModeDesc}
                                 </p>
-                            )}
+                                {isAudioInputEnabled && (
+                                    <p className="text-[10px] text-red-400 font-bold">
+                                        {t.reticalDisabledMic}
+                                    </p>
+                                )}
+                            </div>
+                            <div className="pt-3 border-t border-white/5 text-[11px] font-semibold text-amber-400/80">
+                                {t.rankedBadgeDesc}
+                            </div>
                         </div>
+
+                        {/* Mode 4: Autoplay Demo */}
+                        <div
+                            onClick={() => handleModeSelect('autoplay')}
+                            className={`p-5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between ${
+                                selectedMode === 'autoplay'
+                                    ? 'bg-gradient-to-b from-sky-950/60 to-slate-900/90 border-sky-400 shadow-[0_0_20px_rgba(56,189,248,0.3)] scale-[1.02]'
+                                    : 'bg-slate-900/60 border-slate-700/80 hover:border-slate-600'
+                            }`}
+                        >
+                            <div>
+                                <div className="flex items-center justify-between mb-3">
+                                    {/* Headphones SVG */}
+                                    <div className="w-9 h-9 rounded-xl bg-sky-500/20 flex items-center justify-center text-sky-300">
+                                        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <path d="M3 18v-6a9 9 0 0 1 18 0v6"/>
+                                            <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>
+                                        </svg>
+                                    </div>
+                                    {selectedMode === 'autoplay' && (
+                                        <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                                            {t.activeBadge}
+                                        </span>
+                                    )}
+                                </div>
+                                <h4 className="font-black text-lg text-sky-300 mb-1">
+                                    {t.autoplayTitle}
+                                </h4>
+                                <p className="text-xs text-slate-400 leading-relaxed mb-4">
+                                    {t.autoplayDesc}
+                                </p>
+                            </div>
+                            <div className="pt-3 border-t border-white/5 text-[11px] font-semibold text-sky-400/80">
+                                {t.autoplayBadgeDesc}
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                {/* Step 2: Streamlined Options */}
+                <div>
+                    <div className="flex items-center gap-2 mb-3">
+                        <span className="w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 flex items-center justify-center text-xs font-bold">2</span>
+                        <h3 className="text-lg font-bold text-white tracking-wide">
+                            {t.step2Title}
+                        </h3>
                     </div>
 
-                    <div className="bg-slate-900/50 p-6 rounded-lg mb-6 ring-1 ring-slate-700">
-                        <h4 className="font-semibold text-lg mb-4 text-slate-200">Backing Track (Audio)</h4>
-                        <div className="flex flex-col gap-4">
-                            <div className="flex gap-4">
-                                <label className="flex items-center cursor-pointer">
-                                    <input type="radio" name="backing" checked={backingType === 'none'} onChange={() => setBackingType('none')} className="form-radio text-cyan-500" />
-                                    <span className="ml-2 text-slate-300">None</span>
-                                </label>
-                                <label className="flex items-center cursor-pointer">
-                                    <input type="radio" name="backing" checked={backingType === 'mp3'} onChange={() => setBackingType('mp3')} className="form-radio text-cyan-500" />
-                                    <span className="ml-2 text-slate-300">Upload MP3</span>
-                                </label>
-                                {midiLink && (
-                                    <label className="flex items-center cursor-pointer">
-                                        <input type="radio" name="backing" checked={backingType === 'online'} onChange={() => setBackingType('online')} className="form-radio text-cyan-500" />
-                                        <span className="ml-2 text-slate-300">Online Link (Auto)</span>
-                                    </label>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        
+                        {/* Panel A: Tempo & Hand Selection */}
+                        <div className="bg-slate-900/70 p-6 rounded-3xl border border-white/10 space-y-6">
+                            
+                            {/* Tempo Control */}
+                            <div>
+                                <div className="flex items-center justify-between mb-3">
+                                    <div className="flex items-center gap-2 text-cyan-400">
+                                        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                                        </svg>
+                                        <label className="text-sm font-bold text-white">
+                                            {t.tempo}
+                                        </label>
+                                    </div>
+                                    <div className="flex items-center gap-2 font-mono">
+                                        <span className="text-xl font-black text-cyan-400">
+                                            {displayedPlaybackPercentage}%
+                                        </span>
+                                        {initialTempoBpm && (
+                                            <span className="text-xs text-slate-400">
+                                                ({displayedBpm} BPM)
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {selectedMode === 'retical' ? (
+                                    <div className="space-y-3">
+                                        <div className="flex flex-wrap gap-2">
+                                            {RANKED_TEMPOS.map(rate => (
+                                                <button
+                                                    key={rate}
+                                                    onClick={() => onPlaybackTempoMultiplierChange(rate)}
+                                                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                                                        Math.abs(initialPlaybackTempoMultiplier - rate) < 0.001
+                                                            ? 'bg-amber-500 text-slate-950 font-extrabold shadow-lg shadow-amber-500/20 ring-2 ring-amber-300'
+                                                            : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'
+                                                    }`}
+                                                >
+                                                    {rate}x
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <p className="text-[11px] text-amber-400/90 font-medium">
+                                            {t.rankedTempoNotice}
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-3">
+                                        <div className="flex flex-wrap gap-2">
+                                            {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 2].map(rate => {
+                                                const isAllowed = rate * 100 >= minTempoPercentage && rate * 100 <= maxTempoPercentage;
+                                                return (
+                                                    <button
+                                                        key={rate}
+                                                        onClick={() => isAllowed && onPlaybackTempoMultiplierChange(rate)}
+                                                        disabled={!isAllowed}
+                                                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                                                            initialPlaybackTempoMultiplier === rate
+                                                                ? 'bg-cyan-600 text-white shadow-md'
+                                                                : isAllowed
+                                                                    ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                                                                    : 'bg-slate-900 text-slate-600 cursor-not-allowed'
+                                                        }`}
+                                                    >
+                                                        {rate}x
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min={minTempoPercentage}
+                                            max={maxTempoPercentage}
+                                            step="1"
+                                            value={displayedPlaybackPercentage}
+                                            onChange={(e) => onPlaybackTempoMultiplierChange(parseInt(e.target.value, 10) / 100)}
+                                            className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                                        />
+                                    </div>
                                 )}
                             </div>
 
-                            {backingType === 'online' && midiLink && (
-                                <div className="p-4 rounded-lg bg-slate-900 border border-slate-700/60 flex flex-col gap-2">
-                                    <div className="flex flex-col gap-0.5 min-w-0">
-                                        <span className="text-xs font-bold text-cyan-400">Backing Track URL</span>
-                                        <span className="text-[11px] text-slate-400 truncate max-w-[240px] sm:max-w-md">{normalizeYoutubeUrl(midiLink)}</span>
-                                    </div>
-                                    <div className="text-xs text-emerald-400 leading-normal font-bold flex items-center gap-1.5 mt-1 bg-emerald-500/10 px-2.5 py-2 rounded border border-emerald-500/20">
-                                        <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            {/* Hand Selection (Only for Practice) */}
+                            {isPractice && (
+                                <div className="pt-4 border-t border-white/5">
+                                    <div className="flex items-center gap-2 mb-3 text-cyan-400">
+                                        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"/>
+                                            <path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"/>
+                                            <path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/>
+                                            <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>
                                         </svg>
-                                        <span>
-                                            {midiLink.includes('youtube.com') || midiLink.includes('youtu.be') 
-                                                ? "Streaming Ready! Track will play directly via the integrated YouTube Player." 
-                                                : "Direct Audio Ready! Track will stream directly."}
-                                        </span>
+                                        <label className="text-sm font-bold text-white">
+                                            {t.handSelection}
+                                        </label>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {(['left', 'right', 'both'] as PracticeHand[]).map(hand => (
+                                            <button
+                                                key={hand}
+                                                onClick={() => setPracticeHand(hand)}
+                                                className={`py-2 px-3 text-xs rounded-xl font-bold transition-all flex items-center justify-center gap-1.5 ${
+                                                    practiceHand === hand
+                                                        ? 'bg-cyan-600 text-white shadow-md shadow-cyan-500/20'
+                                                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                                                }`}
+                                            >
+                                                <span>{hand === 'left' ? t.leftHand : hand === 'right' ? t.rightHand : t.bothHands}</span>
+                                            </button>
+                                        ))}
                                     </div>
                                 </div>
                             )}
 
-                            <div className="bg-amber-500/10 border border-amber-500/30 p-3 rounded-lg text-xs text-amber-200 leading-tight">
-                                <p className="font-bold flex items-center gap-2 mb-1">
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-                                    IMPORTANT:
-                                </p>
-                                <div className="space-y-1">
-                                    <p>
-                                        If your MIDI controller feels delayed, consider adjusting the note offset in settings. Click the icon to go directly to the note offset settings, where you can calibrate it automatically by playing the calibration song. {onOpenSettings && (
-                                            <button onClick={onOpenSettings} className="inline-flex items-center justify-center ml-1 text-cyan-400 hover:text-cyan-300 transition-colors" title="Open Settings">
-                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                                            </button>
+                            {/* Assists / Toggles */}
+                            {isPractice && (
+                                <div className="pt-4 border-t border-white/5 space-y-3">
+                                    {selectedMode === 'practice_lenient' && (
+                                        <div 
+                                            role="button"
+                                            tabIndex={0}
+                                            onClick={() => setIsNonStop(!isNonStop)}
+                                            onKeyDown={e => (e.key === ' ' || e.key === 'Enter') && setIsNonStop(!isNonStop)}
+                                            className="flex items-center justify-between cursor-pointer p-2.5 rounded-xl bg-slate-800/40 hover:bg-slate-800/70 transition-colors select-none"
+                                        >
+                                            <div className="pointer-events-none">
+                                                <span className="text-xs font-bold text-slate-200">{t.nonStopMode}</span>
+                                                <p className="text-[10px] text-slate-400">{t.nonStopDesc}</p>
+                                            </div>
+                                            <div className="flex items-center pointer-events-none">
+                                                <div className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors ${isNonStop ? 'bg-cyan-500' : 'bg-slate-700'}`}>
+                                                    <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${isNonStop ? 'translate-x-5' : 'translate-x-0'}`} />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                    <div 
+                                        role="button"
+                                        tabIndex={0}
+                                        onClick={() => setIsHpEnabled(!isHpEnabled)}
+                                        onKeyDown={e => (e.key === ' ' || e.key === 'Enter') && setIsHpEnabled(!isHpEnabled)}
+                                        className="flex items-center justify-between cursor-pointer p-2.5 rounded-xl bg-slate-800/40 hover:bg-slate-800/70 transition-colors select-none"
+                                    >
+                                        <div className="pointer-events-none">
+                                            <span className="text-xs font-bold text-slate-200">{t.enableHp}</span>
+                                            <p className="text-[10px] text-slate-400">{t.enableHpDesc}</p>
+                                        </div>
+                                        <div className="flex items-center pointer-events-none">
+                                            <div className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors ${isHpEnabled ? 'bg-cyan-500' : 'bg-slate-700'}`}>
+                                                <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${isHpEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                        </div>
+
+                        {/* Panel B: Backing Track & Sync */}
+                        <div className="bg-slate-900/70 p-6 rounded-3xl border border-white/10 space-y-6">
+                            
+                            {/* Backing Track Selection */}
+                            <div>
+                                <div className="flex items-center gap-2 mb-3 text-cyan-400">
+                                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M9 18V5l12-2v13"/>
+                                        <circle cx="6" cy="18" r="3"/>
+                                        <circle cx="18" cy="16" r="3"/>
+                                    </svg>
+                                    <label className="text-sm font-bold text-white">
+                                        {t.backingTrackHeader}
+                                    </label>
+                                </div>
+
+                                <div className="grid grid-cols-3 gap-2 mb-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => setBackingType('none')}
+                                        className={`py-2 px-3 rounded-xl text-xs font-bold transition-all ${
+                                            backingType === 'none'
+                                                ? 'bg-cyan-600 text-white shadow-md'
+                                                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                                        }`}
+                                    >
+                                        {t.backingNone}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setBackingType('mp3')}
+                                        className={`py-2 px-3 rounded-xl text-xs font-bold transition-all ${
+                                            backingType === 'mp3'
+                                                ? 'bg-cyan-600 text-white shadow-md'
+                                                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                                        }`}
+                                    >
+                                        {t.backingMp3}
+                                    </button>
+                                    {midiLink && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setBackingType('online')}
+                                            className={`py-2 px-3 rounded-xl text-xs font-bold transition-all ${
+                                                backingType === 'online'
+                                                    ? 'bg-cyan-600 text-white shadow-md'
+                                                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                                        }`}
+                                        >
+                                            {t.backingOnline}
+                                        </button>
+                                    )}
+                                </div>
+
+                                {backingType === 'mp3' && (
+                                    <div className="p-3 bg-slate-800/60 rounded-xl border border-slate-700/60 space-y-2">
+                                        <input
+                                            type="file"
+                                            accept="audio/mp3,audio/wav,audio/*"
+                                            onChange={handleMp3Upload}
+                                            ref={mp3InputRef}
+                                            className="text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-cyan-600 file:text-white hover:file:bg-cyan-500 cursor-pointer"
+                                        />
+                                        {backingTrackFile && (
+                                            <p className="text-[11px] text-emerald-400 font-semibold truncate flex items-center gap-1">
+                                                <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>
+                                                <span>File: {backingTrackFile.name}</span>
+                                            </p>
                                         )}
-                                    </p>
-                                    <p>If the MP3 is still out of sync, try adjusting the USER MS (Audio Sync) by ±100 ms from the original offset; the goal is to match the backing track with the metronome. <button 
+                                    </div>
+                                )}
+
+                                {backingType === 'online' && midiLink && (
+                                    <div className="p-3 rounded-xl bg-slate-800/60 border border-slate-700/60 text-xs">
+                                        <span className="font-semibold text-cyan-400 block mb-1">Streaming Link:</span>
+                                        <span className="text-slate-400 truncate block text-[11px]">{normalizeYoutubeUrl(midiLink)}</span>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* IMPORTANT Notice Box */}
+                            <div className="bg-amber-500/10 border border-amber-500/30 p-3.5 rounded-2xl text-xs text-amber-200 leading-relaxed space-y-2">
+                                <div className="font-bold flex items-center gap-1.5 text-amber-400">
+                                    <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                                    <span>IMPORTANT:</span>
+                                </div>
+                                <p>
+                                    If your MIDI controller feels delayed, consider adjusting the note offset in settings. Click the icon to go directly to the note offset settings, where you can calibrate it automatically by playing the calibration song. {onOpenSettings && (
+                                        <button 
+                                            type="button"
+                                            onClick={onOpenSettings} 
+                                            className="inline-flex items-center justify-center ml-1 p-1 rounded-md bg-amber-500/20 hover:bg-amber-500/40 text-cyan-300 hover:text-white transition-colors align-middle" 
+                                            title="Open Settings"
+                                        >
+                                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                                        </button>
+                                    )}
+                                </p>
+                                <p>
+                                    If the MP3 is still out of sync, try adjusting the USER MS (Audio Sync) by ±10 ms from the original offset; the goal is to match the backing track with the metronome.{" "}
+                                    <button 
+                                        type="button"
                                         onClick={() => {
                                             let backingConfig = undefined;
                                             if (backingType === 'mp3' && backingTrackFile) {
@@ -358,55 +699,61 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
                                                 isCalibrationMode: true
                                             });
                                         }}
-                                        className="text-cyan-400 hover:text-white underline font-bold ml-1 cursor-pointer bg-transparent border-none p-0 inline shadow-none transform-none"
+                                        className="text-cyan-400 hover:text-white underline font-bold cursor-pointer inline transition-colors"
                                     >
                                         Sync Tuner (STU)
-                                    </button></p>
-                                </div>
+                                    </button>
+                                </p>
                             </div>
 
-                            {backingType === 'mp3' && (
-                                <div className="flex flex-col gap-2">
-                                    <input
-                                        type="file"
-                                        accept="audio/mp3,audio/wav,audio/*"
-                                        onChange={handleMp3Upload}
-                                        ref={mp3InputRef}
-                                        className="text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-cyan-600 file:text-white hover:file:bg-cyan-700"
-                                    />
-                                    {backingTrackFile && <p className="text-xs text-green-400">Selected: {backingTrackFile.name}</p>}
-                                </div>
-                            )}
-
-                            <div className="mt-2 p-3 bg-violet-950/20 rounded-lg border border-violet-500/30">
+                            {/* Audio Sync Tuner */}
+                            <div className="pt-4 border-t border-white/5">
                                 <div className="flex items-center justify-between mb-2">
-                                    <div className="flex flex-col">
-                                        <label className="text-sm font-bold text-cyan-400">USER MS (Audio Sync)</label>
-                                        <span className="text-[10px] text-slate-500 italic">Adjusts all songs & metronome</span>
+                                    <div className="flex items-center gap-2 text-cyan-400">
+                                        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <circle cx="12" cy="12" r="10"/>
+                                            <polyline points="12 6 12 12 16 14"/>
+                                        </svg>
+                                        <label className="text-sm font-bold text-white">
+                                            USER MS (Audio Sync)
+                                        </label>
                                     </div>
                                     <div className="flex flex-col items-end">
-                                        <span className="text-lg font-black font-mono text-white tabular-nums drop-shadow-[0_0_8px_rgba(255,255,255,0.2)]">
+                                        <span className="font-mono text-cyan-400 font-black text-base tabular-nums">
                                             {userAudioSyncOffset > 0 ? `+${userAudioSyncOffset}` : userAudioSyncOffset}ms
                                         </span>
-                                        <span className="text-[10px] text-slate-500 mt-0.5 uppercase font-bold tracking-tighter">
+                                        <span className="text-[10px] text-slate-400 uppercase font-bold tracking-tighter">
                                             Avg Input: {-userAverageOffset > 0 ? `+${Math.round(-userAverageOffset)}` : Math.round(-userAverageOffset)}ms
                                         </span>
                                     </div>
                                 </div>
+
                                 <div className="flex gap-2 mb-2">
-                                    <button onClick={() => onUserAudioSyncOffsetChange(userAudioSyncOffset - 10)} className="bg-slate-700 hover:bg-slate-600 text-white text-xs px-2 py-1 rounded">-10ms</button>
-                                    <button onClick={() => onUserAudioSyncOffsetChange(userAudioSyncOffset + 10)} className="bg-slate-700 hover:bg-slate-600 text-white text-xs px-2 py-1 rounded">+10ms</button>
                                     <button 
-                                        onClick={() => {
-                                            if (Math.abs(userAverageOffset) < 1000) {
-                                                onUserAudioSyncOffsetChange(Math.round(userAudioSyncOffset - userAverageOffset));
-                                            }
-                                        }} 
-                                        className="bg-cyan-600/40 hover:bg-cyan-600/60 text-cyan-200 text-xs px-2 py-1 rounded ml-auto"
+                                        type="button"
+                                        onClick={() => onUserAudioSyncOffsetChange(userAudioSyncOffset - 10)} 
+                                        className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors"
                                     >
-                                        Apply Avg
+                                        -10ms
                                     </button>
+                                    <button 
+                                        type="button"
+                                        onClick={() => onUserAudioSyncOffsetChange(userAudioSyncOffset + 10)} 
+                                        className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors"
+                                    >
+                                        +10ms
+                                    </button>
+                                    {Math.abs(userAverageOffset) < 1000 && (
+                                        <button 
+                                            type="button"
+                                            onClick={() => onUserAudioSyncOffsetChange(Math.round(userAudioSyncOffset - userAverageOffset))} 
+                                            className="bg-cyan-600/30 hover:bg-cyan-600/50 text-cyan-200 text-xs px-3 py-1.5 rounded-lg font-semibold ml-auto border border-cyan-500/30 transition-colors"
+                                        >
+                                            Apply Avg
+                                        </button>
+                                    )}
                                 </div>
+
                                 <input
                                     type="range"
                                     min="-500"
@@ -414,226 +761,81 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
                                     step="5"
                                     value={Math.max(-500, Math.min(500, userAudioSyncOffset))}
                                     onChange={(e) => onUserAudioSyncOffsetChange(parseInt(e.target.value, 10))}
-                                    className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer"
+                                    className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
                                 />
+
+                                {(midiLink || midiOffset != null) && (
+                                    <div className="mt-3 p-3 rounded-xl bg-black/40 border border-white/5 text-xs text-slate-400 space-y-1">
+                                        {midiLink && (
+                                            <div className="flex items-start gap-2">
+                                                <span className="font-bold text-slate-300 whitespace-nowrap">Default Source:</span>
+                                                <a href={midiLink} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline break-all">{normalizeYoutubeUrl(midiLink)}</a>
+                                            </div>
+                                        )}
+                                        {midiOffset != null && (
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-bold text-slate-300">Default Offset:</span>
+                                                <span className="text-cyan-300 font-mono">{midiOffset > 0 ? `+${midiOffset}` : midiOffset}ms</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
 
-                            {(midiLink || midiOffset != null) && (
-                                <div className="mt-3 p-3 rounded bg-black/30 border border-white/5 text-xs text-slate-400 space-y-1">
-                                    {midiLink && (
-                                        <div className="flex items-start gap-2">
-                                            <span className="font-bold text-slate-300 whitespace-nowrap">Default Source:</span>
-                                            <a href={midiLink} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline break-all">{normalizeYoutubeUrl(midiLink)}</a>
-                                        </div>
-                                    )}
-                                    {midiOffset != null && (
-                                        <div className="flex items-center gap-2">
-                                            <span className="font-bold text-slate-300">Default Offset:</span>
-                                            <span className="text-cyan-300 font-mono">{midiOffset > 0 ? `+${midiOffset}` : midiOffset}ms</span>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
                         </div>
-                    </div>
 
-                    {(isPractice || selectedMode === 'retical') && (
-                        <div className="bg-slate-900/50 p-6 rounded-lg mb-6 space-y-6 ring-1 ring-slate-700">
-                            <div>
-                                <h4 className="font-semibold text-lg text-center mb-3 text-slate-200">
-                                    Accuracy Level {selectedMode === 'retical' && <span className="text-amber-400 text-sm ml-2">(Locked)</span>}
-                                </h4>
-                                <div className="flex flex-col items-center gap-4 px-4">
-                                    <div className="flex items-center w-full gap-4">
-                                        <input
-                                            type="range"
-                                            min="3"
-                                            max="7"
-                                            step="1"
-                                            disabled={selectedMode === 'retical'}
-                                            value={selectedMode === 'retical' ? (currentSongAccuracyLevel || 5) : accuracyLevel}
-                                            onChange={e => setAccuracyLevel(parseInt(e.target.value, 10))}
-                                            className={`w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer ${selectedMode === 'retical' ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                        />
-                                        <span className="font-mono text-cyan-400 text-2xl w-12 text-center">
-                                            {selectedMode === 'retical' ? (currentSongAccuracyLevel || 5) : accuracyLevel}
-                                        </span>
-                                    </div>
-                                    <div className="grid grid-cols-3 gap-2 w-full text-center">
-                                        <div className="bg-emerald-500/10 border border-emerald-500/30 p-2 rounded">
-                                            <div className="text-emerald-400 text-[10px] uppercase font-bold">Perfect</div>
-                                            <div className="text-white font-mono text-sm">±{100 + (5 - (selectedMode === 'retical' ? (currentSongAccuracyLevel || 5) : accuracyLevel)) * 20}ms</div>
-                                        </div>
-                                        <div className="bg-sky-500/10 border border-sky-500/30 p-2 rounded">
-                                            <div className="text-sky-400 text-[10px] uppercase font-bold">Great</div>
-                                            <div className="text-white font-mono text-sm">±{Math.round((100 + (5 - (selectedMode === 'retical' ? (currentSongAccuracyLevel || 5) : accuracyLevel)) * 20) * 1.5)}ms</div>
-                                        </div>
-                                        <div className="bg-amber-500/10 border border-amber-500/30 p-2 rounded">
-                                            <div className="text-amber-400 text-[10px] uppercase font-bold">Good</div>
-                                            <div className="text-white font-mono text-sm">±{(100 + (5 - (selectedMode === 'retical' ? (currentSongAccuracyLevel || 5) : accuracyLevel)) * 20) * 2}ms</div>
-                                        </div>
-                                    </div>
-                                <p className="text-xs text-slate-400 text-center mt-4">
-                                    Lower levels are more lenient. Higher levels require more precision.
-                                    {selectedMode === 'retical' ? " Ranked mode uses the original accuracy level set by the song arranger." : " Practice mode allows you to customize this to match your skill level."}
-                                </p>
-                            </div>
-                        </div>
-                            
-                        {isPractice && (
-                            <div className="border-t border-slate-700 pb-4 pt-4">
-                                <h4 className="font-semibold text-lg text-center mb-3 text-slate-200">Hand Selection</h4>
-                                <div className="flex justify-center gap-3">
-                                    {(['left', 'right', 'both'] as PracticeHand[]).map(hand => (
-                                        <button key={hand} onClick={() => setPracticeHand(hand)} className={`px-4 py-2 text-sm rounded-md font-semibold transition ${practiceHand === hand ? 'bg-cyan-500 text-white shadow-md' : 'bg-slate-600 hover:bg-slate-500'}`}>
-                                            {hand === 'left' ? 'Left Hand' : hand === 'right' ? 'Right Hand' : 'Both Hands'}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                )}
-
-                    {isPractice && (
-                        <div className="bg-slate-900/50 p-6 rounded-lg mb-6 ring-1 ring-slate-700 space-y-4">
-                            {selectedMode === 'practice_lenient' && (
-                                <label className="flex items-center justify-between cursor-pointer pb-4 border-b border-slate-800">
-                                    <div>
-                                        <span className="text-lg font-medium text-slate-300">Non-Stop Mode</span>
-                                        <p className="text-xs text-slate-400 font-normal mt-1">Music continues playing even if you miss notes, like Autoplay.</p>
-                                    </div>
-                                    <div className="relative inline-flex items-center">
-                                        <input type="checkbox" checked={isNonStop} onChange={e => setIsNonStop(e.target.checked)} className="sr-only peer" />
-                                        <div className="w-11 h-6 bg-slate-600 rounded-full peer peer-checked:bg-cyan-600 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full"></div>
-                                    </div>
-                                </label>
-                            )}
-                            <label className="flex items-center justify-between cursor-pointer">
-                                <div>
-                                    <span className="text-lg font-medium text-slate-300">Enable Health Bar (HP)</span>
-                                    <p className="text-xs text-slate-400 font-normal mt-1">When disabled (No-Fail), your HP stays full and the song continues even if you miss notes.</p>
-                                </div>
-                                <div className="relative inline-flex items-center">
-                                    <input type="checkbox" checked={isHpEnabled} onChange={e => setIsHpEnabled(e.target.checked)} className="sr-only peer" />
-                                    <div className="w-11 h-6 bg-slate-600 rounded-full peer peer-checked:bg-cyan-600 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full"></div>
-                                </div>
-                            </label>
-                        </div>
-                    )}
-
-                    <div className="bg-slate-900/50 p-4 rounded-lg mb-8 ring-1 ring-slate-700 text-center">
-                        <label className="block text-lg font-medium text-slate-300 mb-3">
-                            Tempo: <span className="font-bold text-white">{displayedPlaybackPercentage}%</span>
-                            {initialTempoBpm && <span className="text-slate-400"> ({displayedBpm} BPM)</span>}
-                        </label>
-                        {selectedMode === 'retical' ? (
-                            <div className="space-y-3">
-                                <div className="flex flex-wrap justify-center gap-2.5 my-2">
-                                    {RANKED_TEMPOS.map(rate => (
-                                        <button
-                                            key={rate}
-                                            onClick={() => onPlaybackTempoMultiplierChange(rate)}
-                                            className={`px-4 py-2 rounded-lg text-sm font-bold transition-all transform active:scale-95 ${
-                                                Math.abs(initialPlaybackTempoMultiplier - rate) < 0.001
-                                                    ? 'bg-amber-500 text-slate-900 shadow-lg shadow-amber-500/20 font-extrabold ring-2 ring-amber-300'
-                                                    : 'bg-slate-700/80 text-slate-200 hover:bg-slate-600 hover:text-white'
-                                            }`}
-                                        >
-                                            {rate}x
-                                        </button>
-                                    ))}
-                                </div>
-                                <p className="text-xs text-center text-amber-400/90 font-medium">
-                                    Mode Ranked hanya mengizinkan 4 pilihan tempo: 0.75x, 1x, 1.25x, dan 1.5x.
-                                </p>
-                            </div>
-                        ) : (
-                            <>
-                                <div className="flex flex-wrap justify-center gap-2 mb-4">
-                                    {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 2].map(rate => {
-                                        const isAllowed = rate * 100 >= minTempoPercentage && rate * 100 <= maxTempoPercentage;
-                                        return (
-                                            <button
-                                                key={rate}
-                                                onClick={() => isAllowed && onPlaybackTempoMultiplierChange(rate)}
-                                                disabled={!isAllowed}
-                                                className={`px-3 py-1 rounded text-sm font-bold transition-colors ${initialPlaybackTempoMultiplier === rate ? 'bg-cyan-600 text-white shadow-md' : isAllowed ? 'bg-slate-700 text-slate-300 hover:bg-slate-600' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}
-                                            >
-                                                {rate}x
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                                <input
-                                    type="range"
-                                    min={minTempoPercentage}
-                                    max={maxTempoPercentage}
-                                    step="1"
-                                    value={displayedPlaybackPercentage}
-                                    onChange={(e) => onPlaybackTempoMultiplierChange(parseInt(e.target.value, 10) / 100)}
-                                    className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer mb-2"
-                                />
-                                {/* Advanced Tempo Input */}
-                                <div className="flex justify-center items-center gap-2 mt-4">
-                                    <span className="text-xs text-slate-400 uppercase font-bold">Advanced:</span>
-                                    <div className="flex items-center">
-                                        <input
-                                            type="number"
-                                            min={0.1}
-                                            max={4}
-                                            step="0.01"
-                                            value={initialPlaybackTempoMultiplier}
-                                            onChange={(e) => {
-                                                const val = parseFloat(e.target.value);
-                                                if (!isNaN(val)) {
-                                                    const clamped = Math.max(0.1, Math.min(4, val));
-                                                    onPlaybackTempoMultiplierChange(clamped);
-                                                }
-                                            }}
-                                            className="bg-slate-800 border border-slate-600 text-white text-sm rounded px-2 py-1 w-20 text-center focus:border-cyan-500 focus:outline-none"
-                                        />
-                                        <span className="ml-2 text-xs text-slate-500">
-                                            (Range: 0.1 - 4)
-                                        </span>
-                                    </div>
-                                </div>
-                            </>
-                        )}
-                    </div>
-
-                    <div className="grid grid-cols-5 gap-4">
-                        <button onClick={handleStart} className={`${buttonBaseStyle} ${primaryButtonStyle} col-span-4`}>
-                            Start Game
-                        </button>
-                        <button onClick={() => setIsTutorialModalOpen(true)} className={`${buttonBaseStyle} bg-amber-500 hover:bg-amber-600 text-white col-span-1`}>
-                            Learn More
-                        </button>
                     </div>
                 </div>
-            </div>
 
-            {isTutorialModalOpen && (
-                <div className={`fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4`} onClick={() => setIsTutorialModalOpen(false)}>
-                    <div className={`bg-slate-800 rounded-lg shadow-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto custom-scrollbar`} onClick={e => e.stopPropagation()}>
-                        <div className="flex justify-between items-center mb-4 border-b border-slate-700 pb-3">
-                            <h2 className="text-2xl font-bold text-sky-300">Tutorials</h2>
-                            <button onClick={() => setIsTutorialModalOpen(false)} className="text-3xl font-light text-slate-400 hover:text-white">&times;</button>
+            </main>
+
+            {/* Sticky Bottom Action Bar */}
+            <footer className="fixed bottom-0 left-0 right-0 z-50 bg-slate-900/95 border-t border-cyan-500/30 p-3 md:p-4 backdrop-blur-md shadow-2xl">
+                <div className="max-w-7xl w-full mx-auto flex items-center justify-between gap-4">
+                    
+                    {/* Selected Mode Summary */}
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-300">
+                            {selectedMode === 'practice_lenient' ? (
+                                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M7 20h10M10 20c0-4.5 1.5-7 6-8M16 12c-4.5 0-7-1.5-8-6 4.5 0 7 1.5 8 6z"/></svg>
+                            ) : selectedMode === 'practice_strict' ? (
+                                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+                            ) : selectedMode === 'retical' ? (
+                                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6M18 9h1.5a2.5 2.5 0 0 0 0-5H18M4 22h16M18 2H6v7a6 6 0 0 0 12 0V2z"/></svg>
+                            ) : (
+                                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>
+                            )}
                         </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            {tutorials.map((tutorial, index) => (
-                                <a key={index} href={tutorial.url} target="_blank" rel="noopener noreferrer" className="group block bg-slate-700 hover:bg-slate-600 rounded-xl overflow-hidden transition-all p-3">
-                                    <div className="aspect-video bg-black rounded relative overflow-hidden mb-2">
-                                        <img src={`https://img.youtube.com/vi/${getYoutubeId(tutorial.url)}/mqdefault.jpg`} alt={tutorial.title} className="w-full h-full object-cover" />
-                                    </div>
-                                    <div className="text-white font-bold text-sm">{tutorial.title}</div>
-                                </a>
-                            ))}
+                        <div>
+                            <div className="text-xs text-slate-400 font-medium">{t.modeReadyLabel}</div>
+                            <div className="text-sm md:text-base font-black text-white">
+                                {selectedMode === 'practice_lenient' 
+                                    ? t.lenientPracticeTitle 
+                                    : selectedMode === 'practice_strict' 
+                                        ? t.strictPracticeTitle 
+                                        : selectedMode === 'retical' 
+                                            ? t.reticalModeTitle 
+                                            : t.autoplayTitle}
+                                <span className="text-xs text-cyan-400 ml-2 font-mono">({displayedPlaybackPercentage}%)</span>
+                            </div>
                         </div>
                     </div>
+
+                    {/* Start Button */}
+                    <button
+                        onClick={handleStart}
+                        className="bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-600 hover:from-cyan-400 hover:via-blue-500 hover:to-indigo-500 text-white font-black py-3.5 px-8 md:px-12 rounded-2xl shadow-[0_0_25px_rgba(6,182,212,0.5)] transition-all hover:scale-105 active:scale-95 text-base md:text-lg flex items-center gap-3"
+                    >
+                        <span>{t.startGameAction}</span>
+                        <svg className="w-5 h-5 fill-current" viewBox="0 0 20 20">
+                            <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z"/>
+                        </svg>
+                    </button>
+
                 </div>
-            )}
-        </>
+            </footer>
+
+        </div>
     );
 });
 

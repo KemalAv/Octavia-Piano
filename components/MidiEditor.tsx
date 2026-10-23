@@ -3,7 +3,7 @@ import { Midi } from '@tonejs/midi';
 import { PIANO_KEYS_CONFIG, DRUM_KEYS_CONFIG, DRUM_SOUND_MAP, DRUM_PRIMARY_MIDI_MAP } from '../constants';
 import { TempoEvent, TimeSignatureInfo } from '../types';
 import { guessKeySignature } from '../midiParser';
-import { preloadAudioUrl, isAudioCached, downloadAndCacheAudio, getFromAudioCache } from '../utils';
+import { preloadAudioUrl, isAudioCached, downloadAndCacheAudio, getFromAudioCache, getDynamicFromVelocity, getDynamicTextColor } from '../utils';
 
 // Constants for editing
 const TICKS_PER_QUARTER = 480;
@@ -58,14 +58,16 @@ interface EditorState {
 }
 
 interface DragInfo {
-    type: 'note' | 'selection' | 'tempo';
+    type: 'note' | 'selection' | 'tempo' | 'velocity';
     noteId?: string;
     initialNotes?: Map<string, { ticks: number, midi: number }>;
+    initialVelocities?: Map<string, number>;
     minOriginalTick?: number;
     startX: number;
     startY: number;
     tempoIndex?: number;
     initialBpm?: number;
+    initialVelocity?: number;
 }
 
 interface SelectionBox {
@@ -174,7 +176,8 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
     const [snapTypeIndex, setSnapTypeIndex] = useState(0); // Default Normal
     const [isPlaying, setIsPlaying] = useState(false);
     const [cursorTick, setCursorTick] = useState(0);
-    const [showBpmAutomation, setShowBpmAutomation] = useState(false);
+    const [editorViewMode, setEditorViewMode] = useState<'notes' | 'bpm' | 'velocity'>('notes');
+    const showBpmAutomation = editorViewMode === 'bpm';
     const [editingTempoIndex, setEditingTempoIndex] = useState<number | null>(null);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [isSettingsRendered, setIsSettingsRendered] = useState(false);
@@ -707,14 +710,21 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
         if (youtubeContainerRef.current) {
             youtubeContainerRef.current.innerHTML = '<div id="editor-youtube-player"></div>';
         }
-        youtubePlayerRef.current = new (window as any).YT.Player('editor-youtube-player', {
-            height: '0', width: '0', videoId: videoId,
-            playerVars: { autoplay: 0, controls: 0, disablekb: 1, fs: 0, modestbranding: 1, rel: 0, showinfo: 0 },
-            events: {
-                onReady: () => { console.log('Editor YouTube Player Ready'); },
-                onError: () => { setBackingTrackError("Failed to load YouTube audio."); }
-            }
-        });
+        try {
+            youtubePlayerRef.current = new (window as any).YT.Player('editor-youtube-player', {
+                height: '0', width: '0', videoId: videoId,
+                playerVars: { autoplay: 0, controls: 0, disablekb: 1, fs: 0, modestbranding: 1, rel: 0, showinfo: 0 },
+                events: {
+                    onReady: () => { console.log('Editor YouTube Player Ready'); },
+                    onStateChange: (event: any) => {
+                        if (event.data === 1) setBackingTrackError(null);
+                    },
+                    onError: () => { setBackingTrackError("Failed to load YouTube MP3 audio."); }
+                }
+            });
+        } catch (e) {
+            setBackingTrackError("Failed to load YouTube MP3 audio.");
+        }
     };
 
     const getYoutubeId = (url: string) => {
@@ -1012,19 +1022,25 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                         }
                     }, startDelayMs / playbackSpeed);
                 }
-            } else if (backingType === 'online' && youtubePlayerRef.current) {
+            } else if (backingType === 'online') {
                 const videoId = getYoutubeId(backingTrackUrl);
                 const isYoutube = !!videoId;
                 if (isYoutube) {
-                    safePauseYoutube();
+                    if (!youtubePlayerRef.current || typeof youtubePlayerRef.current.playVideo !== 'function') {
+                        setBackingTrackError("Failed to load YouTube MP3 audio.");
+                    } else {
                     if (startDelayMs === 0) {
                         if (typeof youtubePlayerRef.current.seekTo === 'function') {
                             try {
-                                youtubePlayerRef.current.seekTo(audioStartTime, true);
+                                const curYt = typeof youtubePlayerRef.current.getCurrentTime === 'function' ? youtubePlayerRef.current.getCurrentTime() : -1;
+                                if (Math.abs(curYt - audioStartTime) > 0.25) {
+                                    youtubePlayerRef.current.seekTo(audioStartTime, true);
+                                }
                             } catch (e) { console.warn("YouTube seek failed", e); }
                         }
                         safePlayYoutube();
                     } else {
+                        safePauseYoutube();
                         try {
                             youtubePlayerRef.current.seekTo(0, true);
                         } catch (e) {}
@@ -1038,6 +1054,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                                 safePlayYoutube();
                             }
                         }, startDelayMs / playbackSpeed);
+                    }
                     }
                 } else {
                     // Fallback for non-youtube online links (using audio element)
@@ -1389,6 +1406,29 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
         });
     };
 
+    const handleVelocityMouseDown = (e: React.MouseEvent, note: EditorNote) => {
+        e.stopPropagation();
+        handleMouseDownShared(() => {
+            const initialVelocities = new Map<string, number>();
+            if (note.selected) {
+                editorState?.notes.filter(n => n.selected).forEach(n => {
+                    initialVelocities.set(n.id, n.velocity ?? 0.8);
+                });
+            }
+            setDragInfo({
+                type: 'velocity',
+                noteId: note.id,
+                initialVelocity: note.velocity ?? 0.8,
+                initialVelocities: initialVelocities.size > 0 ? initialVelocities : undefined,
+                startX: e.clientX,
+                startY: e.clientY
+            });
+            if (audioContextRef.current) {
+                playNoteSound(note.midi, note.velocity, 0.25, audioContextRef.current.currentTime);
+            }
+        });
+    };
+
     useEffect(() => {
         const handleMouseMove = (e: MouseEvent) => {
             if (isDraggingRulerRef.current && gridContainerRef.current) {
@@ -1433,6 +1473,43 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                         newTempos[dragInfo.tempoIndex!].bpm = newBpm;
                         return { ...prev, tempos: newTempos };
                     }, true);
+                } else if (dragInfo.type === 'velocity' && dragInfo.noteId) {
+                    const currentTotalH = gridContainerRef.current?.clientHeight ?? totalHeight;
+                    if (isVertical) {
+                        const dx = (e.clientX - dragInfo.startX) / zoomScale;
+                        const velDelta = dx / currentTotalH;
+                        const newVel = Math.max(0.02, Math.min(1.0, (dragInfo.initialVelocity ?? 0.8) + velDelta));
+                        setEditorState(prev => ({
+                            ...prev,
+                            notes: prev.notes.map(n => {
+                                if (dragInfo.initialVelocities && dragInfo.initialVelocities.has(n.id)) {
+                                    const initV = dragInfo.initialVelocities.get(n.id)!;
+                                    return { ...n, velocity: Math.max(0.02, Math.min(1.0, Math.round((initV + velDelta) * 100) / 100)) };
+                                }
+                                if (n.id === dragInfo.noteId) {
+                                    return { ...n, velocity: Math.round(newVel * 100) / 100 };
+                                }
+                                return n;
+                            })
+                        }), true);
+                    } else {
+                        const dy = (e.clientY - dragInfo.startY) / zoomScale;
+                        const velDelta = -dy / currentTotalH;
+                        const newVel = Math.max(0.02, Math.min(1.0, (dragInfo.initialVelocity ?? 0.8) + velDelta));
+                        setEditorState(prev => ({
+                            ...prev,
+                            notes: prev.notes.map(n => {
+                                if (dragInfo.initialVelocities && dragInfo.initialVelocities.has(n.id)) {
+                                    const initV = dragInfo.initialVelocities.get(n.id)!;
+                                    return { ...n, velocity: Math.max(0.02, Math.min(1.0, Math.round((initV + velDelta) * 100) / 100)) };
+                                }
+                                if (n.id === dragInfo.noteId) {
+                                    return { ...n, velocity: Math.round(newVel * 100) / 100 };
+                                }
+                                return n;
+                            })
+                        }), true);
+                    }
                 }
             } else if (selectionBox && isDraggingRef.current && gridContainerRef.current) {
                 const scrollContainer = gridContainerRef.current;
@@ -1803,7 +1880,21 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
         <div className="fixed inset-0 bg-slate-950 z-50 flex flex-col text-slate-200 font-sans select-none overflow-hidden">
             {backingType === 'mp3' && backingTrackUrl && <audio ref={backingTrackRef} src={backingTrackUrl} />}
             <div ref={youtubeContainerRef} style={{ position: 'absolute', width: 0, height: 0, pointerEvents: 'none', visibility: backingType === 'online' ? 'visible' : 'hidden' }} />
-            {backingType === 'online' && backingTrackUrl && !getYoutubeId(backingTrackUrl) && <audio ref={backingTrackRef} src={backingTrackUrl} />}
+            {backingType === 'online' && backingTrackUrl && !getYoutubeId(backingTrackUrl) && (
+                <audio
+                    ref={backingTrackRef}
+                    src={backingTrackUrl}
+                    onPlaying={() => setBackingTrackError(null)}
+                    onError={() => setBackingTrackError("Failed to load online MP3 audio.")}
+                />
+            )}
+            {backingType === 'online' && backingTrackError && (
+                <div className="absolute top-16 left-1/2 -translate-x-1/2 z-[60] bg-slate-950/95 border border-red-500/60 text-red-300 px-4 py-2 rounded-full shadow-2xl flex items-center gap-2.5 text-xs font-bold">
+                    <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                    <span>FAILED TO LOAD: {backingTrackError}</span>
+                    <button onClick={() => setBackingTrackError(null)} className="ml-1 text-slate-400 hover:text-white">&times;</button>
+                </div>
+            )}
 
             {/* HEADER */}
             <div className="h-14 bg-slate-900 border-b border-white/10 flex items-center px-4 justify-between gap-2 shadow-xl z-50 flex-shrink-0">
@@ -1845,12 +1936,22 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                 <div className="flex items-center gap-2">
                     {/* Simplified Dropdowns */}
                     <div className="flex items-center gap-1 bg-slate-800/80 p-1 rounded-lg border border-white/10">
-                        {/* BPM TOGGLE */}
+                        {/* VIEW MODE BUTTON (NOTES / BPM / VELOCITY) */}
                         <button 
-                            onClick={() => setShowBpmAutomation(p => !p)} 
-                            className={`px-2 py-1.5 rounded text-[10px] font-black uppercase transition-colors ${showBpmAutomation ? 'bg-amber-500 text-white shadow-[0_0_10px_rgba(245,158,11,0.3)]' : 'hover:bg-slate-700 text-slate-300'}`}
+                            onClick={() => {
+                                setEditorViewMode(prev => prev === 'notes' ? 'bpm' : prev === 'bpm' ? 'velocity' : 'notes');
+                            }} 
+                            className={`px-2.5 py-1.5 rounded text-[10px] font-black uppercase transition-all flex items-center gap-1.5 ${
+                                editorViewMode === 'bpm' 
+                                    ? 'bg-amber-500 text-white shadow-[0_0_10px_rgba(245,158,11,0.4)]' 
+                                    : editorViewMode === 'velocity'
+                                        ? 'bg-emerald-500 text-white shadow-[0_0_10px_rgba(16,185,129,0.4)]'
+                                        : 'hover:bg-slate-700 text-slate-300'
+                            }`}
+                            title="Switch view mode: Note -> BPM -> Velocity"
                         >
-                            BPM
+                            <span>VIEW:</span>
+                            <span className="font-extrabold">{editorViewMode === 'notes' ? 'NOTE' : editorViewMode === 'bpm' ? 'BPM' : 'VELOCITY'}</span>
                         </button>
 
                         <div className="h-5 w-px bg-white/10 mx-0.5"></div>
@@ -2032,7 +2133,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                 >
                     {!isVertical && <div style={{ height: RULER_HEIGHT }} className="bg-[#151515] border-b border-white/10"></div>}
                     <div className={isVertical ? "flex flex-row relative h-full" : "relative"} style={isVertical ? { width: totalHeight } : { height: totalHeight }}>
-                        {showBpmAutomation ? (
+                        {editorViewMode === 'bpm' ? (
                             /* BPM SCALE SIDEBAR */
                             bpmMarkers.map((bpm) => {
                                 const offset = (bpm - 20) / 480 * totalHeight;
@@ -2041,6 +2142,28 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                                 return (
                                     <div key={bpm} className={`absolute border-amber-500/20 flex ${isVertical ? 'top-0 bottom-0 border-l items-center justify-center' : 'left-0 right-0 border-t items-start justify-center'}`} style={{ top, left }}>
                                         <span className={`text-[10px] font-black text-amber-500/60 bg-[#121212] px-1 ${isVertical ? '' : 'translate-y-[-50%]'}`}>{bpm}</span>
+                                    </div>
+                                );
+                            })
+                        ) : editorViewMode === 'velocity' ? (
+                            /* VELOCITY SCALE SIDEBAR */
+                            [
+                                { vel: 1.0, label: 'fff (127)', color: 'text-rose-400' },
+                                { vel: 0.88, label: 'ff (112)', color: 'text-orange-400' },
+                                { vel: 0.75, label: 'f (96)', color: 'text-amber-400' },
+                                { vel: 0.63, label: 'mf (80)', color: 'text-lime-400' },
+                                { vel: 0.50, label: 'mp (64)', color: 'text-emerald-400' },
+                                { vel: 0.36, label: 'p (46)', color: 'text-cyan-400' },
+                                { vel: 0.20, label: 'pp (26)', color: 'text-sky-400' },
+                                { vel: 0.10, label: 'ppp (13)', color: 'text-sky-300' },
+                                { vel: 0.0, label: '0', color: 'text-slate-500' },
+                            ].map((m) => {
+                                const offset = m.vel * totalHeight;
+                                const top = isVertical ? undefined : totalHeight - offset;
+                                const left = isVertical ? offset : undefined;
+                                return (
+                                    <div key={m.label} className={`absolute border-emerald-500/20 flex ${isVertical ? 'top-0 bottom-0 border-l items-center justify-center' : 'left-0 right-0 border-t items-start justify-center'}`} style={{ top, left }}>
+                                        <span className={`text-[8px] font-black ${m.color} bg-[#121212] px-1 ${isVertical ? '' : 'translate-y-[-50%]'}`}>{m.label}</span>
                                     </div>
                                 );
                             })
@@ -2112,7 +2235,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                         )}
 
                         <div className="absolute" style={isVertical ? { top: 0, left: 0, width: totalHeight, height: totalWidth } : { top: RULER_HEIGHT, left: 0, width: totalWidth, height: totalHeight }}>
-                            {showBpmAutomation ? (
+                            {editorViewMode === 'bpm' ? (
                                 <div className="relative w-full h-full bg-[#0f0f0f] border-t-2 border-amber-500/50" onMouseDown={(e) => handleBpmMouseDown(e)}>
                                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
                                         <div className="text-center text-slate-700"><h3 className="text-2xl font-bold">BPM Automation</h3><p>Click labels or points to edit values.</p><p>Drag points to change BPM.</p></div>
@@ -2178,6 +2301,124 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                                             </button>
                                         </div>
                                     </div>
+                                </div>
+                            ) : editorViewMode === 'velocity' ? (
+                                <div className="relative w-full h-full bg-[#0c0e12] border-t-2 border-emerald-500/50 select-none overflow-hidden" onMouseDown={(e) => {
+                                    handleRulerInteraction(e as any);
+                                }}>
+                                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
+                                        <div className="text-center text-slate-800">
+                                            <h3 className="text-2xl font-bold tracking-wider text-emerald-500/20">VELOCITY EDITOR</h3>
+                                            <p className="text-xs text-slate-600 mt-1">Drag note stalks or nodes to adjust velocity (pp - fff)</p>
+                                        </div>
+                                    </div>
+
+                                    {/* Dynamic Level Threshold Guide Lines */}
+                                    {[0.1, 0.2, 0.36, 0.5, 0.63, 0.75, 0.88, 1.0].map(v => {
+                                        const y = isVertical ? (v * totalHeight) : (totalHeight - (v * totalHeight));
+                                        return isVertical ? (
+                                            <div key={v} className="absolute top-0 bottom-0 border-l border-white/5 pointer-events-none" style={{ left: y }} />
+                                        ) : (
+                                            <div key={v} className="absolute left-0 right-0 border-t border-white/5 pointer-events-none" style={{ top: y }} />
+                                        );
+                                    })}
+
+                                    {/* Bar start lines */}
+                                    {barStartTicks.map((tick) => {
+                                        const pos = tickToPx(tick);
+                                        return isVertical ? (
+                                            <div key={tick} className="absolute left-0 right-0 border-t border-slate-700/40 pointer-events-none" style={{ top: totalWidth - pos }}></div>
+                                        ) : (
+                                            <div key={tick} className="absolute top-0 bottom-0 border-l border-slate-700/40 pointer-events-none" style={{ left: pos }}></div>
+                                        );
+                                    })}
+
+                                    {/* Notes velocity stalks & handles */}
+                                    {notes.map(note => {
+                                        const pos = tickToPx(note.ticks);
+                                        const dur = Math.max(4, tickToPx(note.durationTicks));
+                                        const vel = Math.max(0.01, Math.min(1.0, note.velocity ?? 0.8));
+                                        const dynamic = getDynamicFromVelocity(vel);
+                                        const handColor = instrumentMode === 'drum' ? '#f59e0b' : (note.hand === 'left' ? '#3b82f6' : '#8b5cf6');
+                                        const isSelected = note.selected;
+
+                                        if (isVertical) {
+                                            const top = totalWidth - (pos + dur);
+                                            const stalkWidth = vel * totalHeight;
+                                            return (
+                                                <div key={note.id} className="absolute pointer-events-auto" style={{ top, left: 0, width: totalHeight, height: dur }}>
+                                                    {/* Duration background */}
+                                                    <div 
+                                                        className="absolute top-0 bottom-0 rounded-r pointer-events-none"
+                                                        style={{ left: 0, width: stalkWidth, backgroundColor: `${handColor}20`, borderRight: `1px solid ${handColor}60` }}
+                                                    />
+                                                    {/* Horizontal Stalk */}
+                                                    <div 
+                                                        className={`absolute top-1/2 -translate-y-1/2 h-1 rounded-full cursor-ew-resize transition-all ${isSelected ? 'h-1.5 ring-2 ring-yellow-400' : 'hover:h-1.5'}`}
+                                                        style={{ left: 0, width: stalkWidth, backgroundColor: handColor }}
+                                                        onMouseDown={(e) => handleVelocityMouseDown(e, note)}
+                                                    />
+                                                    {/* Draggable Handle */}
+                                                    <div 
+                                                        className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded-full border border-white/80 cursor-ew-resize hover:scale-110 transition-transform z-20 flex items-center gap-1 shadow-md select-none`}
+                                                        style={{ left: stalkWidth, backgroundColor: handColor }}
+                                                        onMouseDown={(e) => handleVelocityMouseDown(e, note)}
+                                                        title={`${getNoteName(note.midi)} • ${dynamic.toUpperCase()} (${Math.round(vel * 127)})`}
+                                                    >
+                                                        <span className="text-[7px] font-black text-white">{getNoteName(note.midi)}</span>
+                                                        <span className="text-[7px] font-extrabold italic text-amber-200">{dynamic}</span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        }
+
+                                        const left = pos;
+                                        const stalkHeight = vel * totalHeight;
+                                        const topY = totalHeight - stalkHeight;
+
+                                        return (
+                                            <div key={note.id} className="absolute pointer-events-auto" style={{ left, bottom: 0, width: dur, height: totalHeight }}>
+                                                {/* Duration background ghost */}
+                                                <div 
+                                                    className="absolute bottom-0 rounded-t pointer-events-none"
+                                                    style={{ left: 0, width: dur, height: stalkHeight, backgroundColor: `${handColor}20`, borderTop: `1px solid ${handColor}60` }}
+                                                />
+                                                {/* Vertical stem / stalk */}
+                                                <div 
+                                                    className={`absolute bottom-0 w-1 rounded-full cursor-ns-resize transition-all ${isSelected ? 'w-1.5 ring-2 ring-yellow-400' : 'hover:w-1.5'}`}
+                                                    style={{ left: Math.min(6, dur / 2), height: stalkHeight, backgroundColor: handColor }}
+                                                    onMouseDown={(e) => handleVelocityMouseDown(e, note)}
+                                                />
+                                                {/* Draggable Handle Node */}
+                                                <div 
+                                                    className={`absolute -translate-x-1/2 -translate-y-1/2 px-1.5 py-0.5 rounded-full border border-white/80 cursor-ns-resize hover:scale-110 transition-transform z-20 flex items-center gap-1 shadow-md select-none`}
+                                                    style={{ 
+                                                        left: Math.min(6, dur / 2), 
+                                                        top: topY, 
+                                                        backgroundColor: handColor,
+                                                        boxShadow: `0 0 8px ${handColor}80` 
+                                                    }}
+                                                    onMouseDown={(e) => handleVelocityMouseDown(e, note)}
+                                                    title={`${getNoteName(note.midi)} • ${dynamic.toUpperCase()} (${Math.round(vel * 127)})`}
+                                                >
+                                                    <span className="text-[8px] font-black text-white">{getNoteName(note.midi)}</span>
+                                                    <span className="text-[8px] font-extrabold italic text-amber-200">{dynamic}</span>
+                                                    <span className="text-[7px] font-mono text-white/80">{Math.round(vel * 127)}</span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+
+                                    {/* Cursor Indicator Line */}
+                                    {isVertical ? (
+                                        <div className="absolute left-0 right-0 h-0.5 bg-emerald-400 z-40 pointer-events-none shadow-[0_0_10px_rgba(16,185,129,0.8)]" style={{ top: totalWidth - tickToPx(cursorTick) }}>
+                                            <div className="w-4 h-4 -mt-2 -ml-2 bg-emerald-400 rotate-45 transform"></div>
+                                        </div>
+                                    ) : (
+                                        <div className="absolute top-0 bottom-0 w-0.5 bg-emerald-400 z-40 pointer-events-none shadow-[0_0_10px_rgba(16,185,129,0.8)]" style={{ left: tickToPx(cursorTick) }}>
+                                            <div className="w-4 h-4 -ml-2 -mt-2 bg-emerald-400 rotate-45 transform"></div>
+                                        </div>
+                                    )}
                                 </div>
                             ) : (
                                 <>
@@ -2305,6 +2546,9 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                                                 key={type}
                                                 onClick={() => {
                                                     setBackingType(type);
+                                                    if (type !== 'online') {
+                                                        setBackingTrackError(null);
+                                                    }
                                                     if (type === 'none') {
                                                         if (backingTrackUrl && backingTrackUrl.startsWith('blob:')) URL.revokeObjectURL(backingTrackUrl);
                                                         setBackingTrackUrl(null);
@@ -2369,14 +2613,25 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                                                 <div className="p-2 rounded bg-black/20 border border-white/5">
                                                     <p className="text-[10px] text-slate-500 truncate">{backingTrackUrl}</p>
                                                 </div>
-                                                <div className="p-2 bg-emerald-950/20 rounded border border-emerald-500/20 flex items-center gap-1.5">
-                                                    <svg className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                                    </svg>
-                                                    <p className="text-[10px] text-emerald-400 font-bold">
-                                                        Streaming Ready (backingTrackUrl.includes('youtube.com') || backingTrackUrl.includes('youtu.be') ? 'YouTube Player' : 'Direct Link')
-                                                    </p>
-                                                </div>
+                                                {backingTrackError ? (
+                                                    <div className="p-2 bg-red-950/30 rounded border border-red-500/40 flex items-center gap-1.5">
+                                                        <svg className="w-3.5 h-3.5 text-red-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                                        </svg>
+                                                        <p className="text-[10px] text-red-300 font-bold">
+                                                            {backingTrackError}
+                                                        </p>
+                                                    </div>
+                                                ) : (
+                                                    <div className="p-2 bg-emerald-950/20 rounded border border-emerald-500/20 flex items-center gap-1.5">
+                                                        <svg className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                        </svg>
+                                                        <p className="text-[10px] text-emerald-400 font-bold">
+                                                            Streaming Ready ({backingTrackUrl.includes('youtube.com') || backingTrackUrl.includes('youtu.be') ? 'YouTube Player' : 'Direct Link'})
+                                                        </p>
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
                                     </div>

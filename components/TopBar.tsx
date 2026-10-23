@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect, memo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ViewMode, WaitMode, MetronomeMode, ExtendedResult, TimeSignatureInfo } from '../types';
+import { ViewMode, WaitMode, MetronomeMode, ExtendedResult, TimeSignatureInfo, AppLanguage } from '../types';
 import VisualMetronome from './VisualMetronome';
+import { translations } from '../translations';
 
 interface TopBarProps {
   onPlay: () => void;
@@ -64,12 +65,12 @@ interface TopBarProps {
   onFreePlayBpmChange?: (bpm: number) => void;
   freePlayTimeSignature?: TimeSignatureInfo;
   onFreePlayTimeSignatureChange?: (ts: TimeSignatureInfo) => void;
-  // NEW: Sync offset
   userAudioSyncOffset: number;
   onUserAudioSyncOffsetChange: (offset: number) => void;
   isCalibrationMode?: boolean;
   userAverageOffset?: number;
   hp?: number;
+  appLanguage?: AppLanguage;
 }
 
 const HpMeter = ({ hp }: { hp: number }) => {
@@ -175,8 +176,11 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
     isCalibrationMode,
     userAverageOffset,
     hp,
+    appLanguage = 'en',
   }
   = props;
+
+  const t = translations[appLanguage] || translations.en;
 
   const [displayJudgment, setDisplayJudgment] = useState<{ id: number; type: 'perfect' | 'great' | 'good' | 'miss' } | null>(null);
 
@@ -188,8 +192,8 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
     }
   }, [lastJudgment, combo]); // Also trigger on combo change to refresh the animation for same judgments
 
-  const hudContainerStyle = `text-white p-1 shadow-md border-b border-white/10 min-h-[52px] flex flex-wrap items-center justify-between gap-2 no-select relative z-50 bg-slate-900/60 transition-all duration-300 ease-in-out`;
-  const iconButtonStyles = "p-2 rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed active:scale-95";
+  const hudContainerStyle = `text-white px-3 py-1.5 shadow-xl border-b border-white/10 min-h-[56px] flex flex-wrap items-center justify-between gap-3 no-select relative z-50 bg-slate-950/85 backdrop-blur-md transition-all duration-300 ease-in-out`;
+  const iconButtonStyles = "p-2 rounded-xl transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed active:scale-95";
   const primaryButtonStyles = "bg-cyan-600 hover:bg-cyan-500 text-white";
   const secondaryButtonStyles = "bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 hover:border-slate-500";
   const activeToggleButtonStyles = "bg-violet-600 hover:bg-violet-500 text-white border border-violet-400"; 
@@ -267,7 +271,7 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
               </button>
               
               <div className="flex flex-col items-center justify-center min-w-[150px] bg-black/40 rounded-lg p-2 border border-cyan-500/20">
-                  <span className="text-[10px] font-bold uppercase text-cyan-400 tracking-widest leading-none mb-1">GLOBAL MS OFFSET</span>
+                  <span className="text-[10px] font-bold uppercase text-cyan-400 tracking-widest leading-none mb-1">{t.globalMsOffset}</span>
                   <div className="flex items-center gap-2">
                     <span className="text-3xl font-black tabular-nums text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">
                         {userAudioSyncOffset > 0 ? `+${userAudioSyncOffset}` : userAudioSyncOffset}
@@ -276,7 +280,7 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
                   </div>
                   {userAverageOffset !== undefined && (
                     <div className="flex flex-col items-center mt-1 border-t border-white/5 pt-1 w-full">
-                      <span className="text-[9px] font-bold text-slate-500 uppercase tracking-tighter">Your Tap Timing (Avg)</span>
+                      <span className="text-[9px] font-bold text-slate-500 uppercase tracking-tighter">{t.tapTimingAvg}</span>
                       <span className={`text-xs font-mono font-bold ${Math.abs(userAverageOffset) < 30 ? 'text-emerald-400' : 'text-amber-400'}`}>
                         {userAverageOffset > 0 ? `+${Math.round(userAverageOffset)}` : Math.round(userAverageOffset)}ms
                       </span>
@@ -309,7 +313,7 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
               title="Force audio to match game clock immediately"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-              Fix Sync
+              {t.fixSync}
             </button>
           )}
           <div className="flex items-center gap-2 mr-4">
@@ -542,10 +546,10 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
           
           <div className="flex items-center gap-4">
             <HpMeter hp={hp || 100} />
-            <StatBox label="Accuracy" value={`${liveAccuracy.toFixed(1)}%`} color="text-cyan-300" />
-            <StatBox label="Combo" value={combo} color="text-white" />
+            <StatBox label={t.accuracy} value={`${liveAccuracy.toFixed(1)}%`} color="text-cyan-300" />
+            <StatBox label={t.combo} value={combo} color="text-white" />
             {!isNonStop && waitMode !== 'off' && totalWaitTimeMs !== undefined && (
-              <StatBox label="Wait Time" value={formatWaitTime(totalWaitTimeMs)} color="text-rose-300" />
+              <StatBox label={t.waitTime} value={formatWaitTime(totalWaitTimeMs)} color="text-rose-300" />
             )}
           </div>
 
@@ -618,14 +622,13 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
           <div className={`hidden md:flex items-center gap-4 rounded-xl px-4 py-1 border border-white/5 shadow-inner bg-black/40`}>
               <HpMeter hp={hp || 100} />
               <div className="h-6 w-px bg-white/10"></div>
-              <StatBox label="Accuracy" value={`${liveAccuracy.toFixed(1)}%`} color="text-cyan-300" />
+              <StatBox label={t.accuracy} value={`${liveAccuracy.toFixed(1)}%`} color="text-cyan-300" />
               <div className="h-6 w-px bg-white/10"></div>
-              <StatBox label="Combo" value={combo} color="text-white" />
-              
+              <StatBox label={t.combo} value={combo} color="text-white" />
               {!isNonStop && waitMode !== 'off' && totalWaitTimeMs !== undefined && (
               <>
                   <div className="h-6 w-px bg-white/10"></div>
-                  <StatBox label="Wait Time" value={formatWaitTime(totalWaitTimeMs)} color="text-rose-300" />
+                  <StatBox label={t.waitTime} value={formatWaitTime(totalWaitTimeMs)} color="text-rose-300" />
               </>
               )}
           </div>
