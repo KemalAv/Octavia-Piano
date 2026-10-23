@@ -1,9 +1,9 @@
 
 import React, { useMemo, useEffect, useRef, useCallback, memo } from 'react';
 import { Renderer, Stave, StaveConnector, Glyph, Accidental } from 'vexflow';
-import { ActiveMidiNoteInfo, VexFlowRenderData, VexFlowNoteInfo, NoteFragment, NoteLabelType, QwertyLayout } from '../types';
+import { ActiveMidiNoteInfo, VexFlowRenderData, VexFlowNoteInfo, NoteFragment, NoteLabelType, QwertyLayout, TempoEvent } from '../types';
 import { USER_PLAY_COLOR, PLAY_LINE_THICKNESS_PX, VISUAL_NOTE_CAP_MS, QWERTY_MINI_KEYBOARD_MAPPING, MIRP_KEYBOARD_MAPPING, KEY_CODES_TO_DISPLAY } from '../constants';
-import { SHARP_KEYS, FLAT_KEYS, NEUTRAL_KEYS, ENHARMONIC_MAP_TO_SHARP, ENHARMONIC_MAP_TO_FLAT, formatKeySignatureForDisplay, darkenHex } from '../utils';
+import { SHARP_KEYS, FLAT_KEYS, NEUTRAL_KEYS, ENHARMONIC_MAP_TO_SHARP, ENHARMONIC_MAP_TO_FLAT, formatKeySignatureForDisplay, darkenHex, getDynamicFromVelocity, getOptimalKeyTranspose } from '../utils';
 
 // --- Constants ---
 const HORIZONTAL_PADDING = 30;
@@ -41,6 +41,9 @@ interface HorizontalNotesViewProps {
   isPaused?: boolean;
   onSeek?: (timeMs: number) => void;
   resolutionScale?: number;
+  showDynamics?: boolean;
+  tempoEvents?: TempoEvent[];
+  playbackTempoMultiplier?: number;
 }
 
 // Binary search helper to find the starting fragment index in O(log N) time
@@ -72,20 +75,20 @@ function getStaffLineForNote(
   pitchClass: string,
   keySignature: string,
   isDrum: boolean,
-  vexKeyProps?: { line: number }
+  vexKeyProps?: { line: number },
+  clef?: 'treble' | 'bass'
 ): number {
   if (isDrum) {
-    if ([35, 36].includes(midi)) return 1.5; // Bass drum (f/4)
-    if ([38, 40].includes(midi)) return 3.5; // Snare (c/5)
-    if ([41, 43].includes(midi)) return 2.5; // Floor Tom (a/4)
-    if ([45, 47].includes(midi)) return 3.0; // Low Tom (b/4)
-    if (midi === 48) return 4.0; // Hi-Mid Tom (d/5)
-    if (midi === 50) return 4.5; // High Tom (e/5)
-    if ([42, 46].includes(midi)) return 5.5; // Hi-hat (g/5)
-    if (midi === 44) return 0.5; // Pedal Hi-Hat (d/4)
-    if ([49, 57, 55, 52].includes(midi)) return 6.0; // Crash/Splash (a/5 - ledger line)
-    if ([51, 59, 53].includes(midi)) return 5.0; // Ride (f/5)
-    return 3.0;
+    if ([35, 36].includes(midi)) return 0.5; // Kick/Bass drum: Space below line 1 (d/4)
+    if ([41, 43].includes(midi)) return 1.5; // Floor Tom: Space 1 (between line 1 and 2, f/4)
+    if ([38, 40, 37, 39].includes(midi)) return 2.5; // Snare Drum: Space 2 (between line 2 and 3, a/4)
+    if ([45, 47, 61, 64, 66, 68].includes(midi)) return 3.5; // Tom Drum (Low/Mid Tom): Space 3 (between line 3 and 4, c/5)
+    if ([48, 50, 60, 62, 63, 65, 67].includes(midi)) return 4.5; // Tom Drum 2 (High Tom): Space 4 (between line 4 and 5, e/5)
+    if ([51, 59, 53].includes(midi)) return 5.0; // Ride Cymbal: Line 5 (top line, f/5)
+    if ([42, 46, 54, 56, 58].includes(midi)) return 5.5; // Closed / Open Hi-Hat: Space above line 5 (g/5)
+    if (midi === 44) return 0.5; // Pedal Hi-Hat: Space below line 1 (d/4)
+    if ([49, 57, 55, 52].includes(midi)) return 6.0; // Open Cymbal / Crash: Ledger line above staff (a/5)
+    return 2.5;
   }
 
   if (vexKeyProps && typeof vexKeyProps.line === 'number') {
@@ -97,7 +100,8 @@ function getStaffLineForNote(
   const stepInOctave: { [key: string]: number } = { 'C': 0, 'D': 1, 'E': 2, 'F': 3, 'G': 4, 'A': 5, 'B': 6 };
   const diatonicStep = octave * 7 + (stepInOctave[pc] ?? 0);
 
-  if (hand === 'right') {
+  const effectiveClef = clef || (hand === 'right' ? 'treble' : 'bass');
+  if (effectiveClef === 'treble') {
     return 1 + (diatonicStep - 30) / 2;
   } else {
     return 1 + (diatonicStep - 18) / 2;
@@ -190,14 +194,29 @@ const SidebarSignaturePanel: React.FC<SidebarSignaturePanelProps> = React.memo((
         space_above_staff_ln: 0
       });
 
+      let activeClefRH = currentMeasure?.effectiveClefRH || 'treble';
+      let activeClefLH = currentMeasure?.effectiveClefLH || 'bass';
+      if (currentMeasure) {
+        for (const n of currentMeasure.rightHand) {
+          if (n.timeMs <= currentTimeMs && n.vexNote?.clef) {
+            activeClefRH = n.vexNote.clef;
+          }
+        }
+        for (const n of currentMeasure.leftHand) {
+          if (n.timeMs <= currentTimeMs && n.vexNote?.clef) {
+            activeClefLH = n.vexNote.clef;
+          }
+        }
+      }
+
       const activeKey = currentMeasure?.activeKeySignature || activeKeySignature || 'C';
       const activeTime = currentMeasure?.effectiveTimeSignature || timeSignature;
 
-      treble.addClef(currentMeasure?.effectiveClefRH || 'treble');
+      treble.addClef(activeClefRH);
       if (activeKey) treble.addKeySignature(activeKey);
       if (activeTime) treble.addTimeSignature(`${activeTime.numerator}/${activeTime.denominator}`);
 
-      bass.addClef(currentMeasure?.effectiveClefLH || 'bass');
+      bass.addClef(activeClefLH);
       if (activeKey) bass.addKeySignature(activeKey);
       if (activeTime) bass.addTimeSignature(`${activeTime.numerator}/${activeTime.denominator}`);
 
@@ -207,7 +226,7 @@ const SidebarSignaturePanel: React.FC<SidebarSignaturePanelProps> = React.memo((
       new StaveConnector(treble, bass).setType(StaveConnector.type.BRACE).setContext(vexCtx).draw();
       new StaveConnector(treble, bass).setType(StaveConnector.type.SINGLE_LEFT).setContext(vexCtx).draw();
     }
-  }, [vexFlowData, currentMeasure, height, activeKeySignature, timeSignature, isDrum, isQwertyView, isMixedHandView]);
+  }, [vexFlowData, currentMeasure, height, activeKeySignature, timeSignature, isDrum, isQwertyView, isMixedHandView, currentTimeMs]);
 
   return (
     <canvas
@@ -230,7 +249,8 @@ const getSignatureBlockWidth = (
   key?: string,
   time?: { numerator: number; denominator: number },
   spacing = 10,
-  cancelKey?: string
+  cancelKey?: string,
+  clefSize: 'default' | 'small' = 'default'
 ): number => {
   try {
     const s = new Stave(0, 0, 400, {
@@ -242,12 +262,12 @@ const getSignatureBlockWidth = (
     s.options.num_lines = 0;
     s.options.left_bar = false;
     s.options.right_bar = false;
-    if (clef && clef !== 'percussion') s.addClef(clef);
+    if (clef && clef !== 'percussion') s.addClef(clef, clefSize);
     if (key) s.addKeySignature(key, cancelKey);
     if (time) s.addTimeSignature(`${time.numerator}/${time.denominator}`);
-    return Math.max(30, Math.round(s.getNoteStartX()));
+    return Math.max(clefSize === 'small' ? 20 : 30, Math.round(s.getNoteStartX()));
   } catch (e) {
-    return 35;
+    return clefSize === 'small' ? 22 : 35;
   }
 };
 
@@ -259,7 +279,8 @@ const drawSignatureChange = (
   clefType?: 'treble' | 'bass' | 'percussion',
   keySignature?: string,
   timeSignature?: { numerator: number; denominator: number },
-  cancelKeySignature?: string
+  cancelKeySignature?: string,
+  clefSize: 'default' | 'small' = 'default'
 ) => {
   // If nothing to draw, return
   if (!clefType && !keySignature && !timeSignature) return;
@@ -278,7 +299,7 @@ const drawSignatureChange = (
     stave.options.right_bar = false;
 
     if (clefType && clefType !== 'percussion') {
-      stave.addClef(clefType, 'default');
+      stave.addClef(clefType, clefSize);
     } else if (clefType) {
       stave.setClef(clefType);
     }
@@ -370,7 +391,10 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
   instrumentMode = 'piano',
   isPaused = false,
   onSeek,
-  resolutionScale = 1.0
+  resolutionScale = 1.0,
+  showDynamics = false,
+  tempoEvents,
+  playbackTempoMultiplier = 1.0
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const backgroundCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -413,6 +437,72 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
 
   const firstMeasureStartTime = vexFlowData?.measures[0]?.startTimeMs ?? 0;
   const totalMusicWidth = useMemo(() => vexFlowData ? vexFlowData.measures.reduce((sum, m) => sum + m.width, 0) + (HORIZONTAL_PADDING * 2) : width, [vexFlowData, width]);
+
+  // Traditional Sheet Music Dynamic Markings (p, mp, mf, f, ff, etc.) per Beat:
+  // Cukup per BEAT saja munculnya jika ada perubahan dinamika agar tidak lag!
+  const dynamicEvents = useMemo(() => {
+    if (!vexFlowData || !vexFlowData.fragments || vexFlowData.fragments.length === 0) return [];
+    const notesWithVelocity: { timeMs: number; velocity: number }[] = [];
+
+    for (const f of vexFlowData.fragments) {
+      if (f.velocity !== undefined && f.velocity !== null && f.velocity > 0) {
+        notesWithVelocity.push({
+          timeMs: f.timeMs,
+          velocity: f.velocity,
+        });
+      }
+    }
+
+    notesWithVelocity.sort((a, b) => a.timeMs - b.timeMs);
+
+    const msPerBeat = 60000 / Math.max(30, activeBpmForDisplay || 120);
+    const events: { timeMs: number; dynamicMark: string }[] = [];
+    let lastDynamic = '';
+    let lastTimeMs = -Infinity;
+
+    for (const item of notesWithVelocity) {
+      const dyn = getDynamicFromVelocity(item.velocity);
+      if (!lastDynamic || (dyn !== lastDynamic && item.timeMs - lastTimeMs >= msPerBeat * 0.9)) {
+        events.push({
+          timeMs: item.timeMs,
+          dynamicMark: dyn,
+        });
+        lastDynamic = dyn;
+        lastTimeMs = item.timeMs;
+      }
+    }
+
+    return events;
+  }, [vexFlowData, activeBpmForDisplay]);
+
+  // Tempo Events per Beat:
+  // Cukup per BEAT saja jika ada perubahan tempo nyata!
+  const effectiveTempoEvents = useMemo(() => {
+    const events: { timeMs: number; bpm: number }[] = [];
+    const multiplier = playbackTempoMultiplier || 1.0;
+    const sorted = [...(tempoEvents || [])].sort((a, b) => a.timeMs - b.timeMs);
+    let lastBpm = -1;
+    let lastTimeMs = -Infinity;
+
+    const startBpm = Math.round((activeBpmForDisplay || 120) * multiplier);
+    if (sorted.length === 0 || sorted[0].timeMs > 0) {
+      events.push({ timeMs: 0, bpm: startBpm });
+      lastBpm = startBpm;
+      lastTimeMs = 0;
+    }
+
+    const msPerBeat = 60000 / Math.max(30, startBpm);
+    for (const te of sorted) {
+      const effectiveBpm = Math.round(te.bpm * multiplier);
+      if (Math.abs(effectiveBpm - lastBpm) >= 2 && (te.timeMs - lastTimeMs >= msPerBeat * 0.9)) {
+        events.push({ timeMs: te.timeMs, bpm: effectiveBpm });
+        lastBpm = effectiveBpm;
+        lastTimeMs = te.timeMs;
+      }
+    }
+
+    return events;
+  }, [tempoEvents, activeBpmForDisplay, playbackTempoMultiplier]);
 
   const isDrum = instrumentMode === 'drum';
   const effectiveShowOnlyMajorNotes = isDrum ? true : showOnlyMajorNotes;
@@ -666,16 +756,101 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
             );
           }
         }
+
+        // 2a-2. Mid-Measure Clef Changes (Mini Clefs)
+        if (!isDrum) {
+          // Right hand mid-measure clef changes
+          let curClefRH = measure.effectiveClefRH || 'treble';
+          const drawnMidClefRH = new Set<number>();
+          measure.rightHand.forEach(info => {
+            const noteClef = info.vexNote?.clef;
+            if (noteClef && noteClef !== curClefRH) {
+              if (!drawnMidClefRH.has(info.timeMs)) {
+                drawnMidClefRH.add(info.timeMs);
+                const noteX = (((info.timeMs - firstMeasureStartTime) * pixelsPerMillisecond) + HORIZONTAL_PADDING) | 0;
+                const blockWidth = getSignatureBlockWidth(noteClef, undefined, undefined, effectiveStaffLineSpacing, undefined, 'small');
+                const sigX = noteX - blockWidth - 4;
+                if (sigX + contentStartX >= -100 && sigX + contentStartX <= width + 100) {
+                  drawSignatureChange(
+                    ctx,
+                    sigX,
+                    trebleTop,
+                    effectiveStaffLineSpacing,
+                    noteClef,
+                    undefined,
+                    undefined,
+                    undefined,
+                    'small'
+                  );
+                }
+              }
+              curClefRH = noteClef;
+            }
+          });
+
+          // Left hand mid-measure clef changes
+          if (!isMixedHandView && !isQwertyView) {
+            let curClefLH = measure.effectiveClefLH || 'bass';
+            const drawnMidClefLH = new Set<number>();
+            measure.leftHand.forEach(info => {
+              const noteClef = info.vexNote?.clef;
+              if (noteClef && noteClef !== curClefLH) {
+                if (!drawnMidClefLH.has(info.timeMs)) {
+                  drawnMidClefLH.add(info.timeMs);
+                  const noteX = (((info.timeMs - firstMeasureStartTime) * pixelsPerMillisecond) + HORIZONTAL_PADDING) | 0;
+                  const blockWidth = getSignatureBlockWidth(noteClef, undefined, undefined, effectiveStaffLineSpacing, undefined, 'small');
+                  const sigX = noteX - blockWidth - 4;
+                  if (sigX + contentStartX >= -100 && sigX + contentStartX <= width + 100) {
+                    drawSignatureChange(
+                      ctx,
+                      sigX,
+                      bassTop,
+                      effectiveStaffLineSpacing,
+                      noteClef,
+                      undefined,
+                      undefined,
+                      undefined,
+                      'small'
+                    );
+                  }
+                }
+                curClefLH = noteClef;
+              }
+            });
+          }
+        }
       }
 
-      // 2b. Draw Tempo Markings
-      const tempoMarkings = vexFlowData.tempoMarkings;
-      for (let i = 0; i < tempoMarkings.length; i++) {
-        const mark = tempoMarkings[i];
+      // 2b. Draw Tempo Markings per Beat
+      ctx.fillStyle = '#0f172a';
+      ctx.font = 'bold 13px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      for (let i = 0; i < effectiveTempoEvents.length; i++) {
+        const te = effectiveTempoEvents[i];
+        const tempoX = (((te.timeMs - firstMeasureStartTime) * pixelsPerMillisecond) + HORIZONTAL_PADDING) | 0;
+        if (tempoX + contentStartX >= -120 && tempoX + contentStartX <= width + 120) {
+          ctx.fillText(`♩ = ${te.bpm}`, tempoX + 2, topStaveYOffset - 12);
+        }
+      }
+
+      // 2b-2. Traditional Sheet Music Dynamics per Beat: Centered at C4 Middle C level between staves
+      if (showDynamics && dynamicEvents.length > 0) {
+        const dynamicY = isDrum 
+          ? (trebleBottom + 28) 
+          : ((trebleBottom + bassTop) / 2 + 10) | 0;
         ctx.fillStyle = '#0f172a';
-        ctx.font = 'bold 13px sans-serif';
+        ctx.font = 'italic 900 22px "Times New Roman", Cambria, Georgia, serif';
         ctx.textAlign = 'left';
-        ctx.fillText(`♩ = ${mark.bpm}`, mark.x | 0, topStaveYOffset - 15);
+        ctx.textBaseline = 'middle';
+
+        for (let i = 0; i < dynamicEvents.length; i++) {
+          const de = dynamicEvents[i];
+          const dynX = (((de.timeMs - firstMeasureStartTime) * pixelsPerMillisecond) + HORIZONTAL_PADDING) | 0;
+          if (dynX + contentStartX >= -120 && dynX + contentStartX <= width + 120) {
+            ctx.fillText(de.dynamicMark, dynX + 2, dynamicY);
+          }
+        }
       }
 
       // 2c. Draw Octave Lines (8va / 15ma)
@@ -688,23 +863,30 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
         const lineY = (isAbove ? y + 4 : y + 16) | 0;
         const hookEndY = (isAbove ? lineY + 10 : lineY - 10) | 0;
 
+        const lineStartX = (line.startTimeMs !== undefined)
+          ? (((line.startTimeMs - firstMeasureStartTime) * pixelsPerMillisecond) + HORIZONTAL_PADDING) | 0
+          : (line.startX | 0);
+        const lineEndX = (line.endTimeMs !== undefined)
+          ? (((line.endTimeMs - firstMeasureStartTime) * pixelsPerMillisecond) + HORIZONTAL_PADDING) | 0
+          : (line.endX | 0);
+
         ctx.fillStyle = '#000000';
         ctx.font = 'italic bold 14px sans-serif';
         ctx.textAlign = 'left';
-        ctx.fillText(text, line.startX | 0, y | 0);
+        ctx.fillText(text, lineStartX, y | 0);
 
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = 1.5;
         ctx.setLineDash([4, 3]);
         ctx.beginPath();
-        ctx.moveTo((line.startX + text.length * 10) | 0, lineY);
-        ctx.lineTo(line.endX | 0, lineY);
+        ctx.moveTo((lineStartX + text.length * 10) | 0, lineY);
+        ctx.lineTo(lineEndX, lineY);
         ctx.stroke();
         ctx.setLineDash([]);
 
         ctx.beginPath();
-        ctx.moveTo(line.endX | 0, lineY);
-        ctx.lineTo(line.endX | 0, hookEndY);
+        ctx.moveTo(lineEndX, lineY);
+        ctx.lineTo(lineEndX, hookEndY);
         ctx.stroke();
       }
 
@@ -715,8 +897,9 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
           const vn = originalNoteToVexMap.get(note.originalNoteId);
           const idx = vn?.originalNotes?.findIndex(n => n.fragmentId === note.fragmentId) ?? -1;
           const vexKeyProps = (vn && idx !== -1 && vn.vexNoteKeyProps) ? vn.vexNoteKeyProps[idx] : undefined;
+          const noteClef = (vn?.vexNote?.clef === 'bass' || vn?.vexNote?.clef === 'treble') ? vn.vexNote.clef : (note.hand === 'left' ? 'bass' : 'treble');
 
-          const line = getStaffLineForNote(note.midi, note.hand, note.pitchClass, activeKeySignature, isDrum, vexKeyProps);
+          const line = getStaffLineForNote(note.midi, note.hand, note.pitchClass, activeKeySignature, isDrum, vexKeyProps, noteClef);
 
           const staffTopY = (isDrum 
             ? topStaveYOffset 
@@ -726,7 +909,7 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
 
           const active = activePlaybackNotesInfo.get(note.noteId);
           const status = active?.status || null;
-          let baseC = isDrum ? leftHandColor : (note.hand === 'left' ? leftHandColor : rightHandColor);
+          let baseC = note.hand === 'left' ? leftHandColor : rightHandColor;
           
           if (!isDrum && isBlackKey(note.midi)) {
             baseC = darkenHex(baseC, 25);
@@ -773,7 +956,7 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
           }
 
           // 1. Ledger lines
-          if (!isDrum) {
+          if (!isDrum || line >= 6) {
             const LW = noteWidth + 8;
             const LX = (xPos - 4) | 0;
             ctx.fillStyle = '#475569';
@@ -782,7 +965,7 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
                 const ly = (staffTopY + (5 - l) * effectiveStaffLineSpacing) | 0;
                 ctx.fillRect(LX, ly - 0.75, LW, 1.5);
               }
-            } else if (line < 1) {
+            } else if (!isDrum && line < 1) {
               for (let l = 0; l >= Math.ceil(line); l--) {
                 const ly = (staffTopY + (5 - l) * effectiveStaffLineSpacing) | 0;
                 ctx.fillRect(LX, ly - 0.75, LW, 1.5);
@@ -810,34 +993,35 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
                       originalFill.apply(this, arguments);
                     };
                     // Standard Bravura musical font symbols align their vertical origin perfectly with the center of the note head (yPos).
-                    (Glyph as any).renderGlyph(ctx, (xPos - 12) | 0, yPos | 0, 38, glyphCode);
+                    // Reduced accidental size slightly (point size 28) for cleaner, proportional appearance
+                    (Glyph as any).renderGlyph(ctx, (xPos - 10) | 0, yPos | 0, 28, glyphCode);
                     canvasCtx.fill = originalFill;
                   } else {
                     const txt = accData.type === '#' ? '♯' : accData.type === 'b' ? '♭' : '♮';
-                    ctx.font = '32px sans-serif';
+                    ctx.font = '22px sans-serif';
                     ctx.textAlign = 'right';
                     ctx.textBaseline = 'middle';
                     ctx.strokeStyle = '#ffffff';
-                    ctx.lineWidth = 4;
-                    ctx.strokeText(txt, (xPos - 10) | 0, yPos);
-                    ctx.fillText(txt, (xPos - 10) | 0, yPos);
+                    ctx.lineWidth = 3;
+                    ctx.strokeText(txt, (xPos - 9) | 0, yPos);
+                    ctx.fillText(txt, (xPos - 9) | 0, yPos);
                   }
                 } catch (e) {
                   const txt = accData.type === '#' ? '♯' : accData.type === 'b' ? '♭' : '♮';
-                  ctx.font = '32px sans-serif';
+                  ctx.font = '22px sans-serif';
                   ctx.textAlign = 'right';
                   ctx.textBaseline = 'middle';
                   ctx.strokeStyle = '#ffffff';
-                  ctx.lineWidth = 4;
-                  ctx.strokeText(txt, (xPos - 10) | 0, yPos);
-                  ctx.fillText(txt, (xPos - 10) | 0, yPos);
+                  ctx.lineWidth = 3;
+                  ctx.strokeText(txt, (xPos - 9) | 0, yPos);
+                  ctx.fillText(txt, (xPos - 9) | 0, yPos);
                 }
               }
             }
           }
 
           // 3. Balok (Block / Bar) Note Body
-          const isXHead = isDrum && [42, 46, 44, 49, 57, 51, 59, 53, 55, 52].includes(note.midi);
+          const isXHead = isDrum && [42, 46, 44, 49, 57, 51, 59, 53, 55, 52, 37, 39, 54, 56, 58].includes(note.midi);
           const isOpenHiHat = isDrum && note.midi === 46;
 
           if (isXHead) {
@@ -854,10 +1038,10 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
             ctx.moveTo((headCenterX + 5) | 0, (yPos - 5) | 0);
             ctx.lineTo((headCenterX - 5) | 0, (yPos + 5) | 0);
             ctx.stroke();
-            ctx.lineWidth = 1;
             if (isOpenHiHat) {
+              ctx.lineWidth = 1.8;
               ctx.beginPath();
-              ctx.arc(headCenterX, yPos, 6, 0, Math.PI * 2);
+              ctx.arc(headCenterX, yPos, 7.5, 0, Math.PI * 2);
               ctx.stroke();
             }
           } else {
@@ -1016,7 +1200,10 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
         ctx.fillStyle = '#475569';
         ctx.font = '11px monospace';
         if (qwertyLayout === 'mirp') {
-          ctx.fillText(`Transpose: ${mirpTranspose} (↑/↓)`, (SIDEBAR_WIDTH / 2) | 0, (height * 0.86) | 0);
+          const suggested = getOptimalKeyTranspose(activeKeySignature);
+          const formattedSuggested = suggested >= 0 ? `+${suggested}` : `${suggested}`;
+          const currentFormatted = mirpTranspose >= 0 ? `+${mirpTranspose}` : `${mirpTranspose}`;
+          ctx.fillText(`Transpose: ${currentFormatted} (${formattedSuggested}) (↑/↓)`, (SIDEBAR_WIDTH / 2) | 0, (height * 0.86) | 0);
         } else {
           ctx.fillText(`Octave Shift: ${qwertyCurrentOctaveShift} (↑/↓)`, (SIDEBAR_WIDTH / 2) | 0, (height * 0.86) | 0);
         }

@@ -22,6 +22,77 @@ interface CalibrationSong extends OnlineSong {
   instrument_mode?: 'piano' | 'drum';
 }
 
+interface CalibrationSliderRowProps {
+  label: string;
+  weightKey: keyof FineTunedWeights;
+  value: number;
+  description: string;
+  onChange: (key: keyof FineTunedWeights, val: number) => void;
+  unit?: string;
+  isGlobal?: boolean;
+}
+
+const CalibrationSliderRow: React.FC<CalibrationSliderRowProps> = ({
+  label,
+  weightKey,
+  value,
+  description,
+  onChange,
+  unit = 'x',
+  isGlobal = false,
+}) => {
+  return (
+    <div className={`p-3 rounded-xl border transition-all ${isGlobal ? 'bg-yellow-500/10 border-yellow-500/40' : 'bg-slate-950/40 border-slate-800/80 hover:border-slate-700'}`}>
+      <div className="flex justify-between items-center text-xs font-semibold text-slate-300 mb-1.5 gap-2">
+        <span className="truncate">{label}</span>
+        <div className="flex items-center gap-1 shrink-0">
+          <input
+            type="number"
+            min="0.00"
+            max="10.00"
+            step="0.01"
+            value={Number(value.toFixed(2))}
+            onChange={(e) => {
+              const parsed = parseFloat(e.target.value);
+              if (!isNaN(parsed)) onChange(weightKey, parsed);
+            }}
+            className="w-16 px-1.5 py-0.5 text-right font-mono text-xs font-bold bg-slate-900 border border-slate-700 rounded text-yellow-400 focus:outline-none focus:border-yellow-400"
+          />
+          <span className="text-yellow-400 font-bold font-mono text-xs w-4">{unit}</span>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onChange(weightKey, Math.max(0.00, Number((value - 0.01).toFixed(2))))}
+          className="w-6 h-6 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-extrabold rounded active:scale-95 transition"
+          title="Decrease by 0.01x"
+        >
+          -
+        </button>
+        <input
+          type="range"
+          min="0.00"
+          max="10.00"
+          step="0.01"
+          value={value}
+          onChange={(e) => onChange(weightKey, parseFloat(e.target.value))}
+          className="w-full accent-yellow-500 cursor-pointer"
+        />
+        <button
+          type="button"
+          onClick={() => onChange(weightKey, Math.min(10.00, Number((value + 0.01).toFixed(2))))}
+          className="w-6 h-6 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-extrabold rounded active:scale-95 transition"
+          title="Increase by 0.01x"
+        >
+          +
+        </button>
+      </div>
+      <span className="text-[10px] text-slate-500 block mt-1 leading-tight">{description}</span>
+    </div>
+  );
+};
+
 export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrumentMode: initialInstrumentMode }) => {
   const [activeTab, setActiveTab] = useState<'piano' | 'drum'>(initialInstrumentMode);
   const [songs, setSongs] = useState<CalibrationSong[]>([]);
@@ -234,10 +305,9 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
 
   // Triggered when sliders change
   const handleWeightChange = (key: keyof FineTunedWeights, val: number) => {
-    setWeights(prev => {
-      const next = { ...prev, [key]: val };
-      return next;
-    });
+    if (isNaN(val)) return;
+    const clamped = Math.max(0.00, Math.min(10.00, Math.round(val * 100) / 100));
+    setWeights(prev => ({ ...prev, [key]: clamped }));
   };
 
   // Copy tuned weights JSON for manual code update
@@ -349,6 +419,10 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
           'piano_finger_independence',
           'piano_hand_collision',
           'piano_stamina_fatigue',
+          'piano_arpeggio_sweep',
+          'piano_octave_staccato',
+          'piano_unison_discount',
+          'piano_chord_buff',
           'piano_global_factor'
         ]
         : [
@@ -368,23 +442,25 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
 
       setProgressLog(prev => [...prev, `Initial Mean Absolute Error: ${startError.toFixed(2)}%`]);
 
-      // Optimization loop (coordinate descent)
-      const maxIterations = 8;
-      let stepSize = 0.25;
+      // Optimization loop (coordinate descent) with 0.01 precision and 0.00 - 10.00 bounds
+      const maxIterations = 12;
+      let stepSize = 0.40;
 
       for (let iter = 1; iter <= maxIterations; iter++) {
-        setProgressLog(prev => [...prev, `[Iteration ${iter}/${maxIterations}] Tuning parameters (Step size: ${stepSize.toFixed(3)})...`]);
+        setProgressLog(prev => [...prev, `[Iteration ${iter}/${maxIterations}] Tuning parameters (Step size: ${stepSize.toFixed(2)})...`]);
         let modified = false;
 
         for (const param of paramsToTune) {
           const currentVal = bestWeights[param];
 
-          // Test perturb up
-          const testUp = { ...bestWeights, [param]: Math.max(0.1, Math.min(4.0, currentVal + stepSize)) };
+          // Test perturb up (clamped 0.00 to 10.00, rounded to 0.01)
+          const upVal = Math.round(Math.max(0.00, Math.min(10.00, currentVal + stepSize)) * 100) / 100;
+          const testUp = { ...bestWeights, [param]: upVal };
           const errUp = calculateTotalError(testUp, songsToTune);
 
-          // Test perturb down
-          const testDown = { ...bestWeights, [param]: Math.max(0.1, Math.min(4.0, currentVal - stepSize)) };
+          // Test perturb down (clamped 0.00 to 10.00, rounded to 0.01)
+          const downVal = Math.round(Math.max(0.00, Math.min(10.00, currentVal - stepSize)) * 100) / 100;
+          const testDown = { ...bestWeights, [param]: downVal };
           const errDown = calculateTotalError(testDown, songsToTune);
 
           if (errUp < bestError && errUp < errDown) {
@@ -398,11 +474,14 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
           }
         }
 
-        // Decay search step size for progressive convergence
+        // Decay search step size for progressive convergence down to 0.01
         stepSize *= 0.65;
+        if (stepSize < 0.01 && stepSize > 0.005) {
+          stepSize = 0.01;
+        }
 
         setProgressLog(prev => [...prev, ` -> Mean Absolute Error reduced to: ${bestError.toFixed(2)}%`]);
-        if (!modified && stepSize < 0.01) break;
+        if (!modified && stepSize <= 0.01) break;
       }
 
       setWeights(bestWeights);
@@ -471,7 +550,7 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-slate-950 p-6 md:p-8 relative z-50">
+    <div className="flex flex-col h-screen max-h-screen overflow-y-auto bg-slate-950 p-6 md:p-8 relative z-50">
       {/* Top Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-slate-800 pb-4 mb-6">
         <div>
@@ -529,344 +608,205 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
             {activeTab === 'piano' ? (
               <>
                 {/* Piano Parameters */}
-                <div>
-                  <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1.5">
-                    <span>Octave/Chord Stretch Multiplier</span>
-                    <span className="text-yellow-400 font-bold font-mono">{weights.piano_stretch_mult.toFixed(2)}x</span>
-                  </div>
-                  <input
-                    type="range" min="0.1" max="3.0" step="0.05"
-                    value={weights.piano_stretch_mult}
-                    onChange={(e) => handleWeightChange('piano_stretch_mult', parseFloat(e.target.value))}
-                    className="w-full accent-yellow-500"
-                  />
-                  <span className="text-[10px] text-slate-500">Scale factor for spans exceeding natural comfortable reach of 12 semitones.</span>
-                </div>
+                <CalibrationSliderRow
+                  label="Octave/Chord Stretch Multiplier"
+                  weightKey="piano_stretch_mult"
+                  value={weights.piano_stretch_mult}
+                  description="Scale factor for spans exceeding natural comfortable reach of 12 semitones."
+                  onChange={handleWeightChange}
+                />
 
-                <div>
-                  <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1.5">
-                    <span>Internal Stretch Gap Tension</span>
-                    <span className="text-yellow-400 font-bold font-mono">{weights.piano_internal_stretch.toFixed(2)}x</span>
-                  </div>
-                  <input
-                    type="range" min="0.1" max="3.0" step="0.05"
-                    value={weights.piano_internal_stretch}
-                    onChange={(e) => handleWeightChange('piano_internal_stretch', parseFloat(e.target.value))}
-                    className="w-full accent-yellow-500"
-                  />
-                  <span className="text-[10px] text-slate-500">Strain on inner fingers holding wide adjacent chord gaps.</span>
-                </div>
+                <CalibrationSliderRow
+                  label="Internal Stretch Gap Tension"
+                  weightKey="piano_internal_stretch"
+                  value={weights.piano_internal_stretch}
+                  description="Strain on inner fingers holding wide adjacent chord gaps."
+                  onChange={handleWeightChange}
+                />
 
-                <div>
-                  <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1.5">
-                    <span>Sequential Leap Strain</span>
-                    <span className="text-yellow-400 font-bold font-mono">{weights.piano_leap_strain.toFixed(2)}x</span>
-                  </div>
-                  <input
-                    type="range" min="0.1" max="3.0" step="0.05"
-                    value={weights.piano_leap_strain}
-                    onChange={(e) => handleWeightChange('piano_leap_strain', parseFloat(e.target.value))}
-                    className="w-full accent-yellow-500"
-                  />
-                  <span className="text-[10px] text-slate-500">Arpeggio leaps and sequential jumps exceeding comfort limits.</span>
-                </div>
+                <CalibrationSliderRow
+                  label="Sequential Leap Strain"
+                  weightKey="piano_leap_strain"
+                  value={weights.piano_leap_strain}
+                  description="Arpeggio leaps and sequential jumps exceeding comfort limits."
+                  onChange={handleWeightChange}
+                />
 
-                <div>
-                  <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1.5">
-                    <span>Double Stop / Chopin Chord Buff</span>
-                    <span className="text-yellow-400 font-bold font-mono">{weights.piano_double_stop.toFixed(2)}x</span>
-                  </div>
-                  <input
-                    type="range" min="0.1" max="3.0" step="0.05"
-                    value={weights.piano_double_stop}
-                    onChange={(e) => handleWeightChange('piano_double_stop', parseFloat(e.target.value))}
-                    className="w-full accent-yellow-500"
-                  />
-                  <span className="text-[10px] text-slate-500">Forearm strain on rapid multi-key double notes.</span>
-                </div>
+                <CalibrationSliderRow
+                  label="Double Stop / Chopin Chord Buff"
+                  weightKey="piano_double_stop"
+                  value={weights.piano_double_stop}
+                  description="Forearm strain on rapid multi-key double notes."
+                  onChange={handleWeightChange}
+                />
 
-                <div>
-                  <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1.5">
-                    <span>Rapid Jackhammer Re-tap Rate</span>
-                    <span className="text-yellow-400 font-bold font-mono">{weights.piano_jackhammer.toFixed(2)}x</span>
-                  </div>
-                  <input
-                    type="range" min="0.1" max="3.0" step="0.05"
-                    value={weights.piano_jackhammer}
-                    onChange={(e) => handleWeightChange('piano_jackhammer', parseFloat(e.target.value))}
-                    className="w-full accent-yellow-500"
-                  />
-                  <span className="text-[10px] text-slate-500">Repetitive single-key rapid trigger physical limitation.</span>
-                </div>
+                <CalibrationSliderRow
+                  label="Rapid Jackhammer Re-tap Rate"
+                  weightKey="piano_jackhammer"
+                  value={weights.piano_jackhammer}
+                  description="Repetitive single-key rapid trigger physical limitation."
+                  onChange={handleWeightChange}
+                />
 
-                <div>
-                  <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1.5">
-                    <span>Linear Stream Flow Tension</span>
-                    <span className="text-yellow-400 font-bold font-mono">{weights.piano_finger_flow.toFixed(2)}x</span>
-                  </div>
-                  <input
-                    type="range" min="0.1" max="3.0" step="0.05"
-                    value={weights.piano_finger_flow}
-                    onChange={(e) => handleWeightChange('piano_finger_flow', parseFloat(e.target.value))}
-                    className="w-full accent-yellow-500"
-                  />
-                  <span className="text-[10px] text-slate-500">Transition drag when sliding linearly through consecutive steps.</span>
-                </div>
+                <CalibrationSliderRow
+                  label="Linear Stream Flow Tension"
+                  weightKey="piano_finger_flow"
+                  value={weights.piano_finger_flow}
+                  description="Transition drag when sliding linearly through consecutive steps."
+                  onChange={handleWeightChange}
+                />
 
-                <div>
-                  <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1.5">
-                    <span>Hand Center Jumping Leap</span>
-                    <span className="text-yellow-400 font-bold font-mono">{weights.piano_hand_jump.toFixed(2)}x</span>
-                  </div>
-                  <input
-                    type="range" min="0.1" max="3.0" step="0.05"
-                    value={weights.piano_hand_jump}
-                    onChange={(e) => handleWeightChange('piano_hand_jump', parseFloat(e.target.value))}
-                    className="w-full accent-yellow-500"
-                  />
-                  <span className="text-[10px] text-slate-500">Forearm displacement effort over broad register jumps.</span>
-                </div>
+                <CalibrationSliderRow
+                  label="Hand Center Jumping Leap"
+                  weightKey="piano_hand_jump"
+                  value={weights.piano_hand_jump}
+                  description="Forearm displacement effort over broad register jumps."
+                  onChange={handleWeightChange}
+                />
 
-                <div>
-                  <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1.5">
-                    <span>Black Key Awkward Shifts</span>
-                    <span className="text-yellow-400 font-bold font-mono">{weights.piano_black_key_awkward.toFixed(2)}x</span>
-                  </div>
-                  <input
-                    type="range" min="0.1" max="3.0" step="0.05"
-                    value={weights.piano_black_key_awkward}
-                    onChange={(e) => handleWeightChange('piano_black_key_awkward', parseFloat(e.target.value))}
-                    className="w-full accent-yellow-500"
-                  />
-                  <span className="text-[10px] text-slate-500">Akward hand position shifts when alternating white and black keys.</span>
-                </div>
+                <CalibrationSliderRow
+                  label="Black Key Awkward Shifts"
+                  weightKey="piano_black_key_awkward"
+                  value={weights.piano_black_key_awkward}
+                  description="Awkward hand position shifts when alternating white and black keys."
+                  onChange={handleWeightChange}
+                />
 
-                <div>
-                  <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1.5">
-                    <span>Finger Independence Hold</span>
-                    <span className="text-yellow-400 font-bold font-mono">{weights.piano_finger_independence.toFixed(2)}x</span>
-                  </div>
-                  <input
-                    type="range" min="0.1" max="3.0" step="0.05"
-                    value={weights.piano_finger_independence}
-                    onChange={(e) => handleWeightChange('piano_finger_independence', parseFloat(e.target.value))}
-                    className="w-full accent-yellow-500"
-                  />
-                  <span className="text-[10px] text-slate-500">Tension when holding some keys down while others keep triggers active.</span>
-                </div>
+                <CalibrationSliderRow
+                  label="Finger Independence Hold"
+                  weightKey="piano_finger_independence"
+                  value={weights.piano_finger_independence}
+                  description="Tension when holding some keys down while others keep triggers active."
+                  onChange={handleWeightChange}
+                />
 
-                <div>
-                  <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1.5">
-                    <span>Hand Collision Overlap</span>
-                    <span className="text-yellow-400 font-bold font-mono">{weights.piano_hand_collision.toFixed(2)}x</span>
-                  </div>
-                  <input
-                    type="range" min="0.1" max="3.0" step="0.05"
-                    value={weights.piano_hand_collision}
-                    onChange={(e) => handleWeightChange('piano_hand_collision', parseFloat(e.target.value))}
-                    className="w-full accent-yellow-500"
-                  />
-                  <span className="text-[10px] text-slate-500">Awkward coordination constraints when hands are close/overlapping.</span>
-                </div>
+                <CalibrationSliderRow
+                  label="Hand Collision Overlap"
+                  weightKey="piano_hand_collision"
+                  value={weights.piano_hand_collision}
+                  description="Awkward coordination constraints when hands are close/overlapping."
+                  onChange={handleWeightChange}
+                />
 
-                <div>
-                  <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1.5">
-                    <span>Stamina Fatigue Decay</span>
-                    <span className="text-yellow-400 font-bold font-mono">{weights.piano_stamina_fatigue.toFixed(2)}x</span>
-                  </div>
-                  <input
-                    type="range" min="0.1" max="3.0" step="0.05"
-                    value={weights.piano_stamina_fatigue}
-                    onChange={(e) => handleWeightChange('piano_stamina_fatigue', parseFloat(e.target.value))}
-                    className="w-full accent-yellow-500"
-                  />
-                  <span className="text-[10px] text-slate-500">Progressive muscular fatigue accumulation under high continuous notes.</span>
-                </div>
+                <CalibrationSliderRow
+                  label="Stamina Fatigue Decay"
+                  weightKey="piano_stamina_fatigue"
+                  value={weights.piano_stamina_fatigue}
+                  description="Progressive muscular fatigue accumulation under high continuous notes."
+                  onChange={handleWeightChange}
+                />
 
-                <div>
-                  <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1.5">
-                    <span>Extreme Arpeggio Sweep (Waterfall)</span>
-                    <span className="text-yellow-400 font-bold font-mono">{weights.piano_arpeggio_sweep.toFixed(2)}x</span>
-                  </div>
-                  <input
-                    type="range" min="0.1" max="5.0" step="0.05"
-                    value={weights.piano_arpeggio_sweep}
-                    onChange={(e) => handleWeightChange('piano_arpeggio_sweep', parseFloat(e.target.value))}
-                    className="w-full accent-yellow-500"
-                  />
-                  <span className="text-[10px] text-slate-500">Multi-octave rapid right-hand arpeggio runs (Chopin Op. 10 No. 1).</span>
-                </div>
+                <CalibrationSliderRow
+                  label="Extreme Arpeggio Sweep (Waterfall)"
+                  weightKey="piano_arpeggio_sweep"
+                  value={weights.piano_arpeggio_sweep}
+                  description="Multi-octave rapid right-hand arpeggio runs (Chopin Op. 10 No. 1)."
+                  onChange={handleWeightChange}
+                />
 
-                <div>
-                  <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1.5">
-                    <span>Detached Staccato Octaves (Butterfly)</span>
-                    <span className="text-yellow-400 font-bold font-mono">{weights.piano_octave_staccato.toFixed(2)}x</span>
-                  </div>
-                  <input
-                    type="range" min="0.1" max="5.0" step="0.05"
-                    value={weights.piano_octave_staccato}
-                    onChange={(e) => handleWeightChange('piano_octave_staccato', parseFloat(e.target.value))}
-                    className="w-full accent-yellow-500"
-                  />
-                  <span className="text-[10px] text-slate-500">Rapid right-hand detached staccato octave bouncing (Chopin Op. 25 No. 9).</span>
-                </div>
+                <CalibrationSliderRow
+                  label="Detached Staccato Octaves (Butterfly)"
+                  weightKey="piano_octave_staccato"
+                  value={weights.piano_octave_staccato}
+                  description="Rapid right-hand detached staccato octave bouncing (Chopin Op. 25 No. 9)."
+                  onChange={handleWeightChange}
+                />
 
-                <div>
-                  <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1.5">
-                    <span>Parallel Octave Unison Discount</span>
-                    <span className="text-yellow-400 font-bold font-mono">{weights.piano_unison_discount.toFixed(2)}x</span>
-                  </div>
-                  <input
-                    type="range" min="0.1" max="1.0" step="0.01"
-                    value={weights.piano_unison_discount}
-                    onChange={(e) => handleWeightChange('piano_unison_discount', parseFloat(e.target.value))}
-                    className="w-full accent-yellow-500"
-                  />
-                  <span className="text-[10px] text-slate-500">Coordination discount for 2-hand parallel octave unison drills.</span>
-                </div>
+                <CalibrationSliderRow
+                  label="Parallel Octave Unison Discount"
+                  weightKey="piano_unison_discount"
+                  value={weights.piano_unison_discount}
+                  description="Coordination discount for 2-hand parallel octave unison drills."
+                  onChange={handleWeightChange}
+                />
 
-                <div>
-                  <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1.5">
-                    <span>Static Chord Voicing Buff</span>
-                    <span className="text-yellow-400 font-bold font-mono">{weights.piano_chord_buff.toFixed(2)}</span>
-                  </div>
-                  <input
-                    type="range" min="0.0" max="1.0" step="0.02"
-                    value={weights.piano_chord_buff}
-                    onChange={(e) => handleWeightChange('piano_chord_buff', parseFloat(e.target.value))}
-                    className="w-full accent-yellow-500"
-                  />
-                  <span className="text-[10px] text-slate-500">Tension buff for sustained static chord positions in practice mode.</span>
-                </div>
+                <CalibrationSliderRow
+                  label="Static Chord Voicing Buff"
+                  weightKey="piano_chord_buff"
+                  value={weights.piano_chord_buff}
+                  description="Tension buff for sustained static chord positions in practice mode."
+                  onChange={handleWeightChange}
+                  unit=""
+                />
 
-                <div className="pt-2 border-t border-slate-800">
-                  <div className="flex justify-between text-xs font-bold text-slate-200 mb-1.5">
-                    <span>Global Scaling Factor (Piano)</span>
-                    <span className="text-yellow-400 font-bold font-mono">{weights.piano_global_factor.toFixed(2)}</span>
-                  </div>
-                  <input
-                    type="range" min="0.2" max="5.0" step="0.05"
-                    value={weights.piano_global_factor}
-                    onChange={(e) => handleWeightChange('piano_global_factor', parseFloat(e.target.value))}
-                    className="w-full accent-yellow-500"
-                  />
-                  <span className="text-[10px] text-slate-400">Final scalar determining general level ranges.</span>
-                </div>
+                <CalibrationSliderRow
+                  label="Global Scaling Factor (Piano)"
+                  weightKey="piano_global_factor"
+                  value={weights.piano_global_factor}
+                  description="Final scalar determining general level ranges (0.00 - 10.00)."
+                  onChange={handleWeightChange}
+                  unit=""
+                  isGlobal
+                />
               </>
             ) : (
               <>
                 {/* Drum Parameters */}
-                <div>
-                  <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1.5">
-                    <span>Foot Pedal Kick Effort</span>
-                    <span className="text-yellow-400 font-bold font-mono">{weights.drum_foot_kick.toFixed(2)}x</span>
-                  </div>
-                  <input
-                    type="range" min="0.1" max="3.0" step="0.05"
-                    value={weights.drum_foot_kick}
-                    onChange={(e) => handleWeightChange('drum_foot_kick', parseFloat(e.target.value))}
-                    className="w-full accent-yellow-500"
-                  />
-                  <span className="text-[10px] text-slate-500">Tension on rapid foot kick repetitions or pedal timing.</span>
-                </div>
+                <CalibrationSliderRow
+                  label="Foot Pedal Kick Effort"
+                  weightKey="drum_foot_kick"
+                  value={weights.drum_foot_kick}
+                  description="Tension on rapid foot kick repetitions or pedal timing."
+                  onChange={handleWeightChange}
+                />
 
-                <div>
-                  <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1.5">
-                    <span>Stick Pad Jackhammer Speed</span>
-                    <span className="text-yellow-400 font-bold font-mono">{weights.drum_stick_jackhammer.toFixed(2)}x</span>
-                  </div>
-                  <input
-                    type="range" min="0.1" max="3.0" step="0.05"
-                    value={weights.drum_stick_jackhammer}
-                    onChange={(e) => handleWeightChange('drum_stick_jackhammer', parseFloat(e.target.value))}
-                    className="w-full accent-yellow-500"
-                  />
-                  <span className="text-[10px] text-slate-500">Effort required to hit the same drum pad continuously at high speeds.</span>
-                </div>
+                <CalibrationSliderRow
+                  label="Stick Pad Jackhammer Speed"
+                  weightKey="drum_stick_jackhammer"
+                  value={weights.drum_stick_jackhammer}
+                  description="Effort required to hit the same drum pad continuously at high speeds."
+                  onChange={handleWeightChange}
+                />
 
-                <div>
-                  <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1.5">
-                    <span>Stick Lateral Movement Leap</span>
-                    <span className="text-yellow-400 font-bold font-mono">{weights.drum_stick_move.toFixed(2)}x</span>
-                  </div>
-                  <input
-                    type="range" min="0.1" max="3.0" step="0.05"
-                    value={weights.drum_stick_move}
-                    onChange={(e) => handleWeightChange('drum_stick_move', parseFloat(e.target.value))}
-                    className="w-full accent-yellow-500"
-                  />
-                  <span className="text-[10px] text-slate-500">Stiffness penalty when jumping sticks laterally between pads.</span>
-                </div>
+                <CalibrationSliderRow
+                  label="Stick Lateral Movement Leap"
+                  weightKey="drum_stick_move"
+                  value={weights.drum_stick_move}
+                  description="Stiffness penalty when jumping sticks laterally between pads."
+                  onChange={handleWeightChange}
+                />
 
-                <div>
-                  <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1.5">
-                    <span>Crossed-Arm Coordination</span>
-                    <span className="text-yellow-400 font-bold font-mono">{weights.drum_crossed_arms.toFixed(2)}x</span>
-                  </div>
-                  <input
-                    type="range" min="0.1" max="3.0" step="0.05"
-                    value={weights.drum_crossed_arms}
-                    onChange={(e) => handleWeightChange('drum_crossed_arms', parseFloat(e.target.value))}
-                    className="w-full accent-yellow-500"
-                  />
-                  <span className="text-[10px] text-slate-500">Bonus difficulty for crossed-arm positions (Snare/Hihat overlap).</span>
-                </div>
+                <CalibrationSliderRow
+                  label="Crossed-Arm Coordination"
+                  weightKey="drum_crossed_arms"
+                  value={weights.drum_crossed_arms}
+                  description="Bonus difficulty for crossed-arm positions (Snare/Hihat overlap)."
+                  onChange={handleWeightChange}
+                />
 
-                <div>
-                  <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1.5">
-                    <span>Limb Polyrhythm Independence</span>
-                    <span className="text-yellow-400 font-bold font-mono">{weights.drum_polyrhythm.toFixed(2)}x</span>
-                  </div>
-                  <input
-                    type="range" min="0.1" max="3.0" step="0.05"
-                    value={weights.drum_polyrhythm}
-                    onChange={(e) => handleWeightChange('drum_polyrhythm', parseFloat(e.target.value))}
-                    className="w-full accent-yellow-500"
-                  />
-                  <span className="text-[10px] text-slate-500">Effort multiplier when foot kick and stick hits occur simultaneously.</span>
-                </div>
+                <CalibrationSliderRow
+                  label="Limb Polyrhythm Independence"
+                  weightKey="drum_polyrhythm"
+                  value={weights.drum_polyrhythm}
+                  description="Effort multiplier when foot kick and stick hits occur simultaneously."
+                  onChange={handleWeightChange}
+                />
 
-                <div>
-                  <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1.5">
-                    <span>Roll Speed Fatigue</span>
-                    <span className="text-yellow-400 font-bold font-mono">{weights.drum_roll_fatigue.toFixed(2)}x</span>
-                  </div>
-                  <input
-                    type="range" min="0.1" max="3.0" step="0.05"
-                    value={weights.drum_roll_fatigue}
-                    onChange={(e) => handleWeightChange('drum_roll_fatigue', parseFloat(e.target.value))}
-                    className="w-full accent-yellow-500"
-                  />
-                  <span className="text-[10px] text-slate-500">Exhaustion penalty when executing ultra-fast stick rolls.</span>
-                </div>
+                <CalibrationSliderRow
+                  label="Roll Speed Fatigue"
+                  weightKey="drum_roll_fatigue"
+                  value={weights.drum_roll_fatigue}
+                  description="Exhaustion penalty when executing ultra-fast stick rolls."
+                  onChange={handleWeightChange}
+                />
 
-                <div>
-                  <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1.5">
-                    <span>Limb Stamina Fatigue</span>
-                    <span className="text-yellow-400 font-bold font-mono">{weights.drum_stamina_fatigue.toFixed(2)}x</span>
-                  </div>
-                  <input
-                    type="range" min="0.1" max="3.0" step="0.05"
-                    value={weights.drum_stamina_fatigue}
-                    onChange={(e) => handleWeightChange('drum_stamina_fatigue', parseFloat(e.target.value))}
-                    className="w-full accent-yellow-500"
-                  />
-                  <span className="text-[10px] text-slate-500">Muscle stamina decay over continuous rapid drumming.</span>
-                </div>
+                <CalibrationSliderRow
+                  label="Limb Stamina Fatigue"
+                  weightKey="drum_stamina_fatigue"
+                  value={weights.drum_stamina_fatigue}
+                  description="Muscle stamina decay over continuous rapid drumming."
+                  onChange={handleWeightChange}
+                />
 
-                <div className="pt-2 border-t border-slate-800">
-                  <div className="flex justify-between text-xs font-bold text-slate-200 mb-1.5">
-                    <span>Global Scaling Factor (Drum)</span>
-                    <span className="text-yellow-400 font-bold font-mono">{weights.drum_global_factor.toFixed(2)}</span>
-                  </div>
-                  <input
-                    type="range" min="0.2" max="5.0" step="0.05"
-                    value={weights.drum_global_factor}
-                    onChange={(e) => handleWeightChange('drum_global_factor', parseFloat(e.target.value))}
-                    className="w-full accent-yellow-500"
-                  />
-                  <span className="text-[10px] text-slate-400">Final scalar determining general level ranges.</span>
-                </div>
+                <CalibrationSliderRow
+                  label="Global Scaling Factor (Drum)"
+                  weightKey="drum_global_factor"
+                  value={weights.drum_global_factor}
+                  description="Final scalar determining general level ranges (0.00 - 10.00)."
+                  onChange={handleWeightChange}
+                  unit=""
+                  isGlobal
+                />
               </>
             )}
           </div>
@@ -1089,9 +1029,9 @@ export const FineTunePanel: React.FC<FineTunePanelProps> = ({ onBack, instrument
                 <span>No songs match your criteria. Try switching the filter!</span>
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto max-h-[500px] overflow-y-auto custom-scrollbar border border-slate-800/60 rounded-xl">
                 <table className="w-full text-left text-xs border-collapse">
-                  <thead>
+                  <thead className="sticky top-0 bg-slate-900 shadow-md z-10">
                     <tr className="border-b border-slate-800 text-slate-500 font-bold uppercase tracking-wider">
                       <th className="py-2.5 px-2 text-center w-8">Use</th>
                       <th className="py-2.5 px-2">Title / Artist</th>

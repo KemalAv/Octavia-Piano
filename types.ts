@@ -73,6 +73,18 @@ export interface MidiNotePlaybackItem {
   isRepeatEnd?: boolean;
 }
 
+export interface HandPose {
+  hand: 'left' | 'right';
+  onsetSeconds: number;
+  positions: number[];
+}
+
+export interface FingeringPreferences {
+  handSize: 'XXS' | 'XS' | 'S' | 'M' | 'L' | 'XL' | 'XXL';
+  routing?: 'auto' | 'split' | 'right' | 'left';
+  splitMidi?: number;
+}
+
 /**
  * Represents a note being played in Free Play mode for visual rendering.
  */
@@ -94,6 +106,8 @@ export interface FreePlayLiveNote {
 export interface NoteFragment extends MidiNotePlaybackItem {
   fragmentId: string;
   originalNoteId: string;
+  isTieStart?: boolean;
+  isTieEnd?: boolean;
 }
 
 export interface ActiveMidiNoteInfo {
@@ -182,7 +196,9 @@ export type MetronomeMode = 'off' | 'beat' | 'bar' | 'drum';
 export type WaitMode = 'off' | 'strict' | 'rhythm' | 'retical';
 
 export type JudgmentCategory = 'perfect' | 'great' | 'good' | 'miss';
-export type AccuracyLevel = 3 | 4 | 5 | 6 | 7;
+export type AccuracyLevel = 3 | 4 | 5 | 6 | 7 | 8;
+
+export type AppLanguage = 'en' | 'id' | 'es';
 
 export type ViewMode = 'falling' | 'sheet' | 'sheet-roll' | 'sheet-qwerty' | 'drum_mania' | 'qwerty_mania';
 export type Screen =
@@ -198,7 +214,8 @@ export type Screen =
   | 'privacy'
   | 'disclaimer'
   | 'howToConnect'
-  | 'midiEditor'; // NEW: Added midiEditor
+  | 'midiEditor'
+  | 'learnMode';
 
 export type PracticeHand = 'left' | 'right' | 'both';
 export type NoteLabelType = 'none' | 'fingering' | 'noteName' | 'qwerty';
@@ -230,6 +247,7 @@ export interface GameSettings {
   zoomDirection?: 'normal' | 'reverse'; // NEW: Zoom direction
   isCalibrationMode?: boolean; // NEW: Calibration mode for sync offset
   drumTyperPadOpacity?: number; // NEW: Opacity for pads in Drum Typer mode (0-100)
+  isAutoplay?: boolean; // Explicit flag for computer Autoplay mode
 }
 
 export interface ThemeSettings {
@@ -437,6 +455,7 @@ export interface VexFlowNoteInfo {
   stem_direction?: number; // NEW: Explicit stem direction (1 = down, -1 = up)
   fingering?: (number | undefined)[];
   dynamics?: string;
+  octaveShift?: '8va' | '8vb' | '15ma' | '15mb';
 }
 
 // NEW: Interface for tuplet grouping
@@ -494,6 +513,8 @@ export interface OctaveLineInfo {
   endX: number;
   startY: number;
   endY: number;
+  startTimeMs?: number;
+  endTimeMs?: number;
 }
 
 export interface VexFlowRenderData {

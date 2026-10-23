@@ -1,4 +1,3 @@
-
 import { frequencyToMidi } from './utils';
 import { MicThresholds } from './types';
 
@@ -8,137 +7,200 @@ export interface PitchDetectionResult {
   magnitude: number;
 }
 
+/**
+ * Advanced In-Browser Acoustic Piano Transcription Engine.
+ * Operates 100% client-side via Web Audio API with zero external servers,
+ * zero python scripts, and zero zip downloads.
+ * 
+ * Features:
+ * - High-resolution spectral peak detection with parabolic interpolation.
+ * - Multi-harmonic overtone summation tailored to acoustic piano timbre.
+ * - Harmonic overtone suppression to eliminate ghost octaves (e.g. C5 triggered by C4).
+ * - Dynamic noise floor estimation to reject microphone hiss and room noise.
+ * - Fast temporal attack/release tracking (~30ms latency for real-time play).
+ * - iPad / Safari / Chrome full compatibility.
+ */
 export class AcousticPianoService {
   private analysers: AnalyserNode[];
   private audioContext: AudioContext;
   private sampleRate: number;
   private fftSize: number;
-  private hpsOrder: number = 4; // Number of harmonic downsamplings
   private bufferLength: number;
   private frequencyDataBuffers: Float32Array[];
-  private combinedHpsBuffer: Float32Array;
-  private hpsBuffers: Float32Array[];
+  private combinedBuffer: Float32Array;
   
-  // Debouncing / Smoothing
-  private noteOnThreshold: number = 4; // Increased for better stability (PDF suggests 7 frames window)
-  private noteOffThreshold: number = 3; // frames
-  
-  // activeNotes tracks: framesDetected (positive) or framesMissing (negative)
-  // We also need to know if the note has been "confirmed" (sent to UI)
-  private activeNotes: Map<number, { frames: number, magnitude: number, confirmed: boolean }> = new Map();
+  // Note tracking state
+  private noteOnThreshold: number = 2; // Frames to confirm note attack (~30ms at 60fps)
+  private noteOffThreshold: number = 2; // Frames to confirm note release
+  private activeNotes: Map<number, { frames: number; magnitude: number; confirmed: boolean }> = new Map();
   private detectedNotesThisFrame: Set<number> = new Set();
+
+  // 88-Key Piano Note Frequency Table (A0 = MIDI 21, C8 = MIDI 108)
+  private static readonly MIN_MIDI = 21;
+  private static readonly MAX_MIDI = 108;
+  private pianoFrequencies: Float32Array;
 
   constructor(analysers: AnalyserNode | AnalyserNode[], audioContext: AudioContext) {
     this.analysers = Array.isArray(analysers) ? analysers : [analysers];
     this.audioContext = audioContext;
-    this.sampleRate = audioContext.sampleRate;
-    this.fftSize = this.analysers[0].fftSize;
-    this.bufferLength = this.analysers[0].frequencyBinCount;
+    this.sampleRate = audioContext.sampleRate || 44100;
+    this.fftSize = this.analysers[0]?.fftSize || 8192;
+    this.bufferLength = this.analysers[0]?.frequencyBinCount || (this.fftSize / 2);
+    
     this.frequencyDataBuffers = this.analysers.map(() => new Float32Array(this.bufferLength));
-    this.combinedHpsBuffer = new Float32Array(this.bufferLength);
-    this.hpsBuffers = this.analysers.map(() => new Float32Array(this.bufferLength));
+    this.combinedBuffer = new Float32Array(this.bufferLength);
+
+    // Precompute exact fundamental frequencies for all 88 piano notes
+    this.pianoFrequencies = new Float32Array(AcousticPianoService.MAX_MIDI + 1);
+    for (let midi = AcousticPianoService.MIN_MIDI; midi <= AcousticPianoService.MAX_MIDI; midi++) {
+      this.pianoFrequencies[midi] = 440 * Math.pow(2, (midi - 69) / 12);
+    }
   }
 
   /**
-   * Performs pitch detection using Harmonic Product Spectrum (HPS)
-   * and returns a list of detected MIDI notes.
-   * Supports dual-channel by averaging the HPS results from both channels.
+   * Performs high-accuracy pitch and chord detection directly from microphone frequency data.
    */
   public detectPitch(thresholds: MicThresholds): PitchDetectionResult[] {
     this.detectedNotesThisFrame.clear();
-    this.combinedHpsBuffer.fill(0);
-    
-    // Process each channel
-    for (let ch = 0; ch < this.analysers.length; ch++) {
+    this.combinedBuffer.fill(0);
+
+    const numAnalysers = this.analysers.length;
+    if (numAnalysers === 0) return [];
+
+    // 1. Combine frequency data across channels (averaging stereo / dual-mic)
+    for (let ch = 0; ch < numAnalysers; ch++) {
       this.analysers[ch].getFloatFrequencyData(this.frequencyDataBuffers[ch] as any);
-      
-      const hpsBuffer = this.hpsBuffers[ch];
       for (let i = 0; i < this.bufferLength; i++) {
-        hpsBuffer[i] = this.frequencyDataBuffers[ch][i];
-      }
-
-      // Multiply (add in log space) downsampled versions
-      for (let order = 2; order <= this.hpsOrder; order++) {
-        for (let i = Math.floor(20 * this.fftSize / this.sampleRate); i < Math.floor(this.bufferLength / order); i++) {
-          const freq = i * this.sampleRate / this.fftSize;
-          
-          if (freq > 500 && order > 3) continue; 
-          if (freq > 1000 && order > 2) continue; 
-          if (freq > 2000 && order > 1) continue; 
-
-          let maxVal = -120; 
-          const windowSize = Math.max(1, Math.floor(i * order * 0.015)); 
-          for (let w = -windowSize; w <= windowSize; w++) {
-            const idx = i * order + w;
-            if (idx >= 0 && idx < this.bufferLength) {
-              maxVal = Math.max(maxVal, this.frequencyDataBuffers[ch][idx]);
-            }
-          }
-          const weight = 1.0 / (order * 0.5);
-          hpsBuffer[i] += maxVal * weight;
-        }
-      }
-      
-      // Accumulate into combined buffer
-      for (let i = 0; i < this.bufferLength; i++) {
-        this.combinedHpsBuffer[i] += hpsBuffer[i] / this.analysers.length;
+        this.combinedBuffer[i] += this.frequencyDataBuffers[ch][i] / numAnalysers;
       }
     }
 
-    // 2. Find peaks in the combined HPS buffer
-    const results: PitchDetectionResult[] = [];
-    const minMidi = 21; // A0
-    const maxMidi = 108; // C8
-    const maxBin = Math.floor(5000 * this.fftSize / this.sampleRate);
+    const binWidth = this.sampleRate / this.fftSize;
+    const detectedCandidates: Array<{ midi: number; frequency: number; score: number; magnitude: number }> = [];
 
-    for (let i = Math.floor(20 * this.fftSize / this.sampleRate); i < maxBin; i++) {
-      const freq = i * this.sampleRate / this.fftSize;
-      const midi = frequencyToMidi(freq);
+    // 2. Scan piano notes with Harmonic Prominence & Parabolic Interpolation
+    for (let midi = AcousticPianoService.MIN_MIDI; midi <= AcousticPianoService.MAX_MIDI; midi++) {
+      const f0 = this.pianoFrequencies[midi];
+      const targetBin = f0 / binWidth;
+      const centerBin = Math.round(targetBin);
+
+      if (centerBin < 1 || centerBin >= this.bufferLength - 1) continue;
+
+      // Find local peak around expected fundamental
+      let peakBin = centerBin;
+      let peakVal = this.combinedBuffer[centerBin];
       
-      if (midi < minMidi || midi > maxMidi) continue;
-
-      // Determine threshold based on MIDI range
-      let threshold = -60;
-      if (midi < 43) threshold = thresholds.subBass || -70;
-      else if (midi < 48) threshold = thresholds.bass || -65;
-      else if (midi < 60) threshold = thresholds.mid || -60;
-      else if (midi <= 96) threshold = thresholds.treble || -70;
-      else threshold = thresholds.highTreble || -70;
-
-    // Adjusted HPS threshold logic:
-    let effectiveHpsOrder = 1;
-    if (freq <= 500) effectiveHpsOrder = 1 + (1/1.0 + 1/1.5 + 1/2.0); 
-    else if (freq <= 1000) effectiveHpsOrder = 1 + (1/1.0 + 1/1.5); 
-    else if (freq <= 2000) effectiveHpsOrder = 1 + (1/1.0); 
-    
-    const rangeAdjustment = midi >= 60 ? 10 : 0; 
-    const hpsThreshold = (threshold + rangeAdjustment) * effectiveHpsOrder;
-
-    if (this.combinedHpsBuffer[i] > hpsThreshold && 
-        this.combinedHpsBuffer[i] > this.combinedHpsBuffer[i - 1] && 
-        this.combinedHpsBuffer[i] > this.combinedHpsBuffer[i + 1]) {
-        
-        // Quadratic interpolation for better frequency accuracy
-        const alpha = this.combinedHpsBuffer[i - 1];
-        const beta = this.combinedHpsBuffer[i];
-        const gamma = this.combinedHpsBuffer[i + 1];
-        const p = 0.5 * (alpha - gamma) / (alpha - 2 * beta + gamma);
-        
-        const interpolatedFreq = (isFinite(p) && !isNaN(p))
-          ? (i + p) * this.sampleRate / this.fftSize
-          : freq;
-          
-        const interpolatedMidi = frequencyToMidi(interpolatedFreq);
-        
-        // Only add if it's a distinct MIDI note
-        if (!this.detectedNotesThisFrame.has(interpolatedMidi)) {
-          results.push({
-            midi: interpolatedMidi,
-            frequency: interpolatedFreq,
-            magnitude: beta / this.hpsOrder // Average magnitude
-          });
-          this.detectedNotesThisFrame.add(interpolatedMidi);
+      const searchRadius = midi < 40 ? 1 : 2;
+      for (let b = Math.max(1, centerBin - searchRadius); b <= Math.min(this.bufferLength - 2, centerBin + searchRadius); b++) {
+        if (this.combinedBuffer[b] > peakVal) {
+          peakVal = this.combinedBuffer[b];
+          peakBin = b;
         }
+      }
+
+      // Parabolic interpolation for fine sub-bin frequency estimation
+      const alpha = this.combinedBuffer[peakBin - 1];
+      const beta = this.combinedBuffer[peakBin];
+      const gamma = this.combinedBuffer[peakBin + 1];
+
+      let interpolatedFreq = f0;
+      const denom = alpha - 2 * beta + gamma;
+      if (denom !== 0 && beta > alpha && beta > gamma) {
+        const p = 0.5 * (alpha - gamma) / denom;
+        if (isFinite(p) && Math.abs(p) <= 1) {
+          interpolatedFreq = (peakBin + p) * binWidth;
+        }
+      }
+
+      // Check threshold based on octave range
+      let userThreshold = -65;
+      if (midi < 43) userThreshold = thresholds.subBass || -70;
+      else if (midi < 48) userThreshold = thresholds.bass || -65;
+      else if (midi < 60) userThreshold = thresholds.mid || -60;
+      else if (midi <= 96) userThreshold = thresholds.treble || -68;
+      else userThreshold = thresholds.highTreble || -70;
+
+      // Calculate local noise floor (moving window around peak)
+      let localNoise = -100;
+      const noiseWindow = 8;
+      let noiseSum = 0;
+      let noiseCount = 0;
+      for (let nb = Math.max(1, peakBin - noiseWindow); nb <= Math.min(this.bufferLength - 2, peakBin + noiseWindow); nb++) {
+        if (Math.abs(nb - peakBin) > 2) {
+          noiseSum += this.combinedBuffer[nb];
+          noiseCount++;
+        }
+      }
+      if (noiseCount > 0) {
+        localNoise = noiseSum / noiseCount;
+      }
+
+      // Fundamental must exceed user threshold AND be significantly above local noise floor
+      const snr = peakVal - localNoise;
+      if (peakVal < userThreshold || snr < 7) continue;
+
+      // Harmonic confirmation (check 2nd and 3rd harmonics)
+      let harmonicScore = peakVal;
+      const h2Bin = Math.round((f0 * 2) / binWidth);
+      if (h2Bin < this.bufferLength) {
+        const h2Val = this.combinedBuffer[h2Bin];
+        if (h2Val > userThreshold - 15) {
+          harmonicScore += h2Val * 0.4;
+        }
+      }
+
+      const h3Bin = Math.round((f0 * 3) / binWidth);
+      if (h3Bin < this.bufferLength) {
+        const h3Val = this.combinedBuffer[h3Bin];
+        if (h3Val > userThreshold - 20) {
+          harmonicScore += h3Val * 0.2;
+        }
+      }
+
+      detectedCandidates.push({
+        midi,
+        frequency: interpolatedFreq,
+        score: harmonicScore,
+        magnitude: peakVal
+      });
+    }
+
+    // 3. Overtone Suppression: eliminate false upper octaves caused by strong lower notes
+    // Sort candidates by magnitude (strongest fundamentals first)
+    detectedCandidates.sort((a, b) => b.score - a.score);
+
+    const suppressedMidis = new Set<number>();
+    const results: PitchDetectionResult[] = [];
+
+    for (const cand of detectedCandidates) {
+      if (suppressedMidis.has(cand.midi)) continue;
+
+      results.push({
+        midi: cand.midi,
+        frequency: cand.frequency,
+        magnitude: cand.magnitude
+      });
+      this.detectedNotesThisFrame.add(cand.midi);
+
+      // Suppress 2nd harmonic (+12 semitones / 1 octave) and 3rd harmonic (+19 semitones / 1 octave + fifth)
+      // unless their peak is independently stronger than predicted overtone decay
+      const octaveAbove = cand.midi + 12;
+      const octaveFifthAbove = cand.midi + 19;
+      const doubleOctaveAbove = cand.midi + 24;
+
+      const candOctave = detectedCandidates.find(c => c.midi === octaveAbove);
+      if (candOctave && candOctave.magnitude < cand.magnitude - 4) {
+        suppressedMidis.add(octaveAbove);
+      }
+
+      const candFifth = detectedCandidates.find(c => c.midi === octaveFifthAbove);
+      if (candFifth && candFifth.magnitude < cand.magnitude - 6) {
+        suppressedMidis.add(octaveFifthAbove);
+      }
+
+      const candDouble = detectedCandidates.find(c => c.midi === doubleOctaveAbove);
+      if (candDouble && candDouble.magnitude < cand.magnitude - 8) {
+        suppressedMidis.add(doubleOctaveAbove);
       }
     }
 
@@ -146,54 +208,58 @@ export class AcousticPianoService {
   }
 
   /**
-   * Updates the state of active notes based on current frame detections.
-   * Returns a list of notes that should be triggered (note-on) or released (note-off).
+   * Updates note state across consecutive audio frames and filters out noise.
+   * Returns note-on and note-off events directly.
    */
-  public updateNotes(currentFrameNotes: PitchDetectionResult[]): { on: number[], off: number[] } {
+  public updateNotes(currentFrameNotes: PitchDetectionResult[]): { on: number[]; off: number[] } {
     const noteOn: number[] = [];
     const noteOff: number[] = [];
     
     const currentMidis = new Set(currentFrameNotes.map(n => n.midi));
 
-    // 1. Update existing notes and add new candidates
+    // 1. Update existing notes and register new detected candidates
     for (const res of currentFrameNotes) {
       const midi = res.midi;
       if (this.activeNotes.has(midi)) {
         const state = this.activeNotes.get(midi)!;
-        if (state.frames < 0) state.frames = 0; // Reset missing counter if it reappears
-        state.frames = Math.min(state.frames + 1, 10); // Cap at 10 frames
+        if (state.frames < 0) state.frames = 0;
+        state.frames = Math.min(state.frames + 1, 10);
         state.magnitude = res.magnitude;
       } else {
         this.activeNotes.set(midi, { frames: 1, magnitude: res.magnitude, confirmed: false });
       }
     }
 
-    // 2. Handle missing notes (decaying)
+    // 2. Handle missing notes (decaying state)
     this.activeNotes.forEach((state, midi) => {
       if (!currentMidis.has(midi)) {
-        if (state.frames > 0) state.frames = 0; // Start missing counter
+        if (state.frames > 0) state.frames = 0;
         state.frames--;
       }
     });
 
     // 3. Confirm Note-Ons and Note-Offs
     this.activeNotes.forEach((state, midi) => {
-      // Confirm Note-On
+      // Trigger Note-On after 2 consecutive verified frames
       if (!state.confirmed && state.frames >= this.noteOnThreshold) {
         noteOn.push(midi);
         state.confirmed = true;
       }
       
-      // Confirm Note-Off
+      // Trigger Note-Off after release threshold
       if (state.confirmed && state.frames <= -this.noteOffThreshold) {
         noteOff.push(midi);
         this.activeNotes.delete(midi);
       } else if (!state.confirmed && state.frames <= -this.noteOffThreshold) {
-        // Candidate that never got confirmed
         this.activeNotes.delete(midi);
       }
     });
 
     return { on: noteOn, off: noteOff };
+  }
+
+  public destroy(): void {
+    this.activeNotes.clear();
+    this.detectedNotesThisFrame.clear();
   }
 }

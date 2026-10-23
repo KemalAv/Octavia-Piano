@@ -9,10 +9,6 @@ export default defineConfig(({ mode }) => {
       server: {
         port: 3000,
         host: '0.0.0.0',
-        watch: {
-          ignored: ['**/*.zip', '**/backend/**', '**/.git/**'],
-        },
-        proxy: { '/api': { target: 'http://127.0.0.1:8001', changeOrigin: true } },
       },
       plugins: [react()],
       define: {

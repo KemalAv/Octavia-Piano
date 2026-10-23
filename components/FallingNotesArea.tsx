@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { MidiNotePlaybackItem, KeyPosition, ActiveMidiNoteInfo, NoteLabelType, QwertyLayout, FreePlayLiveNote } from '../types';
 import { PLAY_LINE_THICKNESS_PX, USER_PLAY_COLOR, VISUAL_NOTE_CAP_MS, QWERTY_MINI_KEYBOARD_MAPPING, MIRP_KEYBOARD_MAPPING, KEY_CODES_TO_DISPLAY } from '../constants';
-import { darkenHex, formatKeySignatureForDisplay, SHARP_KEYS, FLAT_KEYS, NEUTRAL_KEYS, ENHARMONIC_MAP_TO_SHARP, ENHARMONIC_MAP_TO_FLAT } from '../utils';
+import { darkenHex, formatKeySignatureForDisplay, SHARP_KEYS, FLAT_KEYS, NEUTRAL_KEYS, ENHARMONIC_MAP_TO_SHARP, ENHARMONIC_MAP_TO_FLAT, getDynamicFromVelocity, getVelocityOutlineColor } from '../utils';
 
 interface FallingNotesAreaProps {
   notes: MidiNotePlaybackItem[];
@@ -35,6 +35,7 @@ interface FallingNotesAreaProps {
   mirpTranspose?: number;
   lowDetailMode?: boolean;
   resolutionScale?: number;
+  showDynamics?: boolean;
 }
 
 // Binary search helper to find starting note index in O(log N) time
@@ -91,6 +92,7 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
   mirpTranspose = 0,
   lowDetailMode = false,
   resolutionScale = 1.0,
+  showDynamics = false,
 }) => {
   const [statsVisible, setStatsVisible] = useState(true);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -268,7 +270,8 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
     const getNoteLabel = (
       noteMidi: number,
       notePitchClass: string,
-      noteFinger?: number
+      noteFinger?: number,
+      noteVelocity?: number
     ) => {
       if (noteLabelType === 'noteName') {
         let displayedPitchClass = notePitchClass;
@@ -396,9 +399,14 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
         ctx.fillStyle = baseColorStandard;
         ctx.fillRect(x, y, w, h);
 
-        // No highlight stroke on falling notes as requested by user
+        // Velocity outline (if dynamic feature enabled): white for very loud, black for very soft
+        if (showDynamics) {
+          ctx.strokeStyle = getVelocityOutlineColor(note.velocity);
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(x, y, w, h);
+        }
 
-        const displayedLabel = getNoteLabel(note.midi, note.pitchClass, note.finger);
+        const displayedLabel = getNoteLabel(note.midi, note.pitchClass, note.finger, note.velocity);
         if (displayedLabel) {
           ctx.fillStyle = '#ffffff';
           ctx.font = 'bold 12px sans-serif';

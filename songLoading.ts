@@ -1,7 +1,6 @@
 import JSZip from 'jszip';
 import {parseMidiData,parseMusicXmlData} from './midiParser';
-import type {NoteLabelType} from './types';
-export const needsAutomaticFingering=(label:NoteLabelType,instrument:'piano'|'drum')=>label==='fingering'&&instrument==='piano';
+
 export async function parsePlaybackFile(file:File,names:Map<number,string>){
  const ext=file.name.split('.').pop()?.toLowerCase();
  if(ext==='mid'||ext==='midi'||file.type.includes('midi'))return parseMidiData(await file.arrayBuffer(),names);

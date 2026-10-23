@@ -1,4 +1,4 @@
-import type {HandPose} from '../fingeringApi';
+import type {HandPose} from '../types';
 import {INITIAL_PLAYBACK_DELAY_MS} from '../midiParser';
 export const SIZE_FACTORS={XXS:.33,XS:.46,S:.64,M:.82,L:1,XL:1.1,XXL:1.2};
 export const keyX=(pitch:number)=>16.5*(Math.floor(pitch/12)-1)+[.5,1,1.5,2,2.5,3.5,4,4.5,5,5.5,6,6.5][pitch%12]*(16.5/7);

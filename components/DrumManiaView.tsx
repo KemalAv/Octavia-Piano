@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ActiveMidiNoteInfo, MidiNotePlaybackItem, DrumPadConfig, ThemeSettings, FreePlayLiveNote } from '../types';
 import { DRUM_KEYBOARD_MAP, DRUM_PADS } from '../constants';
+import { getDynamicFromVelocity, getVelocityOutlineColor } from '../utils';
 
 
 // Order from user request
@@ -36,6 +37,7 @@ interface DrumManiaViewProps {
     pianoTilesOpacity?: number;
     waitMode?: string;
     resolutionScale?: number;
+    showDynamics?: boolean;
 }
 
 // Binary search helper to find starting note index in O(log N) time
@@ -81,6 +83,7 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = React.memo(({
     pianoTilesOpacity = 50,
     waitMode = 'strict',
     resolutionScale = 1.0,
+    showDynamics = false,
 }) => {
     const MIDI_TO_PAD_MAP = new Map<number, DrumPadConfig>();
     DRUM_PADS.forEach(pad => {
@@ -146,7 +149,7 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = React.memo(({
     const getPadLayout = () => {
         const padCount = MANIA_PAD_ORDER.length;
         const padWidth = dimensions.width / padCount;
-        const centerY = dimensions.height - 90; // Indicators at the very bottom
+        const centerY = dimensions.height - 125; // Adjusted so pads sit lower while remaining clear of offset meter
 
         return MANIA_PAD_ORDER.map((id, index) => {
             const pad = DRUM_PADS.find(p => p.id === id)!;
@@ -367,7 +370,29 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = React.memo(({
             const currentUserKeys = userActiveKeysRef.current;
 
             const pads = getPadLayout();
-            const hitLineY = dimensions.height - 90; // Judgment line slightly above indicators
+            // Hitbox and horizontal strike line placed at the bottom edge of the inner concentric circle (pad.cy + pad.r * 0.7)
+            const hitLineY = pads.length > 0 ? (pads[0].cy + pads[0].r * 0.7) : (dimensions.height - 97);
+
+            // Draw horizontal strike/hitbox guide line across all lanes
+            ctx.save();
+            ctx.shadowColor = 'rgba(139, 92, 246, 0.85)';
+            ctx.shadowBlur = 12;
+            ctx.beginPath();
+            ctx.moveTo(0, hitLineY);
+            ctx.lineTo(dimensions.width, hitLineY);
+            ctx.strokeStyle = 'rgba(167, 139, 250, 0.9)'; // Radiant violet-cyan neon strike line
+            ctx.lineWidth = 3;
+            ctx.stroke();
+
+            // Crisp inner white laser beam line
+            ctx.shadowBlur = 0;
+            ctx.beginPath();
+            ctx.moveTo(0, hitLineY);
+            ctx.lineTo(dimensions.width, hitLineY);
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+            ctx.lineWidth = 1.2;
+            ctx.stroke();
+            ctx.restore();
 
             // Draw lane backgrounds
             if (showPianoTilesBackground) {
@@ -383,9 +408,12 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = React.memo(({
             const minBarTime = currentMs - bufferMs;
             const maxBarTime = currentMs + (dimensions.height / pixelsPerMillisecond) + bufferMs;
 
+            const defaultNoteRadius = pads.length > 0 ? pads[0].r * 0.6 : 20;
+
             barLines.forEach((barTime, index) => {
                 if (barTime < minBarTime || barTime > maxBarTime) return;
-                const y = hitLineY - (barTime - currentMs) * pixelsPerMillisecond;
+                // Bar line is drawn shifted so note head sits exactly after the bar line while hitting at pad center
+                const y = hitLineY - (barTime - currentMs) * pixelsPerMillisecond + defaultNoteRadius;
                 if (y >= 0 && y <= dimensions.height) {
                     ctx.beginPath();
                     ctx.moveTo(0, y);
@@ -395,14 +423,6 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = React.memo(({
                     ctx.stroke();
                 }
             });
-
-            // Draw horizontal hit line across the entire width
-            ctx.beginPath();
-            ctx.moveTo(0, hitLineY);
-            ctx.lineTo(dimensions.width, hitLineY);
-            ctx.strokeStyle = themeSettings.hitNoteColor;
-            ctx.lineWidth = 2;
-            ctx.stroke();
 
             // Draw pads
             pads.forEach(pad => {
@@ -450,16 +470,16 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = React.memo(({
                     ctx.restore();
                 }
 
-                // Draw indicator at hitLineY (optional, like the image)
+                // Draw inner concentric indicator at pad center
                 ctx.beginPath();
-                ctx.arc(pad.cx, hitLineY, pad.r * 0.7, 0, Math.PI * 2);
+                ctx.arc(pad.cx, pad.cy, pad.r * 0.7, 0, Math.PI * 2);
                 ctx.strokeStyle = isActive ? themeSettings.hitNoteColor : 'rgba(255, 255, 255, 0.2)';
                 ctx.lineWidth = 2;
                 ctx.stroke();
 
                 if (isActive) {
                     ctx.beginPath();
-                    ctx.arc(pad.cx, hitLineY, pad.r * 0.7, 0, Math.PI * 2);
+                    ctx.arc(pad.cx, pad.cy, pad.r * 0.7, 0, Math.PI * 2);
                     // Match theme hit color
                     const hc = themeSettings.hitNoteColor;
                     ctx.fillStyle = hc.length === 7 ? hc + '4d' : hc;
@@ -504,11 +524,10 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = React.memo(({
                 const timeUntilHit = note.timeMs - currentMs;
                 const hihatPad = pads.find(p => p.id === 'hihat');
                 const footPad = pads.find(p => p.id === 'hihat_foot');
-                
+
                 if (hihatPad && footPad) {
-                    const noteRadius = hihatPad.r * 0.6;
-                    const y = hitLineY - noteRadius - (timeUntilHit * pixelsPerMillisecond);
-                    
+                    const y = hitLineY - (timeUntilHit * pixelsPerMillisecond);
+
                     if (y >= -50 && y <= dimensions.height + 50) {
                         ctx.beginPath();
                         // Draw connector line between hi-hat lane and hi-hat foot lane
@@ -527,15 +546,16 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = React.memo(({
 
                 const timeUntilHit = note.timeMs - currentMs;
                 const noteRadius = pad.r * 0.6;
-                const y = hitLineY - noteRadius - (timeUntilHit * pixelsPerMillisecond);
+                // Note hits exactly at pad center (hitLineY)
+                const y = hitLineY - (timeUntilHit * pixelsPerMillisecond);
 
                 if (y >= -50 && y <= dimensions.height + 50) {
                     ctx.beginPath();
-                    ctx.arc(pad.cx, y, pad.r * 0.6, 0, Math.PI * 2);
+                    ctx.arc(pad.cx, y, noteRadius, 0, Math.PI * 2);
                     ctx.fillStyle = `rgba(34,211,238,1)`;
                     ctx.fill();
-                    ctx.strokeStyle = `rgba(255,255,255,1)`;
-                    ctx.lineWidth = 2;
+                    ctx.strokeStyle = showDynamics ? getVelocityOutlineColor(note.velocity) : 'rgba(255,255,255,1)';
+                    ctx.lineWidth = showDynamics ? 2.5 : 2;
                     ctx.stroke();
                 }
             });
