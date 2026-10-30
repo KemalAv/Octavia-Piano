@@ -120,7 +120,18 @@ interface SettingsProps {
 const Section: React.FC<{ title: string; children: React.ReactNode; showInfoButton?: boolean; onInfoClick?: () => void }> = ({ title, children, showInfoButton, onInfoClick }) => (
   <section id={`settings-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="scroll-mt-28">
     <h3 className="text-xl font-semibold text-violet-400 mb-4 border-b border-slate-700 pb-2 flex items-center justify-between">
-      {title}
+      <span>{title}</span>
+      {showInfoButton && onInfoClick && (
+        <button
+          type="button"
+          onClick={onInfoClick}
+          className="w-6 h-6 rounded-full bg-cyan-500/20 hover:bg-cyan-500/40 text-cyan-300 flex items-center justify-center text-xs font-bold border border-cyan-500/40 transition-colors shadow-sm"
+          title="Info"
+          aria-label="Info"
+        >
+          ℹ
+        </button>
+      )}
     </h3>
     <div className="space-y-4">{children}</div>
   </section>
@@ -134,9 +145,12 @@ const SettingRow: React.FC<{ label: string; htmlFor?: string; children: React.Re
 );
 
 const ToggleRow: React.FC<{ label: string; id: string; checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean; }> = ({label, id, checked, onChange, disabled}) => {
-  const checkboxStyle = `h-5 w-5 text-cyan-500 rounded border-slate-500 focus:ring-cyan-400 ml-3 ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`;
+  const checkboxStyle = `h-5 w-5 text-cyan-500 rounded border-slate-500 focus:ring-cyan-400 ml-3 pointer-events-none ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`;
   return (
-    <div className={`flex items-center justify-between p-2 rounded-md bg-slate-700/30 ${disabled ? 'opacity-60' : ''}`}>
+    <div
+      onClick={() => !disabled && onChange(!checked)}
+      className={`flex items-center justify-between p-2.5 rounded-xl bg-slate-800/40 hover:bg-slate-800/70 border border-white/5 transition-colors select-none ${disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer active:scale-[0.99]'}`}
+    >
         <label htmlFor={id} className={`text-sm font-medium text-slate-300 flex-grow ${disabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}>{label}</label>
         <input type="checkbox" id={id} checked={checked} onChange={e => !disabled && onChange(e.target.checked)} className={checkboxStyle} disabled={disabled} />
     </div>
@@ -402,7 +416,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
 
   return (
     <>
-      <div className={`p-6 md:p-8 rounded-3xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto custom-scrollbar text-slate-100 border border-white/10 transform transition-all duration-300 ease-in-out bg-slate-900/95 backdrop-blur-md ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`} onClick={e => e.stopPropagation()}>
+      <div className={`p-6 md:p-8 rounded-3xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto custom-scrollbar text-slate-100 border border-white/10 transform transition-all duration-300 ease-in-out bg-slate-900/60 backdrop-blur-sm ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`} onClick={e => e.stopPropagation()}>
         {/* Header Bar */}
         <div className="flex items-center justify-between pb-4 border-b border-white/10 mb-5">
           <div className="flex items-center gap-3">
@@ -614,16 +628,14 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                       { value: 'noteName', label: 'Note Name' },
                       ...(gameplayStyle !== 'piano' ? [{ value: 'qwerty', label: 'QWERTY Keys' }] : []),
                     ].map(opt => {
-                      const locked = instrumentMode === 'piano' && gameplayStyle === 'computer';
                       return (
                         <button
                           key={opt.value}
                           type="button"
                           role="radio"
                           aria-checked={noteLabelType === opt.value}
-                          disabled={locked}
                           onClick={() => onNoteLabelTypeChange(opt.value as NoteLabelType)}
-                          className={`px-3 py-1.5 rounded-lg text-sm font-semibold border transition-all ${locked ? 'opacity-50 cursor-not-allowed' : ''} ${noteLabelType === opt.value ? 'bg-cyan-600 border-cyan-400 text-white shadow-sm' : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'}`}
+                          className={`px-3 py-1.5 rounded-lg text-sm font-semibold border transition-all ${noteLabelType === opt.value ? 'bg-cyan-600 border-cyan-400 text-white shadow-sm' : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'}`}
                         >
                           {opt.label}
                         </button>
@@ -740,7 +752,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
               </div>
             )}
 
-            <ToggleRow id="qwerty-shortcuts" label={t.showQwertyShortcuts} checked={showQwertyShortcuts} onChange={onShowQwertyShortcutsChange} disabled={true} />
+            <ToggleRow id="qwerty-shortcuts" label={t.showQwertyShortcuts} checked={showQwertyShortcuts} onChange={onShowQwertyShortcutsChange} />
           </Section>
 
           <Section title={t.deviceUiSection} showInfoButton={true} onInfoClick={() => setIsInfoModalOpen(true)}>
@@ -748,9 +760,11 @@ export const Settings: React.FC<SettingsProps> = (props) => {
               <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-3">
                   <button
-                    onClick={() => onUiZoomChange(Math.max(25, uiZoom - 5))}
-                    disabled={uiZoomAuto}
-                    className="px-3 py-1 rounded-md text-lg font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-300 focus:ring-opacity-75 bg-slate-600 hover:bg-slate-700 text-slate-100 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={() => {
+                      if (uiZoomAuto) onUiZoomAutoChange(false);
+                      onUiZoomChange(Math.max(25, uiZoom - 5));
+                    }}
+                    className="px-3 py-1 rounded-md text-lg font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-300 focus:ring-opacity-75 bg-slate-600 hover:bg-slate-700 text-slate-100 active:scale-95"
                     aria-label="Decrease UI zoom"
                   >
                     -
@@ -762,14 +776,18 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                     max="200"
                     step="5"
                     value={uiZoom}
-                    disabled={uiZoomAuto}
-                    onChange={e => onUiZoomChange(parseInt(e.target.value, 10))}
-                    className={`${rangeSliderStyle} w-32 md:w-40 disabled:opacity-50 disabled:cursor-not-allowed`}
+                    onChange={e => {
+                      if (uiZoomAuto) onUiZoomAutoChange(false);
+                      onUiZoomChange(parseInt(e.target.value, 10));
+                    }}
+                    className={`${rangeSliderStyle} w-32 md:w-40`}
                   />
                   <button
-                    onClick={() => onUiZoomChange(Math.min(200, uiZoom + 5))}
-                    disabled={uiZoomAuto}
-                    className="px-3 py-1 rounded-md text-lg font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-300 focus:ring-opacity-75 bg-slate-600 hover:bg-slate-700 text-slate-100 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={() => {
+                      if (uiZoomAuto) onUiZoomAutoChange(false);
+                      onUiZoomChange(Math.min(200, uiZoom + 5));
+                    }}
+                    className="px-3 py-1 rounded-md text-lg font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-300 focus:ring-opacity-75 bg-slate-600 hover:bg-slate-700 text-slate-100 active:scale-95"
                     aria-label="Increase UI zoom"
                   >
                     +

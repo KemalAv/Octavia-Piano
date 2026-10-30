@@ -1646,16 +1646,16 @@ const AppContent: React.FC = () => {
   }, [maxCombo]);
 
   const [lastJudgment, setLastJudgment] = useState<
-    "perfect" | "great" | "good" | "miss" | null
+    "perfect" | "great" | "good" | "miss" | "hit" | null
   >(null);
-  const lastJudgmentRef = useRef<"perfect" | "great" | "good" | "miss" | null>(
+  const lastJudgmentRef = useRef<"perfect" | "great" | "good" | "miss" | "hit" | null>(
     null,
   );
   useEffect(() => {
     lastJudgmentRef.current = lastJudgment;
   }, [lastJudgment]);
 
-  const [displayJudgment, setDisplayJudgment] = useState<{ id: number; type: 'perfect' | 'great' | 'good' | 'miss' } | null>(null);
+  const [displayJudgment, setDisplayJudgment] = useState<{ id: number; type: 'perfect' | 'great' | 'good' | 'miss' | 'hit' } | null>(null);
   const judgmentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (lastJudgment) {
@@ -3560,8 +3560,12 @@ const AppContent: React.FC = () => {
       }
       const playtimeToAdd = Math.round(sessionTotalPlaytimeMs.current);
       const notesHitToAdd = sessionTotalNotesHit.current;
-      const supabaseUrl = process.env.VITE_SUPABASE_URL;
-      const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
+      const supabaseUrl =
+        (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_SUPABASE_URL) ||
+        (typeof process !== "undefined" ? (process as any).env?.VITE_SUPABASE_URL : undefined);
+      const supabaseAnonKey =
+        (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_SUPABASE_ANON_KEY) ||
+        (typeof process !== "undefined" ? (process as any).env?.VITE_SUPABASE_ANON_KEY : undefined);
       const currentSession = sessionRef.current;
       if (
         !currentSession ||
@@ -4330,11 +4334,12 @@ const AppContent: React.FC = () => {
               setActivePlaybackNotesInfo((prev) => {
                 const nm = new Map(prev);
                 for (const [existingId, existingInfo] of nm.entries()) {
+                  const info = existingInfo as any;
                   if (
-                    existingInfo.status === "user_played" &&
-                    (existingInfo.hand === note.hand || existingInfo.midi === note.midi) &&
+                    info.status === "user_played" &&
+                    (info.hand === note.hand || info.midi === note.midi) &&
                     existingId !== noteId &&
-                    note.timeMs - existingInfo.timeMs > 15
+                    note.timeMs - info.timeMs > 15
                   ) {
                     nm.delete(existingId);
                     activeNoteInstancesRef.current.delete(existingId);
@@ -5439,6 +5444,9 @@ const AppContent: React.FC = () => {
             });
             updateNotesCurrentlyWaitingFor(remainingMidis);
 
+            setLastJudgment("hit");
+            lastJudgmentRef.current = "hit";
+
             if (newWaitingIds.size === 0) resumePlaybackFromWait();
           } else {
             // Ignore wrong notes to prevent locking/errors in strict mode
@@ -5456,9 +5464,13 @@ const AppContent: React.FC = () => {
             if (firstInputRealTimeRef.current === null)
               firstInputRealTimeRef.current = performance.now();
             lastInputRealTimeRef.current = performance.now();
+            setLastJudgment("hit");
+            lastJudgmentRef.current = "hit";
           } else {
             setErrorCount((p) => p + 1);
             errorCountRef.current += 1;
+            setLastJudgment("miss");
+            lastJudgmentRef.current = "miss";
           }
           resumePlaybackFromWait();
         }
@@ -5479,7 +5491,9 @@ const AppContent: React.FC = () => {
           // noteOffsetMs is the physical hardware/device input delay in real milliseconds.
           // Scaled to musical time: (noteOffsetMs * currentMultiplier).
           // Real physical difference in ms between tap and note:
-          const realOffsetMs = noteInputOffsetMs(n.timeMs, inputTime, currentMultiplier, noteOffsetMsRef.current);
+          const nonStopForOffset = (gameSettingsRef.current?.isNonStop ?? false) || (isFreePlayModeRef.current ? "off" : (gameSettingsRef.current?.waitMode || "strict")) === "retical" || (isFreePlayModeRef.current ? "off" : (gameSettingsRef.current?.waitMode || "strict")) === "off";
+          const effectiveNoteOffset = nonStopForOffset ? noteOffsetMsRef.current : -noteOffsetMsRef.current;
+          const realOffsetMs = noteInputOffsetMs(n.timeMs, inputTime, currentMultiplier, effectiveNoteOffset);
 
           // Optimization: Skip notes more than 2.5 real seconds away
           if (Math.abs(realOffsetMs) > 2500)
@@ -5517,7 +5531,30 @@ const AppContent: React.FC = () => {
         if (best) {
           if (min <= goodWindow) {
             if (!hitNoteIdsRef.current.has(best.noteId)) {
-              if (min <= perfectWindow) {
+              const isNonStopActive =
+                (gameSettingsRef.current?.isNonStop ?? false) ||
+                (gameSettingsRef.current?.waitMode || "strict") === "retical" ||
+                (gameSettingsRef.current?.waitMode || "strict") === "off";
+
+              if (!isNonStopActive) {
+                // Mode selain nonstop: hanya hit dan miss
+                setPerfectCount((p) => p + 1);
+                perfectCountRef.current += 1;
+                setHitCount((p) => p + 1);
+                hitCountRef.current += 1;
+                changeHp(4.0);
+                setCombo((p) => {
+                  const next = p + 1;
+                  if (next > maxComboRef.current) {
+                    setMaxCombo(next);
+                    maxComboRef.current = next;
+                  }
+                  return next;
+                });
+                comboRef.current += 1;
+                setLastJudgment("hit");
+                lastJudgmentRef.current = "hit";
+              } else if (min <= perfectWindow) {
                 setPerfectCount((p) => p + 1);
                 perfectCountRef.current += 1;
                 setHitCount((p) => p + 1);
@@ -7791,11 +7828,11 @@ const AppContent: React.FC = () => {
       {currentScreen === "settings" &&
         isSettingsPreviewActiveRef.current &&
         playbackNotes.length > 0 && (
-          <div className="absolute inset-0 z-0">
-            <div className="absolute inset-0 z-0">
-              <div className="absolute top-0 left-0 right-0 z-[60] pointer-events-none">
+          <div className="absolute inset-0 z-0 pointer-events-none select-none">
+            <div className="absolute inset-0 z-0 pointer-events-none select-none">
+              <div className="absolute top-0 left-0 right-0 z-10 pointer-events-none">
                 {playbackNotes.length > 0 && (
-                  <div className="w-full pointer-events-auto">
+                  <div className="w-full pointer-events-none">
                     <ProgressBar
                       currentTimeMs={musicalCurrentTimeMs}
                       totalDurationMs={absoluteEndTimeMs}
@@ -7811,8 +7848,8 @@ const AppContent: React.FC = () => {
                   </div>
                 )}
               </div>
-              <div className="absolute top-0 left-0 right-0 z-50 flex flex-col pointer-events-none pt-[14px]">
-                <div className="w-full pointer-events-auto">
+              <div className="absolute top-0 left-0 right-0 z-10 flex flex-col pointer-events-none pt-[14px]">
+                <div className="w-full pointer-events-none">
                   {(() => {
                     const accuracyLevel = gameSettings?.accuracyLevel ?? 5;
                     const perfectWindow = 100 + (5 - accuracyLevel) * 20;
@@ -7913,7 +7950,8 @@ const AppContent: React.FC = () => {
                         className="absolute left-0 right-0 z-[70] pointer-events-none text-center select-none"
                         style={{ top: "68px" }}
                       >
-                        <span className={`text-2xl md:text-3xl font-extrabold italic uppercase tracking-wider drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)] filter ${displayJudgment.type === 'perfect' ? 'text-yellow-400 font-black' :
+                        <span className={`text-2xl md:text-3xl font-extrabold italic uppercase tracking-wider drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)] filter ${displayJudgment.type === 'hit' ? 'text-yellow-400 font-black' :
+                            displayJudgment.type === 'perfect' ? 'text-yellow-400 font-black' :
                             displayJudgment.type === 'great' ? 'text-emerald-400 font-black' :
                               displayJudgment.type === 'good' ? 'text-blue-400 font-black' :
                                 'text-rose-500 font-black'
@@ -8163,17 +8201,18 @@ const AppContent: React.FC = () => {
                       </div>
                       {isSustainPedalActive && (
                         <div
-                          className="absolute bottom-2 right-2 px-3 py-1 bg-yellow-400 text-black text-xs font-bold rounded shadow-lg animate-pulse"
-                          style={{ zIndex: 30 }}
+                          className="absolute -top-7 right-3 px-2.5 py-0.5 bg-amber-400 text-slate-950 text-[10px] font-black uppercase tracking-wider rounded-md shadow-md border border-amber-300 pointer-events-none flex items-center gap-1.5"
+                          style={{ zIndex: 35 }}
                           aria-live="polite"
                         >
-                          SUSTAIN
+                          <span className="w-1.5 h-1.5 rounded-full bg-slate-950 animate-ping" />
+                          <span>SUSTAIN</span>
                         </div>
                       )}
                     </div>
                   ) : (
-                    <div className="absolute bottom-0 left-0 right-0 h-0 z-50 pointer-events-none">
-                      <div className="absolute bottom-4 left-0 right-0 w-full flex justify-center pointer-events-auto">
+                    <div className="absolute bottom-0 left-0 right-0 h-0 z-10 pointer-events-none">
+                      <div className="absolute bottom-4 left-0 right-0 w-full flex justify-center pointer-events-none">
                         <OffsetIndicator
                           midiHitTiming={lastHitOffset}
                           midiHitTimingOffset={noteOffsetMs}
@@ -8297,7 +8336,7 @@ const AppContent: React.FC = () => {
       )}
       {currentScreen === "settings" && (
         <div
-          className="fixed inset-0 bg-transparent flex items-center justify-center z-40 p-4"
+          className="fixed inset-0 bg-black/25 flex items-center justify-center z-[80] p-4 pointer-events-auto"
           onClick={(e) =>
             e.target === e.currentTarget && setCurrentScreen("mainMenu")
           }
@@ -8739,7 +8778,8 @@ const AppContent: React.FC = () => {
                       className="absolute left-0 right-0 z-[70] pointer-events-none text-center select-none"
                       style={{ top: "68px" }}
                     >
-                      <span className={`text-2xl md:text-3xl font-extrabold italic uppercase tracking-wider drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)] filter ${displayJudgment.type === 'perfect' ? 'text-yellow-400 font-black' :
+                      <span className={`text-2xl md:text-3xl font-extrabold italic uppercase tracking-wider drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)] filter ${displayJudgment.type === 'hit' ? 'text-yellow-400 font-black' :
+                          displayJudgment.type === 'perfect' ? 'text-yellow-400 font-black' :
                           displayJudgment.type === 'great' ? 'text-emerald-400 font-black' :
                             displayJudgment.type === 'good' ? 'text-blue-400 font-black' :
                               'text-rose-500 font-black'
@@ -9108,11 +9148,12 @@ const AppContent: React.FC = () => {
                     </div>
                     {isSustainPedalActive && (
                       <div
-                        className="absolute bottom-2 right-2 px-3 py-1 bg-yellow-400 text-black text-xs font-bold rounded shadow-lg animate-pulse"
-                        style={{ zIndex: 30 }}
+                        className="absolute -top-7 right-3 px-2.5 py-0.5 bg-amber-400 text-slate-950 text-[10px] font-black uppercase tracking-wider rounded-md shadow-md border border-amber-300 pointer-events-none flex items-center gap-1.5"
+                        style={{ zIndex: 35 }}
                         aria-live="polite"
                       >
-                        SUSTAIN
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-950 animate-ping" />
+                        <span>SUSTAIN</span>
                       </div>
                     )}
                   </div>

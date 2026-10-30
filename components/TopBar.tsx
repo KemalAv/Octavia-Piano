@@ -59,7 +59,7 @@ interface TopBarProps {
   greatWindow: number;
   goodWindow: number;
   combo: number;
-  lastJudgment: 'perfect' | 'great' | 'good' | 'miss' | null;
+  lastJudgment: 'perfect' | 'great' | 'good' | 'miss' | 'hit' | null;
   // NEW: Free Play props
   freePlayBpm?: number;
   onFreePlayBpmChange?: (bpm: number) => void;
@@ -182,7 +182,7 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
 
   const t = translations[appLanguage] || translations.en;
 
-  const [displayJudgment, setDisplayJudgment] = useState<{ id: number; type: 'perfect' | 'great' | 'good' | 'miss' } | null>(null);
+  const [displayJudgment, setDisplayJudgment] = useState<{ id: number; type: 'perfect' | 'great' | 'good' | 'miss' | 'hit' } | null>(null);
 
   useEffect(() => {
     if (lastJudgment) {
@@ -523,6 +523,7 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
           className="absolute inset-0 flex items-center justify-center"
         >
           <span className={`text-xl font-black italic uppercase tracking-tighter ${
+            displayJudgment.type === 'hit' ? 'text-yellow-400' :
             displayJudgment.type === 'perfect' ? 'text-yellow-400' :
             displayJudgment.type === 'great' ? 'text-emerald-400' :
             displayJudgment.type === 'good' ? 'text-blue-400' :

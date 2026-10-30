@@ -200,8 +200,11 @@ export const getLearnTranslations = (lang: AppLanguage = 'en') => {
     ch6RootKeyDesc: isId ? 'Mentransposisi semua latihan secara dinamis ke nada yang dipilih' : isEs ? 'Transpone todos los ejercicios dinámicamente a la clave elegida' : 'Transposes all drills dynamically to chosen key',
     ch6PlayDrill: isId ? 'Mulai Latihan' : isEs ? 'Tocar Ejercicio' : 'Play Drill',
 
-    // Chapter 7
-    ch7Badge: isId ? 'Masterclass Video YouTube Terpilih' : isEs ? 'Clases Magistrales Seleccionadas de YouTube' : 'Curated YouTube Masterclasses',
+    // Chapter 7 • MIDI Editor & Sequencer
+    ch8Badge: isId ? 'Bab 7 • Editor MIDI & Sekuenser' : isEs ? 'Capítulo 7 • Editor MIDI y Secuenciador' : 'Chapter 7 • MIDI Editor & Sequencer',
+
+    // Chapter 8 • Curated YouTube Masterclasses
+    ch7Badge: isId ? 'Bab 8 • Masterclass Video YouTube Terpilih' : isEs ? 'Capítulo 8 • Clases Magistrales Seleccionadas de YouTube' : 'Chapter 8 • Curated YouTube Masterclasses',
     ch7Title: isId ? 'Masterclass Tutorial Video Visual' : isEs ? 'Clases Magistrales en Video' : 'Visual Video Masterclasses',
     ch7Desc: isId
       ? 'Tonton panduan visual berkualitas tinggi yang membahas membaca notasi balok, tanda kunci, pembentukan akor, biomekanika pergelangan tangan, dan kontrol piano Roblox PC.'
@@ -210,9 +213,6 @@ export const getLearnTranslations = (lang: AppLanguage = 'en') => {
       : 'Watch high-yield visual breakdowns covering sheet music notation, key signatures, chord voicings, ergonomic wrist mechanics, and Roblox PC virtual piano controls.',
     ch7ReadChapter: isId ? 'Baca Bab Terkait' : isEs ? 'Leer Capítulo' : 'Read Chapter',
     ch7WatchYoutube: isId ? 'Tonton di YouTube' : isEs ? 'Ver en YouTube' : 'Watch on YouTube',
-
-    // Chapter 8 • MIDI Editor & Sequencer
-    ch8Badge: isId ? 'Bab 8 • Editor MIDI & Sekuenser' : isEs ? 'Capítulo 8 • Editor MIDI y Secuenciador' : 'Chapter 8 • MIDI Editor & Sequencer',
     ch8Masterclass: isId ? 'Masterclass Editor MIDI & Piano Roll' : isEs ? 'Clase Magistral de Editor MIDI y Piano Roll' : 'MIDI Editor & Piano Roll Masterclass',
     ch8Title: isId ? 'Panduan Lengkap Editor MIDI Octavia: Piano Roll, Kuantisasi, Velocity & Aransemen' : isEs ? 'Guía Completa del Editor MIDI de Octavia: Piano Roll, Cuantización, Dinámica y Arreglos' : 'Complete Octavia MIDI Editor Guide: Piano Roll, Quantization, Velocity & Sequencing',
     ch8Desc: isId
