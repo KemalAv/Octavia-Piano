@@ -31,6 +31,8 @@ interface ModeSelectionProps {
     userAudioSyncOffset: number;
     onUserAudioSyncOffsetChange: (offset: number) => void;
     appLanguage?: AppLanguage;
+    showHand3D?: boolean;
+    onShowHand3DChange?: (show: boolean) => void;
 }
 
 const ModeSelection: React.FC<ModeSelectionProps> = memo(({
@@ -57,6 +59,8 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
     userAudioSyncOffset,
     onUserAudioSyncOffsetChange,
     appLanguage = 'en',
+    showHand3D = false,
+    onShowHand3DChange,
 }) => {
     const t = translations[appLanguage] || translations.en;
     const [selectedMode, setSelectedMode] = useState<Mode>('practice_lenient');
@@ -111,7 +115,11 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
         if (mode === 'retical' || mode === 'autoplay') {
             setAccuracyLevel(currentSongAccuracyLevel || 5);
             setIsNonStop(true);
-        } else if (mode === 'practice_lenient' || mode === 'practice_strict') {
+        } else if (mode === 'practice_strict') {
+            setAccuracyLevel(3);
+            setIsNonStop(false);
+        } else if (mode === 'practice_lenient') {
+            setAccuracyLevel(currentSongAccuracyLevel || 5);
             setIsNonStop(false);
         }
     };
@@ -129,7 +137,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
         let noteToleranceMs: number;
 
         const isEffectivelyNonStop = selectedMode === 'retical' || selectedMode === 'autoplay' || (selectedMode === 'practice_lenient' && isNonStop);
-        const finalAccuracyLevel = 5;
+        const finalAccuracyLevel = selectedMode === 'practice_strict' ? 3 : (currentSongAccuracyLevel || 5);
 
         const perfectWindow = 100 + (5 - finalAccuracyLevel) * 20;
         const goodWindow = perfectWindow * 2;
@@ -220,7 +228,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
 
                 {analysisResultForPreview && (
                     <div className="flex items-center">
-                        <DifficultyAnalysis analysisResult={analysisResultForPreview} />
+                        <DifficultyAnalysis analysisResult={analysisResultForPreview} appLanguage={appLanguage} />
                     </div>
                 )}
             </header>
@@ -296,9 +304,14 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
                                         </svg>
                                     </div>
                                     {selectedMode === 'practice_strict' && (
-                                        <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                                            {t.activeBadge}
-                                        </span>
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                                Acc Lvl 3
+                                            </span>
+                                            <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                                {t.activeBadge}
+                                            </span>
+                                        </div>
                                     )}
                                 </div>
                                 <h4 className="font-black text-lg text-rose-300 mb-1">
@@ -564,6 +577,26 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
                                             </div>
                                         </div>
                                     </div>
+
+                                    {instrumentMode === 'piano' && onShowHand3DChange && (
+                                        <div 
+                                            role="button"
+                                            tabIndex={0}
+                                            onClick={() => onShowHand3DChange(!showHand3D)}
+                                            onKeyDown={e => (e.key === ' ' || e.key === 'Enter') && onShowHand3DChange(!showHand3D)}
+                                            className="flex items-center justify-between cursor-pointer p-2.5 rounded-xl bg-slate-800/40 hover:bg-slate-800/70 transition-colors select-none"
+                                        >
+                                            <div className="pointer-events-none">
+                                                <span className="text-xs font-bold text-slate-200">{t.fingering3DTitle}</span>
+                                                <p className="text-[10px] text-slate-400">{t.fingering3DDesc}</p>
+                                            </div>
+                                            <div className="flex items-center pointer-events-none">
+                                                <div className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors ${showHand3D ? 'bg-cyan-500' : 'bg-slate-700'}`}>
+                                                    <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${showHand3D ? 'translate-x-5' : 'translate-x-0'}`} />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 
@@ -643,7 +676,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
 
                                 {backingType === 'online' && midiLink && (
                                     <div className="p-3 rounded-xl bg-slate-800/60 border border-slate-700/60 text-xs">
-                                        <span className="font-semibold text-cyan-400 block mb-1">Streaming Link:</span>
+                                        <span className="font-semibold text-cyan-400 block mb-1">{t.streamingLink}</span>
                                         <span className="text-slate-400 truncate block text-[11px]">{normalizeYoutubeUrl(midiLink)}</span>
                                     </div>
                                 )}
@@ -653,22 +686,22 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
                             <div className="bg-amber-500/10 border border-amber-500/30 p-3.5 rounded-2xl text-xs text-amber-200 leading-relaxed space-y-2">
                                 <div className="font-bold flex items-center gap-1.5 text-amber-400">
                                     <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-                                    <span>IMPORTANT:</span>
+                                    <span>{t.importantNotice}</span>
                                 </div>
                                 <p>
-                                    If your MIDI controller feels delayed, consider adjusting the note offset in settings. Click the icon to go directly to the note offset settings, where you can calibrate it automatically by playing the calibration song. {onOpenSettings && (
+                                    {t.midiControllerDelayNotice} {onOpenSettings && (
                                         <button 
                                             type="button"
                                             onClick={onOpenSettings} 
                                             className="inline-flex items-center justify-center ml-1 p-1 rounded-md bg-amber-500/20 hover:bg-amber-500/40 text-cyan-300 hover:text-white transition-colors align-middle" 
-                                            title="Open Settings"
+                                            title={t.settingsTitle}
                                         >
                                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
                                         </button>
                                     )}
                                 </p>
                                 <p>
-                                    If the MP3 is still out of sync, try adjusting the USER MS (Audio Sync) by ±10 ms from the original offset; the goal is to match the backing track with the metronome.{" "}
+                                    {t.backingSyncNotice}{" "}
                                     <button 
                                         type="button"
                                         onClick={() => {
@@ -768,13 +801,13 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
                                     <div className="mt-3 p-3 rounded-xl bg-black/40 border border-white/5 text-xs text-slate-400 space-y-1">
                                         {midiLink && (
                                             <div className="flex items-start gap-2">
-                                                <span className="font-bold text-slate-300 whitespace-nowrap">Default Source:</span>
+                                                <span className="font-bold text-slate-300 whitespace-nowrap">{t.defaultSource}</span>
                                                 <a href={midiLink} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline break-all">{normalizeYoutubeUrl(midiLink)}</a>
                                             </div>
                                         )}
                                         {midiOffset != null && (
                                             <div className="flex items-center gap-2">
-                                                <span className="font-bold text-slate-300">Default Offset:</span>
+                                                <span className="font-bold text-slate-300">{t.defaultOffset}</span>
                                                 <span className="text-cyan-300 font-mono">{midiOffset > 0 ? `+${midiOffset}` : midiOffset}ms</span>
                                             </div>
                                         )}

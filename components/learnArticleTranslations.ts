@@ -200,8 +200,11 @@ export const getLearnTranslations = (lang: AppLanguage = 'en') => {
     ch6RootKeyDesc: isId ? 'Mentransposisi semua latihan secara dinamis ke nada yang dipilih' : isEs ? 'Transpone todos los ejercicios dinámicamente a la clave elegida' : 'Transposes all drills dynamically to chosen key',
     ch6PlayDrill: isId ? 'Mulai Latihan' : isEs ? 'Tocar Ejercicio' : 'Play Drill',
 
-    // Chapter 7
-    ch7Badge: isId ? 'Masterclass Video YouTube Terpilih' : isEs ? 'Clases Magistrales Seleccionadas de YouTube' : 'Curated YouTube Masterclasses',
+    // Chapter 7 • MIDI Editor & Sequencer
+    ch8Badge: isId ? 'Bab 7 • Editor MIDI & Sekuenser' : isEs ? 'Capítulo 7 • Editor MIDI y Secuenciador' : 'Chapter 7 • MIDI Editor & Sequencer',
+
+    // Chapter 8 • Curated YouTube Masterclasses
+    ch7Badge: isId ? 'Bab 8 • Masterclass Video YouTube Terpilih' : isEs ? 'Capítulo 8 • Clases Magistrales Seleccionadas de YouTube' : 'Chapter 8 • Curated YouTube Masterclasses',
     ch7Title: isId ? 'Masterclass Tutorial Video Visual' : isEs ? 'Clases Magistrales en Video' : 'Visual Video Masterclasses',
     ch7Desc: isId
       ? 'Tonton panduan visual berkualitas tinggi yang membahas membaca notasi balok, tanda kunci, pembentukan akor, biomekanika pergelangan tangan, dan kontrol piano Roblox PC.'
@@ -210,9 +213,6 @@ export const getLearnTranslations = (lang: AppLanguage = 'en') => {
       : 'Watch high-yield visual breakdowns covering sheet music notation, key signatures, chord voicings, ergonomic wrist mechanics, and Roblox PC virtual piano controls.',
     ch7ReadChapter: isId ? 'Baca Bab Terkait' : isEs ? 'Leer Capítulo' : 'Read Chapter',
     ch7WatchYoutube: isId ? 'Tonton di YouTube' : isEs ? 'Ver en YouTube' : 'Watch on YouTube',
-
-    // Chapter 8 • MIDI Editor & Sequencer
-    ch8Badge: isId ? 'Bab 8 • Editor MIDI & Sekuenser' : isEs ? 'Capítulo 8 • Editor MIDI y Secuenciador' : 'Chapter 8 • MIDI Editor & Sequencer',
     ch8Masterclass: isId ? 'Masterclass Editor MIDI & Piano Roll' : isEs ? 'Clase Magistral de Editor MIDI y Piano Roll' : 'MIDI Editor & Piano Roll Masterclass',
     ch8Title: isId ? 'Panduan Lengkap Editor MIDI Octavia: Piano Roll, Kuantisasi, Velocity & Aransemen' : isEs ? 'Guía Completa del Editor MIDI de Octavia: Piano Roll, Cuantización, Dinámica y Arreglos' : 'Complete Octavia MIDI Editor Guide: Piano Roll, Quantization, Velocity & Sequencing',
     ch8Desc: isId
@@ -288,5 +288,15 @@ export const getLearnTranslations = (lang: AppLanguage = 'en') => {
       : 'Once editing is complete, export as a Standard MIDI Format 1 file ready to play in Octavia\'s Local Songs library or open in external DAWs.',
     ch8ShortcutsTitle: isId ? 'Tabel Pintasan Keyboard Editor MIDI' : isEs ? 'Atajos de Teclado del Editor MIDI' : 'MIDI Editor Keyboard Shortcuts',
 
+    // Sequential Curriculum Navigation ("Beruntun")
+    stepIndicator: (cur: number, total: number) => isId ? `Langkah ${cur} dari ${total}` : isEs ? `Paso ${cur} de ${total}` : `Step ${cur} of ${total}`,
+    curriculumProgress: isId ? 'Jalur Kemajuan Kurikulum' : isEs ? 'Progreso Secuencial del Curso' : 'Curriculum Progression Track',
+    prevChapter: isId ? 'Bab Sebelumnya' : isEs ? 'Capítulo Anterior' : 'Previous Chapter',
+    nextChapter: isId ? 'Bab Selanjutnya' : isEs ? 'Capítulo Siguiente' : 'Next Chapter',
+    finishCurriculum: isId ? 'Selesai Kurikulum • Kembali ke Menu' : isEs ? 'Finalizar Curso • Volver al Menú' : 'Finish Curriculum • Return to Menu',
+    jumpToDrills: isId ? 'Buka Drill Generator (Bab 06)' : isEs ? 'Ir al Generador de Drills (Cap. 06)' : 'Open Drill Generator (Ch. 06)',
+    activeStep: isId ? 'Sedang Dipelajari' : isEs ? 'En Curso' : 'Current Step',
+    stepShort: isId ? 'Langkah' : isEs ? 'Paso' : 'Step',
+    roadmapTitle: isId ? 'Jalur Kurikulum Beruntun' : isEs ? 'Ruta Secuencial del Curso' : 'Sequential Curriculum Roadmap',
   };
 };

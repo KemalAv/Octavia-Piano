@@ -120,7 +120,18 @@ interface SettingsProps {
 const Section: React.FC<{ title: string; children: React.ReactNode; showInfoButton?: boolean; onInfoClick?: () => void }> = ({ title, children, showInfoButton, onInfoClick }) => (
   <section id={`settings-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`} className="scroll-mt-28">
     <h3 className="text-xl font-semibold text-violet-400 mb-4 border-b border-slate-700 pb-2 flex items-center justify-between">
-      {title}
+      <span>{title}</span>
+      {showInfoButton && onInfoClick && (
+        <button
+          type="button"
+          onClick={onInfoClick}
+          className="w-6 h-6 rounded-full bg-cyan-500/20 hover:bg-cyan-500/40 text-cyan-300 flex items-center justify-center text-xs font-bold border border-cyan-500/40 transition-colors shadow-sm"
+          title="Info"
+          aria-label="Info"
+        >
+          ℹ
+        </button>
+      )}
     </h3>
     <div className="space-y-4">{children}</div>
   </section>
@@ -134,9 +145,12 @@ const SettingRow: React.FC<{ label: string; htmlFor?: string; children: React.Re
 );
 
 const ToggleRow: React.FC<{ label: string; id: string; checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean; }> = ({label, id, checked, onChange, disabled}) => {
-  const checkboxStyle = `h-5 w-5 text-cyan-500 rounded border-slate-500 focus:ring-cyan-400 ml-3 ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`;
+  const checkboxStyle = `h-5 w-5 text-cyan-500 rounded border-slate-500 focus:ring-cyan-400 ml-3 pointer-events-none ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`;
   return (
-    <div className={`flex items-center justify-between p-2 rounded-md bg-slate-700/30 ${disabled ? 'opacity-60' : ''}`}>
+    <div
+      onClick={() => !disabled && onChange(!checked)}
+      className={`flex items-center justify-between p-2.5 rounded-xl bg-slate-800/40 hover:bg-slate-800/70 border border-white/5 transition-colors select-none ${disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer active:scale-[0.99]'}`}
+    >
         <label htmlFor={id} className={`text-sm font-medium text-slate-300 flex-grow ${disabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}>{label}</label>
         <input type="checkbox" id={id} checked={checked} onChange={e => !disabled && onChange(e.target.checked)} className={checkboxStyle} disabled={disabled} />
     </div>
@@ -190,7 +204,9 @@ export const Settings: React.FC<SettingsProps> = (props) => {
     showDynamics = false,
     onShowDynamicsChange,
     appLanguage = 'en',
-    onLanguageChange
+    onLanguageChange,
+    showHand3D,
+    onShowHand3DChange
   } = props;
 
   const t = translations[appLanguage] || translations.en;
@@ -343,22 +359,22 @@ export const Settings: React.FC<SettingsProps> = (props) => {
   const renderMidiConnectButton = () => {
      switch (midiAccessStatus) {
         case 'uninitialized':
-            return <button onClick={connectMidi} className={`${commonButtonStyles} ${secondaryButtonStyles}`}>Connect MIDI Devices</button>;
+            return <button onClick={connectMidi} className={`${commonButtonStyles} ${secondaryButtonStyles}`}>{t.connectMidi}</button>;
         case 'requesting':
-            return <span className="text-sm text-slate-400 animate-pulse">Requesting Access...</span>;
+            return <span className="text-sm text-slate-400 animate-pulse">{appLanguage === 'id' ? 'Meminta Izin...' : appLanguage === 'es' ? 'Solicitando Acceso...' : 'Requesting Access...'}</span>;
         case 'denied':
-            return <button onClick={connectMidi} className={`${commonButtonStyles} bg-red-500 hover:bg-red-600 text-white`}>Access Denied. Retry?</button>;
+            return <button onClick={connectMidi} className={`${commonButtonStyles} bg-red-500 hover:bg-red-600 text-white`}>{appLanguage === 'id' ? 'Akses Ditolak. Coba Lagi?' : appLanguage === 'es' ? 'Acceso Denegado. ¿Reintentar?' : 'Access Denied. Retry?'}</button>;
         case 'unsupported':
             return (
               <div className="flex flex-col items-end gap-1">
-                <span className="text-sm text-red-400">Web MIDI not supported in this browser.</span>
+                <span className="text-sm text-red-400">{appLanguage === 'id' ? 'Web MIDI tidak didukung di browser ini.' : appLanguage === 'es' ? 'Web MIDI no es compatible con este navegador.' : 'Web MIDI not supported in this browser.'}</span>
                 <span className="text-[10px] text-red-400/80 uppercase font-black tracking-tighter">
-                  Not supported on iOS/Safari. Use Android, Windows, Chrome/Edge.
+                  {appLanguage === 'id' ? 'Tidak didukung di iOS/Safari. Gunakan Android, Windows, Chrome/Edge.' : appLanguage === 'es' ? 'No compatible con iOS/Safari. Use Android, Windows, Chrome/Edge.' : 'Not supported on iOS/Safari. Use Android, Windows, Chrome/Edge.'}
                 </span>
               </div>
             );
         case 'granted':
-             return <button onClick={connectMidi} className={`${commonButtonStyles} bg-green-600 hover:bg-green-700`}>Rescan Devices</button>;
+             return <button onClick={connectMidi} className={`${commonButtonStyles} bg-green-600 hover:bg-green-700`}>{t.rescanDevices}</button>;
         default:
             return null;
      }
@@ -371,7 +387,6 @@ export const Settings: React.FC<SettingsProps> = (props) => {
       if (noteLabelType === 'qwerty') {
         onNoteLabelTypeChange('none');
       }
-      onShowQwertyShortcutsChange(false);
     } else { // computer
       onViewModeChange('qwerty_mania');
       onNoteLabelTypeChange('qwerty');
@@ -402,7 +417,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
 
   return (
     <>
-      <div className={`p-6 md:p-8 rounded-3xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto custom-scrollbar text-slate-100 border border-white/10 transform transition-all duration-300 ease-in-out bg-slate-900/95 backdrop-blur-md ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`} onClick={e => e.stopPropagation()}>
+      <div className={`p-6 md:p-8 rounded-3xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto custom-scrollbar text-slate-100 border border-white/10 transform transition-all duration-300 ease-in-out bg-slate-900/60 backdrop-blur-sm ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`} onClick={e => e.stopPropagation()}>
         {/* Header Bar */}
         <div className="flex items-center justify-between pb-4 border-b border-white/10 mb-5">
           <div className="flex items-center gap-3">
@@ -614,16 +629,19 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                       { value: 'noteName', label: 'Note Name' },
                       ...(gameplayStyle !== 'piano' ? [{ value: 'qwerty', label: 'QWERTY Keys' }] : []),
                     ].map(opt => {
-                      const locked = instrumentMode === 'piano' && gameplayStyle === 'computer';
                       return (
                         <button
                           key={opt.value}
                           type="button"
                           role="radio"
                           aria-checked={noteLabelType === opt.value}
-                          disabled={locked}
-                          onClick={() => onNoteLabelTypeChange(opt.value as NoteLabelType)}
-                          className={`px-3 py-1.5 rounded-lg text-sm font-semibold border transition-all ${locked ? 'opacity-50 cursor-not-allowed' : ''} ${noteLabelType === opt.value ? 'bg-cyan-600 border-cyan-400 text-white shadow-sm' : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'}`}
+                          onClick={() => {
+                            onNoteLabelTypeChange(opt.value as NoteLabelType);
+                            if (opt.value === 'fingering') {
+                              onShowHand3DChange(true);
+                            }
+                          }}
+                          className={`px-3 py-1.5 rounded-lg text-sm font-semibold border transition-all ${noteLabelType === opt.value ? 'bg-cyan-600 border-cyan-400 text-white shadow-sm' : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'}`}
                         >
                           {opt.label}
                         </button>
@@ -631,15 +649,25 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                     })}
                   </div>
                 </SettingRow>
-          {instrumentMode === 'piano' && noteLabelType === 'fingering' && <section id="fingering-section" className="rounded-xl border border-cyan-500/20 bg-slate-900/30 p-5">
-            <h3 className="text-xl font-semibold text-cyan-300 mb-4">{t.fingeringSettingsTitle}</h3>
-
-
-            <label className="flex items-center gap-3 text-slate-200 mb-4"><input type="checkbox" checked={props.showHand3D} onChange={e=>props.onShowHand3DChange(e.target.checked)}/>{t.showHand3DLabel}</label>
-            <p className="text-xs text-slate-400 mt-2">{t.showHand3DDesc}</p>
-          </section>}
-
               </div>
+            )}
+            {instrumentMode === 'piano' && (
+              <>
+                <ToggleRow
+                  id="show-3d-hand"
+                  label={t.showHand3DLabel}
+                  checked={showHand3D}
+                  onChange={(checked) => {
+                    onShowHand3DChange(checked);
+                    if (checked && noteLabelType !== 'fingering') {
+                      onNoteLabelTypeChange('fingering');
+                    }
+                  }}
+                />
+                <p className="-mt-3 mb-4 text-xs text-slate-400">
+                  {t.showHand3DDesc}
+                </p>
+              </>
             )}
             <ToggleRow id="major-notes-only" label={t.showMajorNotesOnly} checked={instrumentMode === 'drum' ? true : showOnlyMajorNotes} onChange={onShowOnlyMajorNotesChange} disabled={instrumentMode === 'drum'}/>
             <p className="-mt-3 mb-4 text-xs text-slate-400">{t.showMajorNotesOnlyDesc}</p>
@@ -707,15 +735,15 @@ export const Settings: React.FC<SettingsProps> = (props) => {
               <div className="bg-slate-900/50 p-4 rounded-lg mt-4 space-y-4 ring-1 ring-slate-700">
                 <h4 className="text-md font-semibold text-slate-200 border-b border-slate-700 pb-2">Typer & Circle Visual Settings</h4>
                 
-                <SettingRow label="Zoom Direction (AR)" htmlFor="zoom-direction">
+                <SettingRow label={t.zoomDirectionLabel} htmlFor="zoom-direction">
                   <select 
                     id="zoom-direction" 
                     value={zoomDirection} 
                     onChange={e => onZoomDirectionChange(e.target.value as 'normal' | 'reverse')} 
                     className={selectStyles}
                   >
-                    <option value="normal">Normal (Outside to Inside)</option>
-                    <option value="reverse">Reverse (Inside to Outside)</option>
+                    <option value="normal">{t.zoomDirectionNormal}</option>
+                    <option value="reverse">{t.zoomDirectionReverse}</option>
                   </select>
                 </SettingRow>
 
@@ -740,7 +768,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
               </div>
             )}
 
-            <ToggleRow id="qwerty-shortcuts" label={t.showQwertyShortcuts} checked={showQwertyShortcuts} onChange={onShowQwertyShortcutsChange} disabled={true} />
+
           </Section>
 
           <Section title={t.deviceUiSection} showInfoButton={true} onInfoClick={() => setIsInfoModalOpen(true)}>
@@ -748,9 +776,11 @@ export const Settings: React.FC<SettingsProps> = (props) => {
               <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-3">
                   <button
-                    onClick={() => onUiZoomChange(Math.max(25, uiZoom - 5))}
-                    disabled={uiZoomAuto}
-                    className="px-3 py-1 rounded-md text-lg font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-300 focus:ring-opacity-75 bg-slate-600 hover:bg-slate-700 text-slate-100 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={() => {
+                      if (uiZoomAuto) onUiZoomAutoChange(false);
+                      onUiZoomChange(Math.max(25, uiZoom - 5));
+                    }}
+                    className="px-3 py-1 rounded-md text-lg font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-300 focus:ring-opacity-75 bg-slate-600 hover:bg-slate-700 text-slate-100 active:scale-95"
                     aria-label="Decrease UI zoom"
                   >
                     -
@@ -762,14 +792,18 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                     max="200"
                     step="5"
                     value={uiZoom}
-                    disabled={uiZoomAuto}
-                    onChange={e => onUiZoomChange(parseInt(e.target.value, 10))}
-                    className={`${rangeSliderStyle} w-32 md:w-40 disabled:opacity-50 disabled:cursor-not-allowed`}
+                    onChange={e => {
+                      if (uiZoomAuto) onUiZoomAutoChange(false);
+                      onUiZoomChange(parseInt(e.target.value, 10));
+                    }}
+                    className={`${rangeSliderStyle} w-32 md:w-40`}
                   />
                   <button
-                    onClick={() => onUiZoomChange(Math.min(200, uiZoom + 5))}
-                    disabled={uiZoomAuto}
-                    className="px-3 py-1 rounded-md text-lg font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-300 focus:ring-opacity-75 bg-slate-600 hover:bg-slate-700 text-slate-100 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={() => {
+                      if (uiZoomAuto) onUiZoomAutoChange(false);
+                      onUiZoomChange(Math.min(200, uiZoom + 5));
+                    }}
+                    className="px-3 py-1 rounded-md text-lg font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-300 focus:ring-opacity-75 bg-slate-600 hover:bg-slate-700 text-slate-100 active:scale-95"
                     aria-label="Increase UI zoom"
                   >
                     +
@@ -792,11 +826,11 @@ export const Settings: React.FC<SettingsProps> = (props) => {
             <Section title={t.pianoDisplaySection}>
               <SettingRow label={t.visibleKeysLabel} htmlFor="piano-range-mode">
                 <select id="piano-range-mode" value={pianoRangeMode} onChange={e => onPianoRangeModeChange(e.target.value as any)} className={selectStyles}>
-                  <option value="full">Full (88 keys)</option>
-                  <option value="61-key">Compact (61 keys)</option>
+                  <option value="full">{t.full88Keys}</option>
+                  <option value="61-key">{t.compact61Keys}</option>
                   <option value="37-key">QWERTY (37 keys)</option>
                   <option value="25-key">Mini (25 keys)</option>
-                  <option value="custom">Custom Range</option>
+                  <option value="custom">{t.customRangeOption}</option>
                 </select>
               </SettingRow>
 
@@ -867,6 +901,126 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                 {t.noMidiDevices}
               </p>
             )}
+
+            {/* Drum Input Mode Selection (MIDI vs Keyboard/Touchscreen) */}
+            {instrumentMode === 'drum' && (
+              <div className="mt-4 pt-4 border-t border-slate-700/60">
+                <label className="block mb-2 text-sm font-semibold text-violet-300">
+                  {t.gameplayStyleSection} / Drum Input
+                </label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => onDrumInputModeChange('non-midi')}
+                    className={`${gameplayPresetButtonBase} ${drumInputMode === 'non-midi' ? gameplayPresetSelected : gameplayPresetUnselected}`}
+                  >
+                    <h4 className="font-bold text-sm text-violet-300">{t.drumNonMidiTitle}</h4>
+                    <p className="text-xs text-slate-300 mt-0.5">{t.drumNonMidiDesc}</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDrumInputModeChange('midi')}
+                    className={`${gameplayPresetButtonBase} ${drumInputMode === 'midi' ? gameplayPresetSelected : gameplayPresetUnselected}`}
+                  >
+                    <h4 className="font-bold text-sm text-violet-300">{t.drumMidiTitle}</h4>
+                    <p className="text-xs text-slate-300 mt-0.5">{t.drumMidiDesc}</p>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Anti Double Trigger / Anti-Stutter */}
+            {instrumentMode === 'drum' && (
+              <div id="anti-double-trigger-section" className="bg-slate-900/50 p-4 rounded-lg mt-4 space-y-4 ring-1 ring-slate-700">
+                <ToggleRow 
+                  id="anti-double-trigger-enabled" 
+                  label={t.antiDoubleTrigger} 
+                  checked={antiDoubleTriggerEnabled} 
+                  onChange={onAntiDoubleTriggerEnabledChange} 
+                />
+                {antiDoubleTriggerEnabled && (
+                  <div className="space-y-2">
+                    <SettingRow label={`${t.minimumInterval} (${antiDoubleTriggerInterval.toFixed(2)}ms)`} htmlFor="anti-double-trigger-interval">
+                      <input 
+                        id="anti-double-trigger-interval" 
+                        type="range" 
+                        min="5" 
+                        max="200" 
+                        step="1" 
+                        value={antiDoubleTriggerInterval} 
+                        onChange={e => onAntiDoubleTriggerIntervalChange(parseFloat(e.target.value))} 
+                        className={`${rangeSliderStyle} max-w-xs focus:ring-cyan-500`} 
+                      />
+                    </SettingRow>
+                    <p className="text-[10px] text-slate-400">
+                      {t.antiDoubleTriggerDesc}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Drum Input Mapping / Ganti Drumpad */}
+            {instrumentMode === 'drum' && (
+              <div id="drum-mapping-section" className="bg-slate-900/50 p-4 rounded-lg mt-4 space-y-4 ring-1 ring-slate-700 text-left">
+                <div className="flex items-center justify-between border-b border-slate-700 pb-2 mb-2">
+                  <h4 className="text-md font-semibold text-cyan-400">{t.drumMidiMappingTitle}</h4>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={handleResetDrumMapping}
+                      className={`${commonButtonStyles} bg-slate-700 hover:bg-slate-600 text-slate-100 ring-1 ring-slate-600`}
+                    >
+                      {t.resetBtn}
+                    </button>
+                    {/* Visual indicator that it's auto-saved */}
+                    <div className="flex items-center px-4 bg-emerald-900/30 text-emerald-400 rounded ring-1 ring-emerald-500/50 text-[10px] font-bold uppercase tracking-wider">
+                       {t.autoSavedBadge}
+                    </div>
+                  </div>
+                </div>
+                
+                <p className="text-[10px] text-slate-400 leading-relaxed">
+                  {t.drumMidiMappingDesc}
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                  {localDrumMapping.map(pad => (
+                    <div key={pad.id} className={`flex flex-col p-3 rounded-lg border transition-all duration-200 ${mappingPadId === pad.id ? 'bg-cyan-900/40 border-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.4)] ring-1 ring-cyan-400' : 'bg-slate-800/50 border-slate-700 hover:border-slate-600'}`}>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex flex-col">
+                          <span className="text-[11px] font-bold text-slate-100 uppercase tracking-wider">{pad.name}</span>
+                          <span className="text-[9px] text-slate-500 italic lowercase">{pad.midiNotes.length} assigned</span>
+                        </div>
+                        <button 
+                          onClick={() => setMappingPadId(mappingPadId === pad.id ? null : pad.id)}
+                          className={`h-8 px-4 rounded font-bold text-[10px] transition-all transform active:scale-95 ${mappingPadId === pad.id ? 'bg-amber-500 text-white animate-pulse shadow-lg shadow-amber-900/40' : 'bg-slate-700 hover:bg-slate-600 text-slate-100 shadow-sm border border-slate-600'}`}
+                        >
+                          {mappingPadId === pad.id ? t.hitDrumBtn : t.mapBtn}
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 mt-2.5">
+                        {pad.midiNotes.length === 0 ? (
+                          <span className="text-[9px] text-slate-600 italic">{t.noNotesMapped}</span>
+                        ) : (
+                          pad.midiNotes.sort((a,b) => a-b).map(note => (
+                            <div key={note} className="flex items-center gap-1.5 px-2 py-0.5 bg-slate-900/80 rounded border border-slate-700 text-[10px] text-cyan-300 group">
+                              <span>#{note}</span>
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); handleRemoveNote(pad.id, note); }}
+                                className="w-3.5 h-3.5 flex items-center justify-center rounded-full bg-slate-800 text-slate-400 hover:bg-red-500 hover:text-white transition-all text-[8px]"
+                                title={t.removeMapping}
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </Section>
           
           {instrumentMode === 'piano' && (
@@ -877,7 +1031,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                   <div className="flex items-center gap-2">
                     <div className={`w-2.5 h-2.5 rounded-full ${isAudioInputEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`} />
                     <span className="text-xs font-bold text-white tracking-wide">
-                      {appLanguage === 'id' ? 'Audio-to-MIDI Langsung di Browser' : appLanguage === 'es' ? 'Audio-a-MIDI Directo en Navegador' : 'Direct In-Browser Audio-to-MIDI'}
+                      {t.audioToMidiDirectTitle}
                     </span>
                   </div>
                   <span className={`text-[10px] uppercase font-black px-2 py-0.5 rounded-full border ${
@@ -885,24 +1039,18 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                       ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' 
                       : 'bg-slate-800 text-slate-400 border-slate-700'
                   }`}>
-                    {isAudioInputEnabled 
-                      ? (appLanguage === 'id' ? 'Aktif (Langsung di Browser)' : appLanguage === 'es' ? 'Activo (En Navegador)' : 'Active (In-Browser)') 
-                      : (appLanguage === 'id' ? 'Nonaktif' : appLanguage === 'es' ? 'Inactivo' : 'Disabled')}
+                    {isAudioInputEnabled ? t.activeInBrowser : t.disabledStatus}
                   </span>
                 </div>
 
                 <p className="text-xs text-slate-300 leading-relaxed">
-                  {appLanguage === 'id'
-                    ? 'Ubah nada piano akustik asli Anda langsung menjadi not MIDI secara real-time melalui mikrofon browser. 100% terintegrasi langsung di Octavia tanpa perlu memasang aplikasi, berkas zip, atau server tambahan apa pun.'
-                    : appLanguage === 'es'
-                    ? 'Convierta notas de piano acústico directamente en notas MIDI en tiempo real a través del micrófono del navegador. 100% integrado directamente en Octavia sin descargas ni servidores externos.'
-                    : 'Transcribe your real acoustic piano into live MIDI notes directly in your browser. 100% natively integrated into Octavia with zero downloads or external servers required.'}
+                  {t.audioToMidiDesc}
                 </p>
 
                 {isAudioInputEnabled && (
                   <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400 bg-emerald-950/30 p-2 rounded-xl border border-emerald-500/30">
                     <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                    <span>{appLanguage === 'id' ? 'Mikrofon aktif mendengarkan nada tuts piano Anda' : appLanguage === 'es' ? 'Micrófono activo escuchando las notas del piano' : 'Microphone actively listening to piano keys'}</span>
+                    <span>{t.micListeningActive}</span>
                   </div>
                 )}
               </div>
@@ -917,7 +1065,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                       disabled={!isAudioInputEnabled}
                   >
                       {audioInputs.length === 0 ? (
-                          <option value="">No microphones found</option>
+                          <option value="">{t.noMicrophonesFound}</option>
                       ) : (
                           audioInputs.map(device => (
                               <option key={device.deviceId} value={device.deviceId}>{device.label || `Microphone ${audioInputs.indexOf(device) + 1}`}</option>
@@ -934,12 +1082,12 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                       navigator.mediaDevices?.getUserMedia({ audio: true }).then(() => {
                         onIsAudioInputEnabledChange(true);
                       }).catch(() => {
-                        alert("Microphone permission denied. Please allow microphone access in your browser settings.");
+                        alert(t.micPermissionDeniedAlert);
                       });
                     }}
                     className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-bold transition-all shadow-sm"
                   >
-                    {appLanguage === 'id' ? 'Beri Izin Mikrofon' : appLanguage === 'es' ? 'Permitir Micrófono' : 'Allow Microphone'}
+                    {t.allowMicrophoneBtn}
                   </button>
                 </div>
               )}
@@ -1060,7 +1208,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                     <button 
                       onClick={onStartCalibration} 
                       className={`${commonButtonStyles} ${secondaryButtonStyles} whitespace-nowrap text-xs py-1.5`}
-                      title="Run automatic latency calibration with test beats"
+                      title={t.runLatencyCalibrationTitle}
                     >
                       {t.calibrateBtn}
                     </button>
@@ -1320,7 +1468,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                               <button 
                                 onClick={(e) => { e.stopPropagation(); handleRemoveNote(pad.id, note); }}
                                 className="w-3.5 h-3.5 flex items-center justify-center rounded-full bg-slate-800 text-slate-400 hover:bg-red-500 hover:text-white transition-all text-[8px]"
-                                title="Remove mapping"
+                                title={t.removeMapping}
                               >
                                 ✕
                               </button>
@@ -1360,7 +1508,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                 <div className="flex items-center gap-3">
                   <input
                     type="text"
-                    placeholder="URL (Image or MP4)"
+                    placeholder={t.bgMediaPlaceholder}
                     value={themeSettings.backgroundUrl}
                     onChange={e => onThemeSettingsChange({ ...themeSettings, backgroundUrl: e.target.value })}
                     className={`${numberInputStyle} flex-grow`}

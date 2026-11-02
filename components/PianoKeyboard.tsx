@@ -68,8 +68,8 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = memo(({
 
   // Unified helper to compute QWERTY key label for a key, shared across rendering loops
   const getQwertyShortcut = useCallback((keyDef: PianoKeyDefinition): string => {
-    const shouldShow = showQwertyShortcuts || gameplayStyle === 'computer';
-    if (!shouldShow) return '';
+    // QWERTY shortcuts on keys are always shown in Computer Keyboard gameplay style
+    if (gameplayStyle !== 'computer') return '';
     if (qwertyLayout === 'mirp') {
       const targetBaseMidi = keyDef.midiNote - mirpTranspose;
       const matching = MIRP_KEYBOARD_MAPPING.filter(m => m.midi === targetBaseMidi);
@@ -408,7 +408,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = memo(({
 
   // Pointer Interaction Handlers
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isInteractive) return;
+    if (!isInteractive || e.pointerType === 'touch') return;
     e.preventDefault();
     const keyDef = getKeyFromClientCoords(e.clientX, e.clientY);
     if (keyDef) {
@@ -418,7 +418,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = memo(({
   }, [isInteractive, getKeyFromClientCoords, onUiKeyPress]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isInteractive) return;
+    if (!isInteractive || e.pointerType === 'touch') return;
     const oldKeyName = activePointers.current.get(e.pointerId);
     if (!oldKeyName) return;
 
@@ -441,7 +441,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = memo(({
   }, [isInteractive, getKeyFromClientCoords, keyDefMap, onUiKeyPress, onUiKeyRelease]);
 
   const handlePointerUp = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isInteractive) return;
+    if (!isInteractive || e.pointerType === 'touch') return;
     e.preventDefault();
     const keyName = activePointers.current.get(e.pointerId);
     if (keyName) {

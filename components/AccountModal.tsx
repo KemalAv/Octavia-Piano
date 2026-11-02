@@ -2,7 +2,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../AuthContext';
-import { Score, Profile, PerformanceSummary, LeaderboardEntry } from '../types'; // Import PerformanceSummary type
+import { Score, Profile, PerformanceSummary, LeaderboardEntry, AppLanguage } from '../types';
+import { translations } from '../translations'; // Import PerformanceSummary type
 import PerformanceSummaryModal from './PerformanceSummaryModal'; // Import PerformanceSummaryModal
 import { convertScoreToPerformanceSummary } from '../utils'; // Import utility for score conversion
 import { ADMIN_UUID } from '../constants';
@@ -11,15 +12,17 @@ import { ADMIN_UUID } from '../constants';
 interface AccountModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onGoToOnlineSong: (songId: string) => void; // NEW: Callback to navigate to online song browser
-  onOpenAdminModal?: () => void; // NEW: Optional callback to open admin modal
+  onGoToOnlineSong: (songId: string) => void;
+  onOpenAdminModal?: () => void;
+  appLanguage?: AppLanguage;
 }
 
 // Set a very long expiration time for avatar signed URLs (approx. 1000 years)
 // This makes the avatar URLs effectively permanent without making the bucket public.
 const AVATAR_SIGNED_URL_EXPIRY_SECONDS = 1000 * 365.25 * 24 * 60 * 60; // ~3.15e10 seconds
 
-const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnlineSong, onOpenAdminModal }) => {
+const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnlineSong, onOpenAdminModal, appLanguage = 'en' }) => {
+  const t = translations[appLanguage] || translations.en;
   const { user, session } = useAuth(); // Also get session for created_at, last_sign_in_at
   const [isRendered, setIsRendered] = useState(false);
   
@@ -427,7 +430,7 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
         role="document"
       >
         <div className="flex justify-between items-center mb-6 flex-shrink-0">
-            <h2 id="account-modal-title" className="text-3xl font-bold text-cyan-400">My Account</h2>
+            <h2 id="account-modal-title" className="text-3xl font-bold text-cyan-400">{t.myAccount}</h2>
             <button onClick={onClose} className="text-slate-400 hover:text-white text-3xl leading-none">&times;</button>
         </div>
         
@@ -487,21 +490,21 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
                                       onChange={(e) => setBio(e.target.value)}
                                       maxLength={100}
                                       className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500 h-20 resize-none"
-                                      placeholder="Tell us about yourself..."
+                                      placeholder={t.tellUsAboutYourself}
                                       disabled={loadingBio}
                                   />
                                   <div className="flex justify-between items-center">
                                       <span className={`text-xs ${bio.length > 100 ? 'text-red-400' : 'text-slate-400'}`}>{bio.length}/100</span>
                                       <div className="flex gap-2">
                                           <button onClick={handleUpdateBio} className="px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-xs" disabled={loadingBio}>{loadingBio ? '...' : 'Save'}</button>
-                                          <button onClick={() => { setIsEditingBio(false); setBio(profile?.bio || ''); }} className="px-3 py-1 bg-slate-600 hover:bg-slate-500 rounded text-xs" disabled={loadingBio}>Cancel</button>
+                                          <button onClick={() => { setIsEditingBio(false); setBio(profile?.bio || ''); }} className="px-3 py-1 bg-slate-600 hover:bg-slate-500 rounded text-xs" disabled={loadingBio}>{t.cancel}</button>
                                       </div>
                                   </div>
                               </div>
                           ) : (
                               <div className="flex items-start gap-2 group">
                                   <p className="italic whitespace-pre-wrap break-words">
-                                      {bio || <span className="text-slate-500">No bio yet.</span>}
+                                      {bio || <span className="text-slate-500">{t.noBioYet}</span>}
                                   </p>
                                   <button onClick={() => setIsEditingBio(true)} className="text-slate-500 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity">
                                       <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z"></path><path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd"></path></svg>
@@ -513,11 +516,11 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
                          {profile?.total_playtime_ms !== undefined && (
                             <div className="flex items-baseline gap-4 mt-2 text-slate-300 flex-wrap justify-center sm:justify-start">
                                 <div>
-                                    <span className="text-sm">Total Playtime</span>
+                                    <span className="text-sm">{t.totalPlaytime}</span>
                                     <p className="text-2xl font-bold text-white">{formatPlaytime(profile?.total_playtime_ms || 0)}</p>
                                 </div>
                                 <div>
-                                    <span className="text-sm">Total Notes Hit</span>
+                                    <span className="text-sm">{t.totalNotesHit}</span>
                                     <p className="text-2xl font-bold text-white">{(profile?.total_notes_hit || 0).toLocaleString('en-US')}</p>
                                 </div>
                             </div>
@@ -528,14 +531,14 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
                 <div className="flex-grow flex flex-col min-h-0 mt-4">
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4 flex-shrink-0">
                         <div>
-                            <h3 className="text-xl font-semibold text-violet-400">Ranked Performances</h3>
+                            <h3 className="text-xl font-semibold text-violet-400">{t.rankedPerformances}</h3>
                             <div className="flex items-baseline gap-4 mt-1">
                                 <div>
-                                    <span className="text-[10px] uppercase tracking-wider text-slate-500">Global Rank</span>
+                                    <span className="text-[10px] uppercase tracking-wider text-slate-500">{t.globalRank}</span>
                                     <p className="text-lg font-bold text-white">#{globalRank ? globalRank.toLocaleString('en-US') : 'N/A'}</p>
                                 </div>
                                 <div>
-                                    <span className="text-[10px] uppercase tracking-wider text-slate-500">Total Score</span>
+                                    <span className="text-[10px] uppercase tracking-wider text-slate-500">{t.totalScore}</span>
                                     <p className="text-lg font-bold text-white">{totalScore !== null ? Math.round(totalScore).toLocaleString('en-US') : '...'}</p>
                                 </div>
                             </div>
@@ -558,17 +561,17 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
                     
                     {loadingScores ? (
                         <div className="flex-grow flex items-center justify-center p-8 text-slate-400 animate-pulse bg-slate-900/30 rounded-lg border border-dashed border-slate-700">
-                            Loading performances...
+                            {t.loadingScores}
                         </div>
                     ) : topScores.length > 0 ? (
                         <div className="flex-grow overflow-y-auto custom-scrollbar bg-slate-900/50 rounded-lg p-2 ring-1 ring-slate-700/50">
                             <table className="w-full text-left table-auto">
                                 <thead className="sticky top-0 bg-slate-900/80 backdrop-blur-sm">
                                     <tr>
-                                        <th className="p-2 text-xs font-semibold text-slate-400">Song</th>
-                                        <th className="p-2 text-xs font-semibold text-slate-400">Date</th>
-                                        <th className="p-2 text-xs font-semibold text-slate-400 text-right">Score</th>
-                                        <th className="p-2 text-xs font-semibold text-slate-400 text-center">Rank</th>
+                                        <th className="p-2 text-xs font-semibold text-slate-400">{t.songHeader}</th>
+                                        <th className="p-2 text-xs font-semibold text-slate-400">{t.dateHeader}</th>
+                                        <th className="p-2 text-xs font-semibold text-slate-400 text-right">{t.scoreHeader}</th>
+                                        <th className="p-2 text-xs font-semibold text-slate-400 text-center">{t.rankHeader}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -609,14 +612,14 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
                         </div>
                     ) : (
                         <div className="flex-grow flex items-center justify-center p-8 text-slate-400 text-center bg-slate-900/30 rounded-lg border border-dashed border-slate-700">
-                            You have no scores on ranked MIDIs for this instrument yet.
+                            {appLanguage === 'id' ? 'Anda belum memiliki skor pada MIDI ranked untuk instrumen ini.' : appLanguage === 'es' ? 'Aún no tienes puntuaciones en MIDIs clasificatorios para este instrumento.' : 'You have no scores on ranked MIDIs for this instrument yet.'}
                         </div>
                     )}
                 </div>
 
 
                 <div className="mt-6 flex items-center gap-4 flex-shrink-0">
-                    <button onClick={handleSignOut} className="flex-grow bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg text-base transition-colors">Sign Out</button>
+                    <button onClick={handleSignOut} className="flex-grow bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg text-base transition-colors">{t.signOut}</button>
                     {user?.id === ADMIN_UUID && onOpenAdminModal && (
                         <button onClick={onOpenAdminModal} className="flex-shrink-0 bg-violet-600 hover:bg-violet-700 text-white font-bold py-2 px-6 rounded-lg text-base transition-colors">
                             Admin Panel
@@ -633,6 +636,7 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
             isVisible={!!selectedPerformanceSummary} 
             summary={selectedPerformanceSummary} 
             onClose={handleClosePerformanceSummary}
+            appLanguage={appLanguage}
         />
       )}
     </div>

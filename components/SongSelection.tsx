@@ -101,7 +101,8 @@ const SongSelection: React.FC<SongSelectionProps> = memo(({
           `${songMetadata.title}.${onlineExt}`, 
           { type: fileData?.type || (onlineExt === 'mid' ? 'audio/midi' : 'application/octet-stream') }
         );
-        await onFileLoaded(file, songMetadata.id, songMetadata.is_ranked, songMetadata.midi_link, songMetadata.midi_offset, songMetadata.background_url); 
+        const rawSongOffset = songMetadata.midi_offset !== null && songMetadata.midi_offset !== undefined ? Number(songMetadata.midi_offset) : null;
+        await onFileLoaded(file, songMetadata.id, songMetadata.is_ranked, songMetadata.midi_link, rawSongOffset !== null && !isNaN(rawSongOffset) ? rawSongOffset : null, songMetadata.background_url); 
         setActiveTab('online'); 
       } catch (err: unknown) {
         console.error("Error loading pre-selected online MIDI:", err);
@@ -165,7 +166,7 @@ const SongSelection: React.FC<SongSelectionProps> = memo(({
       null, 
       null, 
       localImportMidiLink.trim() || null, 
-      localImportMidiOffset ? parseInt(localImportMidiOffset, 10) : null, 
+      localImportMidiOffset.trim() !== '' && !isNaN(parseInt(localImportMidiOffset, 10)) ? parseInt(localImportMidiOffset, 10) : null, 
       localImportBackgroundUrl.trim() || null,
       localImportAccuracyLevel
     );
@@ -200,12 +201,12 @@ const SongSelection: React.FC<SongSelectionProps> = memo(({
               {instrumentMode === 'piano' ? (
                 <>
                   <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><path d="M6 4v8h2V4M11 4v8h2V4M16 4v8h2V4"/></svg>
-                  <span>Piano</span>
+                  <span>{t.instrumentPiano}</span>
                 </>
               ) : (
                 <>
                   <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><ellipse cx="12" cy="9" rx="8" ry="4"/><path d="M4 9v6c0 2.21 3.58 4 8 4s8-1.79 8-4V9"/></svg>
-                  <span>Drum</span>
+                  <span>{t.instrumentDrum}</span>
                 </>
               )}
             </span>
@@ -451,7 +452,7 @@ const SongSelection: React.FC<SongSelectionProps> = memo(({
           {/* Difficulty preview */}
           {analysisResult && (
             <div className="hidden lg:flex items-center">
-              <DifficultyAnalysis analysisResult={analysisResult} />
+              <DifficultyAnalysis analysisResult={analysisResult} appLanguage={appLanguage} />
             </div>
           )}
 

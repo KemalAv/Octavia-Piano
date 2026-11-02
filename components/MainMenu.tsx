@@ -140,7 +140,7 @@ const MainMenu: React.FC<MainMenuProps> = memo(({
               <path d="M10 4v9a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1V4"/>
               <path d="M15 4v9a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1V4"/>
             </svg>
-            <span>PIANO</span>
+            <span>{t.instrumentPiano.toUpperCase()}</span>
           </button>
           <button 
             onClick={() => onInstrumentModeChange('drum')}
@@ -157,7 +157,7 @@ const MainMenu: React.FC<MainMenuProps> = memo(({
               <path d="M6 4l4 4"/>
               <path d="M18 4l-4 4"/>
             </svg>
-            <span>DRUM</span>
+            <span>{t.instrumentDrum.toUpperCase()}</span>
             <span className="text-[9px] uppercase px-1.5 py-0.2 rounded bg-amber-400/20 text-amber-300 font-extrabold border border-amber-400/30">
               BETA
             </span>

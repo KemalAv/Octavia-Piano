@@ -162,6 +162,7 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = React.memo(({
     };
 
     const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+        if (e.pointerType === 'touch') return;
         const canvas = canvasRef.current;
         if (!canvas) return;
 

@@ -1,4 +1,4 @@
-import { backingPlayheadMs, noteInputOffsetMs, measuredOutputLatencyMs, backingCorrection, routeLocalBackingAudio } from './playbackSync';
+import { backingPlayheadMs, noteInputOffsetMs, measuredOutputLatencyMs, backingCorrection } from './playbackSync';
 import { parsePlaybackFile } from './songLoading';
 import { getDifficultyNoteDurationMs, getMajorNoteVisualDurationMs, getMajorVisualDurationsByNoteId, getPianoPlaybackDurationMs } from './noteInteraction';
 import React, {
@@ -658,18 +658,9 @@ const AppContent: React.FC = () => {
   const MIDI_EDITOR_INTERNAL_OFFSET_MS = 200;
 
   const desiredBackingRateRef = useRef(1);
-  const backingMediaSourcesRef = useRef(new WeakMap<HTMLAudioElement, MediaElementAudioSourceNode>());
   const setBackingAudioElement = useCallback((element: HTMLAudioElement | null) => {
-    const previous = audioRef.current;
-    if (previous && previous !== element) backingMediaSourcesRef.current.get(previous)?.disconnect();
     audioRef.current = element;
   }, []);
-  const connectBackingAudio = useCallback((audio: HTMLAudioElement) => routeLocalBackingAudio(audio, audioContextRef.current, backingMediaSourcesRef.current, window.location.origin), []);
-  const backingOutputLatency = () => {
-    // An existing manual calibration already includes the user's output path.
-    if (userAudioSyncOffsetRef.current !== 0 || noteOffsetMsRef.current !== 0) return 0;
-    return audioRef.current && backingMediaSourcesRef.current.has(audioRef.current) ? measuredOutputLatencyMs(audioContextRef.current) : 0;
-  };
   const applyAudioPlaybackRate = useCallback((audio: HTMLAudioElement | null, rate: number) => {
     if (!audio) return;
     const clampedRate = Math.max(0.1, Math.min(4.0, rate));
@@ -692,7 +683,10 @@ const AppContent: React.FC = () => {
   const currentYoutubeVideoIdRef = useRef<string | null>(null);
 
   const getAudioStartTime = (baseTimeSec: number, _backingType?: string, offsetMs: number = 0) => {
-    return Math.max(0, (baseTimeSec * 1000) - INITIAL_PLAYBACK_DELAY_MS + offsetMs + userAudioSyncOffsetRef.current) / 1000;
+    const totalOffsetMs = offsetMs + userAudioSyncOffsetRef.current;
+    const midiStartMs = (baseTimeSec * 1000) - INITIAL_PLAYBACK_DELAY_MS;
+    const effectiveAudioMs = midiStartMs + totalOffsetMs;
+    return Math.max(0, effectiveAudioMs) / 1000;
   };
 
   // Pre-seeks and primes the backing track to the exact offset position while paused
@@ -763,24 +757,13 @@ const AppContent: React.FC = () => {
     let audioStartTime = 0;
     let startDelayMs = 0;
 
-    if (totalOffsetMs < 0) {
-      const absDelayMs = Math.abs(totalOffsetMs);
-      if (midiStartMs < absDelayMs) {
-        audioStartTime = 0;
-        startDelayMs = absDelayMs - midiStartMs;
-      } else {
-        audioStartTime = (midiStartMs - absDelayMs) / 1000;
-        startDelayMs = 0;
-      }
+    const effectiveAudioMs = midiStartMs + totalOffsetMs;
+    if (effectiveAudioMs < 0) {
+      audioStartTime = 0;
+      startDelayMs = -effectiveAudioMs;
     } else {
-      const targetAudioMs = midiStartMs + totalOffsetMs;
-      if (targetAudioMs < 0) {
-        audioStartTime = 0;
-        startDelayMs = Math.abs(targetAudioMs);
-      } else {
-        audioStartTime = targetAudioMs / 1000;
-        startDelayMs = 0;
-      }
+      audioStartTime = effectiveAudioMs / 1000;
+      startDelayMs = 0;
     }
 
     const effectiveDelayWallMs = startDelayMs / currentMultiplier;
@@ -788,7 +771,6 @@ const AppContent: React.FC = () => {
 
     if ((backing.type === "mp3" || backing.type === "link") && audioRef.current) {
       const audio = audioRef.current;
-      connectBackingAudio(audio);
       audio.volume = mp3VolumeRef.current;
       applyAudioPlaybackRate(audio, currentMultiplier);
 
@@ -894,14 +876,10 @@ const AppContent: React.FC = () => {
       if (startDelayMs === 0) {
         if (typeof youtubePlayerRef.current.seekTo === "function") {
           try {
-            const curYtTime = typeof youtubePlayerRef.current.getCurrentTime === "function"
+            const curYt = typeof youtubePlayerRef.current.getCurrentTime === "function"
               ? youtubePlayerRef.current.getCurrentTime()
               : -1;
-            const curState = typeof youtubePlayerRef.current.getPlayerState === "function"
-              ? youtubePlayerRef.current.getPlayerState()
-              : -1;
-            // Only seek if not already pre-seeked to audioStartTime while paused
-            if (Math.abs(curYtTime - audioStartTime) > 0.25 || (curState !== 2 && curState !== 1)) {
+            if (Math.abs(curYt - audioStartTime) > 0.25) {
               youtubePlayerRef.current.seekTo(audioStartTime, true);
             }
           } catch (e) {
@@ -933,7 +911,7 @@ const AppContent: React.FC = () => {
             backingPlayAttemptTimeRef.current = performance.now();
             void safePlayYoutube(true);
           }
-        }, effectiveDelayWallMs);
+        }, startDelayMs / currentMultiplier);
       }
     } else if (isOnlineBacking) {
       backingPlayAttemptTimeRef.current = performance.now() + effectiveDelayWallMs;
@@ -941,7 +919,7 @@ const AppContent: React.FC = () => {
         setBackingTrackStatus("loading");
       }
     }
-  }, [applyAudioPlaybackRate, connectBackingAudio]);
+  }, [applyAudioPlaybackRate]);
 
   const [backingTrackStatus, setBackingTrackStatus] = useState<"idle" | "loading" | "playing" | "stalled" | "error">("idle");
   const backingTrackStatusRef = useRef(backingTrackStatus);
@@ -1646,16 +1624,16 @@ const AppContent: React.FC = () => {
   }, [maxCombo]);
 
   const [lastJudgment, setLastJudgment] = useState<
-    "perfect" | "great" | "good" | "miss" | null
+    "perfect" | "great" | "good" | "miss" | "hit" | "error" | null
   >(null);
-  const lastJudgmentRef = useRef<"perfect" | "great" | "good" | "miss" | null>(
+  const lastJudgmentRef = useRef<"perfect" | "great" | "good" | "miss" | "hit" | "error" | null>(
     null,
   );
   useEffect(() => {
     lastJudgmentRef.current = lastJudgment;
   }, [lastJudgment]);
 
-  const [displayJudgment, setDisplayJudgment] = useState<{ id: number; type: 'perfect' | 'great' | 'good' | 'miss' } | null>(null);
+  const [displayJudgment, setDisplayJudgment] = useState<{ id: number; type: 'perfect' | 'great' | 'good' | 'miss' | 'hit' | 'error' } | null>(null);
   const judgmentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (lastJudgment) {
@@ -2552,8 +2530,6 @@ const AppContent: React.FC = () => {
     if (youtubeContainerRef.current) {
       youtubeContainerRef.current.innerHTML = '<div id="youtube-player"></div>';
     }
-    const effectiveOffsetMs = gameSettingsRef.current?.backingTrack?.offsetMs ?? backingTrackOffset ?? 0;
-    const initialStartSec = Math.max(0, Math.floor((-INITIAL_PLAYBACK_DELAY_MS + effectiveOffsetMs + userAudioSyncOffsetRef.current) / 1000));
     try {
       youtubePlayerRef.current = new (window as any).YT.Player("youtube-player", {
         height: "0",
@@ -2567,7 +2543,6 @@ const AppContent: React.FC = () => {
           modestbranding: 1,
           rel: 0,
           showinfo: 0,
-          ...(initialStartSec > 0 ? { start: initialStartSec } : {}),
         },
         events: {
           onReady: (event: any) => {
@@ -2581,32 +2556,11 @@ const AppContent: React.FC = () => {
               if (backing && backing.type === "youtube") {
                 triggerBackingTrackPlay(currentTimeRef.current);
               }
-            } else {
-              // Automatically pre-seek/prime to offset position (just like scrolling mouse wheel to bottom)
-              const targetOffsetMs = gameSettingsRef.current?.backingTrack?.offsetMs ?? backingTrackOffset ?? 0;
-              const targetSec = getAudioStartTime(currentTimeRef.current / 1000, "youtube", targetOffsetMs);
-              try {
-                isPreseekingYoutubeRef.current = true;
-                if (typeof event.target.mute === "function") event.target.mute();
-                event.target.seekTo(targetSec, true);
-              } catch (e) {}
             }
           },
           onStateChange: (event: any) => {
             // YT.PlayerState.PLAYING = 1, BUFFERING = 3
             if (event.data === 1) {
-              if (!isPlayingRef.current && isPreseekingYoutubeRef.current) {
-                isPreseekingYoutubeRef.current = false;
-                try {
-                  event.target.pauseVideo();
-                  const targetOffsetMs = gameSettingsRef.current?.backingTrack?.offsetMs ?? backingTrackOffset ?? 0;
-                  const targetSec = getAudioStartTime(currentTimeRef.current / 1000, "youtube", targetOffsetMs);
-                  event.target.seekTo(targetSec, true);
-                  if (typeof event.target.unMute === "function") event.target.unMute();
-                  if (typeof event.target.setVolume === "function") event.target.setVolume(mp3VolumeRef.current * 100);
-                } catch (e) {}
-                return;
-              }
               isPreseekingYoutubeRef.current = false;
               try {
                 if (typeof event.target.unMute === "function") event.target.unMute();
@@ -3560,8 +3514,12 @@ const AppContent: React.FC = () => {
       }
       const playtimeToAdd = Math.round(sessionTotalPlaytimeMs.current);
       const notesHitToAdd = sessionTotalNotesHit.current;
-      const supabaseUrl = process.env.VITE_SUPABASE_URL;
-      const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
+      const supabaseUrl =
+        (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_SUPABASE_URL) ||
+        (typeof process !== "undefined" ? (process as any).env?.VITE_SUPABASE_URL : undefined);
+      const supabaseAnonKey =
+        (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_SUPABASE_ANON_KEY) ||
+        (typeof process !== "undefined" ? (process as any).env?.VITE_SUPABASE_ANON_KEY : undefined);
       const currentSession = sessionRef.current;
       if (
         !currentSession ||
@@ -3824,11 +3782,12 @@ const AppContent: React.FC = () => {
           triggerBackingTrackPlay(cl);
         } else {
           // Paused seeking (matching MidiEditor offset math)
-          const defaultOffset = backing.offsetMs || 0;
-          const userMs = userAudioSyncOffsetRef.current;
-          const totalOffsetMs = defaultOffset + userMs;
+          const defaultOffsetMs = backing.offsetMs || 0;
+          const userOffsetMs = userAudioSyncOffsetRef.current;
+          const totalOffsetMs = defaultOffsetMs + userOffsetMs;
           const midiStartMs = cl - INITIAL_PLAYBACK_DELAY_MS;
-          const clampedTime = Math.max(0, midiStartMs + totalOffsetMs) / 1000;
+          const effectiveAudioMs = midiStartMs + totalOffsetMs;
+          const clampedTime = Math.max(0, effectiveAudioMs) / 1000;
           if ((backing.type === "mp3" || backing.type === "link") && audioRef.current) {
             if (audioRef.current.readyState >= 1) {
               audioRef.current.currentTime = clampedTime;
@@ -4330,11 +4289,12 @@ const AppContent: React.FC = () => {
               setActivePlaybackNotesInfo((prev) => {
                 const nm = new Map(prev);
                 for (const [existingId, existingInfo] of nm.entries()) {
+                  const info = existingInfo as any;
                   if (
-                    existingInfo.status === "user_played" &&
-                    (existingInfo.hand === note.hand || existingInfo.midi === note.midi) &&
+                    info.status === "user_played" &&
+                    (info.hand === note.hand || info.midi === note.midi) &&
                     existingId !== noteId &&
-                    note.timeMs - existingInfo.timeMs > 15
+                    note.timeMs - info.timeMs > 15
                   ) {
                     nm.delete(existingId);
                     activeNoteInstancesRef.current.delete(existingId);
@@ -4561,7 +4521,12 @@ const AppContent: React.FC = () => {
           setTempoEvents([]);
           setSignatureEvents([]);
 
-          alert(`Calibration Finished! Note Offset updated from ${previousOffset}ms by ${avgDelta > 0 ? '+' : ''}${avgDelta}ms to: ${newOffset > 0 ? '+' : ''}${newOffset}ms based on your average input timing.`);
+          const calibMsg = appLanguage === 'id'
+            ? `Kalibrasi Selesai! Offset Nada diperbarui dari ${previousOffset}ms sebesar ${avgDelta > 0 ? '+' : ''}${avgDelta}ms menjadi: ${newOffset > 0 ? '+' : ''}${newOffset}ms berdasarkan rata-rata timing ketukan Anda.`
+            : appLanguage === 'es'
+            ? `¡Calibración Finalizada! Desplazamiento de notas actualizado de ${previousOffset}ms por ${avgDelta > 0 ? '+' : ''}${avgDelta}ms a: ${newOffset > 0 ? '+' : ''}${newOffset}ms según tu tiempo promedio de toque.`
+            : `Calibration Finished! Note Offset updated from ${previousOffset}ms by ${avgDelta > 0 ? '+' : ''}${avgDelta}ms to: ${newOffset > 0 ? '+' : ''}${newOffset}ms based on your average input timing.`;
+          alert(calibMsg);
           setCurrentScreen("settings");
           return;
         } else {
@@ -4884,6 +4849,10 @@ const AppContent: React.FC = () => {
       zoomDirection,
       drumTyperPadOpacity,
     };
+
+    if (finalSettings.waitMode === 'strict') {
+      finalSettings.accuracyLevel = 3;
+    }
 
     setBackingTrackError(null);
     setIsBackingTrackOverlayDismissed(false);
@@ -5413,8 +5382,12 @@ const AppContent: React.FC = () => {
           m = wn.find((n) => n.midi === midi);
         }
 
+        const isNonStopActive =
+          (gameSettingsRef.current?.isNonStop ?? false) ||
+          (gameSettingsRef.current?.waitMode || "strict") === "retical" ||
+          (gameSettingsRef.current?.waitMode || "strict") === "off";
+
         if (waitMode === "strict") {
-          // If the note being pressed is wrong or already hit, simply ignore
           if (m) {
             setPerfectCount((p) => p + 1);
             perfectCountRef.current += 1;
@@ -5423,6 +5396,15 @@ const AppContent: React.FC = () => {
             hitNoteIdsRef.current.add(m.noteId);
             changeHp(4.0);
             visuallySatisfyNote(m);
+            setCombo((p) => {
+              const next = p + 1;
+              if (next > maxComboRef.current) {
+                setMaxCombo(next);
+                maxComboRef.current = next;
+              }
+              return next;
+            });
+            comboRef.current += 1;
             playerInputTimesRef.current.push(performance.now());
             if (firstInputRealTimeRef.current === null)
               firstInputRealTimeRef.current = performance.now();
@@ -5439,9 +5421,20 @@ const AppContent: React.FC = () => {
             });
             updateNotesCurrentlyWaitingFor(remainingMidis);
 
+            setLastJudgment("hit");
+            lastJudgmentRef.current = "hit";
+
             if (newWaitingIds.size === 0) resumePlaybackFromWait();
           } else {
-            // Ignore wrong notes to prevent locking/errors in strict mode
+            // Error when pressing other than midi note in wait mode (eror=0, hit=1)
+            setErrorCount((p) => p + 1);
+            errorCountRef.current += 1;
+            changeHp(-4.0);
+            setCombo(0);
+            comboRef.current = 0;
+            setLastJudgment(isNonStopActive ? "miss" : "error");
+            lastJudgmentRef.current = isNonStopActive ? "miss" : "error";
+            // In strict mode, do not resume: keep waiting for the correct note
           }
         } else {
           if (m) {
@@ -5452,13 +5445,29 @@ const AppContent: React.FC = () => {
             hitNoteIdsRef.current.add(m.noteId);
             changeHp(4.0);
             visuallySatisfyNote(m);
+            setCombo((p) => {
+              const next = p + 1;
+              if (next > maxComboRef.current) {
+                setMaxCombo(next);
+                maxComboRef.current = next;
+              }
+              return next;
+            });
+            comboRef.current += 1;
             playerInputTimesRef.current.push(performance.now());
             if (firstInputRealTimeRef.current === null)
               firstInputRealTimeRef.current = performance.now();
             lastInputRealTimeRef.current = performance.now();
+            setLastJudgment("hit");
+            lastJudgmentRef.current = "hit";
           } else {
             setErrorCount((p) => p + 1);
             errorCountRef.current += 1;
+            changeHp(-4.0);
+            setCombo(0);
+            comboRef.current = 0;
+            setLastJudgment(isNonStopActive ? "miss" : "error");
+            lastJudgmentRef.current = isNonStopActive ? "miss" : "error";
           }
           resumePlaybackFromWait();
         }
@@ -5479,7 +5488,9 @@ const AppContent: React.FC = () => {
           // noteOffsetMs is the physical hardware/device input delay in real milliseconds.
           // Scaled to musical time: (noteOffsetMs * currentMultiplier).
           // Real physical difference in ms between tap and note:
-          const realOffsetMs = noteInputOffsetMs(n.timeMs, inputTime, currentMultiplier, noteOffsetMsRef.current);
+          const nonStopForOffset = (gameSettingsRef.current?.isNonStop ?? false) || (isFreePlayModeRef.current ? "off" : (gameSettingsRef.current?.waitMode || "strict")) === "retical" || (isFreePlayModeRef.current ? "off" : (gameSettingsRef.current?.waitMode || "strict")) === "off";
+          const effectiveNoteOffset = nonStopForOffset ? noteOffsetMsRef.current : -noteOffsetMsRef.current;
+          const realOffsetMs = noteInputOffsetMs(n.timeMs, inputTime, currentMultiplier, effectiveNoteOffset);
 
           // Optimization: Skip notes more than 2.5 real seconds away
           if (Math.abs(realOffsetMs) > 2500)
@@ -5515,9 +5526,32 @@ const AppContent: React.FC = () => {
 
         // Use the calculated windows for judgment
         if (best) {
+          const isNonStopActive =
+            (gameSettingsRef.current?.isNonStop ?? false) ||
+            (gameSettingsRef.current?.waitMode || "strict") === "retical" ||
+            (gameSettingsRef.current?.waitMode || "strict") === "off";
+
           if (min <= goodWindow) {
             if (!hitNoteIdsRef.current.has(best.noteId)) {
-              if (min <= perfectWindow) {
+              if (!isNonStopActive) {
+                // Mode selain nonstop: hanya hit dan miss
+                setPerfectCount((p) => p + 1);
+                perfectCountRef.current += 1;
+                setHitCount((p) => p + 1);
+                hitCountRef.current += 1;
+                changeHp(4.0);
+                setCombo((p) => {
+                  const next = p + 1;
+                  if (next > maxComboRef.current) {
+                    setMaxCombo(next);
+                    maxComboRef.current = next;
+                  }
+                  return next;
+                });
+                comboRef.current += 1;
+                setLastJudgment("hit");
+                lastJudgmentRef.current = "hit";
+              } else if (min <= perfectWindow) {
                 setPerfectCount((p) => p + 1);
                 perfectCountRef.current += 1;
                 setHitCount((p) => p + 1);
@@ -5592,22 +5626,24 @@ const AppContent: React.FC = () => {
                   setMissCount((p) => p + 1);
                   missCountRef.current += 1;
                   changeHp(-10.0);
-                  setLastHitOffset(bestOffset);
-
-                  // NEW: Update session average offset (throttled to avoid re-rendering every hit)
-                  totalSessionOffsetSumRef.current += bestOffset;
-                  totalSessionHitCountForOffsetRef.current += 1;
-                  const nowRealTime = performance.now();
-                  if (nowRealTime - lastAvgOffsetUpdateRef.current > 250) {
-                    const newAvg = totalSessionOffsetSumRef.current / totalSessionHitCountForOffsetRef.current;
-                    setUserAverageOffset(newAvg);
-                    lastAvgOffsetUpdateRef.current = nowRealTime;
+                  if (isNonStopActive) {
+                    setLastHitOffset(bestOffset);
+                    // NEW: Update session average offset (throttled to avoid re-rendering every hit)
+                    totalSessionOffsetSumRef.current += bestOffset;
+                    totalSessionHitCountForOffsetRef.current += 1;
+                    const nowRealTime = performance.now();
+                    if (nowRealTime - lastAvgOffsetUpdateRef.current > 250) {
+                      const newAvg = totalSessionOffsetSumRef.current / totalSessionHitCountForOffsetRef.current;
+                      setUserAverageOffset(newAvg);
+                      lastAvgOffsetUpdateRef.current = nowRealTime;
+                    }
                   }
 
                   setCombo(0);
                   comboRef.current = 0;
-                  setLastJudgment("miss");
-                  lastJudgmentRef.current = "miss";
+                  const finalJ = !isNonStopActive ? "error" : "miss";
+                  setLastJudgment(finalJ);
+                  lastJudgmentRef.current = finalJ;
                   hitNoteIdsRef.current.add(best.noteId);
                 }
               }
@@ -5620,6 +5656,11 @@ const AppContent: React.FC = () => {
               if (!isNonStop) {
                 setErrorCount((p) => p + 1);
                 errorCountRef.current += 1;
+                changeHp(-4.0);
+                setCombo(0);
+                comboRef.current = 0;
+                setLastJudgment("error");
+                lastJudgmentRef.current = "error";
               }
             }
           }
@@ -5639,6 +5680,11 @@ const AppContent: React.FC = () => {
           if (!isNonStop) {
             setErrorCount((p) => p + 1);
             errorCountRef.current += 1;
+            changeHp(-4.0);
+            setCombo(0);
+            comboRef.current = 0;
+            setLastJudgment("error");
+            lastJudgmentRef.current = "error";
           }
         }
       }
@@ -5845,6 +5891,7 @@ const AppContent: React.FC = () => {
         instrumentMode: "piano",
         zoomDirection: "normal",
         drumTyperPadOpacity: 1,
+        accuracyLevel: 3,
       };
       setMetronomeMode("off");
       setGameSettings(finalSettings);
@@ -5956,6 +6003,7 @@ const AppContent: React.FC = () => {
         instrumentMode: "piano",
         zoomDirection: "normal",
         drumTyperPadOpacity: 1,
+        accuracyLevel: 3,
       };
       setGameSettings(finalSettings);
       gameSettingsRef.current = finalSettings;
@@ -6158,8 +6206,9 @@ const AppContent: React.FC = () => {
       setCurrentOnlineSongId(id || null);
       setIsCurrentSongRanked(r || null);
       setCurrentMidiLink(mLink || null);
-      setCurrentMidiOffset(mOffset || null);
-      setBackingTrackOffset(mOffset || 0);
+      const parsedOffset = (mOffset !== null && mOffset !== undefined && !isNaN(Number(mOffset))) ? Number(mOffset) : null;
+      setCurrentMidiOffset(parsedOffset);
+      setBackingTrackOffset(parsedOffset ?? 0);
       setBackingTrackFile(null);
       setCurrentSongBackgroundUrl(bgUrl || null);
       setCurrentSongAccuracyLevel(accLevel || null);
@@ -6274,7 +6323,12 @@ const AppContent: React.FC = () => {
     } catch (e) {
       console.error("Calibration load error:", e);
       calibrationAutoplayPendingRef.current = false;
-      alert("Error starting calibration. Please make sure public/sounds/offset.mid is accessible.");
+      const calibErrMsg = appLanguage === 'id'
+        ? "Gagal memulai kalibrasi. Pastikan berkas public/sounds/offset.mid dapat diakses."
+        : appLanguage === 'es'
+        ? "Error al iniciar la calibración. Asegúrese de que public/sounds/offset.mid esté accesible."
+        : "Error starting calibration. Please make sure public/sounds/offset.mid is accessible.";
+      alert(calibErrMsg);
       isCalibratingRef.current = false;
       setIsCalibrating(false);
       // Restore previous metronome mode on error
@@ -6325,6 +6379,9 @@ const AppContent: React.FC = () => {
 
   const handleMidiMessage = useCallback(
     (e: MIDIMessageEvent) => {
+      // In Piano mode, MIDI input is only allowed in 'piano' gameplay style (disabled in 'computer' style)
+      if (instrumentMode === "piano" && gameplayStyle === "computer") return;
+
       if (viewMode === "qwerty_mania") return;
 
       // Drum Mode MIDI restriction: If in drum mode and input mode is non-midi, ignore MIDI
@@ -6588,6 +6645,9 @@ const AppContent: React.FC = () => {
       }
 
       // If in piano mode but not using computer mapping, we use the note-based mapping
+      // In Piano mode, computer keyboard is only allowed in 'computer' gameplay style
+      if (instrumentMode === "piano" && gameplayStyle === "piano") return;
+
       // But we must check if we should return early for drum mode
       if (instrumentMode === "drum" && drumInputMode === "midi") return;
 
@@ -6691,6 +6751,9 @@ const AppContent: React.FC = () => {
 
   const handleQwertyKeyUp = useCallback(
     (e: KeyboardEvent) => {
+      // In Piano mode, computer keyboard is only allowed in 'computer' gameplay style
+      if (instrumentMode === "piano" && gameplayStyle === "piano") return;
+
       // Drum Mode Non-MIDI restriction: If in drum mode and input mode is midi, ignore keyboard
       if (instrumentMode === "drum" && drumInputMode === "midi") return;
 
@@ -7070,7 +7133,13 @@ const AppContent: React.FC = () => {
       });
       const midiArray = midi.toArray();
       if (midiArray.length === 0) {
-        alert("No notes recorded to save.");
+        alert(
+          appLanguage === 'id'
+            ? "Tidak ada nada yang terekam untuk disimpan."
+            : appLanguage === 'es'
+            ? "No hay notas grabadas para guardar."
+            : "No notes recorded to save."
+        );
         return;
       }
       const blob = new Blob([midiArray as any], { type: "audio/midi" });
@@ -7085,7 +7154,13 @@ const AppContent: React.FC = () => {
       setRecordedNotes([]);
       setShowSaveButton(false);
     } catch (e) {
-      alert("Failed to generate MIDI file.");
+      alert(
+        appLanguage === 'id'
+          ? "Gagal membuat berkas MIDI."
+          : appLanguage === 'es'
+          ? "Error al generar el archivo MIDI."
+          : "Failed to generate MIDI file."
+      );
     }
   }, [
     recordedNotes,
@@ -7723,7 +7798,6 @@ const AppContent: React.FC = () => {
             src={gameSettings.backingTrack.url}
             preload="auto"
             onLoadedMetadata={(e) => {
-              connectBackingAudio(e.currentTarget);
               applyAudioPlaybackRate(e.currentTarget, playbackTempoMultiplierRef.current);
               if (!isPlayingRef.current) {
                 const targetSec = getAudioStartTime(
@@ -7750,7 +7824,6 @@ const AppContent: React.FC = () => {
               }
             }}
             onPlay={(e) => {
-              connectBackingAudio(e.currentTarget);
               applyAudioPlaybackRate(e.currentTarget, playbackTempoMultiplierRef.current);
               if (backingTrackStatus !== 'playing') setBackingTrackStatus('playing');
             }}
@@ -7791,11 +7864,11 @@ const AppContent: React.FC = () => {
       {currentScreen === "settings" &&
         isSettingsPreviewActiveRef.current &&
         playbackNotes.length > 0 && (
-          <div className="absolute inset-0 z-0">
-            <div className="absolute inset-0 z-0">
-              <div className="absolute top-0 left-0 right-0 z-[60] pointer-events-none">
+          <div className="absolute inset-0 z-0 pointer-events-none select-none">
+            <div className="absolute inset-0 z-0 pointer-events-none select-none">
+              <div className="absolute top-0 left-0 right-0 z-10 pointer-events-none">
                 {playbackNotes.length > 0 && (
-                  <div className="w-full pointer-events-auto">
+                  <div className="w-full pointer-events-none">
                     <ProgressBar
                       currentTimeMs={musicalCurrentTimeMs}
                       totalDurationMs={absoluteEndTimeMs}
@@ -7811,8 +7884,8 @@ const AppContent: React.FC = () => {
                   </div>
                 )}
               </div>
-              <div className="absolute top-0 left-0 right-0 z-50 flex flex-col pointer-events-none pt-[14px]">
-                <div className="w-full pointer-events-auto">
+              <div className="absolute top-0 left-0 right-0 z-10 flex flex-col pointer-events-none pt-[14px]">
+                <div className="w-full pointer-events-none">
                   {(() => {
                     const accuracyLevel = gameSettings?.accuracyLevel ?? 5;
                     const perfectWindow = 100 + (5 - accuracyLevel) * 20;
@@ -7913,7 +7986,8 @@ const AppContent: React.FC = () => {
                         className="absolute left-0 right-0 z-[70] pointer-events-none text-center select-none"
                         style={{ top: "68px" }}
                       >
-                        <span className={`text-2xl md:text-3xl font-extrabold italic uppercase tracking-wider drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)] filter ${displayJudgment.type === 'perfect' ? 'text-yellow-400 font-black' :
+                        <span className={`text-2xl md:text-3xl font-extrabold italic uppercase tracking-wider drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)] filter ${displayJudgment.type === 'hit' ? 'text-yellow-400 font-black' :
+                            displayJudgment.type === 'perfect' ? 'text-yellow-400 font-black' :
                             displayJudgment.type === 'great' ? 'text-emerald-400 font-black' :
                               displayJudgment.type === 'good' ? 'text-blue-400 font-black' :
                                 'text-rose-500 font-black'
@@ -8146,48 +8220,53 @@ const AppContent: React.FC = () => {
                         waitMode={waitMode}
                         resolutionScale={resolutionScale}
                       />
-                      {showHand3D && noteLabelType === 'fingering' && !isFreePlayMode && <HandFingering3D notes={fingeringHandNotes} poses={handPoses} timeMs={musicalCurrentTimeMs} handSize={fingeringPreferences.handSize} leftHandColor={themeSettings.leftHandColor} rightHandColor={themeSettings.rightHandColor} overlay={{ keyPositions: keyPositionsArray, width: baseCalculatedPianoWidth, whiteKeyHeight: layoutConfig.whiteKeyHeight, blackKeyHeight: layoutConfig.blackKeyHeight }} />}
-                      <div className="absolute bottom-4 left-0 right-0 w-full flex justify-center z-50 pointer-events-none">
-                        <OffsetIndicator
-                          midiHitTiming={lastHitOffset}
-                          midiHitTimingOffset={noteOffsetMs}
-                          onMidiHitTimingOffsetChange={setNoteOffsetMs}
-                          mp3Offset={userAudioSyncOffset}
-                          onMp3OffsetChange={setUserAudioSyncOffset}
-                          metronomePianoOffset={metronomePianoOffsetMs}
-                          onMetronomePianoOffsetChange={setMetronomePianoOffsetMs}
-                          perfectWindow={100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20}
-                          greatWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 1.5}
-                          goodWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 2}
-                        />
-                      </div>
+                      {showHand3D && !isFreePlayMode && <HandFingering3D notes={fingeringHandNotes} poses={handPoses} timeMs={musicalCurrentTimeMs} handSize={fingeringPreferences.handSize} leftHandColor={themeSettings.leftHandColor} rightHandColor={themeSettings.rightHandColor} overlay={{ keyPositions: keyPositionsArray, width: baseCalculatedPianoWidth, whiteKeyHeight: layoutConfig.whiteKeyHeight, blackKeyHeight: layoutConfig.blackKeyHeight }} />}
+                      {(gameSettings?.isNonStop ?? false) && (
+                        <div className="absolute bottom-4 left-0 right-0 w-full flex justify-center z-50 pointer-events-none">
+                          <OffsetIndicator
+                            midiHitTiming={lastHitOffset}
+                            midiHitTimingOffset={noteOffsetMs}
+                            onMidiHitTimingOffsetChange={setNoteOffsetMs}
+                            mp3Offset={userAudioSyncOffset}
+                            onMp3OffsetChange={setUserAudioSyncOffset}
+                            metronomePianoOffset={metronomePianoOffsetMs}
+                            onMetronomePianoOffsetChange={setMetronomePianoOffsetMs}
+                            perfectWindow={100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20}
+                            greatWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 1.5}
+                            goodWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 2}
+                          />
+                        </div>
+                      )}
                       {isSustainPedalActive && (
                         <div
-                          className="absolute bottom-2 right-2 px-3 py-1 bg-yellow-400 text-black text-xs font-bold rounded shadow-lg animate-pulse"
-                          style={{ zIndex: 30 }}
+                          className="absolute -top-7 right-3 px-2.5 py-0.5 bg-amber-400 text-slate-950 text-[10px] font-black uppercase tracking-wider rounded-md shadow-md border border-amber-300 pointer-events-none flex items-center gap-1.5"
+                          style={{ zIndex: 35 }}
                           aria-live="polite"
                         >
-                          SUSTAIN
+                          <span className="w-1.5 h-1.5 rounded-full bg-slate-950 animate-ping" />
+                          <span>SUSTAIN</span>
                         </div>
                       )}
                     </div>
                   ) : (
-                    <div className="absolute bottom-0 left-0 right-0 h-0 z-50 pointer-events-none">
-                      <div className="absolute bottom-4 left-0 right-0 w-full flex justify-center pointer-events-auto">
-                        <OffsetIndicator
-                          midiHitTiming={lastHitOffset}
-                          midiHitTimingOffset={noteOffsetMs}
-                          onMidiHitTimingOffsetChange={setNoteOffsetMs}
-                          mp3Offset={userAudioSyncOffset}
-                          onMp3OffsetChange={setUserAudioSyncOffset}
-                          metronomePianoOffset={metronomePianoOffsetMs}
-                          onMetronomePianoOffsetChange={setMetronomePianoOffsetMs}
-                          perfectWindow={100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20}
-                          greatWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 1.5}
-                          goodWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 2}
-                        />
+                    (gameSettings?.isNonStop ?? false) && (
+                      <div className="absolute bottom-0 left-0 right-0 h-0 z-10 pointer-events-none">
+                        <div className="absolute bottom-4 left-0 right-0 w-full flex justify-center pointer-events-none">
+                          <OffsetIndicator
+                            midiHitTiming={lastHitOffset}
+                            midiHitTimingOffset={noteOffsetMs}
+                            onMidiHitTimingOffsetChange={setNoteOffsetMs}
+                            mp3Offset={userAudioSyncOffset}
+                            onMp3OffsetChange={setUserAudioSyncOffset}
+                            metronomePianoOffset={metronomePianoOffsetMs}
+                            onMetronomePianoOffsetChange={setMetronomePianoOffsetMs}
+                            perfectWindow={100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20}
+                            greatWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 1.5}
+                            goodWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 2}
+                          />
+                        </div>
                       </div>
-                    </div>
+                    )
                   )}
                 </div>
               </div>
@@ -8223,6 +8302,7 @@ const AppContent: React.FC = () => {
             setCurrentScreen("songSelection");
           }}
           instrumentMode={instrumentMode}
+          appLanguage={appLanguage}
         />
       )}
       {currentScreen === "songSelection" && (
@@ -8293,11 +8373,16 @@ const AppContent: React.FC = () => {
           userAudioSyncOffset={userAudioSyncOffset}
           onUserAudioSyncOffsetChange={setUserAudioSyncOffset}
           appLanguage={appLanguage}
+          showHand3D={showHand3D}
+          onShowHand3DChange={(show) => {
+            setShowHand3D(show);
+            if (show && noteLabelType !== 'fingering') setNoteLabelType('fingering');
+          }}
         />
       )}
       {currentScreen === "settings" && (
         <div
-          className="fixed inset-0 bg-transparent flex items-center justify-center z-40 p-4"
+          className="fixed inset-0 bg-black/25 flex items-center justify-center z-[80] p-4 pointer-events-auto"
           onClick={(e) =>
             e.target === e.currentTarget && setCurrentScreen("mainMenu")
           }
@@ -8310,7 +8395,10 @@ const AppContent: React.FC = () => {
             fingeringPreferences={fingeringPreferences}
             onFingeringPreferencesChange={setFingeringPreferences}
             showHand3D={showHand3D}
-            onShowHand3DChange={setShowHand3D}
+            onShowHand3DChange={(show) => {
+              setShowHand3D(show);
+              if (show && noteLabelType !== 'fingering') setNoteLabelType('fingering');
+            }}
             onBack={() => setCurrentScreen("mainMenu")}
             onStartCalibration={handleStartCalibration}
             initialScrollTarget={settingsScrollTarget}
@@ -8447,7 +8535,7 @@ const AppContent: React.FC = () => {
       {currentScreen === "midiEditor" && (
         <MidiEditor
           initialMidiFile={editorMidiFile}
-          initialBackingTrackOffset={currentMidiOffset || 0}
+          initialBackingTrackOffset={currentMidiOffset ?? 0}
           onOpenSettings={() => {
             setSettingsScrollTarget("note-offset-section");
             setCurrentScreen("settings");
@@ -8739,7 +8827,8 @@ const AppContent: React.FC = () => {
                       className="absolute left-0 right-0 z-[70] pointer-events-none text-center select-none"
                       style={{ top: "68px" }}
                     >
-                      <span className={`text-2xl md:text-3xl font-extrabold italic uppercase tracking-wider drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)] filter ${displayJudgment.type === 'perfect' ? 'text-yellow-400 font-black' :
+                      <span className={`text-2xl md:text-3xl font-extrabold italic uppercase tracking-wider drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)] filter ${displayJudgment.type === 'hit' ? 'text-yellow-400 font-black' :
+                          displayJudgment.type === 'perfect' ? 'text-yellow-400 font-black' :
                           displayJudgment.type === 'great' ? 'text-emerald-400 font-black' :
                             displayJudgment.type === 'good' ? 'text-blue-400 font-black' :
                               'text-rose-500 font-black'
@@ -9091,48 +9180,53 @@ const AppContent: React.FC = () => {
                       waitMode={waitMode}
                       resolutionScale={resolutionScale}
                     />
-                    {showHand3D && noteLabelType === 'fingering' && !isFreePlayMode && <HandFingering3D notes={fingeringHandNotes} poses={handPoses} timeMs={musicalCurrentTimeMs} handSize={fingeringPreferences.handSize} leftHandColor={themeSettings.leftHandColor} rightHandColor={themeSettings.rightHandColor} overlay={{ keyPositions: keyPositionsArray, width: baseCalculatedPianoWidth, whiteKeyHeight: layoutConfig.whiteKeyHeight, blackKeyHeight: layoutConfig.blackKeyHeight }} />}
-                    <div className="absolute bottom-4 left-0 right-0 w-full flex justify-center z-50 pointer-events-none">
-                      <OffsetIndicator
-                        midiHitTiming={lastHitOffset}
-                        midiHitTimingOffset={noteOffsetMs}
-                        onMidiHitTimingOffsetChange={setNoteOffsetMs}
-                        mp3Offset={userAudioSyncOffset}
-                        onMp3OffsetChange={setUserAudioSyncOffset}
-                        metronomePianoOffset={metronomePianoOffsetMs}
-                        onMetronomePianoOffsetChange={setMetronomePianoOffsetMs}
-                        perfectWindow={100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20}
-                        greatWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 1.5}
-                        goodWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 2}
-                      />
-                    </div>
+                    {showHand3D && !isFreePlayMode && <HandFingering3D notes={fingeringHandNotes} poses={handPoses} timeMs={musicalCurrentTimeMs} handSize={fingeringPreferences.handSize} leftHandColor={themeSettings.leftHandColor} rightHandColor={themeSettings.rightHandColor} overlay={{ keyPositions: keyPositionsArray, width: baseCalculatedPianoWidth, whiteKeyHeight: layoutConfig.whiteKeyHeight, blackKeyHeight: layoutConfig.blackKeyHeight }} />}
+                    {(gameSettings?.isNonStop ?? false) && (
+                      <div className="absolute bottom-4 left-0 right-0 w-full flex justify-center z-50 pointer-events-none">
+                        <OffsetIndicator
+                          midiHitTiming={lastHitOffset}
+                          midiHitTimingOffset={noteOffsetMs}
+                          onMidiHitTimingOffsetChange={setNoteOffsetMs}
+                          mp3Offset={userAudioSyncOffset}
+                          onMp3OffsetChange={setUserAudioSyncOffset}
+                          metronomePianoOffset={metronomePianoOffsetMs}
+                          onMetronomePianoOffsetChange={setMetronomePianoOffsetMs}
+                          perfectWindow={100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20}
+                          greatWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 1.5}
+                          goodWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 2}
+                        />
+                      </div>
+                    )}
                     {isSustainPedalActive && (
                       <div
-                        className="absolute bottom-2 right-2 px-3 py-1 bg-yellow-400 text-black text-xs font-bold rounded shadow-lg animate-pulse"
-                        style={{ zIndex: 30 }}
+                        className="absolute -top-7 right-3 px-2.5 py-0.5 bg-amber-400 text-slate-950 text-[10px] font-black uppercase tracking-wider rounded-md shadow-md border border-amber-300 pointer-events-none flex items-center gap-1.5"
+                        style={{ zIndex: 35 }}
                         aria-live="polite"
                       >
-                        SUSTAIN
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-950 animate-ping" />
+                        <span>SUSTAIN</span>
                       </div>
                     )}
                   </div>
                 ) : (
-                  <div className="absolute bottom-0 left-0 right-0 h-0 z-50 pointer-events-none">
-                    <div className="absolute bottom-4 left-0 right-0 w-full flex justify-center pointer-events-auto">
-                      <OffsetIndicator
-                        midiHitTiming={lastHitOffset}
-                        midiHitTimingOffset={noteOffsetMs}
-                        onMidiHitTimingOffsetChange={setNoteOffsetMs}
-                        mp3Offset={userAudioSyncOffset}
-                        onMp3OffsetChange={setUserAudioSyncOffset}
-                        metronomePianoOffset={metronomePianoOffsetMs}
-                        onMetronomePianoOffsetChange={setMetronomePianoOffsetMs}
-                        perfectWindow={100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20}
-                        greatWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 1.5}
-                        goodWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 2}
-                      />
+                  (gameSettings?.isNonStop ?? false) && (
+                    <div className="absolute bottom-0 left-0 right-0 h-0 z-50 pointer-events-none">
+                      <div className="absolute bottom-4 left-0 right-0 w-full flex justify-center pointer-events-auto">
+                        <OffsetIndicator
+                          midiHitTiming={lastHitOffset}
+                          midiHitTimingOffset={noteOffsetMs}
+                          onMidiHitTimingOffsetChange={setNoteOffsetMs}
+                          mp3Offset={userAudioSyncOffset}
+                          onMp3OffsetChange={setUserAudioSyncOffset}
+                          metronomePianoOffset={metronomePianoOffsetMs}
+                          onMetronomePianoOffsetChange={setMetronomePianoOffsetMs}
+                          perfectWindow={100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20}
+                          greatWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 1.5}
+                          goodWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 2}
+                        />
+                      </div>
                     </div>
-                  </div>
+                  )
                 )}
               </div>
             </>
@@ -9201,6 +9295,7 @@ const AppContent: React.FC = () => {
       <AuthModal
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
+        appLanguage={appLanguage}
       />
       <AccountModal
         isOpen={isAccountModalOpen}
@@ -9210,6 +9305,7 @@ const AppContent: React.FC = () => {
           setCurrentScreen("songSelection");
         }}
         onOpenAdminModal={() => setIsAdminModalOpen(true)}
+        appLanguage={appLanguage}
       />
       <AdminModal
         isOpen={isAdminModalOpen}
@@ -9233,7 +9329,7 @@ const AppContent: React.FC = () => {
         onSelectSubMode={(mode, lessonId) => {
           handleSwitchLearnSubMode(mode);
           if (lessonId) {
-            handleStartLearnMode(lessonId);
+            handleStartLearnMode(lessonId, mode);
           }
         }}
       />

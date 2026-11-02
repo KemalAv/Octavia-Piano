@@ -293,6 +293,14 @@ export interface TranslationDictionary {
   filterRanked: string;
   filterNonRanked: string;
   filterLiked: string;
+  filterDifficultyLabel: string;
+  difficultyAll: string;
+  difficultyNovice: string;
+  difficultyBeginner: string;
+  difficultyIntermediate: string;
+  difficultyAdvanced: string;
+  difficultyVirtuoso: string;
+  difficultyLegendary: string;
   noSongsFoundTitle: string;
   noSongsFoundDesc: string;
   loadMoreSongs: string;
@@ -316,6 +324,107 @@ export interface TranslationDictionary {
   amtGuideStep1: string;
   amtGuideStep2: string;
   amtGuideStep3: string;
+  // Extended UI, Modals & Controls
+  fingering3DTitle: string;
+  fingering3DDesc: string;
+  streamingLink: string;
+  importantNotice: string;
+  midiControllerDelayNotice: string;
+  backingSyncNotice: string;
+  defaultSource: string;
+  defaultOffset: string;
+  audioToMidiDirectTitle: string;
+  activeInBrowser: string;
+  disabledStatus: string;
+  audioToMidiDesc: string;
+  micListeningActive: string;
+  allowMicrophoneBtn: string;
+  noMicrophonesFound: string;
+  micPermissionDeniedAlert: string;
+  zoomDirectionLabel: string;
+  zoomDirectionNormal: string;
+  zoomDirectionReverse: string;
+  customRangeOption: string;
+  full88Keys: string;
+  compact61Keys: string;
+  runLatencyCalibrationTitle: string;
+  removeMapping: string;
+  bgMediaPlaceholder: string;
+  exitCalibration: string;
+  timeSignatureLabel: string;
+  stopRecording: string;
+  startRecording: string;
+  downloadRecordingAsMidi: string;
+  barLabel: string;
+  setLoopStartTooltip: string;
+  setLoopEndTooltip: string;
+  clearLoopTooltip: string;
+  showFullMenu: string;
+  hideFullMenu: string;
+  exitToSongSelection: string;
+  stopPlaybackAndReset: string;
+  editBtn: string;
+  downloadBtn: string;
+  deleteBtn: string;
+  leaderboardTitle: string;
+  uploadMidiModalTitle: string;
+  editMidiModalTitle: string;
+  midiTitleLabel: string;
+  artistLabel: string;
+  arrangerOptional: string;
+  arrangerPlaceholder: string;
+  descOptional: string;
+  descPlaceholder: string;
+  mp3LinkOptional: string;
+  mp3OffsetOptional: string;
+  bgUrlOptional: string;
+  songFileMidi: string;
+  replaceSongFileOptional: string;
+  replaceSongFileNotice: string;
+  saveChangesBtn: string;
+  savingBtn: string;
+  uploadingBtn: string;
+  rankedTag: string;
+  backingTag: string;
+  loadingScores: string;
+  noScoresYet: string;
+  playerHeader: string;
+  dateHeader: string;
+  scoreHeader: string;
+  rankHeader: string;
+  songHeader: string;
+  myAccount: string;
+  tellUsAboutYourself: string;
+  noBioYet: string;
+  totalPlaytime: string;
+  totalNotesHit: string;
+  rankedPerformances: string;
+  globalRank: string;
+  totalScore: string;
+  signOut: string;
+  loadingProfile: string;
+  profileNotFound: string;
+  instrumentPiano: string;
+  instrumentDrum: string;
+  deleteSongConfirm: string;
+  provideTitleArtistMidi: string;
+  provideTitleArtist: string;
+  signInToUpload: string;
+  signInToLike: string;
+  signInToDelete: string;
+  searchByNickname: string;
+  searchingText: string;
+  myFriendsTab: string;
+  allCommunityTab: string;
+  topPerformersSubtitle: string;
+  addFriendBtn: string;
+  removeFriendBtn: string;
+  requestSentBtn: string;
+  acceptRequestBtn: string;
+  noPlayersFound: string;
+  noFriendsYet: string;
+  detailedAnalysisTitle: string;
+  metaStatsTitle: string;
 }
 
 export const translations: Record<AppLanguage, TranslationDictionary> = {
@@ -402,8 +511,8 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     mp3AudioOffsetDesc: "Align MP3 or YouTube playback with the falling notes on screen.",
     metronomeOffset: "Metronome Offset",
     metronomeOffsetDesc: "Adjust the metronome if its clicks sound earlier or later than the visual hitline.",
-    antiDoubleTrigger: "Anti Double Trigger",
-    antiDoubleTriggerDesc: "Prevents a single hit from triggering multiple inputs due to vibration. Range: 5ms - 200ms.",
+    antiDoubleTrigger: "Anti Double Trigger (Anti-Stutter)",
+    antiDoubleTriggerDesc: "Prevents a single hit from triggering multiple inputs due to vibration or stutter. Range: 5ms - 200ms.",
     minimumInterval: "Minimum Interval",
 
     drumMidiMappingTitle: "Drum MIDI Mapping",
@@ -596,6 +705,14 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     filterRanked: "Ranked",
     filterNonRanked: "Casual",
     filterLiked: "Liked",
+    filterDifficultyLabel: "Difficulty:",
+    difficultyAll: "All Difficulties",
+    difficultyNovice: "Novice (Lv. 1-2)",
+    difficultyBeginner: "Beginner (Lv. 3)",
+    difficultyIntermediate: "Intermediate (Lv. 4-5)",
+    difficultyAdvanced: "Advanced (Lv. 6-7)",
+    difficultyVirtuoso: "Virtuoso (Lv. 8-9)",
+    difficultyLegendary: "Legendary (Lv. 10+)",
     noSongsFoundTitle: "No songs found",
     noSongsFoundDesc: "Try different keywords or clear the filter above.",
     loadMoreSongs: "Load More Songs",
@@ -619,7 +736,107 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     amtGuideStep1: "Click 'Download Engine Package' and extract the zip file.",
     amtGuideStep2: "Run run_amt.bat (Windows) or run_amt.sh (Mac/Linux).",
     amtGuideStep3: "Octavia will automatically sync with the AI transcription engine!",
-},
+    fingering3DTitle: "3D Hand Fingering",
+    fingering3DDesc: "Show finger numbers & 3D hand avatars",
+    streamingLink: "Streaming Link:",
+    importantNotice: "IMPORTANT:",
+    midiControllerDelayNotice: "If your MIDI controller feels delayed, consider adjusting the note offset in settings. Click the icon to go directly to the note offset settings, where you can calibrate it automatically by playing the calibration song.",
+    backingSyncNotice: "If the MP3 is still out of sync, try adjusting the USER MS (Audio Sync) by ±10 ms from the original offset; the goal is to match the backing track with the metronome.",
+    defaultSource: "Default Source:",
+    defaultOffset: "Default Offset:",
+    audioToMidiDirectTitle: "Direct In-Browser Audio-to-MIDI",
+    activeInBrowser: "Active (In-Browser)",
+    disabledStatus: "Disabled",
+    audioToMidiDesc: "Transcribe your real acoustic piano into live MIDI notes directly in your browser. 100% natively integrated into Octavia with zero downloads or external servers required.",
+    micListeningActive: "Microphone actively listening to piano keys",
+    allowMicrophoneBtn: "Allow Microphone",
+    noMicrophonesFound: "No microphones found",
+    micPermissionDeniedAlert: "Microphone permission denied. Please allow microphone access in your browser settings.",
+    zoomDirectionLabel: "Zoom Direction (AR)",
+    zoomDirectionNormal: "Normal (Outside to Inside)",
+    zoomDirectionReverse: "Reverse (Inside to Outside)",
+    customRangeOption: "Custom Range",
+    full88Keys: "Full (88 keys)",
+    compact61Keys: "Compact (61 keys)",
+    runLatencyCalibrationTitle: "Run automatic latency calibration with test beats",
+    removeMapping: "Remove mapping",
+    bgMediaPlaceholder: "URL (Image or MP4)",
+    exitCalibration: "Exit Calibration",
+    timeSignatureLabel: "Time Sig",
+    stopRecording: "Stop Recording",
+    startRecording: "Start MIDI Recording",
+    downloadRecordingAsMidi: "Download Recording as MIDI",
+    barLabel: "Bar",
+    setLoopStartTooltip: "Set Loop Start to Current Bar",
+    setLoopEndTooltip: "Set Loop End to Current Bar",
+    clearLoopTooltip: "Clear Loop",
+    showFullMenu: "Show Full Menu",
+    hideFullMenu: "Hide Full Menu",
+    exitToSongSelection: "Exit to song selection",
+    stopPlaybackAndReset: "Stop playback and reset",
+    editBtn: "Edit",
+    downloadBtn: "Download",
+    deleteBtn: "Delete",
+    leaderboardTitle: "Leaderboard",
+    uploadMidiModalTitle: "Upload MIDI",
+    editMidiModalTitle: "Edit MIDI",
+    midiTitleLabel: "MIDI Title",
+    artistLabel: "Artist",
+    arrangerOptional: "Arrangement by (Optional)",
+    arrangerPlaceholder: "Your name or alias",
+    descOptional: "Description (Optional)",
+    descPlaceholder: "A short description of the MIDI or arrangement.",
+    mp3LinkOptional: "MP3 Link (Optional)",
+    mp3OffsetOptional: "MP3 Offset (Optional)",
+    bgUrlOptional: "Background URL (Optional)",
+    songFileMidi: "Song File (MIDI)",
+    replaceSongFileOptional: "Replace Song File (Optional, MIDI only)",
+    replaceSongFileNotice: "Selecting a file will replace the current MIDI file on the server.",
+    saveChangesBtn: "Save Changes",
+    savingBtn: "Saving...",
+    uploadingBtn: "Uploading...",
+    rankedTag: "RANKED",
+    backingTag: "BACKING",
+    loadingScores: "Loading Scores...",
+    noScoresYet: "No scores have been submitted for this MIDI yet.",
+    playerHeader: "Player",
+    dateHeader: "Date",
+    scoreHeader: "Score",
+    rankHeader: "Rank",
+    songHeader: "Song",
+    myAccount: "My Account",
+    tellUsAboutYourself: "Tell us about yourself...",
+    noBioYet: "No bio yet.",
+    totalPlaytime: "Total Playtime",
+    totalNotesHit: "Total Notes Hit",
+    rankedPerformances: "Ranked Performances",
+    globalRank: "Global Rank",
+    totalScore: "Total Score",
+    signOut: "Sign Out",
+    loadingProfile: "Loading profile...",
+    profileNotFound: "Profile not found.",
+    instrumentPiano: "Piano",
+    instrumentDrum: "Drum",
+    deleteSongConfirm: "Are you sure you want to delete this song? This action cannot be undone.",
+    provideTitleArtistMidi: "Please provide title, artist, and a MIDI file.",
+    provideTitleArtist: "Please provide title and artist.",
+    signInToUpload: "Please sign in to upload.",
+    signInToLike: "Please sign in to like songs.",
+    signInToDelete: "Please sign in to delete songs.",
+    searchByNickname: "Search by nickname...",
+    searchingText: "Searching...",
+    myFriendsTab: "My Friends",
+    allCommunityTab: "Community",
+    topPerformersSubtitle: "Top performers across the globe",
+    addFriendBtn: "Add Friend",
+    removeFriendBtn: "Remove Friend",
+    requestSentBtn: "Request Sent",
+    acceptRequestBtn: "Accept Request",
+    noPlayersFound: "No players found",
+    noFriendsYet: "No friends added yet",
+    detailedAnalysisTitle: "Detailed Performance Analysis",
+    metaStatsTitle: "Meta Statistics",
+  },
 
   id: {
     settingsTitle: "Pengaturan",
@@ -704,13 +921,13 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     mp3AudioOffsetDesc: "Luruskan timing audio MP3 atau YouTube dengan nada yang jatuh di layar.",
     metronomeOffset: "Offset Metronom",
     metronomeOffsetDesc: "Atur jika suara detak metronom terdengar lebih cepat atau lebih lambat dari garis ketukan visual.",
-    antiDoubleTrigger: "Pencegah Pemicu Ganda (Anti Double Trigger)",
-    antiDoubleTriggerDesc: "Mencegah satu pukulan memicu input dobel karena getaran fisik drum. Rentang: 5ms - 200ms.",
+    antiDoubleTrigger: "Pencegah Pemicu Ganda / Anti-Stutter (Anti Double Trigger)",
+    antiDoubleTriggerDesc: "Mencegah satu pukulan memicu input dobel/stutter karena getaran fisik drum. Rentang: 5ms - 200ms.",
     minimumInterval: "Interval Minimum",
 
     drumMidiMappingTitle: "Pemetaan MIDI Drum",
     drumMidiMappingDesc: "Pilih komponen drum kit lalu pukul drum MIDI Anda untuk memasangkannya. Anda bisa memasangkan beberapa not MIDI ke satu komponen.",
-    resetBtn: "Reset",
+    resetBtn: "Atur Ulang",
     autoSavedBadge: "Tersimpan Otomatis",
     hitDrumBtn: "PUKUL DRUM!",
     mapBtn: "PETAKAN",
@@ -895,9 +1112,17 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     sortLeastLiked: "Kurang Disukai",
     filterLabel: "Filter:",
     filterAll: "Semua",
-    filterRanked: "Ranked",
+    filterRanked: "Peringkat",
     filterNonRanked: "Biasa",
     filterLiked: "Disukai",
+    filterDifficultyLabel: "Tingkat:",
+    difficultyAll: "Semua Kesulitan",
+    difficultyNovice: "Novice (Lv. 1-2)",
+    difficultyBeginner: "Beginner (Lv. 3)",
+    difficultyIntermediate: "Intermediate (Lv. 4-5)",
+    difficultyAdvanced: "Advanced (Lv. 6-7)",
+    difficultyVirtuoso: "Virtuoso (Lv. 8-9)",
+    difficultyLegendary: "Legendary (Lv. 10+)",
     noSongsFoundTitle: "Tidak ada lagu yang ditemukan",
     noSongsFoundDesc: "Coba gunakan kata kunci pencarian yang berbeda atau reset filter di atas.",
     loadMoreSongs: "Muat Lebih Banyak Lagu",
@@ -910,7 +1135,7 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
 
     settingsSubtitle: "Atur preferensi alat, audio, visual, dan kalibrasi",
     settingsSearchPlaceholder: "Cari opsi pengaturan (misal: offset, volume, tema, fingering)...",
-    tabGameplay: "Gameplay & Visuals",
+    tabGameplay: "Gameplay & Visual",
     tabMidi: "MIDI & Input",
     tabAudio: "Audio & Latensi",
     tabVisuals: "Tema & Warna",
@@ -921,7 +1146,107 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     amtGuideStep1: "Klik 'Unduh Paket Engine' di atas lalu ekstrak file zip-nya.",
     amtGuideStep2: "Jalankan run_amt.bat (Windows) atau run_amt.sh (Mac/Linux).",
     amtGuideStep3: "Octavia akan otomatis terhubung & menyinkronkan notasi piano akustik Anda!",
-},
+    fingering3DTitle: "Fingering & Tangan 3D",
+    fingering3DDesc: "Tampilkan panduan jari & animasi avatar tangan 3D",
+    streamingLink: "Tautan Streaming:",
+    importantNotice: "PENTING:",
+    midiControllerDelayNotice: "Jika controller MIDI Anda terasa terlambat, sesuaikan offset nada di pengaturan. Klik ikon untuk langsung menuju ke pengaturan offset, di mana Anda dapat mengkalibrasi secara otomatis dengan memainkan lagu kalibrasi.",
+    backingSyncNotice: "Jika MP3 masih belum sinkron, coba sesuaikan USER MS (Audio Sync) sebesar ±10 ms dari offset aslinya; tujuannya agar musik pengiring selaras dengan ketukan metronom.",
+    defaultSource: "Sumber Default:",
+    defaultOffset: "Offset Default:",
+    audioToMidiDirectTitle: "Audio-to-MIDI Langsung di Browser",
+    activeInBrowser: "Aktif (Langsung di Browser)",
+    disabledStatus: "Nonaktif",
+    audioToMidiDesc: "Ubah nada piano akustik asli Anda langsung menjadi not MIDI secara real-time melalui mikrofon browser. 100% terintegrasi langsung di Octavia tanpa perlu memasang aplikasi, berkas zip, atau server tambahan apa pun.",
+    micListeningActive: "Mikrofon aktif mendengarkan nada tuts piano Anda",
+    allowMicrophoneBtn: "Beri Izin Mikrofon",
+    noMicrophonesFound: "Tidak ada mikrofon terdeteksi",
+    micPermissionDeniedAlert: "Izin mikrofon ditolak. Silakan izinkan akses mikrofon di pengaturan browser Anda.",
+    zoomDirectionLabel: "Arah Zoom (AR)",
+    zoomDirectionNormal: "Normal (Luar ke Dalam)",
+    zoomDirectionReverse: "Terbalik (Dalam ke Luar)",
+    customRangeOption: "Rentang Kustom",
+    full88Keys: "Penuh (88 tuts)",
+    compact61Keys: "Kompak (61 tuts)",
+    runLatencyCalibrationTitle: "Jalankan kalibrasi latensi otomatis dengan ketukan tes",
+    removeMapping: "Hapus pemetaan",
+    bgMediaPlaceholder: "URL (Gambar atau MP4)",
+    exitCalibration: "Keluar Kalibrasi",
+    timeSignatureLabel: "Birama",
+    stopRecording: "Hentikan Rekaman",
+    startRecording: "Mulai Rekam MIDI",
+    downloadRecordingAsMidi: "Unduh Rekaman sebagai MIDI",
+    barLabel: "Birama",
+    setLoopStartTooltip: "Atur Awal Loop ke Bar Saat Ini",
+    setLoopEndTooltip: "Atur Akhir Loop ke Bar Saat Ini",
+    clearLoopTooltip: "Hapus Loop",
+    showFullMenu: "Tampilkan Menu Lengkap",
+    hideFullMenu: "Sembunyikan Menu",
+    exitToSongSelection: "Kembali ke pemilihan lagu",
+    stopPlaybackAndReset: "Hentikan pemutaran dan reset",
+    editBtn: "Edit",
+    downloadBtn: "Unduh",
+    deleteBtn: "Hapus",
+    leaderboardTitle: "Papan Peringkat",
+    uploadMidiModalTitle: "Unggah MIDI",
+    editMidiModalTitle: "Edit MIDI",
+    midiTitleLabel: "Judul MIDI",
+    artistLabel: "Artis",
+    arrangerOptional: "Aransemen oleh (Opsional)",
+    arrangerPlaceholder: "Nama atau alias Anda",
+    descOptional: "Deskripsi (Opsional)",
+    descPlaceholder: "Deskripsi singkat mengenai MIDI atau aransemen ini.",
+    mp3LinkOptional: "Tautan MP3 (Opsional)",
+    mp3OffsetOptional: "Offset MP3 (Opsional)",
+    bgUrlOptional: "URL Latar Belakang (Opsional)",
+    songFileMidi: "File Lagu (MIDI)",
+    replaceSongFileOptional: "Ganti File Lagu (Opsional, hanya MIDI)",
+    replaceSongFileNotice: "Memilih file baru akan menggantikan file MIDI yang ada di server saat ini.",
+    saveChangesBtn: "Simpan Perubahan",
+    savingBtn: "Menyimpan...",
+    uploadingBtn: "Mengunggah...",
+    rankedTag: "PERINGKAT",
+    backingTag: "PENGIRING",
+    loadingScores: "Memuat Skor...",
+    noScoresYet: "Belum ada skor yang dikirimkan untuk MIDI ini.",
+    playerHeader: "Pemain",
+    dateHeader: "Tanggal",
+    scoreHeader: "Skor",
+    rankHeader: "Peringkat",
+    songHeader: "Lagu",
+    myAccount: "Akun Saya",
+    tellUsAboutYourself: "Ceritakan tentang diri Anda...",
+    noBioYet: "Belum ada bio.",
+    totalPlaytime: "Total Waktu Bermain",
+    totalNotesHit: "Total Nada Berhasil Ditekan",
+    rankedPerformances: "Performa Ranked",
+    globalRank: "Peringkat Global",
+    totalScore: "Total Skor",
+    signOut: "Keluar Akun",
+    loadingProfile: "Memuat profil...",
+    profileNotFound: "Profil tidak ditemukan.",
+    instrumentPiano: "Piano",
+    instrumentDrum: "Drum",
+    deleteSongConfirm: "Apakah Anda yakin ingin menghapus lagu ini? Tindakan ini tidak dapat dibatalkan.",
+    provideTitleArtistMidi: "Harap isi judul, artis, dan sertakan file MIDI.",
+    provideTitleArtist: "Harap isi judul dan artis.",
+    signInToUpload: "Silakan masuk untuk mengunggah.",
+    signInToLike: "Silakan masuk untuk menyukai lagu.",
+    signInToDelete: "Silakan masuk untuk menghapus lagu.",
+    searchByNickname: "Cari berdasarkan nama panggilan...",
+    searchingText: "Mencari...",
+    myFriendsTab: "Teman Saya",
+    allCommunityTab: "Komunitas",
+    topPerformersSubtitle: "Pemain terbaik di seluruh dunia",
+    addFriendBtn: "Tambah Teman",
+    removeFriendBtn: "Hapus Teman",
+    requestSentBtn: "Permintaan Terkirim",
+    acceptRequestBtn: "Terima Permintaan",
+    noPlayersFound: "Tidak ada pemain ditemukan",
+    noFriendsYet: "Belum ada teman ditambahkan",
+    detailedAnalysisTitle: "Analisis Performa Rinci",
+    metaStatsTitle: "Statistik Meta",
+  },
 
   es: {
     settingsTitle: "Ajustes",
@@ -1006,8 +1331,8 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     mp3AudioOffsetDesc: "Alinea la reproducción de MP3 o YouTube con las notas cayendo en pantalla.",
     metronomeOffset: "Desplazamiento del Metrónomo",
     metronomeOffsetDesc: "Ajusta el metrónomo si sus clics suenan antes o después de la línea de golpe.",
-    antiDoubleTrigger: "Anti Doble Disparo (Anti Double Trigger)",
-    antiDoubleTriggerDesc: "Evita que un solo golpe active múltiples entradas por vibración. Rango: 5ms - 200ms.",
+    antiDoubleTrigger: "Anti Doble Disparo / Anti-Stutter (Anti Double Trigger)",
+    antiDoubleTriggerDesc: "Evita que un solo golpe active múltiples entradas o stutter por vibración. Rango: 5ms - 200ms.",
     minimumInterval: "Intervalo Mínimo",
 
     drumMidiMappingTitle: "Mapeo MIDI de Batería",
@@ -1035,7 +1360,7 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     playNow: "JUGAR AHORA",
     learnMode: "MODO APRENDER",
     comingSoon: "Próximamente",
-    social: "SOCIAL",
+    social: "COMUNIDAD",
     settings: "AJUSTES",
     profile: "PERFIL",
     login: "INICIAR SESIÓN",
@@ -1197,9 +1522,17 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     sortLeastLiked: "Menos gustado",
     filterLabel: "Filtrar:",
     filterAll: "Todos",
-    filterRanked: "Ranked",
+    filterRanked: "Clasificatoria",
     filterNonRanked: "Casual",
     filterLiked: "Favoritos",
+    filterDifficultyLabel: "Dificultad:",
+    difficultyAll: "Todas las Dificultades",
+    difficultyNovice: "Novato (Niv. 1-2)",
+    difficultyBeginner: "Principiante (Niv. 3)",
+    difficultyIntermediate: "Intermedio (Niv. 4-5)",
+    difficultyAdvanced: "Avanzado (Niv. 6-7)",
+    difficultyVirtuoso: "Virtuoso (Niv. 8-9)",
+    difficultyLegendary: "Legendario (Niv. 10+)",
     noSongsFoundTitle: "No se encontraron canciones",
     noSongsFoundDesc: "Prueba con palabras clave diferentes o limpia el filtro.",
     loadMoreSongs: "Cargar Más Canciones",
@@ -1212,7 +1545,7 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
 
     settingsSubtitle: "Configura dispositivos, audio, visuales y calibración de latencia",
     settingsSearchPlaceholder: "Buscar ajustes (ej. desfase, volumen, tema, digitación)...",
-    tabGameplay: "Gameplay & Visuals",
+    tabGameplay: "Jugabilidad y Visuales",
     tabMidi: "MIDI y Entrada",
     tabAudio: "Audio y Sincronización",
     tabVisuals: "Tema y Colores",
@@ -1223,5 +1556,105 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     amtGuideStep1: "Haz clic en 'Descargar Paquete del Motor' y descomprime el archivo.",
     amtGuideStep2: "Ejecuta run_amt.bat (Windows) o run_amt.sh (Mac/Linux).",
     amtGuideStep3: "¡Octavia se sincronizará automáticamente con el motor de transcripción IA!",
-}
+    fingering3DTitle: "Digitación y Manos 3D",
+    fingering3DDesc: "Mostrar números de dedos y avatares de manos 3D",
+    streamingLink: "Enlace de Transmisión:",
+    importantNotice: "IMPORTANTE:",
+    midiControllerDelayNotice: "Si notas retraso en tu controlador MIDI, ajusta la compensación de notas en ajustes. Haz clic en el icono para ir directamente a los ajustes de compensación, donde puedes calibrarlo automáticamente tocando la canción de prueba.",
+    backingSyncNotice: "Si el MP3 sigue desincronizado, intenta ajustar USER MS (Sincronización de Audio) en ±10 ms respecto al desfase original; el objetivo es que la pista coincida con el metrónomo.",
+    defaultSource: "Fuente Predeterminada:",
+    defaultOffset: "Desfase Predeterminado:",
+    audioToMidiDirectTitle: "Audio-a-MIDI Directo en Navegador",
+    activeInBrowser: "Activo (En Navegador)",
+    disabledStatus: "Inactivo",
+    audioToMidiDesc: "Convierta notas de piano acústico directamente en notas MIDI en tiempo real a través del micrófono del navegador. 100% integrado directamente en Octavia sin descargas ni servidores externos.",
+    micListeningActive: "Micrófono activo escuchando las notas del piano",
+    allowMicrophoneBtn: "Permitir Micrófono",
+    noMicrophonesFound: "No se encontraron micrófonos",
+    micPermissionDeniedAlert: "Permiso de micrófono denegado. Permita el acceso al micrófono en la configuración de su navegador.",
+    zoomDirectionLabel: "Dirección de Zoom (AR)",
+    zoomDirectionNormal: "Normal (De afuera hacia adentro)",
+    zoomDirectionReverse: "Invertido (De adentro hacia afuera)",
+    customRangeOption: "Rango Personalizado",
+    full88Keys: "Completo (88 teclas)",
+    compact61Keys: "Compacto (61 teclas)",
+    runLatencyCalibrationTitle: "Ejecutar calibración automática de latencia con ritmos de prueba",
+    removeMapping: "Eliminar mapeo",
+    bgMediaPlaceholder: "URL (Imagen o MP4)",
+    exitCalibration: "Salir de Calibración",
+    timeSignatureLabel: "Compás",
+    stopRecording: "Detener Grabación",
+    startRecording: "Iniciar Grabación MIDI",
+    downloadRecordingAsMidi: "Descargar Grabación como MIDI",
+    barLabel: "Compás",
+    setLoopStartTooltip: "Fijar Inicio de Bucle al Compás Actual",
+    setLoopEndTooltip: "Fijar Fin de Bucle al Compás Actual",
+    clearLoopTooltip: "Limpiar Bucle",
+    showFullMenu: "Mostrar Menú Completo",
+    hideFullMenu: "Ocultar Menú",
+    exitToSongSelection: "Volver a la selección de canciones",
+    stopPlaybackAndReset: "Detener reproducción y reiniciar",
+    editBtn: "Editar",
+    downloadBtn: "Descargar",
+    deleteBtn: "Eliminar",
+    leaderboardTitle: "Clasificación",
+    uploadMidiModalTitle: "Subir MIDI",
+    editMidiModalTitle: "Editar MIDI",
+    midiTitleLabel: "Título del MIDI",
+    artistLabel: "Artista",
+    arrangerOptional: "Arreglado por (Opcional)",
+    arrangerPlaceholder: "Tu nombre o alias",
+    descOptional: "Descripción (Opcional)",
+    descPlaceholder: "Una breve descripción del MIDI o arreglo.",
+    mp3LinkOptional: "Enlace MP3 (Opcional)",
+    mp3OffsetOptional: "Desfase MP3 (Opcional)",
+    bgUrlOptional: "URL de Fondo (Opcional)",
+    songFileMidi: "Archivo de Canción (MIDI)",
+    replaceSongFileOptional: "Reemplazar Archivo de Canción (Opcional, solo MIDI)",
+    replaceSongFileNotice: "Seleccionar un archivo reemplazará el archivo MIDI actual en el servidor.",
+    saveChangesBtn: "Guardar Cambios",
+    savingBtn: "Guardando...",
+    uploadingBtn: "Subiendo...",
+    rankedTag: "CLASIFICATORIA",
+    backingTag: "ACOMPAÑAMIENTO",
+    loadingScores: "Cargando Puntuaciones...",
+    noScoresYet: "Aún no se han enviado puntuaciones para este MIDI.",
+    playerHeader: "Jugador",
+    dateHeader: "Fecha",
+    scoreHeader: "Puntuación",
+    rankHeader: "Rango",
+    songHeader: "Canción",
+    myAccount: "Mi Cuenta",
+    tellUsAboutYourself: "Cuéntanos sobre ti...",
+    noBioYet: "Aún no hay biografía.",
+    totalPlaytime: "Tiempo Total de Juego",
+    totalNotesHit: "Total de Notas Acertadas",
+    rankedPerformances: "Partidas Clasificatorias",
+    globalRank: "Rango Global",
+    totalScore: "Puntuación Total",
+    signOut: "Cerrar Sesión",
+    loadingProfile: "Cargando perfil...",
+    profileNotFound: "Perfil no encontrado.",
+    instrumentPiano: "Piano",
+    instrumentDrum: "Batería",
+    deleteSongConfirm: "¿Estás seguro de que deseas eliminar esta canción? Esta acción no se puede deshacer.",
+    provideTitleArtistMidi: "Por favor proporciona título, artista y un archivo MIDI.",
+    provideTitleArtist: "Por favor proporciona título y artista.",
+    signInToUpload: "Inicia sesión para subir.",
+    signInToLike: "Inicia sesión para indicar que te gusta una canción.",
+    signInToDelete: "Inicia sesión para eliminar canciones.",
+    searchByNickname: "Buscar por apodo...",
+    searchingText: "Buscando...",
+    myFriendsTab: "Mis Amigos",
+    allCommunityTab: "Comunidad",
+    topPerformersSubtitle: "Los mejores jugadores de todo el mundo",
+    addFriendBtn: "Agregar Amigo",
+    removeFriendBtn: "Eliminar Amigo",
+    requestSentBtn: "Solicitud Enviada",
+    acceptRequestBtn: "Aceptar Solicitud",
+    noPlayersFound: "No se encontraron jugadores",
+    noFriendsYet: "Aún no tienes amigos agregados",
+    detailedAnalysisTitle: "Análisis Detallado de Rendimiento",
+    metaStatsTitle: "Estadísticas Meta",
+  }
 };

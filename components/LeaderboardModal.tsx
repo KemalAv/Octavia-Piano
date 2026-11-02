@@ -1,17 +1,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
-import { OnlineSong, Score, PerformanceSummary } from '../types';
+import { OnlineSong, Score, PerformanceSummary, AppLanguage } from '../types';
 import ViewProfileModal from './ViewProfileModal'; // Import the new ViewProfileModal
 import PerformanceSummaryModal from './PerformanceSummaryModal'; // Import PerformanceSummaryModal
 import { convertScoreToPerformanceSummary } from '../utils'; // NEW: Import utility for score conversion
+import { translations } from '../translations';
 
 interface LeaderboardModalProps {
   song: OnlineSong | null;
   onClose: () => void;
-  onGoToOnlineSong: (songId: string) => void; 
+  onGoToOnlineSong: (songId: string) => void;
+  appLanguage?: AppLanguage;
 }
 
-const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ song, onClose, onGoToOnlineSong }) => {
+const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ song, onClose, onGoToOnlineSong, appLanguage = 'en' }) => {
+  const t = translations[appLanguage] || translations.en;
   const [scores, setScores] = useState<Score[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -180,27 +183,27 @@ const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ song, onClose, onGo
                     tabIndex={0}
                     role="button"
                 >
-                    Leaderboard: {song.title}
+                    {t.leaderboardTitle}: {song.title}
                 </h2>
-                <button onClick={onClose} className="text-3xl text-slate-400 hover:text-white" aria-label="Close leaderboard">&times;</button>
+                <button onClick={onClose} className="text-3xl text-slate-400 hover:text-white" aria-label={t.close}>&times;</button>
             </div>
         </div>
 
         <div className="flex-grow overflow-y-auto custom-scrollbar -mr-2 pr-2">
-          {loading && <div className="text-center p-8 text-slate-300 animate-pulse">Loading Scores...</div>}
+          {loading && <div className="text-center p-8 text-slate-300 animate-pulse">{t.loadingScores}</div>}
           {error && <div className="text-center p-8 text-red-400">{error}</div>}
           {!loading && !error && scores.length === 0 && (
-            <div className="text-center p-8 text-slate-400">No scores have been submitted for this MIDI yet.</div>
+            <div className="text-center p-8 text-slate-400">{t.noScoresYet}</div>
           )}
           {!loading && !error && scores.length > 0 && (
             <table className="w-full text-left table-auto">
               <thead className="sticky top-0 bg-slate-800">
                 <tr>
                   <th className="p-2 text-sm font-semibold text-slate-400 w-16">#</th>
-                  <th className="p-2 text-sm font-semibold text-slate-400">Player</th>
-                  <th className="p-2 text-sm font-semibold text-slate-400">Date</th>
-                  <th className="p-2 text-sm font-semibold text-slate-400 text-right">Score</th>
-                  <th className="p-2 text-sm font-semibold text-slate-400 text-right w-16">Rank</th>
+                  <th className="p-2 text-sm font-semibold text-slate-400">{t.playerHeader}</th>
+                  <th className="p-2 text-sm font-semibold text-slate-400">{t.dateHeader}</th>
+                  <th className="p-2 text-sm font-semibold text-slate-400 text-right">{t.scoreHeader}</th>
+                  <th className="p-2 text-sm font-semibold text-slate-400 text-right w-16">{t.rankHeader}</th>
                 </tr>
               </thead>
               <tbody>
@@ -248,6 +251,7 @@ const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ song, onClose, onGo
             isVisible={!!selectedPerformanceSummary} 
             summary={selectedPerformanceSummary} 
             onClose={handleClosePerformanceSummary}
+            appLanguage={appLanguage}
         />
       )}
       {selectedPlayerProfileId && (
@@ -256,6 +260,7 @@ const LeaderboardModal: React.FC<LeaderboardModalProps> = ({ song, onClose, onGo
             userId={selectedPlayerProfileId} 
             onClose={handleCloseProfile} 
             onGoToOnlineSong={onGoToOnlineSong}
+            appLanguage={appLanguage}
         />
       )}
     </div>

@@ -130,6 +130,7 @@ export const DrumView: React.FC<DrumViewProps> = React.memo(({
     const dragRef = useRef<{ isDragging: boolean; startX: number; startTime: number } | null>(null);
 
     const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+        if (e.pointerType === 'touch') return;
         const canvas = canvasRef.current;
         if (!canvas) return;
 

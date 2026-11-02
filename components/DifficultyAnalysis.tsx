@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { ExtendedResult } from '../types';
+import { ExtendedResult, AppLanguage } from '../types';
+import { translations } from '../translations';
 
 interface DifficultyAnalysisProps {
   analysisResult: ExtendedResult;
   isInteractive?: boolean;
+  appLanguage?: AppLanguage;
 }
 
 // Utility to convert MIDI number to note name
@@ -16,7 +18,8 @@ const midiToNoteName = (midi: number): string | undefined => {
 };
 
 
-const DifficultyAnalysis: React.FC<DifficultyAnalysisProps> = ({ analysisResult, isInteractive = true }) => {
+const DifficultyAnalysis: React.FC<DifficultyAnalysisProps> = ({ analysisResult, isInteractive = true, appLanguage = 'en' }) => {
+  const t = translations[appLanguage] || translations.en;
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isRendered, setIsRendered] = useState(false);
   const { difficultyLevel, performanceScore, parameters, meta } = analysisResult;
@@ -124,35 +127,39 @@ const DifficultyAnalysis: React.FC<DifficultyAnalysisProps> = ({ analysisResult,
             onClick={e => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-4 border-b border-slate-600 pb-3">
-              <h2 id="analysis-title" className="text-2xl font-bold text-sky-300">Detailed Performance Analysis</h2>
+              <h2 id="analysis-title" className="text-2xl font-bold text-sky-300">{t.detailedAnalysisTitle}</h2>
               <button 
                 onClick={() => setIsModalOpen(false)} 
                 className="text-3xl font-light text-slate-400 hover:text-white leading-none"
-                aria-label="Close analysis modal"
+                aria-label={t.close}
               >&times;</button>
             </div>
             
             <div className="grid grid-cols-1 gap-y-6">
                 <div>
-                <h3 className="text-lg font-semibold text-slate-200 border-b border-slate-600 pb-1 mb-2 mt-4">Meta Statistics</h3>
+                <h3 className="text-lg font-semibold text-slate-200 border-b border-slate-600 pb-1 mb-2 mt-4">{t.metaStatsTitle}</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-1">
-                    <StatItem label="Total Notes" value={meta.totalNotes} />
-                    <StatItem label="Duration" value={meta.durationSec?.toFixed(1)} unit="s" />
-                    <StatItem label="Note Range" value={noteRangeDisplay} />
-                    <StatItem label="Avg Notes/Sec" value={parameters.totalNps?.toFixed(2)} unit="n/s" />
+                    <StatItem label={appLanguage === 'id' ? 'Total Not' : appLanguage === 'es' ? 'Notas Totales' : 'Total Notes'} value={meta.totalNotes} />
+                    <StatItem label={appLanguage === 'id' ? 'Durasi' : appLanguage === 'es' ? 'Duración' : 'Duration'} value={meta.durationSec?.toFixed(1)} unit="s" />
+                    <StatItem label={appLanguage === 'id' ? 'Rentang Nada' : appLanguage === 'es' ? 'Rango de Notas' : 'Note Range'} value={noteRangeDisplay} />
+                    <StatItem label={appLanguage === 'id' ? 'Rata-rata Not/Detik' : appLanguage === 'es' ? 'Promedio Notas/Seg' : 'Avg Notes/Sec'} value={parameters.totalNps?.toFixed(2)} unit="n/s" />
                 </div>
                 </div>
             </div>
 
             <p className="text-sm text-slate-500 mt-8 text-center">
-              This scoring system is only a calculation based on MIDI data and is not accurate at all. It is made purely for fun and simplicity, so the results can be wrong and do not reflect any real or precise evaluation. Because of that, the score should not be relied on as a serious or correct measurement.
+              {appLanguage === 'id'
+                ? 'Sistem penilaian ini hanyalah kalkulasi berdasarkan data MIDI dan dibuat semata-mata untuk hiburan serta kesederhanaan, sehingga hasilnya tidak mencerminkan evaluasi nyata atau presisi mutlak.'
+                : appLanguage === 'es'
+                ? 'Este sistema de puntuación es solo un cálculo basado en datos MIDI con fines recreativos y de simplicidad, por lo que los resultados pueden diferir de una evaluación musical estricta.'
+                : 'This scoring system is only a calculation based on MIDI data and is not accurate at all. It is made purely for fun and simplicity, so the results can be wrong and do not reflect any real or precise evaluation. Because of that, the score should not be relied on as a serious or correct measurement.'}
             </p>
 
             <div className="mt-6 text-center">
               <button 
                 onClick={() => setIsModalOpen(false)} 
                 className="bg-sky-500 hover:bg-sky-600 text-white font-bold py-2 px-6 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-sky-300"
-              >Close</button>
+              >{t.close}</button>
             </div>
           </div>
         </div>
