@@ -38,6 +38,7 @@ interface DrumManiaViewProps {
     waitMode?: string;
     resolutionScale?: number;
     showDynamics?: boolean;
+    hasBottomDrumKit?: boolean;
 }
 
 // Binary search helper to find starting note index in O(log N) time
@@ -84,6 +85,7 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = React.memo(({
     waitMode = 'strict',
     resolutionScale = 1.0,
     showDynamics = false,
+    hasBottomDrumKit = false,
 }) => {
     const MIDI_TO_PAD_MAP = new Map<number, DrumPadConfig>();
     DRUM_PADS.forEach(pad => {
@@ -149,49 +151,55 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = React.memo(({
     const getPadLayout = () => {
         const padCount = MANIA_PAD_ORDER.length;
         const padWidth = dimensions.width / padCount;
-        const centerY = dimensions.height - 125; // Adjusted so pads sit lower while remaining clear of offset meter
+        // When bottom drum kit is present, bring pads and hitbox close to the bottom boundary (no empty gap)
+        const centerY = hasBottomDrumKit
+            ? dimensions.height - 62
+            : dimensions.height - 125;
+        // Enlarge drum pads slightly (up to 46px radius or padWidth * 0.45)
+        const r = Math.min(padWidth * 0.45, 46);
 
         return MANIA_PAD_ORDER.map((id, index) => {
             const pad = DRUM_PADS.find(p => p.id === id)!;
             const cx = (index + 0.5) * padWidth;
             const cy = centerY;
-            const r = Math.min(padWidth * 0.4, 40);
 
             return { ...pad, cx, cy, r };
         });
     };
 
     const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-        if (e.pointerType === 'touch') return;
         const canvas = canvasRef.current;
         if (!canvas) return;
 
         const rect = canvas.getBoundingClientRect();
 
-        // Account for CSS scaling (zoom or transform: scale)
-        const scaleX = rect.width / (canvas as HTMLElement).offsetWidth;
-        const scaleY = rect.height / (canvas as HTMLElement).offsetHeight;
-
-        const x = (e.clientX - rect.left) / scaleX;
-        const y = (e.clientY - rect.top) / scaleY;
+        // Exact logical coordinates
+        const x = ((e.clientX - rect.left) / rect.width) * dimensions.width;
+        const y = ((e.clientY - rect.top) / rect.height) * dimensions.height;
 
         const pads = getPadLayout();
-        let hitPad = false;
+        let closestPad: { id: string; distRatio: number } | null = null;
 
         for (const pad of pads) {
-            const dx = x - pad.cx;
-            const dy = y - pad.cy;
-            if (Math.sqrt(dx * dx + dy * dy) <= pad.r) {
-                if (onPadDown) {
-                    activePointersRef.current.set(e.pointerId, pad.id);
-                    onPadDown(pad.id);
+            const dx = Math.abs(x - pad.cx);
+            const dy = Math.abs(y - pad.cy);
+            const touchRadiusX = pad.r * 1.3 + 8;
+            const touchRadiusY = pad.r * 1.5 + 16;
+
+            if (dx <= touchRadiusX && dy <= touchRadiusY) {
+                const distRatio = (dx * dx) / (touchRadiusX * touchRadiusX) + (dy * dy) / (touchRadiusY * touchRadiusY);
+                if (distRatio <= 1.0 && (!closestPad || distRatio < closestPad.distRatio)) {
+                    closestPad = { id: pad.id, distRatio };
                 }
-                hitPad = true;
-                break;
             }
         }
 
-        if (!hitPad && isPaused) {
+        if (closestPad) {
+            if (onPadDown) {
+                activePointersRef.current.set(e.pointerId, closestPad.id);
+                onPadDown(closestPad.id);
+            }
+        } else if (isPaused) {
             dragRef.current = {
                 isDragging: true,
                 startY: e.clientY,
@@ -211,6 +219,47 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = React.memo(({
             const deltaY = (e.clientY - dragRef.current.startY) / scaleY;
             const deltaTime = deltaY / pixelsPerMillisecond;
             onSeek(dragRef.current.startTime + deltaTime);
+            return;
+        }
+
+        // Support sliding / dragging across mania lanes
+        if (e.buttons > 0 && !isPaused && onPadDown && onPadUp) {
+            const canvas = canvasRef.current;
+            if (!canvas) return;
+            const rect = canvas.getBoundingClientRect();
+            const x = ((e.clientX - rect.left) / rect.width) * dimensions.width;
+            const y = ((e.clientY - rect.top) / rect.height) * dimensions.height;
+
+            const pads = getPadLayout();
+            let closestPadId: string | null = null;
+            let minDistRatio = Infinity;
+
+            for (const pad of pads) {
+                const dx = Math.abs(x - pad.cx);
+                const dy = Math.abs(y - pad.cy);
+                const touchRadiusX = pad.r * 1.3 + 8;
+                const touchRadiusY = pad.r * 1.5 + 16;
+
+                if (dx <= touchRadiusX && dy <= touchRadiusY) {
+                    const distRatio = (dx * dx) / (touchRadiusX * touchRadiusX) + (dy * dy) / (touchRadiusY * touchRadiusY);
+                    if (distRatio <= 1.0 && distRatio < minDistRatio) {
+                        minDistRatio = distRatio;
+                        closestPadId = pad.id;
+                    }
+                }
+            }
+
+            const currentActivePadId = activePointersRef.current.get(e.pointerId);
+            if (closestPadId && closestPadId !== currentActivePadId) {
+                if (currentActivePadId) {
+                    onPadUp(currentActivePadId);
+                }
+                activePointersRef.current.set(e.pointerId, closestPadId);
+                onPadDown(closestPadId);
+            } else if (!closestPadId && currentActivePadId) {
+                onPadUp(currentActivePadId);
+                activePointersRef.current.delete(e.pointerId);
+            }
         }
     };
 
@@ -395,13 +444,32 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = React.memo(({
             ctx.stroke();
             ctx.restore();
 
-            // Draw lane backgrounds
+            // Draw lane backgrounds (full width per lane so there are no empty gaps between lanes)
             if (showPianoTilesBackground) {
-                const alpha = pianoTilesOpacity / 100;
-                pads.forEach(pad => {
-                    ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
-                    ctx.fillRect(pad.cx - pad.r, 0, pad.r * 2, dimensions.height);
+                const alphaMultiplier = (pianoTilesOpacity ?? 50) / 100;
+                const laneW = dimensions.width / pads.length;
+                pads.forEach((pad, index) => {
+                    const isAlt = index % 2 === 1;
+                    // Subtle translucent tint matching rhythm game style (4% - 16%), preserving full background visibility!
+                    const laneAlpha = (isAlt ? 0.16 : 0.08) * alphaMultiplier;
+                    ctx.fillStyle = `rgba(0, 0, 0, ${laneAlpha})`;
+                    ctx.fillRect(index * laneW, 0, laneW, dimensions.height);
+
+                    // Crisp vertical lane divider line
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(index * laneW, 0);
+                    ctx.lineTo(index * laneW, dimensions.height);
+                    ctx.stroke();
                 });
+                // Rightmost border
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(dimensions.width, 0);
+                ctx.lineTo(dimensions.width, dimensions.height);
+                ctx.stroke();
             }
 
             // Draw bar lines
@@ -489,18 +557,20 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = React.memo(({
 
                 drawIcon(pad.id, pad.cx, pad.cy, pad.r);
 
-                // Draw labels
-                ctx.fillStyle = isActive ? '#ffffff' : '#e2e8f0';
-                ctx.font = 'bold 9px "Exo 2", sans-serif'; // Slightly smaller font to fit
-                ctx.textAlign = 'center';
-                ctx.fillText(pad.name, pad.cx, pad.cy + pad.r + 10);
+                // Draw labels (only if not pushed to the very bottom boundary)
+                if (!hasBottomDrumKit) {
+                    ctx.fillStyle = isActive ? '#ffffff' : '#e2e8f0';
+                    ctx.font = 'bold 9px "Exo 2", sans-serif'; // Slightly smaller font to fit
+                    ctx.textAlign = 'center';
+                    ctx.fillText(pad.name, pad.cx, pad.cy + pad.r + 10);
 
-                if (drumInputMode === 'non-midi') {
-                    const keys = PAD_TO_KEYS_MAP.get(pad.id);
-                    if (keys) {
-                        ctx.fillStyle = isActive ? '#34d399' : '#22d3ee'; // Greener for active
-                        ctx.font = 'bold 10px "JetBrains Mono", monospace';
-                        ctx.fillText(`[${keys.join('/')}]`, pad.cx, pad.cy + pad.r + 22);
+                    if (drumInputMode === 'non-midi') {
+                        const keys = PAD_TO_KEYS_MAP.get(pad.id);
+                        if (keys) {
+                            ctx.fillStyle = isActive ? '#34d399' : '#22d3ee'; // Greener for active
+                            ctx.font = 'bold 10px "JetBrains Mono", monospace';
+                            ctx.fillText(`[${keys.join('/')}]`, pad.cx, pad.cy + pad.r + 22);
+                        }
                     }
                 }
             });
@@ -566,7 +636,7 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = React.memo(({
 
         render();
         return () => cancelAnimationFrame(animationFrameId);
-    }, [dimensions, drumInputMode, themeSettings, pixelsPerMillisecond, waitMode, resolutionScale]);
+    }, [dimensions, drumInputMode, themeSettings, pixelsPerMillisecond, waitMode, resolutionScale, showPianoTilesBackground, pianoTilesOpacity, hasBottomDrumKit, showDynamics, zoomScale]);
 
     return (
         <div className={`w-full h-full relative overflow-hidden touch-none ${isPaused ? 'cursor-ns-resize' : ''}`}>

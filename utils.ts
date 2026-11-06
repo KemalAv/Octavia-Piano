@@ -104,26 +104,42 @@ const KEY_SIGNATURE_TO_RELATIVE_PAIR: { [inputKey: string]: { major: string; min
 
 
 /**
- * Formats a key signature string for display to show both the major key and its relative minor.
- * e.g., "C" -> "Cmaj/Amin", "Am" -> "Cmaj/Amin", "Eb" -> "Ebmaj/Cmin"
+ * Formats a key signature string for display as Major or Minor.
+ * e.g., "C" -> "C Major", "Am" -> "A Minor", "Eb" -> "Eb Major", "Cm" -> "C Minor"
  * @param key The key signature string from the MIDI data (e.g., "C", "Am", "Eb", "Cm").
  * @returns A formatted string for UI display.
  */
 export const formatKeySignatureForDisplay = (key: string): string => {
-  if (!key) return 'N/A';
+  if (!key || key.trim() === '') return 'C Major';
 
-  const pair = KEY_SIGNATURE_TO_RELATIVE_PAIR[key];
-
+  const trimmed = key.trim();
+  const pair = KEY_SIGNATURE_TO_RELATIVE_PAIR[trimmed];
   if (pair) {
-      return `${pair.major}maj/${pair.minor}min`;
+    const isMin = trimmed.endsWith('m');
+    return isMin ? `${pair.minor} Minor` : `${pair.major} Major`;
   }
 
-  // Fallback for unrecognized or very unusual key signatures
-  // It will try to format as Major or Minor based on 'm' suffix
-  const isMinor = key.endsWith('m');
-  const rootNote = isMinor ? key.slice(0, -1) : key;
+  // Fallback for custom or string formatted keys like "cmajor", "aminor", "D minor", "G# maj"
+  const lower = trimmed.toLowerCase();
+  const isMinor =
+    lower.includes('minor') ||
+    lower.endsWith('min') ||
+    (trimmed.endsWith('m') && !lower.endsWith('maj') && !lower.endsWith('major'));
 
-  return isMinor ? `${rootNote}min` : `${rootNote}maj`;
+  let root = trimmed;
+  if (lower.includes('major')) root = trimmed.replace(/major/i, '').trim();
+  else if (lower.includes('minor')) root = trimmed.replace(/minor/i, '').trim();
+  else if (lower.endsWith('maj')) root = trimmed.slice(0, -3).trim();
+  else if (lower.endsWith('min')) root = trimmed.slice(0, -3).trim();
+  else if (trimmed.endsWith('m') && trimmed.length > 1) root = trimmed.slice(0, -1).trim();
+
+  if (root.length > 0) {
+    root = root.charAt(0).toUpperCase() + root.slice(1);
+  } else {
+    root = isMinor ? 'A' : 'C';
+  }
+
+  return isMinor ? `${root} Minor` : `${root} Major`;
 };
 
 /**

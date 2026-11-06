@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ALL_KEYS, EXERCISE_CATEGORIES } from '../musicTheoryGenerator';
 import { AppLanguage } from '../types';
 import { getLearnTranslations } from './learnArticleTranslations';
@@ -13,7 +13,7 @@ interface LearnArticleViewProps {
   appLanguage?: AppLanguage;
 }
 
-export type ChapterId = 'sheet' | 'falling' | 'fingering' | 'roblox' | 'theory' | 'exercises' | 'videos' | 'midieditor';
+export type ChapterId = 'sheet' | 'falling' | 'fingering' | 'roblox' | 'theory' | 'exercises' | 'perfectpitch' | 'midieditor' | 'videos';
 
 export interface TutorialVideoItem {
   id: string;
@@ -260,6 +260,41 @@ export const TUTORIAL_VIDEOS: TutorialVideoItem[] = [
     ],
     tag: 'CH.05 Advanced',
     duration: 'Masterclass',
+  },
+  {
+    id: 'perfect_pitch',
+    title: 'Perfect Pitch vs. Relative Pitch: Complete Ear Training Guide',
+    titleId: 'Perfect Pitch vs. Relative Pitch: Panduan Lengkap Pelatihan Telinga',
+    titleEs: 'Oído Absoluto vs. Oído Relativo: Guía Completa de Entrenamiento Auditivo',
+    category: 'Ear Training & Auditory Perception',
+    categoryEs: 'Entrenamiento Auditivo y Percepción',
+    categoryId: 'Pelatihan Telinga & Persepsi Nada',
+    chapterTarget: 'perfectpitch',
+    url: 'https://youtu.be/yltCkCy1DeM',
+    ytId: 'yltCkCy1DeM',
+    description: 'Master the methods behind identifying musical pitches without reference, memorizing interval jumps with famous songs, and daily ear drills.',
+    descriptionId: 'Kuasai metode mengenali frekuensi nada tanpa alat bantu, menghafal lompatan interval dengan lagu populer, dan latihan telinga harian.',
+    descriptionEs: 'Aprende a reconocer notas musicales sin referencias, memorizar intervalos con canciones célebres y estructurar tu rutina auditiva.',
+    keyTakeaways: [
+      'Understand the science of Absolute Pitch and adult Anchor Pitch methods',
+      'Learn the 12 chromatic frequencies (A4 = 440 Hz, C4 = 261.63 Hz)',
+      'Use the 12 interval song mnemonics for instant melodic transcription',
+      'Practice 10 minutes daily with the Octavia Interactive Pitch Trainer'
+    ],
+    keyTakeawaysId: [
+      'Pahami sains Pitch Absolut dan metode jangkar nada untuk musisi dewasa',
+      'Kuasai 12 frekuensi kromatik (A4 = 440 Hz, C4 = 261.63 Hz)',
+      'Gunakan jembatan keledai 12 lagu interval untuk transkripsi melodi kilat',
+      'Latih 10 menit sehari dengan Konsol Latihan Pitch Interaktif Octavia'
+    ],
+    keyTakeawaysEs: [
+      'Comprende la neurobiología del tono absoluto y el método de anclas tonales',
+      'Domina las 12 frecuencias cromáticas (La4 = 440 Hz, Do4 = 261.63 Hz)',
+      'Utiliza mnemotecnias de canciones para transcribir intervalos de inmediato',
+      'Entrena 10 minutos al día con la Consola Interactiva de Octavia'
+    ],
+    tag: 'CH.07 Ear Training',
+    duration: 'Ear Masterclass',
   },
   {
     id: 'midi_editor',
@@ -511,6 +546,15 @@ const ChapterIcon: React.FC<{ id: ChapterId; active: boolean }> = ({ id, active 
           <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       );
+    case 'perfectpitch':
+      return (
+        <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 2v10" />
+          <path d="M7 5v5a5 5 0 0 0 10 0V5" />
+          <path d="M12 17v5" />
+          <circle cx="12" cy="17" r="1.5" fill={stroke} />
+        </svg>
+      );
     case 'videos':
       return (
         <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="2">
@@ -678,6 +722,239 @@ const DRILL_TRANSLATIONS: Record<string, { id: { name: string; desc: string }; e
   },
 };
 
+export interface PitchNoteItem {
+  id: string;
+  name: string;
+  display: string;
+  solfege: string;
+  midi: number;
+  freq: number;
+  wavelengthCm: number;
+  color: string;
+  isBlack: boolean;
+  character: { en: string; id: string; es: string };
+  famousWork: string;
+}
+
+export const PITCH_NOTES_OCTAVE4: PitchNoteItem[] = [
+  { id: 'C', name: 'C', display: 'C', solfege: 'Do', midi: 60, freq: 261.63, wavelengthCm: 131.1, color: '#38bdf8', isBlack: false, character: { en: 'Pure, crisp, stable and foundational', id: 'Murni, jernih, stabil dan mendasar', es: 'Puro, nítido, estable y fundamental' }, famousWork: 'C Major: Mozart Sonata K. 545' },
+  { id: 'Db', name: 'Db', display: 'C♯ / D♭', solfege: 'Do♯ / Re♭', midi: 61, freq: 277.18, wavelengthCm: 123.7, color: '#a855f7', isBlack: true, character: { en: 'Dreamy, velvet, romantic and warm', id: 'Melankolis hangat, lembut, dan romantis', es: 'Soñador, aterciopelado y romántico' }, famousWork: 'D♭ Major: Chopin Nocturne Op. 27 No. 2' },
+  { id: 'D', name: 'D', display: 'D', solfege: 'Re', midi: 62, freq: 293.66, wavelengthCm: 116.8, color: '#f59e0b', isBlack: false, character: { en: 'Triumphant, radiant, bright and joyful', id: 'Megah, berkilau, cerah dan penuh kemenangan', es: 'Triunfal, radiante, brillante y alegre' }, famousWork: 'D Major: Pachelbel Canon in D' },
+  { id: 'Eb', name: 'Eb', display: 'D♯ / E♭', solfege: 'Re♯ / Mi♭', midi: 63, freq: 311.13, wavelengthCm: 110.2, color: '#ec4899', isBlack: true, character: { en: 'Heroic, profound, sovereign and noble', id: 'Heroik, agung, berani dan megah', es: 'Heroico, solemne, profundo y noble' }, famousWork: 'E♭ Major: Beethoven Eroica Symphony' },
+  { id: 'E', name: 'E', display: 'E', solfege: 'Mi', midi: 64, freq: 329.63, wavelengthCm: 104.1, color: '#10b981', isBlack: false, character: { en: 'Luminous, celestial, spring-like and joyful', id: 'Bercahaya, hangat, musim semi dan bahagia', es: 'Luminoso, celestial, primaveral y alegre' }, famousWork: 'E Major: Vivaldi Spring Concerto' },
+  { id: 'F', name: 'F', display: 'F', solfege: 'Fa', midi: 65, freq: 349.23, wavelengthCm: 98.2, color: '#06b6d4', isBlack: false, character: { en: 'Pastoral, calm, open and soothing', id: 'Pastoral, tenang, sejuk dan alami', es: 'Pastoral, sereno, abierto y relajante' }, famousWork: 'F Major: Beethoven Pastoral Symphony' },
+  { id: 'Gb', name: 'Gb', display: 'F♯ / G♭', solfege: 'Fa♯ / Sol♭', midi: 66, freq: 369.99, wavelengthCm: 92.7, color: '#8b5cf6', isBlack: true, character: { en: 'Mystical, shimmering, ethereal and brilliant', id: 'Misterius, gemerlap, magis dan berkilau', es: 'Místico, brillante, etéreo y evocador' }, famousWork: 'G♭ Major: Chopin "Black Key" Etude' },
+  { id: 'G', name: 'G', display: 'G', solfege: 'Sol', midi: 67, freq: 392.00, wavelengthCm: 87.5, color: '#eab308', isBlack: false, character: { en: 'Sunlit, rural, festive and optimistic', id: 'Cerah bagai mentari, pesta, dan optimis', es: 'Soleado, campestre, festivo y optimista' }, famousWork: 'G Major: Bach Cello Suite No. 1 Prelude' },
+  { id: 'Ab', name: 'Ab', display: 'G♯ / A♭', solfege: 'Sol♯ / La♭', midi: 68, freq: 415.30, wavelengthCm: 82.6, color: '#f43f5e', isBlack: true, character: { en: 'Grave, death-bed, noble and elegiac', id: 'Khusyuk, syahdu, puitis dan mendalam', es: 'Grave, solemne, poético y elegíaco' }, famousWork: 'A♭ Major: Chopin "Heroic" Polonaise' },
+  { id: 'A', name: 'A', display: 'A', solfege: 'La (440Hz)', midi: 69, freq: 440.00, wavelengthCm: 78.0, color: '#3b82f6', isBlack: false, character: { en: 'Concert pitch, vibrant, youth and crystal', id: 'Patokan tala konser, murni, muda dan jernih', es: 'Tono de concierto, vibrante, juvenil y cristalino' }, famousWork: 'A Major: Mozart Clarinet Concerto' },
+  { id: 'Bb', name: 'Bb', display: 'A♯ / B♭', solfege: 'La♯ / Si♭', midi: 70, freq: 466.16, wavelengthCm: 73.6, color: '#6366f1', isBlack: true, character: { en: 'Magnificent, prosperous, joyful brass sound', id: 'Megah, penuh harapan, semarak instrumen tiup', es: 'Magnífico, próspero, alegre y resonante' }, famousWork: 'B♭ Major: Brahms Piano Concerto No. 2' },
+  { id: 'B', name: 'B', display: 'B', solfege: 'Si', midi: 71, freq: 493.88, wavelengthCm: 69.4, color: '#14b8a6', isBlack: false, character: { en: 'Piercing, fierce, passionate yearning', id: 'Tajam, penuh hasrat, berenergi tinggi', es: 'Penetrante, apasionado, brillante y fogoso' }, famousWork: 'B Major: Brahms Piano Trio Op. 8' },
+];
+
+export interface EarIntervalItem {
+  semitones: number;
+  shortCode: string;
+  name: { en: string; id: string; es: string };
+  ratio: string;
+  song: { en: string; id: string; es: string };
+  feeling: { en: string; id: string; es: string };
+}
+
+export const EAR_INTERVALS: EarIntervalItem[] = [
+  { semitones: 1, shortCode: 'm2', name: { en: 'Minor 2nd', id: '2nd Minor', es: '2ª Menor' }, ratio: '16:15', song: { en: 'Jaws Theme / Pink Panther', id: 'Lagu Tema Jaws / Suspense', es: 'Tema de Tiburón (Jaws)' }, feeling: { en: 'Ominous, biting clash', id: 'Mencekam, gigitan disonansi tajam', es: 'Tensión inminente y suspenso' } },
+  { semitones: 2, shortCode: 'M2', name: { en: 'Major 2nd', id: '2nd Mayor', es: '2ª Mayor' }, ratio: '9:8', song: { en: 'Happy Birthday / Do-Re-Mi', id: 'Selamat Ulang Tahun / Do-Re', es: 'Cumpleaños Feliz / Do-Re' }, feeling: { en: 'Stepwise rise, hopeful', id: 'Langkah mendaki, cerah', es: 'Paso ascendente natural' } },
+  { semitones: 3, shortCode: 'm3', name: { en: 'Minor 3rd', id: '3rd Minor', es: '3ª Menor' }, ratio: '6:5', song: { en: 'Greensleeves / Brahms Lullaby', id: 'Nina Bobo / Brahms Lullaby', es: 'Nana de Brahms / Greensleeves' }, feeling: { en: 'Melancholic, tender', id: 'Syahdu, sedih lembut, menenangkan', es: 'Melancólico y tierno' } },
+  { semitones: 4, shortCode: 'M3', name: { en: 'Major 3rd', id: '3rd Mayor', es: '3ª Mayor' }, ratio: '5:4', song: { en: 'When the Saints / Kumbaya', id: 'Burung Kakaktua / When the Saints', es: 'La Primavera (Vivaldi) / The Saints' }, feeling: { en: 'Triumphant triad core', id: 'Pondasi Mayor yang ceria', es: 'Luminoso, triunfal y resuelto' } },
+  { semitones: 5, shortCode: 'P4', name: { en: 'Perfect 4th', id: 'Kuart Murni (P4)', es: '4ª Justa (P4)' }, ratio: '4:3', song: { en: 'Here Comes the Bride / Amazing Grace', id: 'Indonesia Pusaka / Mars Pengantin', es: 'Marcha Nupcial / Amazing Grace' }, feeling: { en: 'Noble, heraldic announcement', id: 'Megah, lantang, panggilan ksatria', es: 'Solemne, heráldico y ceremonial' } },
+  { semitones: 6, shortCode: 'TT', name: { en: 'Tritone (dim5 / aug4)', id: 'Triton (Disonan Ekstrem)', es: 'Tritono (dim5 / aug4)' }, ratio: '45:32 (√2)', song: { en: 'The Simpsons / Maria (West Side Story)', id: 'Lagu Tema The Simpsons / Maria', es: 'Tema de Los Simpson / Maria' }, feeling: { en: 'Demonic suspense, diabolus in musica', id: 'Tegangan maksimal menuntut resolusi', es: 'Inquietante, disonante y misterioso' } },
+  { semitones: 7, shortCode: 'P5', name: { en: 'Perfect 5th', id: 'Kuint Murni (P5)', es: '5ª Justa (P5)' }, ratio: '3:2', song: { en: 'Star Wars Theme / Twinkle Twinkle', id: 'Bintang Kecil / Star Wars Main Theme', es: 'Estrellita / Star Wars' }, feeling: { en: 'Hollow, cosmic, crystal stability', id: 'Kuat, stabil, kosmis tanpa ragu', es: 'Poderoso, cósmico y de máxima consonancia' } },
+  { semitones: 8, shortCode: 'm6', name: { en: 'Minor 6th', id: '6th Minor', es: '6ª Menor' }, ratio: '8:5', song: { en: 'The Entertainer / Love Story', id: 'Love Story / Melodi Nostalgia', es: 'Historia de Amor / The Entertainer' }, feeling: { en: 'Romantic longing, weeping', id: 'Kerinduan romantis mendalam', es: 'Anhelo apasionado y nostalgia' } },
+  { semitones: 9, shortCode: 'M6', name: { en: 'Major 6th', id: '6th Mayor', es: '6ª Mayor' }, ratio: '5:3', song: { en: 'NBC Chimes / My Bonnie', id: 'Jingle Nada NBC / My Bonnie', es: 'Jingle NBC / My Bonnie' }, feeling: { en: 'Warm pastoral embrace', id: 'Hangat, riang, bersahabat', es: 'Cálido, alegre y reconfortante' } },
+  { semitones: 10, shortCode: 'm7', name: { en: 'Minor 7th', id: '7th Minor', es: '7ª Menor' }, ratio: '16:9', song: { en: 'Somewhere (West Side Story) / Star Trek', id: 'Somewhere / Tema Star Trek', es: 'Somewhere / Star Trek' }, feeling: { en: 'Blues tension, yearning leap', id: 'Nuansa blues, loncatan rindu', es: 'Tensión de blues y apertura hacia la octava' } },
+  { semitones: 11, shortCode: 'M7', name: { en: 'Major 7th', id: '7th Mayor', es: '7ª Mayor' }, ratio: '15:8', song: { en: 'Take On Me / Don\'t Know Why', id: 'Take On Me (A-ha) / Jazz Leading', es: 'Take On Me (A-ha) / Acordes Jazz' }, feeling: { en: 'Intensely romantic leading tone', id: 'Sangat romantis, magnet menuju oktaf', es: 'Sensible, jazzero y ardientemente suspendido' } },
+  { semitones: 12, shortCode: 'P8', name: { en: 'Perfect Octave', id: 'Oktaf Murni (P8)', es: 'Octava Justa (P8)' }, ratio: '2:1', song: { en: 'Over the Rainbow / Singin\' in the Rain', id: 'Over the Rainbow / Nada Kembar', es: 'Over the Rainbow' }, feeling: { en: 'Complete harmonic closure, twin resonance', id: 'Resolusi mutlak, nada kembar sempurna', es: 'Identidad tonal perfecta y plenitud' } },
+];
+
+const MIDI_TO_SAMPLE_NAME: Record<number, string> = {};
+const SAMPLE_BASE_NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
+for (let midi = 21; midi <= 108; midi++) {
+  const octave = Math.floor(midi / 12) - 1;
+  const noteName = SAMPLE_BASE_NAMES[midi % 12];
+  MIDI_TO_SAMPLE_NAME[midi] = `${noteName}${octave}`;
+}
+
+export interface EarChordItem {
+  id: string;
+  symbol: string;
+  name: { en: string; id: string; es: string };
+  intervals: number[];
+  formula: string;
+  feeling: { en: string; id: string; es: string };
+}
+
+export const EAR_CHORDS: EarChordItem[] = [
+  { id: 'major', symbol: 'Maj', name: { en: 'Major Triad', id: 'Triad Mayor', es: 'Tríada Mayor' }, intervals: [0, 4, 7], formula: '1 - 3 - 5', feeling: { en: 'Bright, stable, triumphant', id: 'Cerah, stabil, megah & gembira', es: 'Brillante, alegre y estable' } },
+  { id: 'minor', symbol: 'min', name: { en: 'Minor Triad', id: 'Triad Minor', es: 'Tríada Menor' }, intervals: [0, 3, 7], formula: '1 - ♭3 - 5', feeling: { en: 'Melancholic, sad, deep', id: 'Syahdu, sedih, emosional', es: 'Melancólico, triste y profundo' } },
+  { id: 'dim', symbol: 'dim', name: { en: 'Diminished', id: 'Akor Diminished', es: 'Disminuido' }, intervals: [0, 3, 6], formula: '1 - ♭3 - ♭5', feeling: { en: 'Tense, suspenseful, horror', id: 'Sangat tegang, misterius & disonan', es: 'Tenso, inestable y dramático' } },
+  { id: 'aug', symbol: 'aug', name: { en: 'Augmented', id: 'Akor Augmented', es: 'Aumentado' }, intervals: [0, 4, 8], formula: '1 - 3 - ♯5', feeling: { en: 'Dreamy, surreal, floating', id: 'Mengambang, mimpi, surealis', es: 'Soñador, flotante y etéreo' } },
+  { id: 'sus4', symbol: 'sus4', name: { en: 'Suspended 4th', id: 'Akor Sus4', es: 'Suspendido 4' }, intervals: [0, 5, 7], formula: '1 - 4 - 5', feeling: { en: 'Open, unresolved, yearning', id: 'Terbuka, menggantung, rindu', es: 'Abierto, suspendido y expectante' } },
+  { id: 'sus2', symbol: 'sus2', name: { en: 'Suspended 2nd', id: 'Akor Sus2', es: 'Suspendido 2' }, intervals: [0, 2, 7], formula: '1 - 2 - 5', feeling: { en: 'Airy, modern, expansive', id: 'Lapang, modern, mengalun', es: 'Etéreo, moderno y abierto' } },
+  { id: 'dom7', symbol: '7', name: { en: 'Dominant 7th', id: 'Dominan 7th', es: 'Séptima Dominante' }, intervals: [0, 4, 7, 10], formula: '1 - 3 - 5 - ♭7', feeling: { en: 'Bluesy, energetic cadence', id: 'Blues, funk, tensi jazz', es: 'Bluesero, dinámico y con tensión' } },
+  { id: 'maj7', symbol: 'maj7', name: { en: 'Major 7th', id: 'Mayor 7th (maj7)', es: 'Séptima Mayor' }, intervals: [0, 4, 7, 11], formula: '1 - 3 - 5 - 7', feeling: { en: 'Smooth, lush, nostalgic jazz', id: 'Manis, santai, jazzy elegan', es: 'Cálido, elegante y nostálgico' } },
+  { id: 'min7', symbol: 'm7', name: { en: 'Minor 7th', id: 'Minor 7th (m7)', es: 'Séptima Menor' }, intervals: [0, 3, 7, 10], formula: '1 - ♭3 - 5 - ♭7', feeling: { en: 'Mellow, neo-soul, lo-fi', id: 'Hangat, lembut, neo-soul', es: 'Suave, intimista y neo-soul' } },
+  { id: 'm7b5', symbol: 'ø7 / m7♭5', name: { en: 'Half-Diminished', id: 'Half-Diminished (m7♭5)', es: 'Semidisminuido' }, intervals: [0, 3, 6, 10], formula: '1 - ♭3 - ♭5 - ♭7', feeling: { en: 'Tragic, jazz minor cadence', id: 'Tragis, kadens jazz minor', es: 'Trágico, misterioso y jazzístico' } },
+  { id: 'dim7', symbol: '°7 / dim7', name: { en: 'Diminished 7th', id: 'Diminished 7th (°7)', es: 'Séptima Disminuida' }, intervals: [0, 3, 6, 9], formula: '1 - ♭3 - ♭5 - 𝄫7', feeling: { en: 'Dramatic tension, suspense', id: 'Ketegangan klimaks, dramatis', es: 'Tensión dramática y suspenso' } },
+  { id: 'maj6', symbol: '6', name: { en: 'Major 6th', id: 'Mayor 6th (Maj6)', es: 'Sexta Mayor' }, intervals: [0, 4, 7, 9], formula: '1 - 3 - 5 - 6', feeling: { en: 'Sweet vintage swing, cozy', id: 'Vintage swing klasik, manis', es: 'Dulce, retro y swing clásico' } },
+];
+
+export interface EarScaleOption {
+  id: string;
+  name: { en: string; id: string; es: string };
+  accidentals: string;
+  rootPitchClass: number;
+  pitchClasses: number[];
+}
+
+export const EAR_SCALES: EarScaleOption[] = [
+  // 12 Major Scales
+  { id: 'c_maj', name: { en: 'C Major', id: 'C Mayor', es: 'Do Mayor' }, accidentals: 'Natural (0♯/0♭)', rootPitchClass: 0, pitchClasses: [0, 2, 4, 5, 7, 9, 11] },
+  { id: 'g_maj', name: { en: 'G Major (1♯)', id: 'G Mayor (1♯)', es: 'Sol Mayor (1♯)' }, accidentals: '1♯ (F♯)', rootPitchClass: 7, pitchClasses: [7, 9, 11, 0, 2, 4, 6] },
+  { id: 'd_maj', name: { en: 'D Major (2♯)', id: 'D Mayor (2♯)', es: 'Re Mayor (2♯)' }, accidentals: '2♯ (F♯, C♯)', rootPitchClass: 2, pitchClasses: [2, 4, 6, 7, 9, 11, 1] },
+  { id: 'a_maj', name: { en: 'A Major (3♯)', id: 'A Mayor (3♯)', es: 'La Mayor (3♯)' }, accidentals: '3♯ (F♯, C♯, G♯)', rootPitchClass: 9, pitchClasses: [9, 11, 1, 2, 4, 6, 8] },
+  { id: 'e_maj', name: { en: 'E Major (4♯)', id: 'E Mayor (4♯)', es: 'Mi Mayor (4♯)' }, accidentals: '4♯ (F♯, C♯, G♯, D♯)', rootPitchClass: 4, pitchClasses: [4, 6, 8, 9, 11, 1, 3] },
+  { id: 'b_maj', name: { en: 'B Major (5♯)', id: 'B Mayor (5♯)', es: 'Si Mayor (5♯)' }, accidentals: '5♯ (F♯, C♯, G♯, D♯, A♯)', rootPitchClass: 11, pitchClasses: [11, 1, 3, 4, 6, 8, 10] },
+  { id: 'fs_maj', name: { en: 'F♯ Major (6♯)', id: 'F♯ Mayor (6♯)', es: 'Fa♯ Mayor (6♯)' }, accidentals: '6♯ (F♯, C♯, G♯, D♯, A♯, E♯)', rootPitchClass: 6, pitchClasses: [6, 8, 10, 11, 1, 3, 5] },
+  { id: 'db_maj', name: { en: 'D♭ Major (5♭)', id: 'D♭ Mayor (5♭)', es: 'Re♭ Mayor (5♭)' }, accidentals: '5♭ (B♭, E♭, A♭, D♭, G♭)', rootPitchClass: 1, pitchClasses: [1, 3, 5, 6, 8, 10, 0] },
+  { id: 'ab_maj', name: { en: 'A♭ Major (4♭)', id: 'A♭ Mayor (4♭)', es: 'La♭ Mayor (4♭)' }, accidentals: '4♭ (B♭, E♭, A♭, D♭)', rootPitchClass: 8, pitchClasses: [8, 10, 0, 1, 3, 5, 7] },
+  { id: 'eb_maj', name: { en: 'E♭ Major (3♭)', id: 'E♭ Mayor (3♭)', es: 'Mi♭ Mayor (3♭)' }, accidentals: '3♭ (B♭, E♭, A♭)', rootPitchClass: 3, pitchClasses: [3, 5, 7, 8, 10, 0, 2] },
+  { id: 'bb_maj', name: { en: 'B♭ Major (2♭)', id: 'B♭ Mayor (2♭)', es: 'Si♭ Mayor (2♭)' }, accidentals: '2♭ (B♭, E♭)', rootPitchClass: 10, pitchClasses: [10, 0, 2, 3, 5, 7, 9] },
+  { id: 'f_maj', name: { en: 'F Major (1♭)', id: 'F Mayor (1♭)', es: 'Fa Mayor (1♭)' }, accidentals: '1♭ (B♭)', rootPitchClass: 5, pitchClasses: [5, 7, 9, 10, 0, 2, 4] },
+  // 12 Minor Scales
+  { id: 'a_min', name: { en: 'A Minor', id: 'A Minor', es: 'La Menor' }, accidentals: 'Natural (0♯/0♭)', rootPitchClass: 9, pitchClasses: [9, 11, 0, 2, 4, 5, 7] },
+  { id: 'e_min', name: { en: 'E Minor (1♯)', id: 'E Minor (1♯)', es: 'Mi Menor (1♯)' }, accidentals: '1♯ (F♯)', rootPitchClass: 4, pitchClasses: [4, 6, 7, 9, 11, 0, 2] },
+  { id: 'b_min', name: { en: 'B Minor (2♯)', id: 'B Minor (2♯)', es: 'Si Menor (2♯)' }, accidentals: '2♯ (F♯, C♯)', rootPitchClass: 11, pitchClasses: [11, 1, 2, 4, 6, 7, 9] },
+  { id: 'fs_min', name: { en: 'F♯ Minor (3♯)', id: 'F♯ Minor (3♯)', es: 'Fa♯ Menor (3♯)' }, accidentals: '3♯ (F♯, C♯, G♯)', rootPitchClass: 6, pitchClasses: [6, 8, 9, 11, 1, 2, 4] },
+  { id: 'cs_min', name: { en: 'C♯ Minor (4♯)', id: 'C♯ Minor (4♯)', es: 'Do♯ Menor (4♯)' }, accidentals: '4♯ (F♯, C♯, G♯, D♯)', rootPitchClass: 1, pitchClasses: [1, 3, 4, 6, 8, 9, 11] },
+  { id: 'gs_min', name: { en: 'G♯ Minor (5♯)', id: 'G♯ Minor (5♯)', es: 'Sol♯ Menor (5♯)' }, accidentals: '5♯ (F♯, C♯, G♯, D♯, A♯)', rootPitchClass: 8, pitchClasses: [8, 10, 11, 1, 3, 4, 6] },
+  { id: 'ds_min', name: { en: 'D♯ Minor (6♯)', id: 'D♯ Minor (6♯)', es: 'Re♯ Menor (6♯)' }, accidentals: '6♯ (F♯, C♯, G♯, D♯, A♯, E♯)', rootPitchClass: 3, pitchClasses: [3, 5, 6, 8, 10, 11, 1] },
+  { id: 'bb_min', name: { en: 'B♭ Minor (5♭)', id: 'B♭ Minor (5♭)', es: 'Si♭ Menor (5♭)' }, accidentals: '5♭ (B♭, E♭, A♭, D♭, G♭)', rootPitchClass: 10, pitchClasses: [10, 0, 1, 3, 5, 6, 8] },
+  { id: 'f_min', name: { en: 'F Minor (4♭)', id: 'F Minor (4♭)', es: 'Fa Menor (4♭)' }, accidentals: '4♭ (B♭, E♭, A♭, D♭)', rootPitchClass: 5, pitchClasses: [5, 7, 8, 10, 0, 1, 3] },
+  { id: 'c_min', name: { en: 'C Minor (3♭)', id: 'C Minor (3♭)', es: 'Do Menor (3♭)' }, accidentals: '3♭ (B♭, E♭, A♭)', rootPitchClass: 0, pitchClasses: [0, 2, 3, 5, 7, 8, 10] },
+  { id: 'g_min', name: { en: 'G Minor (2♭)', id: 'G Minor (2♭)', es: 'Sol Menor (2♭)' }, accidentals: '2♭ (B♭, E♭)', rootPitchClass: 7, pitchClasses: [7, 9, 10, 0, 2, 3, 5] },
+  { id: 'd_min', name: { en: 'D Minor (1♭)', id: 'D Minor (1♭)', es: 'Re Menor (1♭)' }, accidentals: '1♭ (B♭)', rootPitchClass: 2, pitchClasses: [2, 4, 5, 7, 9, 10, 0] },
+];
+
+export const ROOT_KEY_CHOICES: { pitchClass: number; display: string }[] = [
+  { pitchClass: 0, display: 'C' },
+  { pitchClass: 1, display: 'C♯ / D♭' },
+  { pitchClass: 2, display: 'D' },
+  { pitchClass: 3, display: 'D♯ / E♭' },
+  { pitchClass: 4, display: 'E' },
+  { pitchClass: 5, display: 'F' },
+  { pitchClass: 6, display: 'F♯ / G♭' },
+  { pitchClass: 7, display: 'G' },
+  { pitchClass: 8, display: 'G♯ / A♭' },
+  { pitchClass: 9, display: 'A' },
+  { pitchClass: 10, display: 'A♯ / B♭' },
+  { pitchClass: 11, display: 'B' },
+];
+
+export const getIntervalTargetName = (rootPc: number, semitones: number): string => {
+  const targetPc = (rootPc + semitones) % 12;
+  const flatNames = ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', 'B♭', 'B'];
+  const sharpNames = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+  const preferFlats = [1, 3, 6, 8, 10].includes(semitones) || [1, 3, 5, 8, 10].includes(rootPc);
+  return preferFlats ? flatNames[targetPc] : sharpNames[targetPc];
+};
+
+export const getEarRootName = (rootPc: number): string => {
+  const flatRoots: Record<number, string> = { 0: 'C', 1: 'D♭', 2: 'D', 3: 'E♭', 4: 'E', 5: 'F', 6: 'G♭', 7: 'G', 8: 'A♭', 9: 'A', 10: 'B♭', 11: 'B' };
+  const sharpRoots: Record<number, string> = { 0: 'C', 1: 'C♯', 2: 'D', 3: 'D♯', 4: 'E', 5: 'F', 6: 'F♯', 7: 'G', 8: 'G♯', 9: 'A', 10: 'A♯', 11: 'B' };
+  return [1, 3, 8, 10].includes(rootPc) ? flatRoots[rootPc] : sharpRoots[rootPc];
+};
+
+export const getChordNotesSpelling = (rootPc: number, intervals: number[]): string => {
+  const flatNames = ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', 'B♭', 'B'];
+  const sharpNames = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+  return intervals.map(inv => {
+    const pc = (rootPc + inv) % 12;
+    const isFlat = [1, 3, 6, 8, 10].includes(inv) || [1, 3, 8, 10].includes(rootPc);
+    return isFlat ? flatNames[pc] : sharpNames[pc];
+  }).join(' • ');
+};
+
+export const MiniPianoKeys: React.FC<{
+  activePitches: number[];
+  highlightColor?: string;
+  width?: number;
+  height?: number;
+  className?: string;
+}> = ({
+  activePitches,
+  highlightColor = '#a855f7',
+  width = 68,
+  height = 24,
+  className = '',
+}) => {
+  const whiteKeyPitches = [0, 2, 4, 5, 7, 9, 11];
+  const kw = width / 7;
+  const bw = kw * 0.65;
+  const bh = height * 0.6;
+
+  const blackKeys = [
+    { pitch: 1, x: 1 * kw - bw / 2 },
+    { pitch: 3, x: 2 * kw - bw / 2 },
+    { pitch: 6, x: 4 * kw - bw / 2 },
+    { pitch: 8, x: 5 * kw - bw / 2 },
+    { pitch: 10, x: 6 * kw - bw / 2 },
+  ];
+
+  return (
+    <svg
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      className={`rounded overflow-hidden select-none ${className}`}
+      style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.5))' }}
+    >
+      <rect x="0" y="0" width={width} height={height} rx="2" fill="#090d16" />
+      {whiteKeyPitches.map((pitch, idx) => {
+        const isActive = activePitches.includes(pitch);
+        const x = idx * kw;
+        return (
+          <rect
+            key={pitch}
+            x={x + 0.4}
+            y="0.4"
+            width={kw - 0.8}
+            height={height - 0.8}
+            rx="1"
+            fill={isActive ? highlightColor : '#e2e8f0'}
+            stroke={isActive ? '#ffffff' : '#94a3b8'}
+            strokeWidth={isActive ? '1.2' : '0.5'}
+          />
+        );
+      })}
+      {blackKeys.map((bk) => {
+        const isActive = activePitches.includes(bk.pitch);
+        return (
+          <rect
+            key={bk.pitch}
+            x={bk.x}
+            y="0.4"
+            width={bw}
+            height={bh}
+            rx="0.8"
+            fill={isActive ? highlightColor : '#0f172a'}
+            stroke={isActive ? '#ffffff' : '#334155'}
+            strokeWidth={isActive ? '1.2' : '0.5'}
+          />
+        );
+      })}
+    </svg>
+  );
+};
+
 
 export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
   onBackToMainMenu,
@@ -714,8 +991,9 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
     { id: 'roblox', num: '04', step: 4, label: 'Keyboard PC & Virtual Piano', sub: 'Peta 61-Tuts MIRP, Compact & NKRO', badge: 'QWERTY' },
     { id: 'theory', num: '05', step: 5, label: 'Teori Harmoni & Voice Leading', sub: 'Interval, Inversi, Modus & Lingkaran Kuint', badge: 'TEORI' },
     { id: 'exercises', num: '06', step: 6, label: 'Drill Teknis & Kurikulum Latihan', sub: 'Generator Latihan 12 Kunci & Etude', badge: 'PRAKTIK' },
-    { id: 'midieditor', num: '07', step: 7, label: 'Editor MIDI & Sekuenser', sub: 'Piano Roll, Kuantisasi & Velocity', badge: 'PRODUKSI' },
-    { id: 'videos', num: '08', step: 8, label: 'Referensi Video & Studi Kasus', sub: 'Kurasi Masterclass & Intisari Materi', badge: 'VIDEO' },
+    { id: 'perfectpitch', num: '07', step: 7, label: 'Pelatihan Perfect Pitch & Telinga', sub: 'Pengenalan Nada Absolut, Uji Telinga & Interval', badge: 'EAR' },
+    { id: 'midieditor', num: '08', step: 8, label: 'Editor MIDI & Sekuenser', sub: 'Piano Roll, Kuantisasi & Velocity', badge: 'PRODUKSI' },
+    { id: 'videos', num: '09', step: 9, label: 'Referensi Video & Studi Kasus', sub: 'Kurasi Masterclass & Intisari Materi', badge: 'VIDEO' },
   ] : isEs ? [
     { id: 'sheet', num: '01', step: 1, label: 'Partituras y Gran Pentagrama', sub: 'Claves, Ritmo, Articulación y Ornamentos', badge: 'NOTACIÓN' },
     { id: 'falling', num: '02', step: 2, label: 'Notas Cayendo y Modo Espera', sub: 'Piano Roll, Ventana de Impacto y Sincronización', badge: 'MOTOR' },
@@ -723,8 +1001,9 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
     { id: 'roblox', num: '04', step: 4, label: 'Teclado PC y Piano Virtual', sub: 'Mapa MIRP de 61 Teclas, Compact y NKRO', badge: 'QWERTY' },
     { id: 'theory', num: '05', step: 5, label: 'Teoría Armónica y Conducción', sub: 'Intervalos, Inversiones, Modos y Quintas', badge: 'TEORÍA' },
     { id: 'exercises', num: '06', step: 6, label: 'Ejercicios Técnicos y Rutina', sub: 'Generador en 12 Tonalidades y Estudios', badge: 'PRÁCTICA' },
-    { id: 'midieditor', num: '07', step: 7, label: 'Editor MIDI y Secuenciador', sub: 'Piano Roll, Cuantización y Velocidad', badge: 'PRODUCCIÓN' },
-    { id: 'videos', num: '08', step: 8, label: 'Videoteca y Guía de Estudio', sub: 'Clases Magistrales y Puntos Clave', badge: 'VIDEO' },
+    { id: 'perfectpitch', num: '07', step: 7, label: 'Entrenamiento de Oído Absoluto', sub: 'Reconocimiento de Tono, Test Auditivo e Intervalos', badge: 'OÍDO' },
+    { id: 'midieditor', num: '08', step: 8, label: 'Editor MIDI y Secuenciador', sub: 'Piano Roll, Cuantización y Velocidad', badge: 'PRODUCCIÓN' },
+    { id: 'videos', num: '09', step: 9, label: 'Videoteca y Guía de Estudio', sub: 'Clases Magistrales y Puntos Clave', badge: 'VIDEO' },
   ] : [
     { id: 'sheet', num: '01', step: 1, label: 'Sheet Music & Grand Staff', sub: 'Clefs, Rhythm, Ornaments & Form', badge: 'NOTATION' },
     { id: 'falling', num: '02', step: 2, label: 'Falling Notes & Wait Mode', sub: 'Piano Roll, Hit Windows & Sync Engine', badge: 'ENGINE' },
@@ -732,8 +1011,9 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
     { id: 'roblox', num: '04', step: 4, label: 'PC Keyboard & Virtual Piano', sub: '61-Key MIRP Map, Compact & NKRO', badge: 'QWERTY' },
     { id: 'theory', num: '05', step: 5, label: 'Harmonic Theory & Voicing', sub: 'Intervals, Inversions, Modes & 5ths', badge: 'THEORY' },
     { id: 'exercises', num: '06', step: 6, label: 'Technical Drills & Etudes', sub: '12-Key Drill Generator & Daily Routine', badge: 'DRILLS' },
-    { id: 'midieditor', num: '07', step: 7, label: 'MIDI Editor & Sequencer', sub: 'Piano Roll, Quantization & Velocity', badge: 'PRODUCTION' },
-    { id: 'videos', num: '08', step: 8, label: 'Video Reference Library', sub: 'Curated Masterclasses & Study Notes', badge: 'VIDEO' },
+    { id: 'perfectpitch', num: '07', step: 7, label: 'Perfect Pitch & Ear Training', sub: 'Absolute Pitch Recognition, Audio Quiz & Intervals', badge: 'EAR' },
+    { id: 'midieditor', num: '08', step: 8, label: 'MIDI Editor & Sequencer', sub: 'Piano Roll, Quantization & Velocity', badge: 'PRODUCTION' },
+    { id: 'videos', num: '09', step: 9, label: 'Video Reference Library', sub: 'Curated Masterclasses & Study Notes', badge: 'VIDEO' },
   ];
 
   const currentIndex = chapters.findIndex((c) => c.id === activeChapter);
@@ -747,6 +1027,569 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
     if (articleScrollRef.current) {
       articleScrollRef.current.scrollTo({ top: 0, behavior: 'smooth' });
     }
+  };
+
+  // Perfect Pitch Training Engine State
+  const earAudioCtxRef = useRef<AudioContext | null>(null);
+  const earMasterGainRef = useRef<GainNode | null>(null);
+  const earCompressorRef = useRef<DynamicsCompressorNode | null>(null);
+  const earSampleCacheRef = useRef<Map<number, AudioBuffer>>(new Map());
+  const earPlaybackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [earTrainingMode, setEarTrainingMode] = useState<'pitch' | 'interval' | 'chord'>('pitch');
+  const [earPitchDifficulty, setEarPitchDifficulty] = useState<'white' | 'chromatic' | 'wide'>('white');
+  const [earScaleSetting, setEarScaleSetting] = useState<'all' | 'random' | string>('all');
+  const [earActiveScaleId, setEarActiveScaleId] = useState<string | null>(null);
+  const [earRootKeySetting, setEarRootKeySetting] = useState<'random' | number>('random');
+  const [currentQuizMidi, setCurrentQuizMidi] = useState<number | null>(null);
+  const [currentQuizInterval, setCurrentQuizInterval] = useState<{ rootMidi: number; rootPc: number; rootName: string; semitones: number } | null>(null);
+  const [currentQuizChord, setCurrentQuizChord] = useState<{ rootMidi: number; rootPc: number; rootName: string; chord: EarChordItem } | null>(null);
+  const [earChoiceRootMode, setEarChoiceRootMode] = useState<'fixed' | 'mixed'>('mixed');
+  const [quizIntervalChoices, setQuizIntervalChoices] = useState<{ id: string; rootPc: number; rootName: string; targetName: string; interval: EarIntervalItem; isCorrect: boolean }[]>([]);
+  const [quizChordChoices, setQuizChordChoices] = useState<{ id: string; rootPc: number; rootName: string; chord: EarChordItem; isCorrect: boolean }[]>([]);
+  const [isAudioTonePlaying, setIsAudioTonePlaying] = useState<boolean>(false);
+  const [earQuizAnswered, setEarQuizAnswered] = useState<boolean>(false);
+  const [lastGuessedValue, setLastGuessedValue] = useState<string | null>(null);
+  const [isLastGuessCorrect, setIsLastGuessCorrect] = useState<boolean | null>(null);
+  const [earStreak, setEarStreak] = useState<number>(0);
+  const [earBestStreak, setEarBestStreak] = useState<number>(0);
+  const [earTotalGuessed, setEarTotalGuessed] = useState<number>(0);
+  const [earCorrectGuessed, setEarCorrectGuessed] = useState<number>(0);
+  const [earHeatmapStats, setEarHeatmapStats] = useState<Record<string, { total: number; correct: number }>>({});
+  const [earAutoAdvance, setEarAutoAdvance] = useState<boolean>(false);
+
+  useEffect(() => {
+    return () => {
+      if (earPlaybackTimerRef.current) {
+        clearTimeout(earPlaybackTimerRef.current);
+        earPlaybackTimerRef.current = null;
+      }
+      if (earAudioCtxRef.current && earAudioCtxRef.current.state !== 'closed') {
+        earAudioCtxRef.current.close().catch(() => {});
+        earAudioCtxRef.current = null;
+      }
+    };
+  }, []);
+
+  const getEarAudioContext = useCallback(() => {
+    if (!earAudioCtxRef.current) {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx) {
+        const ctx = new AudioCtx();
+        earAudioCtxRef.current = ctx;
+
+        // Limiter/compressor to avoid distortion on high volume
+        const comp = ctx.createDynamicsCompressor();
+        comp.threshold.setValueAtTime(-8, ctx.currentTime);
+        comp.knee.setValueAtTime(6, ctx.currentTime);
+        comp.ratio.setValueAtTime(5, ctx.currentTime);
+        comp.attack.setValueAtTime(0.002, ctx.currentTime);
+        comp.release.setValueAtTime(0.2, ctx.currentTime);
+
+        // Dedicated boosted master gain node (always loud & clear)
+        const masterGain = ctx.createGain();
+        masterGain.gain.setValueAtTime(1.4, ctx.currentTime);
+
+        masterGain.connect(comp);
+        comp.connect(ctx.destination);
+
+        earMasterGainRef.current = masterGain;
+        earCompressorRef.current = comp;
+      }
+    }
+    return earAudioCtxRef.current;
+  }, []);
+
+  const setEarAudioPlayingFor = useCallback((durationSec: number) => {
+    setIsAudioTonePlaying(true);
+    if (earPlaybackTimerRef.current) {
+      clearTimeout(earPlaybackTimerRef.current);
+    }
+    earPlaybackTimerRef.current = setTimeout(() => {
+      setIsAudioTonePlaying(false);
+      earPlaybackTimerRef.current = null;
+    }, durationSec * 1000);
+  }, []);
+
+  // Preload real piano MP3 samples eagerly for instantaneous high-quality acoustic piano playback
+  const preloadEarPianoSamples = useCallback(async () => {
+    const ctx = getEarAudioContext();
+    if (!ctx) return;
+    const priorityMidis = [60, 62, 64, 65, 67, 69, 71, 61, 63, 66, 68, 70];
+    const otherMidis: number[] = [];
+    for (let m = 48; m <= 83; m++) {
+      if (!priorityMidis.includes(m)) otherMidis.push(m);
+    }
+
+    const loadSample = async (midi: number) => {
+      if (earSampleCacheRef.current.has(midi)) return;
+      const name = MIDI_TO_SAMPLE_NAME[midi];
+      if (!name) return;
+      try {
+        const resp = await fetch(`/sounds/piano/${name}.mp3`);
+        if (resp.ok) {
+          const ab = await resp.arrayBuffer();
+          const buf = await ctx.decodeAudioData(ab);
+          earSampleCacheRef.current.set(midi, buf);
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    await Promise.all(priorityMidis.map(loadSample));
+    void Promise.all(otherMidis.map(loadSample));
+  }, [getEarAudioContext]);
+
+  useEffect(() => {
+    if (activeChapter === 'perfectpitch') {
+      void preloadEarPianoSamples();
+    }
+  }, [activeChapter, preloadEarPianoSamples]);
+
+  const playEarNoteSound = useCallback(async (midi: number, durationSec = 2.0, delaySec = 0, shouldManagePlayingState = true) => {
+    try {
+      const ctx = getEarAudioContext();
+      if (!ctx) return;
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
+      if (shouldManagePlayingState) {
+        setEarAudioPlayingFor(delaySec + durationSec);
+      }
+      const startTime = ctx.currentTime + delaySec;
+      const masterNode = earMasterGainRef.current || ctx.destination;
+
+      const sampleName = MIDI_TO_SAMPLE_NAME[midi];
+      let buffer = earSampleCacheRef.current.get(midi);
+      if (!buffer && sampleName) {
+        try {
+          const resp = await fetch(`/sounds/piano/${sampleName}.mp3`);
+          if (resp.ok) {
+            const ab = await resp.arrayBuffer();
+            buffer = await ctx.decodeAudioData(ab);
+            earSampleCacheRef.current.set(midi, buffer);
+          }
+        } catch (e) {
+          // fallback to acoustic synth below
+        }
+      }
+
+      if (buffer) {
+        const src = ctx.createBufferSource();
+        const gain = ctx.createGain();
+        src.buffer = buffer;
+        // Strong, full piano sample playback
+        gain.gain.setValueAtTime(1.2, startTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, startTime + durationSec);
+        src.connect(gain);
+        gain.connect(masterNode);
+        src.start(startTime);
+        src.stop(startTime + durationSec + 0.05);
+      } else {
+        // Multi-harmonic warm acoustic piano simulation fallback
+        const freq = 440 * Math.pow(2, (midi - 69) / 12);
+        const osc1 = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
+        const osc3 = ctx.createOscillator();
+        const osc4 = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc1.type = 'triangle';
+        osc1.frequency.setValueAtTime(freq, startTime);
+        osc2.type = 'sine';
+        osc2.frequency.setValueAtTime(freq * 2, startTime);
+        osc3.type = 'sine';
+        osc3.frequency.setValueAtTime(freq * 3, startTime);
+        osc4.type = 'sine';
+        osc4.frequency.setValueAtTime(freq * 4, startTime);
+
+        const g1 = ctx.createGain(); g1.gain.value = 0.85;
+        const g2 = ctx.createGain(); g2.gain.value = 0.5;
+        const g3 = ctx.createGain(); g3.gain.value = 0.25;
+        const g4 = ctx.createGain(); g4.gain.value = 0.12;
+
+        osc1.connect(g1); g1.connect(gain);
+        osc2.connect(g2); g2.connect(gain);
+        osc3.connect(g3); g3.connect(gain);
+        osc4.connect(g4); g4.connect(gain);
+
+        gain.gain.setValueAtTime(0.001, startTime);
+        gain.gain.linearRampToValueAtTime(1.25, startTime + 0.008);
+        gain.gain.exponentialRampToValueAtTime(0.0001, startTime + durationSec);
+
+        gain.connect(masterNode);
+
+        osc1.start(startTime); osc2.start(startTime); osc3.start(startTime); osc4.start(startTime);
+        osc1.stop(startTime + durationSec); osc2.stop(startTime + durationSec);
+        osc3.stop(startTime + durationSec); osc4.stop(startTime + durationSec);
+      }
+    } catch (err) {
+      console.warn('Ear tone audio error:', err);
+      setIsAudioTonePlaying(false);
+    }
+  }, [getEarAudioContext, setEarAudioPlayingFor]);
+
+  const playEarIntervalSound = useCallback(async (rootMidi: number, semitones: number) => {
+    setEarAudioPlayingFor(2.5);
+    // Play simultaneously together directly
+    void playEarNoteSound(rootMidi, 2.3, 0, false);
+    void playEarNoteSound(rootMidi + semitones, 2.3, 0, false);
+  }, [playEarNoteSound, setEarAudioPlayingFor]);
+
+  const playEarChordSound = useCallback(async (rootMidi: number, intervals: number[]) => {
+    const blockDelay = intervals.length * 0.1 + 0.15;
+    const totalDuration = blockDelay + 2.3;
+    setEarAudioPlayingFor(totalDuration);
+    // Arpeggiate ascending
+    intervals.forEach((inv, idx) => {
+      void playEarNoteSound(rootMidi + inv, 1.4, idx * 0.1, false);
+    });
+    // Resonant solid chord block
+    intervals.forEach((inv) => {
+      void playEarNoteSound(rootMidi + inv, 2.3, blockDelay, false);
+    });
+  }, [playEarNoteSound, setEarAudioPlayingFor]);
+
+  const playSuccessChime = useCallback(async () => {
+    setEarAudioPlayingFor(1.2);
+    void playEarNoteSound(72, 0.4, 0, false);
+    void playEarNoteSound(76, 0.6, 0.14, false);
+    void playEarNoteSound(79, 1.0, 0.28, false);
+  }, [playEarNoteSound, setEarAudioPlayingFor]);
+
+  const playFailTone = useCallback(async () => {
+    setEarAudioPlayingFor(0.8);
+    void playEarNoteSound(58, 0.8, 0, false);
+  }, [playEarNoteSound, setEarAudioPlayingFor]);
+
+  const handleGenerateNewEarQuestion = useCallback((overrideMode?: 'pitch' | 'interval' | 'chord') => {
+    const activeMode = overrideMode || earTrainingMode;
+    setEarQuizAnswered(false);
+    setLastGuessedValue(null);
+    setIsLastGuessCorrect(null);
+
+    // Resolve active scale / key for all 3 modes
+    let chosenScaleId = earScaleSetting;
+    if (earScaleSetting === 'random') {
+      const randScale = EAR_SCALES[Math.floor(Math.random() * EAR_SCALES.length)];
+      chosenScaleId = randScale.id;
+      setEarActiveScaleId(randScale.id);
+    } else if (earScaleSetting !== 'all') {
+      setEarActiveScaleId(earScaleSetting);
+    } else {
+      setEarActiveScaleId(null);
+    }
+
+    const activeScale = EAR_SCALES.find(s => s.id === chosenScaleId);
+    const activeRootPc = activeScale
+      ? activeScale.rootPitchClass
+      : (earScaleSetting === 'all' ? Math.floor(Math.random() * 12) : 0);
+
+    const rootChoice = ROOT_KEY_CHOICES.find(r => r.pitchClass === activeRootPc) || ROOT_KEY_CHOICES[0];
+    const rootName = activeScale
+      ? (isId ? activeScale.name.id : isEs ? activeScale.name.es : activeScale.name.en)
+      : rootChoice.display;
+
+    if (activeMode === 'pitch') {
+      let targetMidi: number;
+      if (activeScale && chosenScaleId !== 'all') {
+        const allowedPcs = activeScale.pitchClasses;
+        if (earPitchDifficulty === 'wide') {
+          const candidates: number[] = [];
+          for (let m = 48; m <= 83; m++) {
+            if (allowedPcs.includes(m % 12)) candidates.push(m);
+          }
+          targetMidi = candidates[Math.floor(Math.random() * candidates.length)];
+        } else {
+          const candidates = allowedPcs.map(pc => 60 + pc);
+          targetMidi = candidates[Math.floor(Math.random() * candidates.length)];
+        }
+      } else {
+        if (earPitchDifficulty === 'wide') {
+          targetMidi = 48 + Math.floor(Math.random() * 36);
+        } else {
+          targetMidi = 60 + Math.floor(Math.random() * 12);
+        }
+      }
+      setCurrentQuizMidi(targetMidi);
+      void playEarNoteSound(targetMidi);
+    } else if (activeMode === 'interval') {
+      let baseMidi: number;
+      if (earPitchDifficulty === 'wide') {
+        const octaveBases = [36, 48, 60, 72];
+        const chosenBase = octaveBases[Math.floor(Math.random() * octaveBases.length)];
+        baseMidi = Math.min(84 - 12, chosenBase + activeRootPc);
+      } else {
+        baseMidi = activeRootPc < 5 ? 60 + activeRootPc : 48 + activeRootPc;
+      }
+      const semitones = 1 + Math.floor(Math.random() * 12);
+      const correctInv = EAR_INTERVALS.find(i => i.semitones === semitones) || EAR_INTERVALS[0];
+      setCurrentQuizInterval({ rootMidi: baseMidi, rootPc: activeRootPc, rootName, semitones });
+
+      // Generate 12 choices for Interval (Fixed root vs Mixed roots)
+      if (earChoiceRootMode === 'fixed') {
+        const choices = EAR_INTERVALS.map(inv => ({
+          id: `${activeRootPc}_${inv.semitones}`,
+          rootPc: activeRootPc,
+          rootName: getEarRootName(activeRootPc),
+          targetName: getIntervalTargetName(activeRootPc, inv.semitones),
+          interval: inv,
+          isCorrect: inv.semitones === semitones,
+        }));
+        setQuizIntervalChoices(choices);
+      } else {
+        // Mixed roots mode
+        const correctChoice = {
+          id: `${activeRootPc}_${semitones}`,
+          rootPc: activeRootPc,
+          rootName: getEarRootName(activeRootPc),
+          targetName: getIntervalTargetName(activeRootPc, semitones),
+          interval: correctInv,
+          isCorrect: true,
+        };
+
+        const pool: { rootPc: number; semitones: number }[] = [];
+        for (let r = 0; r < 12; r++) {
+          for (let s = 1; s <= 12; s++) {
+            if (r !== activeRootPc || s !== semitones) {
+              pool.push({ rootPc: r, semitones: s });
+            }
+          }
+        }
+        for (let i = pool.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [pool[i], pool[j]] = [pool[j], pool[i]];
+        }
+
+        const sameRoot = pool.filter(p => p.rootPc === activeRootPc);
+        const sameInv = pool.filter(p => p.rootPc !== activeRootPc && p.semitones === semitones);
+        const other = pool.filter(p => p.rootPc !== activeRootPc && p.semitones !== semitones);
+
+        const picked: { rootPc: number; semitones: number }[] = [];
+        if (sameRoot.length > 0) picked.push(sameRoot[0]);
+        if (sameRoot.length > 1) picked.push(sameRoot[1]);
+        if (sameInv.length > 0) picked.push(sameInv[0]);
+        if (sameInv.length > 1) picked.push(sameInv[1]);
+        for (const item of other) {
+          if (picked.length >= 11) break;
+          picked.push(item);
+        }
+
+        const distractorChoices = picked.map(d => {
+          const invItem = EAR_INTERVALS.find(i => i.semitones === d.semitones) || EAR_INTERVALS[0];
+          return {
+            id: `${d.rootPc}_${d.semitones}`,
+            rootPc: d.rootPc,
+            rootName: getEarRootName(d.rootPc),
+            targetName: getIntervalTargetName(d.rootPc, d.semitones),
+            interval: invItem,
+            isCorrect: false,
+          };
+        });
+
+        const allChoices = [correctChoice, ...distractorChoices];
+        for (let i = allChoices.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [allChoices[i], allChoices[j]] = [allChoices[j], allChoices[i]];
+        }
+        setQuizIntervalChoices(allChoices);
+      }
+
+      void playEarIntervalSound(baseMidi, semitones);
+    } else {
+      const randomChord = EAR_CHORDS[Math.floor(Math.random() * EAR_CHORDS.length)];
+      let baseMidi: number;
+      if (earPitchDifficulty === 'wide') {
+        const octaveBases = [36, 48, 60, 72];
+        const chosenBase = octaveBases[Math.floor(Math.random() * octaveBases.length)];
+        const maxOffset = Math.max(...randomChord.intervals);
+        baseMidi = Math.min(84 - maxOffset, chosenBase + activeRootPc);
+      } else {
+        baseMidi = activeRootPc < 5 ? 60 + activeRootPc : 48 + activeRootPc;
+      }
+      setCurrentQuizChord({ rootMidi: baseMidi, rootPc: activeRootPc, rootName, chord: randomChord });
+
+      // Generate 12 choices for Chord (Fixed root vs Mixed roots)
+      if (earChoiceRootMode === 'fixed') {
+        const choices = EAR_CHORDS.map(ch => ({
+          id: `${activeRootPc}_${ch.id}`,
+          rootPc: activeRootPc,
+          rootName: getEarRootName(activeRootPc),
+          chord: ch,
+          isCorrect: ch.id === randomChord.id,
+        }));
+        setQuizChordChoices(choices);
+      } else {
+        // Mixed roots mode
+        const correctChoice = {
+          id: `${activeRootPc}_${randomChord.id}`,
+          rootPc: activeRootPc,
+          rootName: getEarRootName(activeRootPc),
+          chord: randomChord,
+          isCorrect: true,
+        };
+
+        const pool: { rootPc: number; chord: EarChordItem }[] = [];
+        for (let r = 0; r < 12; r++) {
+          for (const ch of EAR_CHORDS) {
+            if (r !== activeRootPc || ch.id !== randomChord.id) {
+              pool.push({ rootPc: r, chord: ch });
+            }
+          }
+        }
+        for (let i = pool.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [pool[i], pool[j]] = [pool[j], pool[i]];
+        }
+
+        const sameRoot = pool.filter(p => p.rootPc === activeRootPc);
+        const sameChord = pool.filter(p => p.rootPc !== activeRootPc && p.chord.id === randomChord.id);
+        const other = pool.filter(p => p.rootPc !== activeRootPc && p.chord.id !== randomChord.id);
+
+        const picked: { rootPc: number; chord: EarChordItem }[] = [];
+        if (sameRoot.length > 0) picked.push(sameRoot[0]);
+        if (sameRoot.length > 1) picked.push(sameRoot[1]);
+        if (sameChord.length > 0) picked.push(sameChord[0]);
+        if (sameChord.length > 1) picked.push(sameChord[1]);
+        for (const item of other) {
+          if (picked.length >= 11) break;
+          picked.push(item);
+        }
+
+        const distractorChoices = picked.map(d => ({
+          id: `${d.rootPc}_${d.chord.id}`,
+          rootPc: d.rootPc,
+          rootName: getEarRootName(d.rootPc),
+          chord: d.chord,
+          isCorrect: false,
+        }));
+
+        const allChoices = [correctChoice, ...distractorChoices];
+        for (let i = allChoices.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [allChoices[i], allChoices[j]] = [allChoices[j], allChoices[i]];
+        }
+        setQuizChordChoices(allChoices);
+      }
+
+      void playEarChordSound(baseMidi, randomChord.intervals);
+    }
+  }, [earTrainingMode, earPitchDifficulty, earScaleSetting, earChoiceRootMode, isId, isEs, playEarNoteSound, playEarIntervalSound, playEarChordSound]);
+
+  const handlePitchGuess = useCallback((noteId: string) => {
+    if (earQuizAnswered || currentQuizMidi === null) return;
+    const correctNote = PITCH_NOTES_OCTAVE4.find(n => n.midi % 12 === currentQuizMidi % 12);
+    const correctId = correctNote ? correctNote.id : 'C';
+    const isCorrect = noteId === correctId;
+
+    setEarQuizAnswered(true);
+    setLastGuessedValue(noteId);
+    setIsLastGuessCorrect(isCorrect);
+    setEarTotalGuessed(prev => prev + 1);
+
+    if (isCorrect) {
+      setEarCorrectGuessed(prev => prev + 1);
+      setEarStreak(prev => {
+        const next = prev + 1;
+        setEarBestStreak(best => Math.max(best, next));
+        return next;
+      });
+      void playSuccessChime();
+    } else {
+      setEarStreak(0);
+      void playFailTone();
+    }
+
+    setEarHeatmapStats(prev => {
+      const existing = prev[correctId] || { total: 0, correct: 0 };
+      return {
+        ...prev,
+        [correctId]: {
+          total: existing.total + 1,
+          correct: existing.correct + (isCorrect ? 1 : 0),
+        },
+      };
+    });
+
+    if (isCorrect && earAutoAdvance) {
+      setTimeout(() => {
+        handleGenerateNewEarQuestion('pitch');
+      }, 1200);
+    }
+  }, [earQuizAnswered, currentQuizMidi, playSuccessChime, playFailTone, earAutoAdvance, handleGenerateNewEarQuestion]);
+
+  const handleIntervalGuess = useCallback((choiceId: string, semitones: number, rootPc?: number) => {
+    if (earQuizAnswered || !currentQuizInterval) return;
+    const isCorrect = semitones === currentQuizInterval.semitones &&
+      (earChoiceRootMode === 'fixed' || rootPc === undefined || rootPc === currentQuizInterval.rootPc);
+
+    setEarQuizAnswered(true);
+    setLastGuessedValue(choiceId);
+    setIsLastGuessCorrect(isCorrect);
+    setEarTotalGuessed(prev => prev + 1);
+
+    if (isCorrect) {
+      setEarCorrectGuessed(prev => prev + 1);
+      setEarStreak(prev => {
+        const next = prev + 1;
+        setEarBestStreak(best => Math.max(best, next));
+        return next;
+      });
+      void playSuccessChime();
+    } else {
+      setEarStreak(0);
+      void playFailTone();
+    }
+
+    if (isCorrect && earAutoAdvance) {
+      setTimeout(() => {
+        handleGenerateNewEarQuestion('interval');
+      }, 1300);
+    }
+  }, [earQuizAnswered, currentQuizInterval, earChoiceRootMode, playSuccessChime, playFailTone, earAutoAdvance, handleGenerateNewEarQuestion]);
+
+  const handleChordGuess = useCallback((choiceId: string, chordId: string, rootPc?: number) => {
+    if (earQuizAnswered || !currentQuizChord) return;
+    const isCorrect = chordId === currentQuizChord.chord.id &&
+      (earChoiceRootMode === 'fixed' || rootPc === undefined || rootPc === currentQuizChord.rootPc);
+
+    setEarQuizAnswered(true);
+    setLastGuessedValue(choiceId);
+    setIsLastGuessCorrect(isCorrect);
+    setEarTotalGuessed(prev => prev + 1);
+
+    if (isCorrect) {
+      setEarCorrectGuessed(prev => prev + 1);
+      setEarStreak(prev => {
+        const next = prev + 1;
+        setEarBestStreak(best => Math.max(best, next));
+        return next;
+      });
+      void playSuccessChime();
+    } else {
+      setEarStreak(0);
+      void playFailTone();
+    }
+
+    if (isCorrect && earAutoAdvance) {
+      setTimeout(() => {
+        handleGenerateNewEarQuestion('chord');
+      }, 1400);
+    }
+  }, [earQuizAnswered, currentQuizChord, earChoiceRootMode, playSuccessChime, playFailTone, earAutoAdvance, handleGenerateNewEarQuestion]);
+
+  const handleResetEarStats = () => {
+    setEarStreak(0);
+    setEarBestStreak(0);
+    setEarTotalGuessed(0);
+    setEarCorrectGuessed(0);
+    setEarHeatmapStats({});
+    setEarQuizAnswered(false);
+    setLastGuessedValue(null);
+    setIsLastGuessCorrect(null);
+    setCurrentQuizMidi(null);
+    setCurrentQuizInterval(null);
+    setCurrentQuizChord(null);
   };
 
   return (
@@ -796,17 +1639,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                 <h1 className="text-base md:text-xl font-black tracking-tight text-cyan-400 uppercase">
                   Octavia Conservatory &amp; Technical Manual
                 </h1>
-                <span className="hidden lg:inline-flex text-[10px] font-mono uppercase font-bold px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
-                  {t.roadmapTitle}
-                </span>
               </div>
-              <p className="text-xs md:text-sm text-slate-300 hidden sm:block mt-0.5">
-                {isId
-                  ? 'Kurikulum beruntun 8 modul: notasi balok, biomekanika jari deterministik, pemetaan QWERTY 61-tuts, harmoni, hingga generator drill teknis 12 nada.'
-                  : isEs
-                  ? 'Plan secuencial de 8 módulos: notación musical, biomecánica determinista, mapeo QWERTY de 61 teclas, armonía y generador técnico de ejercicios.'
-                  : '8-module sequential conservatory: staff notation, deterministic biomechanics, 61-key QWERTY mapping, harmony, and 12-key technical drills.'}
-              </p>
             </div>
           </div>
         </div>
@@ -1121,7 +1954,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
 
                   <div className="p-4 bg-slate-900/70 rounded-lg border border-slate-800 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="font-mono font-bold text-base text-indigo-400">{isId ? '02. KUNCI F / BASS (F3)' : isEs ? '02. CLAVE DE FA (Fa3)' : '02. BASS CLEF (F3)'}</span>
+                      <span className="font-mono font-bold text-base text-cyan-400">{isId ? '02. KUNCI F / BASS (F3)' : isEs ? '02. CLAVE DE FA (Fa3)' : '02. BASS CLEF (F3)'}</span>
                       <span className="text-xs font-mono font-medium text-slate-400">{isId ? 'TANGAN KIRI' : isEs ? 'MANO IZQUIERDA' : 'LEFT HAND'}</span>
                     </div>
                     <p className="text-slate-300 leading-relaxed">
@@ -1135,7 +1968,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
 
                   <div className="p-4 bg-slate-900/70 rounded-lg border border-slate-800 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="font-mono font-bold text-base text-amber-400">{isId ? '03. SIMETRI CERMIN' : isEs ? '03. SIMETRÍA EN ESPEJO' : '03. MIRROR SYMMETRY'}</span>
+                      <span className="font-mono font-bold text-base text-cyan-400">{isId ? '03. SIMETRI CERMIN' : isEs ? '03. SIMETRÍA EN ESPEJO' : '03. MIRROR SYMMETRY'}</span>
                       <span className="text-xs font-mono font-medium text-slate-400">{isId ? 'SISTEM 5-C' : isEs ? 'SISTEMA DE 5-DO' : '5-C SYSTEM'}</span>
                     </div>
                     <p className="text-slate-300 leading-relaxed">
@@ -1153,7 +1986,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
               <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-6 md:p-8 space-y-6 shadow-2xl backdrop-blur-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
                   <div>
-                    <span className="text-xs font-mono font-bold text-emerald-400 uppercase tracking-widest block">
+                    <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest block">
                       FIG 1.2 — INTERVALLIC SIGHT-READING &amp; KEYBED PROJECTION
                     </span>
                     <h3 className="text-base md:text-lg font-bold text-white mt-1">
@@ -1162,7 +1995,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                         : 'Reading Harmonic & Melodic Intervals (Steps vs. Skips) Mapped to Physical Keys'}
                     </h3>
                   </div>
-                  <span className="text-xs font-mono font-medium text-emerald-400 bg-emerald-950/40 px-2.5 py-1 rounded border border-emerald-500/30">
+                  <span className="text-xs font-mono font-medium text-emerald-400 bg-emerald-950/40 px-2.5 py-1 rounded border border-slate-800">
                     PRO SIGHT-READING METHOD
                   </span>
                 </div>
@@ -1369,7 +2202,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
               <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-6 md:p-8 space-y-6 shadow-2xl backdrop-blur-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
                   <div>
-                    <span className="text-xs font-mono font-bold text-amber-400 uppercase tracking-widest block">
+                    <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest block">
                       FIG 1.3 — RHYTHM SUBDIVISION TREE, REST EQUIVALENTS &amp; DOTTED / TUPLET MATH
                     </span>
                     <h3 className="text-base md:text-lg font-bold text-white mt-1">
@@ -1739,7 +2572,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
 
                   <div className="p-4 bg-slate-900/70 rounded-lg border border-slate-800 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="font-mono font-bold text-amber-400 text-sm">{isId ? '3/4 (Waltz / Tripel)' : isEs ? '3/4 (Vals / Ternario)' : '3/4 (Waltz / Triple)'}</span>
+                      <span className="font-mono font-bold text-cyan-300 text-sm">{isId ? '3/4 (Waltz / Tripel)' : isEs ? '3/4 (Vals / Ternario)' : '3/4 (Waltz / Triple)'}</span>
                       <span className="text-xs font-mono font-medium text-slate-400">{isId ? '3 KETUK SEDERHANA' : isEs ? 'TERNARIO SIMPLE' : 'SIMPLE TRIPLE'}</span>
                     </div>
                     <div className="font-mono text-xs md:text-sm text-slate-200 bg-slate-950 p-2 rounded border border-slate-800/80">
@@ -1756,7 +2589,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
 
                   <div className="p-4 bg-slate-900/70 rounded-lg border border-slate-800 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="font-mono font-bold text-emerald-400 text-sm">{isId ? '6/8 (Duple Majemuk)' : isEs ? '6/8 (Binario Compuesto)' : '6/8 (Compound Duple)'}</span>
+                      <span className="font-mono font-bold text-cyan-300 text-sm">{isId ? '6/8 (Duple Majemuk)' : isEs ? '6/8 (Binario Compuesto)' : '6/8 (Compound Duple)'}</span>
                       <span className="text-xs font-mono font-medium text-slate-400">{isId ? '2 KETUK BERTITIK' : isEs ? '2 TIEMPOS CON PUNTILLO' : '2 DOTTED BEATS'}</span>
                     </div>
                     <div className="font-mono text-xs md:text-sm text-slate-200 bg-slate-950 p-2 rounded border border-slate-800/80">
@@ -1773,7 +2606,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
 
                   <div className="p-4 bg-slate-900/70 rounded-lg border border-slate-800 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="font-mono font-bold text-indigo-400 text-sm">{isId ? '2/2 (Alla Breve 𝄵)' : isEs ? '2/2 (Alla Breve / Compasillo 𝄵)' : '2/2 (Cut Time / Alla Breve 𝄵)'}</span>
+                      <span className="font-mono font-bold text-cyan-300 text-sm">{isId ? '2/2 (Alla Breve 𝄵)' : isEs ? '2/2 (Alla Breve / Compasillo 𝄵)' : '2/2 (Cut Time / Alla Breve 𝄵)'}</span>
                       <span className="text-xs font-mono font-medium text-slate-400">{isId ? '2 KETUK NOT SETENGAH' : isEs ? '2 TIEMPOS DE BLANCA' : '2 HALF-NOTE BEATS'}</span>
                     </div>
                     <div className="font-mono text-xs md:text-sm text-slate-200 bg-slate-950 p-2 rounded border border-slate-800/80">
@@ -1790,7 +2623,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
 
                   <div className="p-4 bg-slate-900/70 rounded-lg border border-slate-800 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="font-mono font-bold text-purple-400 text-sm">{isId ? '12/8 (Blues Lambat / Balada)' : isEs ? '12/8 (Blues Lento / Balada)' : '12/8 (Slow Blues / Ballad)'}</span>
+                      <span className="font-mono font-bold text-cyan-300 text-sm">{isId ? '12/8 (Blues Lambat / Balada)' : isEs ? '12/8 (Blues Lento / Balada)' : '12/8 (Slow Blues / Ballad)'}</span>
                       <span className="text-xs font-mono font-medium text-slate-400">{isId ? '4 KETUK MAJEMUK' : isEs ? 'CUÁDRUPLE COMPUESTO' : 'COMPOUND QUADRUPLE'}</span>
                     </div>
                     <div className="font-mono text-xs md:text-sm text-slate-200 bg-slate-950 p-2 rounded border border-slate-800/80">
@@ -1807,7 +2640,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
 
                   <div className="p-4 bg-slate-900/70 rounded-lg border border-slate-800 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="font-mono font-bold text-rose-400 text-sm">5/4 &amp; 7/8 (Odd / Asymmetric)</span>
+                      <span className="font-mono font-bold text-cyan-300 text-sm">5/4 &amp; 7/8 (Odd / Asymmetric)</span>
                       <span className="text-xs font-mono font-medium text-slate-400">ADDITIVE METER</span>
                     </div>
                     <div className="font-mono text-xs md:text-sm text-slate-200 bg-slate-950 p-2 rounded border border-slate-800/80">
@@ -1826,7 +2659,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
               <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-6 md:p-8 space-y-6 shadow-2xl backdrop-blur-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
                   <div>
-                    <span className="text-xs font-mono font-medium font-bold text-violet-400 uppercase tracking-widest block">
+                    <span className="text-xs font-mono font-medium font-bold text-cyan-400 uppercase tracking-widest block">
                       FIG 1.4 — ACCIDENTALS, SCORE NAVIGATION ROADMAP &amp; ORNAMENT EXECUTION
                     </span>
                     <h3 className="text-base md:text-lg font-bold text-white mt-1">
@@ -1978,15 +2811,15 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                       {isId ? 'PETA NAVIGASI & PENANDA PARTITUR' : isEs ? 'SIGNOS DE NAVEGACIÓN Y REPETICIÓN' : 'SCORE NAVIGATION ROADMAP MARKS'}
                     </div>
                     <ul className="space-y-1.5 text-slate-300">
-                      <li>• <b>{isId ? 'Titik Ulang' : isEs ? 'Barras de Repetición' : 'Repeat Dots'} (<code className="text-amber-300">|:  :|</code>):</b> {isId ? 'Ulangi bagian di antara dua tanda titik dua; jika hanya ada :|, ulangi dari awal lagu.' : isEs ? 'Repite la sección encerrada entre las barras con dos puntos; si solo hay :|, repite desde el inicio.' : 'Loop the section enclosed between the double-dotted barlines.'}</li>
-                      <li>• <b>{isId ? 'Rumah 1 & 2' : isEs ? 'Casillas 1ª y 2ª' : '1st & 2nd Endings'} (<code className="text-amber-300">1. / 2. Volta</code>):</b> {isId ? 'Mainkan kurung [1.] pada putaran pertama, lalu lompati [1.] langsung ke [2.] pada putaran kedua.' : isEs ? 'Toca la casilla [1.] en la primera vuelta; en la repetición, salta directamente a la casilla [2.].' : 'Play bracket [1.] on the first pass; on repeat, skip [1.] and jump directly into bracket [2.].'}</li>
+                      <li>• <b>{isId ? 'Titik Ulang' : isEs ? 'Barras de Repetición' : 'Repeat Dots'} (<code className="text-cyan-300 font-mono">|:  :|</code>):</b> {isId ? 'Ulangi bagian di antara dua tanda titik dua; jika hanya ada :|, ulangi dari awal lagu.' : isEs ? 'Repite la sección encerrada entre las barras con dos puntos; si solo hay :|, repite desde el inicio.' : 'Loop the section enclosed between the double-dotted barlines.'}</li>
+                      <li>• <b>{isId ? 'Rumah 1 & 2' : isEs ? 'Casillas 1ª y 2ª' : '1st & 2nd Endings'} (<code className="text-cyan-300 font-mono">1. / 2. Volta</code>):</b> {isId ? 'Mainkan kurung [1.] pada putaran pertama, lalu lompati [1.] langsung ke [2.] pada putaran kedua.' : isEs ? 'Toca la casilla [1.] en la primera vuelta; en la repetición, salta directamente a la casilla [2.].' : 'Play bracket [1.] on the first pass; on repeat, skip [1.] and jump directly into bracket [2.].'}</li>
                       <li>• <b>D.C. al Fine / D.S. al Coda:</b> {isId ? 'Da Capo = kembali ke bar 1 sampai kata Fine; Dal Segno = kembali ke simbol 𝄋 lalu lompat ke Coda 𝄌.' : isEs ? 'Da Capo = vuelve al compás 1 hasta Fine; Dal Segno = vuelve al símbolo 𝄋 y salta a la Coda 𝄌.' : 'Da Capo = return to Measure 1 until Fine; Dal Segno = jump back to symbol 𝄋 then leap to Coda 𝄌.'}</li>
                       <li>• <b>8va / 8vb / Loco:</b> {isId ? 'Mainkan 1 oktaf lebih tinggi (8va) atau 1 oktaf lebih rendah (8vb) agar terhindar dari tumpukan garis bantu ekstrem.' : isEs ? 'Toca 1 octava más alta (8va) o más baja (8vb); loco restaura el registro normal.' : 'Play 1 octave higher (8va) or lower (8vb) than written; loco restores normal register.'}</li>
                     </ul>
                   </div>
 
                   <div className="p-4 bg-slate-900/70 rounded-lg border border-slate-800 space-y-2">
-                    <div className="font-mono font-bold text-emerald-400 uppercase">
+                    <div className="font-mono font-bold text-cyan-400 uppercase">
                       {isId ? 'GRADASI DINAMIKA & PEMETAAN VELOCITY MIDI' : isEs ? 'GRADIENTE DINÁMICO Y VELOCIDAD MIDI' : 'Dynamic Gradient & MIDI Velocity Mapping'}
                     </div>
                     <div className="grid grid-cols-3 gap-2 font-mono text-xs md:text-sm text-center">
@@ -1995,11 +2828,11 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                         <span className="text-slate-400 text-xs">Vel: 25–55</span>
                       </div>
                       <div className="p-2 bg-slate-950 rounded border border-slate-800">
-                        <span className="text-emerald-400 font-bold block">mp / mf</span>
+                        <span className="text-slate-200 font-bold block">mp / mf</span>
                         <span className="text-slate-400 text-xs">Vel: 60–88</span>
                       </div>
                       <div className="p-2 bg-slate-950 rounded border border-slate-800">
-                        <span className="text-amber-400 font-bold block">f / ff</span>
+                        <span className="text-slate-200 font-bold block">f / ff</span>
                         <span className="text-slate-400 text-xs">Vel: 95–127</span>
                       </div>
                     </div>
@@ -2016,7 +2849,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
               <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-6 md:p-8 space-y-6 shadow-2xl backdrop-blur-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
                   <div>
-                    <span className="text-xs font-mono font-bold text-amber-400 uppercase tracking-widest block">
+                    <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest block">
                       FIG 1.5 — KEY SIGNATURE STAFF GEOMETRY (ORDER OF 7 SHARPS &amp; 7 FLATS)
                     </span>
                     <h3 className="text-base md:text-lg font-bold text-white mt-1">
@@ -2411,7 +3244,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
               <div className="bg-slate-900/90 border border-slate-800/80 shadow-xl border border-slate-800 rounded-xl p-6 space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
                   <div>
-                    <span className="text-xs font-mono font-bold text-amber-400 uppercase tracking-widest block">
+                    <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest block">
                       {isId ? 'BAGIAN 2.2 — SUB-ENGINE MODE TUNGGU & EVALUASI' : isEs ? 'SECCIÓN 2.2 — SUBMOTORES DE MODO ESPERA' : 'SECTION 2.2 — OCTAVIA PLAYBACK & WAIT MODE SUB-ENGINES'}
                     </span>
                     <h3 className="text-base font-bold text-white mt-0.5">
@@ -2430,10 +3263,10 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
                   <div className="p-4 bg-slate-900/70 rounded-lg border border-slate-800 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="font-mono font-bold text-rose-400 text-sm">
+                      <span className="font-mono font-bold text-slate-200 text-sm">
                         {isId ? '01. Mode Tunggu Ketat (Strict Wait)' : isEs ? '01. Práctica Estricta (Modo Espera)' : '01. Strict Practice (Wait Mode: Strict)'}
                       </span>
-                      <span className="text-xs font-mono font-medium bg-rose-950/60 text-rose-300 px-2 py-0.5 rounded border border-rose-500/30">
+                      <span className="text-xs font-mono font-medium bg-slate-800 text-slate-300 px-2 py-0.5 rounded border border-slate-700">
                         {isId ? 'AKURASI NADA' : isEs ? 'PRECISIÓN TONAL' : 'PITCH ACCURACY'}
                       </span>
                     </div>
@@ -2448,10 +3281,10 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
 
                   <div className="p-4 bg-slate-900/70 rounded-lg border border-slate-800 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="font-mono font-bold text-emerald-400 text-sm">
+                      <span className="font-mono font-bold text-cyan-400 text-sm">
                         {isId ? '02. Mode Tunggu Fleksibel (Lenient)' : isEs ? '02. Práctica Flexible (Modo Continuo)' : '02. Lenient Practice (Wait / Non-Stop)'}
                       </span>
-                      <span className="text-xs font-mono font-medium bg-emerald-950/60 text-emerald-300 px-2 py-0.5 rounded border border-emerald-500/30">
+                      <span className="text-xs font-mono font-medium bg-slate-800 text-slate-300 px-2 py-0.5 rounded border border-slate-700">
                         {isId ? 'ALIRAN & FRASERING' : isEs ? 'FLUIDEZ Y FRASEO' : 'FLOW & PHRASING'}
                       </span>
                     </div>
@@ -2466,10 +3299,10 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
 
                   <div className="p-4 bg-slate-900/70 rounded-lg border border-slate-800 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="font-mono font-bold text-amber-400 text-sm">
+                      <span className="font-mono font-bold text-slate-200 text-sm">
                         {isId ? '03. Mode Pertunjukan Peringkat (Retical)' : isEs ? '03. Modo Competitivo (Ranked)' : '03. Retical Mode (Ranked Performance)'}
                       </span>
-                      <span className="text-xs font-mono font-medium bg-amber-950/60 text-amber-300 px-2 py-0.5 rounded border border-amber-500/30">
+                      <span className="text-xs font-mono font-medium bg-slate-800 text-slate-300 px-2 py-0.5 rounded border border-slate-700">
                         {isId ? 'KOMPETITIF' : isEs ? 'COMPETITIVO' : 'COMPETITIVE'}
                       </span>
                     </div>
@@ -2506,7 +3339,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
               <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-6 md:p-8 space-y-6 shadow-2xl backdrop-blur-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
                   <div>
-                    <span className="text-xs font-mono font-bold text-emerald-400 uppercase tracking-widest block">
+                    <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest block">
                       {isId
                         ? 'FIG 2.2 — JENDELA MILIDETIK PENILAIAN HIT & DUA KALIBRASI LATENSI'
                         : isEs
@@ -2688,7 +3521,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
               <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-6 md:p-8 space-y-6 shadow-2xl backdrop-blur-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
                   <div>
-                    <span className="text-xs font-mono font-bold text-purple-400 uppercase tracking-widest block">
+                    <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest block">
                       {isId
                         ? 'FIG 2.4 — KOORDINASI POLIRITME: 3-LAWAN-2 (3:2) & PROTOKOL GERAK MATA'
                         : isEs
@@ -2967,7 +3800,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
               <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-6 md:p-8 space-y-6 shadow-2xl backdrop-blur-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
                   <div>
-                    <span className="text-xs font-mono font-bold text-emerald-400 uppercase tracking-widest block">
+                    <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest block">
                       FIG 3.2 — FULL-BODY SEATING GEOMETRY, FOREARM LEVEL &amp; PEDAL PIVOT AXIS
                     </span>
                     <h3 className="text-base md:text-lg font-bold text-white mt-1">
@@ -2984,80 +3817,327 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                 </div>
 
                 <div className="w-full overflow-x-auto custom-scrollbar pb-1">
-                  <svg viewBox="0 0 860 220" className="w-full min-w-[760px] h-auto select-none font-sans">
-                    <rect width="860" height="220" rx="8" fill="#0a0f1d" stroke="#334155" />
+                  <svg viewBox="0 0 920 240" className="w-full min-w-[840px] h-auto select-none font-sans">
+                    <defs>
+                      <linearGradient id="ergBackGrad" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0%" stopColor="#070c18" />
+                        <stop offset="100%" stopColor="#0b1329" />
+                      </linearGradient>
+                      <linearGradient id="pianoCabinetGrad" x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0%" stopColor="#1e293b" />
+                        <stop offset="70%" stopColor="#0f172a" />
+                        <stop offset="100%" stopColor="#020617" />
+                      </linearGradient>
+                      <linearGradient id="benchLeatherGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#334155" />
+                        <stop offset="35%" stopColor="#1e293b" />
+                        <stop offset="100%" stopColor="#090d16" />
+                      </linearGradient>
+                      <linearGradient id="cardGradDark" x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0%" stopColor="#0e172a" stopOpacity="0.95" />
+                        <stop offset="100%" stopColor="#0a0f1d" stopOpacity="0.95" />
+                      </linearGradient>
+                      <filter id="softGlowCyan" x="-20%" y="-20%" width="140%" height="140%">
+                        <feGaussianBlur stdDeviation="2.5" result="blur" />
+                        <feMerge>
+                          <feMergeNode in="blur" />
+                          <feMergeNode in="SourceGraphic" />
+                        </feMerge>
+                      </filter>
+                      <filter id="softGlowEmerald" x="-20%" y="-20%" width="140%" height="140%">
+                        <feGaussianBlur stdDeviation="2.5" result="blur" />
+                        <feMerge>
+                          <feMergeNode in="blur" />
+                          <feMergeNode in="SourceGraphic" />
+                        </feMerge>
+                      </filter>
+                      {/* Subtle Technical Grid Background Pattern */}
+                      <pattern id="ergGrid" width="20" height="20" patternUnits="userSpaceOnUse">
+                        <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#1e293b" strokeWidth="0.6" strokeOpacity="0.4" />
+                      </pattern>
+                    </defs>
 
-                    {/* Left Schematic: Side-view Geometric Vectors */}
-                    <g transform="translate(25, 16)">
-                      <rect width="380" height="188" rx="6" fill="#0a0f1a" stroke="#1e293b" />
-                      <text x="14" y="20" fill="#94a3b8" fontSize="13" fontFamily="monospace" fontWeight="bold">
-                        {L("SIDE-PROFILE KINEMATIC CHAIN", "RANTAI KINEMATIK TAMPAK SAMPING", "CADENA CINEMÁTICA LATERAL")}
+                    {/* Outer Frame */}
+                    <rect width="920" height="240" rx="10" fill="url(#ergBackGrad)" stroke="#334155" strokeWidth="1.2" />
+
+                    {/* ========================================================================= */}
+                    {/* LEFT SCHEMATIC: BIOMECHANICAL KINEMATIC CHAIN & PIANO GEOMETRY */}
+                    {/* ========================================================================= */}
+                    <g transform="translate(14, 14)">
+                      {/* Sub-Card Background with Blueprint Grid */}
+                      <rect width="444" height="212" rx="8" fill="#080d1a" stroke="#1e293b" strokeWidth="1" />
+                      <rect width="444" height="212" rx="8" fill="url(#ergGrid)" />
+
+                      {/* Header Badge */}
+                      <g transform="translate(16, 18)">
+                        <circle cx="4" cy="4" r="3" fill="#38bdf8" filter="url(#softGlowCyan)" />
+                        <text x="14" y="7" fill="#cbd5e1" fontSize="11" fontFamily="monospace" fontWeight="bold" letterSpacing="0.08em">
+                          {L("SIDE-PROFILE KINEMATIC CHAIN", "RANTAI KINEMATIK TAMPAK SAMPING", "CADENA CINEMÁTICA LATERAL")}
+                        </text>
+                      </g>
+
+                      {/* Floor Reference Line */}
+                      <line x1="24" y1="188" x2="420" y2="188" stroke="#334155" strokeWidth="2" strokeDasharray="6 3" />
+                      <text x="416" y="184" textAnchor="end" fill="#64748b" fontSize="9" fontFamily="monospace">FLOOR / LANTAI</text>
+
+                      {/* ------------------------------------------------------------- */}
+                      {/* UPRIGHT PIANO & KEYBED PROFILE */}
+                      {/* ------------------------------------------------------------- */}
+                      {/* Piano Main Body (Realistic Silhouette with Fallboard & Toe Block) */}
+                      <path
+                        d="M 32 36 L 86 36 L 86 100 L 132 100 L 132 114 L 98 114 L 98 184 L 28 184 L 28 188 L 102 188 L 102 184 L 32 184 Z"
+                        fill="url(#pianoCabinetGrad)"
+                        stroke="#475569"
+                        strokeWidth="1.4"
+                      />
+                      {/* Piano Side Panel Inner Trim */}
+                      <line x1="38" y1="44" x2="38" y2="178" stroke="#1e293b" strokeWidth="1.2" />
+                      {/* Piano Logo Label */}
+                      <text x="60" y="66" textAnchor="middle" fill="#64748b" fontSize="11" fontFamily="monospace" fontWeight="bold" letterSpacing="0.1em">
+                        OCTAVIA
+                      </text>
+                      <text x="60" y="78" textAnchor="middle" fill="#475569" fontSize="9" fontFamily="monospace">
+                        PIANO
                       </text>
 
-                      {/* Floor Line */}
-                      <line x1="20" y1="170" x2="360" y2="170" stroke="#334155" strokeWidth="2" />
+                      {/* Keybed Deck & Keys Profile */}
+                      <rect x="88" y="100" width="44" height="13" rx="2" fill="#0f172a" stroke="#64748b" strokeWidth="1" />
+                      {/* White Key Tops */}
+                      <rect x="92" y="99" width="38" height="4.5" rx="1" fill="#f8fafc" />
+                      {/* Red Felt Strip */}
+                      <line x1="92" y1="99" x2="128" y2="99" stroke="#ef4444" strokeWidth="1" />
+                      {/* Black Key Tops */}
+                      <rect x="96" y="96" width="16" height="4" rx="1" fill="#020617" stroke="#334155" strokeWidth="0.6" />
 
-                      {/* Piano Body & Keybed */}
-                      <g transform="translate(-25,0)">
-                      <rect x="35" y="40" width="65" height="130" rx="3" fill="#0f172a" stroke="#475569" strokeWidth="1.5" />
-                      <rect x="90" y="88" width="52" height="12" rx="2" fill="#e2e8f0" />
-                      <text x="67" y="65" textAnchor="middle" fill="#64748b" fontSize="12" fontFamily="monospace">PIANO</text>
-                      {/* Damper Pedal */}
-                      <path d="M 100 164 L 122 156" stroke="#f59e0b" strokeWidth="3.5" strokeLinecap="round" />
+                      {/* Brass Pedals & Lyre */}
+                      <rect x="86" y="180" width="14" height="8" rx="1" fill="#0f172a" stroke="#475569" strokeWidth="1" />
+                      {/* Sustaining Damper Pedal Lever (Depressed position) */}
+                      <path d="M 88 185 L 114 179" stroke="#fbbf24" strokeWidth="3.5" strokeLinecap="round" />
+                      <circle cx="112" cy="179.5" r="2" fill="#f59e0b" />
 
+                      {/* Horizontal Forearm Keybed Level Guideline */}
+                      <line x1="92" y1="102" x2="220" y2="102" stroke="#10b981" strokeWidth="1.2" strokeDasharray="3 3" opacity="0.65" />
+
+                      {/* ------------------------------------------------------------- */}
+                      {/* ADJUSTABLE PIANO BENCH (PROPER ERGONOMIC DISTANCE) */}
+                      {/* ------------------------------------------------------------- */}
+                      {/* Padded Seat Cushion */}
+                      <rect x="208" y="132" width="86" height="14" rx="3.5" fill="url(#benchLeatherGrad)" stroke="#475569" strokeWidth="1.2" />
+                      {/* Front-Half Zone Accent (Highlighting where sit-bones belong) */}
+                      <rect x="208" y="132" width="43" height="14" rx="3" fill="#f59e0b" fillOpacity="0.12" stroke="#f59e0b" strokeWidth="1" strokeDasharray="2 2" />
+                      {/* Leather Top Sheen Line */}
+                      <line x1="212" y1="135" x2="290" y2="135" stroke="#64748b" strokeWidth="1" opacity="0.8" />
+                      {/* Wood Apron Frame */}
+                      <rect x="212" y="146" width="78" height="5.5" fill="#090d16" stroke="#334155" strokeWidth="0.8" />
+                      {/* Spindle Adjustment Knob on Bench Side */}
+                      <circle cx="300" cy="148" r="4" fill="#334155" stroke="#94a3b8" strokeWidth="1" />
+                      <line x1="298" y1="148" x2="302" y2="148" stroke="#f8fafc" strokeWidth="0.8" />
+                      {/* Sturdy Tapered Bench Legs */}
+                      <rect x="216" y="151.5" width="6" height="36.5" rx="1" fill="#1e293b" stroke="#334155" strokeWidth="0.8" />
+                      <rect x="278" y="151.5" width="6" height="36.5" rx="1" fill="#1e293b" stroke="#334155" strokeWidth="0.8" />
+                      <line x1="216" y1="172" x2="284" y2="172" stroke="#0f172a" strokeWidth="2.5" />
+
+                      {/* ------------------------------------------------------------- */}
+                      {/* PIANIST BIOMECHANICAL POSTURE & KINEMATIC SKELETON */}
+                      {/* ------------------------------------------------------------- */}
+                      {/* Soft Anatomical Silhouette Backdrop */}
+                      <g fill="#1e293b" fillOpacity="0.45">
+                        {/* Torso Silhouette */}
+                        <path d="M 206 48 C 206 60, 214 75, 216 98 C 218 116, 226 130, 228 134 L 212 134 C 206 120, 200 88, 198 60 Z" />
+                        {/* Thigh Silhouette (Natural forward reach toward keybed) */}
+                        <path d="M 228 130 C 206 130, 184 134, 164 136 L 162 146 C 186 146, 214 144, 228 138 Z" />
+                        {/* Calf Silhouette */}
+                        <path d="M 164 138 L 160 148 L 128 188 L 122 188 Z" />
                       </g>
-                      <g transform="translate(-30,0)">
-                      {/* Bench */}
-                      <rect x="235" y="122" width="75" height="10" rx="2" fill="#334155" />
-                      <line x1="245" y1="132" x2="245" y2="170" stroke="#334155" strokeWidth="3" />
-                      <line x1="300" y1="132" x2="300" y2="170" stroke="#334155" strokeWidth="3" />
 
-                      {/* Kinematic Skeleton: Pelvis (255,118) -> Shoulder (250,48) -> Elbow (195,90) -> Wrist (142,88) */}
-                      <line x1="255" y1="118" x2="250" y2="48" stroke="#38bdf8" strokeWidth="3.5" strokeLinecap="round" />
-                      <circle cx="248" cy="32" r="10" fill="#0f172a" stroke="#38bdf8" strokeWidth="2" />
-                      {/* Upper Arm & Forearm */}
-                      <path d="M 250 52 L 198 90 L 142 88" fill="none" stroke="#10b981" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
-                      {/* Thigh & Lower Leg to Pedal */}
-                      <path d="M 255 118 L 182 124 L 124 162" fill="none" stroke="#818cf8" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+                      {/* Sightline Ray to Keyboard */}
+                      <line x1="200" y1="36" x2="124" y2="100" stroke="#38bdf8" strokeWidth="1" strokeDasharray="2 3" opacity="0.4" />
 
-                      {/* Joint Callouts */}
-                      <circle cx="198" cy="90" r="4" fill="#10b981" />
-                      <text x="198" y="106" textAnchor="middle" fill="#6ee7b7" fontSize="11.5" fontFamily="monospace" fontWeight="bold">95°–105° {L('Elbow', 'Siku', 'Codo')}</text>
-                      <text x="295" y="75" fill="#7dd3fc" fontSize="11.5" fontFamily="monospace">{L("Vertical Spine", "Tulang Belakang Tegak", "Columna Vertical")}</text>
-                      <text x="295" y="114" fill="#fde68a" fontSize="11.5" fontFamily="monospace">{L("Front 1/2 Bench", "Paruh Depan Kursi", "Mitad Delantera")}</text></g></g>
+                      {/* Head & Neck */}
+                      <circle cx="208" cy="32" r="11" fill="#0b1329" stroke="#38bdf8" strokeWidth="2.4" filter="url(#softGlowCyan)" />
+                      {/* Nose Profile Hint toward Piano */}
+                      <path d="M 199 31 L 195 34 L 199 36" fill="none" stroke="#38bdf8" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                      {/* Neck */}
+                      <line x1="208" y1="43" x2="208" y2="52" stroke="#38bdf8" strokeWidth="3" strokeLinecap="round" />
 
-                    {/* Right 4 Calibration Specs */}
-                    <g transform="translate(422, 16)">
+                      {/* Neutral Spine Vector (Slight forward poise from hips) */}
+                      <path
+                        d="M 208 54 C 211 76, 215 106, 224 132"
+                        fill="none"
+                        stroke="#38bdf8"
+                        strokeWidth="3.8"
+                        strokeLinecap="round"
+                        filter="url(#softGlowCyan)"
+                      />
+
+                      {/* Pelvis / Sit-Bones Node (Positioned on Front Half of Bench) */}
+                      <circle cx="224" cy="132" r="4.5" fill="#f59e0b" stroke="#fef3c7" strokeWidth="1.2" />
+
+                      {/* Thigh Kinematic Vector (Slight gentle decline from hip to knee) */}
+                      <line x1="224" y1="132" x2="164" y2="138" stroke="#818cf8" strokeWidth="3.6" strokeLinecap="round" />
+                      {/* Knee Joint Node (Comfortably positioned near keybed edge) */}
+                      <circle cx="164" cy="138" r="4.5" fill="#818cf8" stroke="#e0e7ff" strokeWidth="1" />
+
+                      {/* Lower Leg Vector (Calf angling to grounded heel) */}
+                      <line x1="164" y1="138" x2="126" y2="187" stroke="#818cf8" strokeWidth="3.6" strokeLinecap="round" />
+
+                      {/* Foot Kinematic Vector (Heel Planted + Ball of Foot on Pedal) */}
+                      <line x1="126" y1="187" x2="106" y2="179" stroke="#a855f7" strokeWidth="3.8" strokeLinecap="round" />
+
+                      {/* Planted Heel Anchor Ring & Core Node */}
+                      <circle cx="126" cy="187" r="7.5" fill="none" stroke="#c084fc" strokeWidth="1.4" strokeDasharray="2 2" />
+                      <circle cx="126" cy="187" r="3.5" fill="#a855f7" stroke="#faf5ff" strokeWidth="1" />
+
+                      {/* Relaxed Shoulder Joint Node */}
+                      <circle cx="208" cy="54" r="5" fill="#10b981" stroke="#ecfdf5" strokeWidth="1.2" />
+
+                      {/* Upper Arm Vector (Hanging naturally forward-down) */}
+                      <line x1="208" y1="54" x2="196" y2="102" stroke="#10b981" strokeWidth="3.8" strokeLinecap="round" filter="url(#softGlowEmerald)" />
+
+                      {/* Elbow Joint (At keybed level) */}
+                      <circle cx="196" cy="102" r="5" fill="#10b981" stroke="#a7f3d0" strokeWidth="1.5" />
+
+                      {/* Forearm Vector (Level & Parallel to Keybed) */}
+                      <line x1="196" y1="102" x2="142" y2="101" stroke="#10b981" strokeWidth="3.8" strokeLinecap="round" filter="url(#softGlowEmerald)" />
+
+                      {/* Wrist Node (Supple neutral arch) */}
+                      <circle cx="142" cy="101" r="3.8" fill="#34d399" stroke="#ecfdf5" strokeWidth="1" />
+
+                      {/* Hand Dome & Curved Fingers Resting on Keys */}
+                      <path
+                        d="M 142 101 C 135 96, 128 97, 124 101"
+                        fill="none"
+                        stroke="#10b981"
+                        strokeWidth="3.6"
+                        strokeLinecap="round"
+                      />
+
+                      {/* Elbow 95°–105° Arc Indicator */}
+                      <path
+                        d="M 190 84 A 20 20 0 0 0 176 102"
+                        fill="none"
+                        stroke="#34d399"
+                        strokeWidth="1.8"
+                        strokeDasharray="2.5 2"
+                      />
+
+                      {/* ------------------------------------------------------------- */}
+                      {/* ERGONOMIC CALLOUT BADGES & LABELS */}
+                      {/* ------------------------------------------------------------- */}
+                      {/* 01. Elbow Angle Callout Badge */}
+                      <g transform="translate(114, 72)">
+                        <rect width="88" height="20" rx="5" fill="#064e3b" stroke="#10b981" strokeWidth="1" />
+                        <text x="44" y="14" textAnchor="middle" fill="#a7f3d0" fontSize="9.5" fontFamily="monospace" fontWeight="bold">
+                          95°–105° {L("SIKU", "SIKU", "CODO")}
+                        </text>
+                      </g>
+
+                      {/* 02. Forearm Parallel Callout Tag */}
+                      <g transform="translate(114, 110)">
+                        <rect width="98" height="17" rx="4" fill="#090f1d" stroke="#334155" strokeWidth="0.8" />
+                        <text x="49" y="12" textAnchor="middle" fill="#94a3b8" fontSize="8.5" fontFamily="monospace" fontWeight="bold">
+                          {L("FOREARM LEVEL", "LENGAN SEJAJAR", "ANTEBRAZO NIVEL")}
+                        </text>
+                      </g>
+
+                      {/* 03. Vertical Neutral Spine Callout Badge */}
+                      <g transform="translate(236, 76)">
+                        <rect width="126" height="20" rx="5" fill="#082f49" stroke="#0284c7" strokeWidth="1" />
+                        <text x="63" y="14" textAnchor="middle" fill="#7dd3fc" fontSize="9.5" fontFamily="monospace" fontWeight="bold">
+                          {L("NEUTRAL SPINE", "TULANG TEGAK", "COLUMNA NEUTRA")}
+                        </text>
+                      </g>
+
+                      {/* 04. Front 1/2 Bench Callout Badge */}
+                      <g transform="translate(244, 148)">
+                        <rect width="124" height="20" rx="5" fill="#451a03" stroke="#d97706" strokeWidth="1" />
+                        <text x="62" y="14" textAnchor="middle" fill="#fde68a" fontSize="9.5" fontFamily="monospace" fontWeight="bold">
+                          {L("FRONT 1/2 BENCH", "PARUH DEPAN KURSI", "MITAD DELANTERA")}
+                        </text>
+                      </g>
+
+                      {/* 05. Heel Planted Fulcrum Tag */}
+                      <g transform="translate(86, 194)">
+                        <rect width="108" height="16" rx="3.5" fill="#3b0764" stroke="#a855f7" strokeWidth="0.8" />
+                        <text x="54" y="11.5" textAnchor="middle" fill="#f3e8ff" fontSize="8.5" fontFamily="monospace" fontWeight="bold">
+                          {L("HEEL ANCHOR", "TUMIT MENAPAK", "TALÓN APOYADO")}
+                        </text>
+                      </g>
+                    </g>
+
+                    {/* ========================================================================= */}
+                    {/* RIGHT 4 CALIBRATION SPECIFICATION CARDS */}
+                    {/* ========================================================================= */}
+                    <g transform="translate(470, 14)">
                       {[
                         {
-                          title: L("01. BENCH HEIGHT (FOREARM PARALLEL)", "01. TINGGI KURSI (LENGAN SEJAJAR)", "01. ALTURA DEL BANCO (ANTEBRAZO PARALELO)"),
-                          desc: L("Seat height so your forearm is level with the keybed. Never play with elbows far below the keys.", "Atur tinggi kursi agar lengan bawah sejajar tuts. Jangan main dengan siku jauh di bawah tuts.", "Ajusta la altura para que el antebrazo quede paralelo al teclado. Nunca con los codos muy bajos."),
-                          col: '#10b981'
+                          num: "01",
+                          title: L("BENCH HEIGHT (FOREARM PARALLEL)", "TINGGI KURSI (LENGAN SEJAJAR)", "ALTURA DEL BANCO (ANTEBRAZO PARALELO)"),
+                          desc: L("Seat height so your forearm is level with keybed. Never play with elbows far below keys.", "Atur tinggi kursi agar lengan bawah sejajar tuts. Jangan main dengan siku jauh di bawah tuts.", "Ajusta la altura para que el antebrazo quede paralelo al teclado. Nunca con los codos muy bajos."),
+                          col: '#10b981',
+                          icon: (
+                            <path d="M3 12h18M3 6h18M3 18h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                          )
                         },
                         {
-                          title: L("02. BENCH DISTANCE (95°–105° ELBOW)", "02. JARAK KURSI (SIKU 95°–105°)", "02. DISTANCIA AL BANCO (CODO 95°–105°)"),
-                          desc: L("Sit far enough back that elbows hang slightly in front of your torso and can move freely.", "Duduk cukup jauh agar siku menggantung sedikit di depan badan dan bebas bergerak.", "Siéntate lo bastante lejos para que los codos cuelguen delante del torso y se muevan libres."),
-                          col: '#38bdf8'
+                          num: "02",
+                          title: L("BENCH DISTANCE (95°–105° ELBOW)", "JARAK KURSI (SIKU 95°–105°)", "DISTANCIA AL BANCO (CODO 95°–105°)"),
+                          desc: L("Sit far enough back that elbows hang slightly in front of torso and move with full freedom.", "Duduk cukup jauh agar siku menggantung sedikit di depan badan dan bebas bergerak tanpa kaku.", "Siéntate lo bastante lejos para que los codos cuelguen delante del torso y se muevan libres."),
+                          col: '#38bdf8',
+                          icon: (
+                            <path d="M4 16l8-8 8 8M12 4v16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                          )
                         },
                         {
-                          title: L("03. FRONT-HALF SIT-BONE GROUNDING", "03. DUDUK DI PARUH DEPAN KURSI", "03. SENTARSE EN LA MITAD DELANTERA"),
-                          desc: L("Sit on the front half of the bench, never slouching against a backrest.", "Duduk di paruh depan kursi, jangan bersandar atau membungkuk.", "Siéntate en la mitad delantera del banco, sin recostarte."),
-                          col: '#f59e0b'
+                          num: "03",
+                          title: L("FRONT-HALF SIT-BONE GROUNDING", "DUDUK DI PARUH DEPAN KURSI", "SENTARSE EN LA MITAD DELANTERA"),
+                          desc: L("Sit on front half of the bench, never slouching against a backrest or sinking deep.", "Duduk di paruh depan kursi dengan tumpuan tulang duduk, jangan bersandar atau membungkuk.", "Siéntate en la mitad delantera del banco sobre los isquiones, sin recostarte ni hundirte."),
+                          col: '#f59e0b',
+                          icon: (
+                            <path d="M5 19h14M12 5v14M8 9l4-4 4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                          )
                         },
                         {
-                          title: L("04. HEEL-ANCHORED PEDAL FULCRUM", "04. TUMIT SEBAGAI TUMPUAN PEDAL", "04. TALÓN COMO PUNTO DE APOYO"),
-                          desc: L("Keep the right heel planted on the floor; press the pedal with the ball of the foot.", "Tumit kanan tetap menapak lantai; tekan pedal dengan bagian depan telapak kaki.", "Mantén el talón derecho en el suelo; pisa el pedal con la punta del pie."),
-                          col: '#a855f7'
+                          num: "04",
+                          title: L("HEEL-ANCHORED PEDAL FULCRUM", "TUMIT SEBAGAI TUMPUAN PEDAL", "TALÓN COMO PUNTO DE APOYO"),
+                          desc: L("Keep right heel planted on floor as a fulcrum; depress pedal with the ball of your foot.", "Tumit kanan tetap kokoh menapak lantai; tekan pedal hanya dengan bagian depan telapak kaki.", "Mantén el talón derecho apoyado en el suelo; pisa el pedal solo con la punta del pie."),
+                          col: '#a855f7',
+                          icon: (
+                            <circle cx="12" cy="12" r="7" stroke="currentColor" strokeWidth="2" fill="none" />
+                          )
                         },
-                      ].map((spec, idx) => (
-                        <g key={idx} transform={`translate(0, ${idx * 48})`}>
-                          <rect width="415" height="43" rx="4" fill="#0a0f1a" stroke="#1e293b" />
-                          <line x1="0" y1="0" x2="0" y2="43" stroke={spec.col} strokeWidth="3" />
-                          <text x="12" y="15" fill={spec.col} fontSize="12.5" fontFamily="monospace" fontWeight="bold">{spec.title}</text>
-                          <text x="12" y="28" fill="#cbd5e1" fontSize="11.5">{wrap2(spec.desc, 68)[0]}</text>
-                          <text x="12" y="38" fill="#94a3b8" fontSize="11.5">{wrap2(spec.desc, 68)[1]}</text>
-                        </g>
-                      ))}
+                      ].map((spec, idx) => {
+                        const [line1, line2] = wrap2(spec.desc, 64);
+                        return (
+                          <g key={idx} transform={`translate(0, ${idx * 53})`}>
+                            {/* Card Container */}
+                            <rect width="436" height="48" rx="6" fill="url(#cardGradDark)" stroke="#1e293b" strokeWidth="1" />
+                            {/* Left Glowing Accent Stripe */}
+                            <rect width="4" height="48" rx="2" fill={spec.col} />
+
+                            {/* Step Badge */}
+                            <rect x="12" y="8" width="24" height="15" rx="3" fill="#020617" stroke={spec.col} strokeWidth="0.8" />
+                            <text x="24" y="19" textAnchor="middle" fill={spec.col} fontSize="9" fontFamily="monospace" fontWeight="bold">
+                              {spec.num}
+                            </text>
+
+                            {/* Card Title */}
+                            <text x="42" y="19" fill="#f8fafc" fontSize="11" fontFamily="monospace" fontWeight="bold">
+                              {spec.title}
+                            </text>
+
+                            {/* Card Description Lines */}
+                            <text x="14" y="32" fill="#cbd5e1" fontSize="10.5">
+                              {line1}
+                            </text>
+                            {line2 && (
+                              <text x="14" y="43" fill="#94a3b8" fontSize="10">
+                                {line2}
+                              </text>
+                            )}
+                          </g>
+                        );
+                      })}
                     </g>
                   </svg>
                 </div>
@@ -3067,7 +4147,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
               <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-6 md:p-8 space-y-6 shadow-2xl backdrop-blur-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
                   <div>
-                    <span className="text-xs font-mono font-bold text-amber-400 uppercase tracking-widest block">
+                    <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest block">
                       FIG 3.3 — THE 3 PIANO PEDALS &amp; SYNCOPATED LEGATO PEDALING TIMING WAVEFORM
                     </span>
                     <h3 className="text-base md:text-lg font-bold text-white mt-1">
@@ -3167,7 +4247,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                     </p>
                   </div>
                   <div className="p-4 md:p-5 bg-slate-800/60 rounded-xl border border-slate-700/80 space-y-2">
-                    <div className="font-mono font-bold text-base text-indigo-400">
+                    <div className="font-mono font-bold text-base text-cyan-400">
                       {isId ? '2. Pedal Tengah: Sostenuto Pedal' : isEs ? '2. Pedal Central: Pedal Tonal (Sostenuto)' : '2. Middle Pedal: Sostenuto Pedal'}
                     </div>
                     <p className="text-slate-300 leading-relaxed">
@@ -3179,7 +4259,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                     </p>
                   </div>
                   <div className="p-4 md:p-5 bg-slate-800/60 rounded-xl border border-slate-700/80 space-y-2">
-                    <div className="font-mono font-bold text-base text-amber-400">
+                    <div className="font-mono font-bold text-base text-cyan-400">
                       {isId ? '3. Pedal Kanan: Damper (Sustain) Pedal' : isEs ? '3. Pedal Derecho: Pedal de Resonancia (Sustain)' : '3. Right Pedal: Damper (Sustain) Pedal'}
                     </div>
                     <p className="text-slate-300 leading-relaxed">
@@ -3197,7 +4277,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
               <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-6 md:p-8 space-y-6 shadow-2xl backdrop-blur-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
                   <div>
-                    <span className="text-xs font-mono font-bold text-amber-400 uppercase tracking-widest block">
+                    <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest block">
                       FIG 3.4 — THUMB-UNDER (PASSAGGIO DEL POLLICE), CROSSOVER &amp; FOREARM ROTATION
                     </span>
                     <h3 className="text-base md:text-lg font-bold text-white mt-1">
@@ -3331,7 +4411,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                     </p>
                   </div>
                   <div className="p-4 md:p-5 bg-slate-800/60 rounded-xl border border-slate-700/80 space-y-2">
-                    <div className="font-mono font-bold text-emerald-400">
+                    <div className="font-mono font-bold text-cyan-400">
                       {isId ? '2. Rotasi Lengan Bawah (Pronasi / Supinasi)' : isEs ? '2. Rotación del Antebrazo (Pronación / Supinación)' : '2. Forearm Rotation (Pronation / Supination)'}
                     </div>
                     <p className="text-slate-300 leading-relaxed">
@@ -3343,7 +4423,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                     </p>
                   </div>
                   <div className="p-4 md:p-5 bg-slate-800/60 rounded-xl border border-slate-700/80 space-y-2">
-                    <div className="font-mono font-bold text-base text-amber-400">
+                    <div className="font-mono font-bold text-base text-cyan-400">
                       {isId ? '3. Kedalaman Tuts Hitam & Posisi Jempol' : isEs ? '3. Profundidad de Teclas Negras y Posición del Pulgar' : '3. Black-Key Depth & Thumb Avoidance'}
                     </div>
                     <p className="text-slate-300 leading-relaxed">
@@ -3385,23 +4465,23 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                         <th className="py-2.5 px-3">{L("Scale Degrees (1 – 8)", "Tingkat Tangga Nada (1 – 8)", "Grados de la Escala (1 – 8)")}</th>
                         <th className="py-2.5 px-3 text-cyan-400">{L("RH Ascending", "RH Naik", "MD Ascendente")}</th>
                         <th className="py-2.5 px-3 text-cyan-300">{L("RH Descending", "RH Turun", "MD Descendente")}</th>
-                        <th className="py-2.5 px-3 text-indigo-400">{L("LH Ascending", "LH Naik", "MI Ascendente")}</th>
-                        <th className="py-2.5 px-3 text-indigo-300">{L("LH Descending", "LH Turun", "MI Descendente")}</th>
+                        <th className="py-2.5 px-3 text-slate-300">{L("LH Ascending", "LH Naik", "MI Ascendente")}</th>
+                        <th className="py-2.5 px-3 text-slate-300">{L("LH Descending", "LH Turun", "MI Descendente")}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60 font-mono text-xs md:text-sm text-slate-200">
-                      <tr><td className="py-2 px-3 font-sans font-bold text-white">{L("C Major", "C Mayor", "Do Mayor")}</td><td className="py-2 px-3 text-slate-400">C D E F G A B C</td><td className="py-2 px-3 text-cyan-300 font-bold">1-2-3-1-2-3-4-5</td><td className="py-2 px-3">5-4-3-2-1-3-2-1</td><td className="py-2 px-3 text-indigo-300 font-bold">5-4-3-2-1-3-2-1</td><td className="py-2 px-3">1-2-3-1-2-3-4-5</td></tr>
-                      <tr><td className="py-2 px-3 font-sans font-bold text-white">{L("G Major", "G Mayor", "Sol Mayor")}</td><td className="py-2 px-3 text-slate-400">G A B C D E F♯ G</td><td className="py-2 px-3 text-cyan-300 font-bold">1-2-3-1-2-3-4-5</td><td className="py-2 px-3">5-4-3-2-1-3-2-1</td><td className="py-2 px-3 text-indigo-300 font-bold">5-4-3-2-1-3-2-1</td><td className="py-2 px-3">1-2-3-1-2-3-4-5</td></tr>
-                      <tr><td className="py-2 px-3 font-sans font-bold text-white">{L("D Major", "D Mayor", "Re Mayor")}</td><td className="py-2 px-3 text-slate-400">D E F♯ G A B C♯ D</td><td className="py-2 px-3 text-cyan-300 font-bold">1-2-3-1-2-3-4-5</td><td className="py-2 px-3">5-4-3-2-1-3-2-1</td><td className="py-2 px-3 text-indigo-300 font-bold">5-4-3-2-1-3-2-1</td><td className="py-2 px-3">1-2-3-1-2-3-4-5</td></tr>
-                      <tr><td className="py-2 px-3 font-sans font-bold text-white">{L("A Major", "A Mayor", "La Mayor")}</td><td className="py-2 px-3 text-slate-400">A B C♯ D E F♯ G♯ A</td><td className="py-2 px-3 text-cyan-300 font-bold">1-2-3-1-2-3-4-5</td><td className="py-2 px-3">5-4-3-2-1-3-2-1</td><td className="py-2 px-3 text-indigo-300 font-bold">5-4-3-2-1-3-2-1</td><td className="py-2 px-3">1-2-3-1-2-3-4-5</td></tr>
-                      <tr><td className="py-2 px-3 font-sans font-bold text-white">{L("E Major", "E Mayor", "Mi Mayor")}</td><td className="py-2 px-3 text-slate-400">E F♯ G♯ A B C♯ D♯ E</td><td className="py-2 px-3 text-cyan-300 font-bold">1-2-3-1-2-3-4-5</td><td className="py-2 px-3">5-4-3-2-1-3-2-1</td><td className="py-2 px-3 text-indigo-300 font-bold">5-4-3-2-1-3-2-1</td><td className="py-2 px-3">1-2-3-1-2-3-4-5</td></tr>
-                      <tr className="bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-amber-300">{L("B Major", "B Mayor", "Si Mayor")}</td><td className="py-2 px-3 text-slate-400">B C♯ D♯ E F♯ G♯ A♯ B</td><td className="py-2 px-3 text-cyan-300 font-bold">1-2-3-1-2-3-4-5</td><td className="py-2 px-3">5-4-3-2-1-3-2-1</td><td className="py-2 px-3 text-amber-300 font-bold">4-3-2-1-4-3-2-1</td><td className="py-2 px-3">1-2-3-4-1-2-3-4</td></tr>
-                      <tr className="bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-amber-300">{L("F♯ Major", "F♯ Mayor", "Fa♯ Mayor")}</td><td className="py-2 px-3 text-slate-400">F♯ G♯ A♯ B C♯ D♯ E♯ F♯</td><td className="py-2 px-3 text-amber-300 font-bold">2-3-4-1-2-3-1-2</td><td className="py-2 px-3">2-1-3-2-1-4-3-2</td><td className="py-2 px-3 text-amber-300 font-bold">4-3-2-1-3-2-1-4</td><td className="py-2 px-3">4-1-2-3-1-2-3-4</td></tr>
-                      <tr className="bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-amber-300">{L("D♭ Major", "D♭ Mayor", "Re♭ Mayor")}</td><td className="py-2 px-3 text-slate-400">D♭ E♭ F G♭ A♭ B♭ C D♭</td><td className="py-2 px-3 text-amber-300 font-bold">2-3-1-2-3-4-1-2</td><td className="py-2 px-3">2-1-4-3-2-1-3-2</td><td className="py-2 px-3 text-amber-300 font-bold">3-2-1-4-3-2-1-3</td><td className="py-2 px-3">3-1-2-3-4-1-2-3</td></tr>
-                      <tr className="bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-amber-300">{L("A♭ Major", "A♭ Mayor", "La♭ Mayor")}</td><td className="py-2 px-3 text-slate-400">A♭ B♭ C D♭ E♭ F G A♭</td><td className="py-2 px-3 text-amber-300 font-bold">3-4-1-2-3-1-2-3</td><td className="py-2 px-3">3-2-1-3-2-1-4-3</td><td className="py-2 px-3 text-amber-300 font-bold">3-2-1-4-3-2-1-3</td><td className="py-2 px-3">3-1-2-3-4-1-2-3</td></tr>
-                      <tr className="bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-amber-300">{L("E♭ Major", "E♭ Mayor", "Mi♭ Mayor")}</td><td className="py-2 px-3 text-slate-400">E♭ F G A♭ B♭ C D E♭</td><td className="py-2 px-3 text-amber-300 font-bold">3-1-2-3-4-1-2-3</td><td className="py-2 px-3">3-2-1-4-3-2-1-3</td><td className="py-2 px-3 text-amber-300 font-bold">3-2-1-4-3-2-1-3</td><td className="py-2 px-3">3-1-2-3-4-1-2-3</td></tr>
-                      <tr className="bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-amber-300">{L("B♭ Major", "B♭ Mayor", "Si♭ Mayor")}</td><td className="py-2 px-3 text-slate-400">B♭ C D E♭ F G A B♭</td><td className="py-2 px-3 text-amber-300 font-bold">4-1-2-3-1-2-3-4</td><td className="py-2 px-3">4-3-2-1-3-2-1-4</td><td className="py-2 px-3 text-amber-300 font-bold">3-2-1-4-3-2-1-3</td><td className="py-2 px-3">3-1-2-3-4-1-2-3</td></tr>
-                      <tr className="bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-emerald-300">{L("F Major", "F Mayor", "Fa Mayor")}</td><td className="py-2 px-3 text-slate-400">F G A B♭ C D E F</td><td className="py-2 px-3 text-emerald-300 font-bold">1-2-3-4-1-2-3-4</td><td className="py-2 px-3">4-3-2-1-4-3-2-1</td><td className="py-2 px-3 text-indigo-300 font-bold">5-4-3-2-1-3-2-1</td><td className="py-2 px-3">1-2-3-1-2-3-4-5</td></tr>
+                      <tr><td className="py-2 px-3 font-sans font-bold text-white">{L("C Major", "C Mayor", "Do Mayor")}</td><td className="py-2 px-3 text-slate-400">C D E F G A B C</td><td className="py-2 px-3 text-cyan-300 font-bold">1-2-3-1-2-3-4-5</td><td className="py-2 px-3">5-4-3-2-1-3-2-1</td><td className="py-2 px-3 text-slate-200 font-bold">5-4-3-2-1-3-2-1</td><td className="py-2 px-3">1-2-3-1-2-3-4-5</td></tr>
+                      <tr><td className="py-2 px-3 font-sans font-bold text-white">{L("G Major", "G Mayor", "Sol Mayor")}</td><td className="py-2 px-3 text-slate-400">G A B C D E F♯ G</td><td className="py-2 px-3 text-cyan-300 font-bold">1-2-3-1-2-3-4-5</td><td className="py-2 px-3">5-4-3-2-1-3-2-1</td><td className="py-2 px-3 text-slate-200 font-bold">5-4-3-2-1-3-2-1</td><td className="py-2 px-3">1-2-3-1-2-3-4-5</td></tr>
+                      <tr><td className="py-2 px-3 font-sans font-bold text-white">{L("D Major", "D Mayor", "Re Mayor")}</td><td className="py-2 px-3 text-slate-400">D E F♯ G A B C♯ D</td><td className="py-2 px-3 text-cyan-300 font-bold">1-2-3-1-2-3-4-5</td><td className="py-2 px-3">5-4-3-2-1-3-2-1</td><td className="py-2 px-3 text-slate-200 font-bold">5-4-3-2-1-3-2-1</td><td className="py-2 px-3">1-2-3-1-2-3-4-5</td></tr>
+                      <tr><td className="py-2 px-3 font-sans font-bold text-white">{L("A Major", "A Mayor", "La Mayor")}</td><td className="py-2 px-3 text-slate-400">A B C♯ D E F♯ G♯ A</td><td className="py-2 px-3 text-cyan-300 font-bold">1-2-3-1-2-3-4-5</td><td className="py-2 px-3">5-4-3-2-1-3-2-1</td><td className="py-2 px-3 text-slate-200 font-bold">5-4-3-2-1-3-2-1</td><td className="py-2 px-3">1-2-3-1-2-3-4-5</td></tr>
+                      <tr><td className="py-2 px-3 font-sans font-bold text-white">{L("E Major", "E Mayor", "Mi Mayor")}</td><td className="py-2 px-3 text-slate-400">E F♯ G♯ A B C♯ D♯ E</td><td className="py-2 px-3 text-cyan-300 font-bold">1-2-3-1-2-3-4-5</td><td className="py-2 px-3">5-4-3-2-1-3-2-1</td><td className="py-2 px-3 text-slate-200 font-bold">5-4-3-2-1-3-2-1</td><td className="py-2 px-3">1-2-3-1-2-3-4-5</td></tr>
+                      <tr className="bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-white">{L("B Major", "B Mayor", "Si Mayor")}</td><td className="py-2 px-3 text-slate-400">B C♯ D♯ E F♯ G♯ A♯ B</td><td className="py-2 px-3 text-cyan-300 font-bold">1-2-3-1-2-3-4-5</td><td className="py-2 px-3">5-4-3-2-1-3-2-1</td><td className="py-2 px-3 text-slate-200 font-bold">4-3-2-1-4-3-2-1</td><td className="py-2 px-3">1-2-3-4-1-2-3-4</td></tr>
+                      <tr className="bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-white">{L("F♯ Major", "F♯ Mayor", "Fa♯ Mayor")}</td><td className="py-2 px-3 text-slate-400">F♯ G♯ A♯ B C♯ D♯ E♯ F♯</td><td className="py-2 px-3 text-slate-200 font-bold">2-3-4-1-2-3-1-2</td><td className="py-2 px-3">2-1-3-2-1-4-3-2</td><td className="py-2 px-3 text-slate-200 font-bold">4-3-2-1-3-2-1-4</td><td className="py-2 px-3">4-1-2-3-1-2-3-4</td></tr>
+                      <tr className="bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-white">{L("D♭ Major", "D♭ Mayor", "Re♭ Mayor")}</td><td className="py-2 px-3 text-slate-400">D♭ E♭ F G♭ A♭ B♭ C D♭</td><td className="py-2 px-3 text-slate-200 font-bold">2-3-1-2-3-4-1-2</td><td className="py-2 px-3">2-1-4-3-2-1-3-2</td><td className="py-2 px-3 text-slate-200 font-bold">3-2-1-4-3-2-1-3</td><td className="py-2 px-3">3-1-2-3-4-1-2-3</td></tr>
+                      <tr className="bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-white">{L("A♭ Major", "A♭ Mayor", "La♭ Mayor")}</td><td className="py-2 px-3 text-slate-400">A♭ B♭ C D♭ E♭ F G A♭</td><td className="py-2 px-3 text-slate-200 font-bold">3-4-1-2-3-1-2-3</td><td className="py-2 px-3">3-2-1-3-2-1-4-3</td><td className="py-2 px-3 text-slate-200 font-bold">3-2-1-4-3-2-1-3</td><td className="py-2 px-3">3-1-2-3-4-1-2-3</td></tr>
+                      <tr className="bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-white">{L("E♭ Major", "E♭ Mayor", "Mi♭ Mayor")}</td><td className="py-2 px-3 text-slate-400">E♭ F G A♭ B♭ C D E♭</td><td className="py-2 px-3 text-slate-200 font-bold">3-1-2-3-4-1-2-3</td><td className="py-2 px-3">3-2-1-4-3-2-1-3</td><td className="py-2 px-3 text-slate-200 font-bold">3-2-1-4-3-2-1-3</td><td className="py-2 px-3">3-1-2-3-4-1-2-3</td></tr>
+                      <tr className="bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-white">{L("B♭ Major", "B♭ Mayor", "Si♭ Mayor")}</td><td className="py-2 px-3 text-slate-400">B♭ C D E♭ F G A B♭</td><td className="py-2 px-3 text-slate-200 font-bold">4-1-2-3-1-2-3-4</td><td className="py-2 px-3">4-3-2-1-3-2-1-4</td><td className="py-2 px-3 text-slate-200 font-bold">3-2-1-4-3-2-1-3</td><td className="py-2 px-3">3-1-2-3-4-1-2-3</td></tr>
+                      <tr className="bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-white">{L("F Major", "F Mayor", "Fa Mayor")}</td><td className="py-2 px-3 text-slate-400">F G A B♭ C D E F</td><td className="py-2 px-3 text-cyan-300 font-bold">1-2-3-4-1-2-3-4</td><td className="py-2 px-3">4-3-2-1-4-3-2-1</td><td className="py-2 px-3 text-slate-200 font-bold">5-4-3-2-1-3-2-1</td><td className="py-2 px-3">1-2-3-1-2-3-4-5</td></tr>
                     </tbody>
                   </table>
                 </div>
@@ -3411,7 +4491,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
               <div className="bg-slate-900/90 border border-slate-800/80 shadow-xl border border-slate-800 rounded-xl p-6 space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
                   <div>
-                    <span className="text-xs font-mono font-bold text-indigo-400 uppercase tracking-widest block">
+                    <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest block">
                       {isId ? 'BAGIAN 3.5 • FINGERING MINOR ASLI, HARMONIS & MELODIS 12 KUNCI' : isEs ? 'SECCIÓN 3.5 • DIGITACIÓN DE ESCALAS MENORES (12 TONALIDADES)' : 'SECTION 3.5 • 12-KEY NATURAL, HARMONIC & MELODIC MINOR FINGERING'}
                     </span>
                     <h3 className="text-base font-bold text-white mt-0.5">
@@ -3422,7 +4502,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                         : '12-Key Natural Minor Scale Master Fingering Table'}
                     </h3>
                   </div>
-                  <span className="text-xs font-mono font-medium text-indigo-300 bg-indigo-950/50 px-2.5 py-1 rounded border border-indigo-500/30">
+                  <span className="text-xs font-mono font-medium text-slate-300 bg-slate-800 px-2.5 py-1 rounded border border-slate-700">
                     BLACK-KEY TONIC ADJUSTED
                   </span>
                 </div>
@@ -3435,23 +4515,23 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                         <th className="py-2.5 px-3">{L("Rel. Major", "Relatif Mayor", "Mayor Relativo")}</th>
                         <th className="py-2.5 px-3 text-cyan-400">{L("RH Ascending", "RH Naik", "MD Ascendente")}</th>
                         <th className="py-2.5 px-3 text-cyan-300">{L("RH Descending", "RH Turun", "MD Descendente")}</th>
-                        <th className="py-2.5 px-3 text-indigo-400">{L("LH Ascending", "LH Naik", "MI Ascendente")}</th>
-                        <th className="py-2.5 px-3 text-indigo-300">{L("LH Descending", "LH Turun", "MI Descendente")}</th>
+                        <th className="py-2.5 px-3 text-slate-300">{L("LH Ascending", "LH Naik", "MI Ascendente")}</th>
+                        <th className="py-2.5 px-3 text-slate-300">{L("LH Descending", "LH Turun", "MI Descendente")}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60 font-mono text-xs md:text-sm text-slate-200">
-                      <tr><td className="py-2 px-3 font-sans font-bold text-white">{L("A Minor", "A Minor", "La Menor")}</td><td className="py-2 px-3 text-slate-400">C (0)</td><td className="py-2 px-3 text-cyan-300 font-bold">1-2-3-1-2-3-4-5</td><td className="py-2 px-3">5-4-3-2-1-3-2-1</td><td className="py-2 px-3 text-indigo-300 font-bold">5-4-3-2-1-3-2-1</td><td className="py-2 px-3">1-2-3-1-2-3-4-5</td></tr>
-                      <tr><td className="py-2 px-3 font-sans font-bold text-white">{L("E Minor", "E Minor", "Mi Menor")}</td><td className="py-2 px-3 text-slate-400">G (1♯)</td><td className="py-2 px-3 text-cyan-300 font-bold">1-2-3-1-2-3-4-5</td><td className="py-2 px-3">5-4-3-2-1-3-2-1</td><td className="py-2 px-3 text-indigo-300 font-bold">5-4-3-2-1-3-2-1</td><td className="py-2 px-3">1-2-3-1-2-3-4-5</td></tr>
-                      <tr><td className="py-2 px-3 font-sans font-bold text-white">{L("D Minor", "D Minor", "Re Menor")}</td><td className="py-2 px-3 text-slate-400">F (1♭)</td><td className="py-2 px-3 text-cyan-300 font-bold">1-2-3-1-2-3-4-5</td><td className="py-2 px-3">5-4-3-2-1-3-2-1</td><td className="py-2 px-3 text-indigo-300 font-bold">5-4-3-2-1-3-2-1</td><td className="py-2 px-3">1-2-3-1-2-3-4-5</td></tr>
-                      <tr><td className="py-2 px-3 font-sans font-bold text-white">{L("G Minor", "G Minor", "Sol Menor")}</td><td className="py-2 px-3 text-slate-400">B♭ (2♭)</td><td className="py-2 px-3 text-cyan-300 font-bold">1-2-3-1-2-3-4-5</td><td className="py-2 px-3">5-4-3-2-1-3-2-1</td><td className="py-2 px-3 text-indigo-300 font-bold">5-4-3-2-1-3-2-1</td><td className="py-2 px-3">1-2-3-1-2-3-4-5</td></tr>
-                      <tr><td className="py-2 px-3 font-sans font-bold text-white">{L("C Minor", "C Minor", "Do Menor")}</td><td className="py-2 px-3 text-slate-400">E♭ (3♭)</td><td className="py-2 px-3 text-cyan-300 font-bold">1-2-3-1-2-3-4-5</td><td className="py-2 px-3">5-4-3-2-1-3-2-1</td><td className="py-2 px-3 text-indigo-300 font-bold">5-4-3-2-1-3-2-1</td><td className="py-2 px-3">1-2-3-1-2-3-4-5</td></tr>
-                      <tr className="bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-amber-300">B Minor</td><td className="py-2 px-3 text-slate-400">D (2♯)</td><td className="py-2 px-3 text-cyan-300 font-bold">1-2-3-1-2-3-4-5</td><td className="py-2 px-3">5-4-3-2-1-3-2-1</td><td className="py-2 px-3 text-amber-300 font-bold">4-3-2-1-4-3-2-1</td><td className="py-2 px-3">1-2-3-4-1-2-3-4</td></tr>
-                      <tr className="bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-amber-300">F♯ Minor</td><td className="py-2 px-3 text-slate-400">A (3♯)</td><td className="py-2 px-3 text-amber-300 font-bold">2-3-1-2-3-1-2-3</td><td className="py-2 px-3">3-2-1-3-2-1-3-2</td><td className="py-2 px-3 text-amber-300 font-bold">4-3-2-1-3-2-1-4</td><td className="py-2 px-3">4-1-2-3-1-2-3-4</td></tr>
-                      <tr className="bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-amber-300">C♯ Minor</td><td className="py-2 px-3 text-slate-400">E (4♯)</td><td className="py-2 px-3 text-amber-300 font-bold">2-3-1-2-3-1-2-3</td><td className="py-2 px-3">3-2-1-3-2-1-3-2</td><td className="py-2 px-3 text-amber-300 font-bold">3-2-1-4-3-2-1-3</td><td className="py-2 px-3">3-1-2-3-4-1-2-3</td></tr>
-                      <tr className="bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-amber-300">G♯ Minor</td><td className="py-2 px-3 text-slate-400">B (5♯)</td><td className="py-2 px-3 text-amber-300 font-bold">2-3-1-2-3-1-2-3</td><td className="py-2 px-3">3-2-1-3-2-1-3-2</td><td className="py-2 px-3 text-amber-300 font-bold">3-2-1-3-2-1-4-3</td><td className="py-2 px-3">3-4-1-2-3-1-2-3</td></tr>
-                      <tr className="bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-amber-300">D♯ / E♭ Min</td><td className="py-2 px-3 text-slate-400">F♯ / G♭</td><td className="py-2 px-3 text-amber-300 font-bold">2-1-2-3-4-1-2-3</td><td className="py-2 px-3">3-2-1-4-3-2-1-2</td><td className="py-2 px-3 text-amber-300 font-bold">2-1-4-3-2-1-3-2</td><td className="py-2 px-3">2-3-1-2-3-4-1-2</td></tr>
-                      <tr className="bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-amber-300">B♭ Minor</td><td className="py-2 px-3 text-slate-400">D♭ (5♭)</td><td className="py-2 px-3 text-amber-300 font-bold">4-1-2-3-1-2-3-4</td><td className="py-2 px-3">4-3-2-1-3-2-1-4</td><td className="py-2 px-3 text-amber-300 font-bold">2-1-3-2-1-4-3-2</td><td className="py-2 px-3">2-3-4-1-2-3-1-2</td></tr>
-                      <tr className="bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-emerald-300">F Minor</td><td className="py-2 px-3 text-slate-400">A♭ (4♭)</td><td className="py-2 px-3 text-emerald-300 font-bold">1-2-3-4-1-2-3-4</td><td className="py-2 px-3">4-3-2-1-4-3-2-1</td><td className="py-2 px-3 text-indigo-300 font-bold">5-4-3-2-1-3-2-1</td><td className="py-2 px-3">1-2-3-1-2-3-4-5</td></tr>
+                      <tr><td className="py-2 px-3 font-sans font-bold text-white">{L("A Minor", "A Minor", "La Menor")}</td><td className="py-2 px-3 text-slate-400">C (0)</td><td className="py-2 px-3 text-cyan-300 font-bold">1-2-3-1-2-3-4-5</td><td className="py-2 px-3">5-4-3-2-1-3-2-1</td><td className="py-2 px-3 text-slate-200 font-bold">5-4-3-2-1-3-2-1</td><td className="py-2 px-3">1-2-3-1-2-3-4-5</td></tr>
+                      <tr><td className="py-2 px-3 font-sans font-bold text-white">{L("E Minor", "E Minor", "Mi Menor")}</td><td className="py-2 px-3 text-slate-400">G (1♯)</td><td className="py-2 px-3 text-cyan-300 font-bold">1-2-3-1-2-3-4-5</td><td className="py-2 px-3">5-4-3-2-1-3-2-1</td><td className="py-2 px-3 text-slate-200 font-bold">5-4-3-2-1-3-2-1</td><td className="py-2 px-3">1-2-3-1-2-3-4-5</td></tr>
+                      <tr><td className="py-2 px-3 font-sans font-bold text-white">{L("D Minor", "D Minor", "Re Menor")}</td><td className="py-2 px-3 text-slate-400">F (1♭)</td><td className="py-2 px-3 text-cyan-300 font-bold">1-2-3-1-2-3-4-5</td><td className="py-2 px-3">5-4-3-2-1-3-2-1</td><td className="py-2 px-3 text-slate-200 font-bold">5-4-3-2-1-3-2-1</td><td className="py-2 px-3">1-2-3-1-2-3-4-5</td></tr>
+                      <tr><td className="py-2 px-3 font-sans font-bold text-white">{L("G Minor", "G Minor", "Sol Menor")}</td><td className="py-2 px-3 text-slate-400">B♭ (2♭)</td><td className="py-2 px-3 text-cyan-300 font-bold">1-2-3-1-2-3-4-5</td><td className="py-2 px-3">5-4-3-2-1-3-2-1</td><td className="py-2 px-3 text-slate-200 font-bold">5-4-3-2-1-3-2-1</td><td className="py-2 px-3">1-2-3-1-2-3-4-5</td></tr>
+                      <tr><td className="py-2 px-3 font-sans font-bold text-white">{L("C Minor", "C Minor", "Do Menor")}</td><td className="py-2 px-3 text-slate-400">E♭ (3♭)</td><td className="py-2 px-3 text-cyan-300 font-bold">1-2-3-1-2-3-4-5</td><td className="py-2 px-3">5-4-3-2-1-3-2-1</td><td className="py-2 px-3 text-slate-200 font-bold">5-4-3-2-1-3-2-1</td><td className="py-2 px-3">1-2-3-1-2-3-4-5</td></tr>
+                      <tr className="bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-white">B Minor</td><td className="py-2 px-3 text-slate-400">D (2♯)</td><td className="py-2 px-3 text-cyan-300 font-bold">1-2-3-1-2-3-4-5</td><td className="py-2 px-3">5-4-3-2-1-3-2-1</td><td className="py-2 px-3 text-slate-200 font-bold">4-3-2-1-4-3-2-1</td><td className="py-2 px-3">1-2-3-4-1-2-3-4</td></tr>
+                      <tr className="bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-white">F♯ Minor</td><td className="py-2 px-3 text-slate-400">A (3♯)</td><td className="py-2 px-3 text-slate-200 font-bold">2-3-1-2-3-1-2-3</td><td className="py-2 px-3">3-2-1-3-2-1-3-2</td><td className="py-2 px-3 text-slate-200 font-bold">4-3-2-1-3-2-1-4</td><td className="py-2 px-3">4-1-2-3-1-2-3-4</td></tr>
+                      <tr className="bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-white">C♯ Minor</td><td className="py-2 px-3 text-slate-400">E (4♯)</td><td className="py-2 px-3 text-slate-200 font-bold">2-3-1-2-3-1-2-3</td><td className="py-2 px-3">3-2-1-3-2-1-3-2</td><td className="py-2 px-3 text-slate-200 font-bold">3-2-1-4-3-2-1-3</td><td className="py-2 px-3">3-1-2-3-4-1-2-3</td></tr>
+                      <tr className="bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-white">G♯ Minor</td><td className="py-2 px-3 text-slate-400">B (5♯)</td><td className="py-2 px-3 text-slate-200 font-bold">2-3-1-2-3-1-2-3</td><td className="py-2 px-3">3-2-1-3-2-1-3-2</td><td className="py-2 px-3 text-slate-200 font-bold">3-2-1-3-2-1-4-3</td><td className="py-2 px-3">3-4-1-2-3-1-2-3</td></tr>
+                      <tr className="bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-white">D♯ / E♭ Min</td><td className="py-2 px-3 text-slate-400">F♯ / G♭</td><td className="py-2 px-3 text-slate-200 font-bold">2-1-2-3-4-1-2-3</td><td className="py-2 px-3">3-2-1-4-3-2-1-2</td><td className="py-2 px-3 text-slate-200 font-bold">2-1-4-3-2-1-3-2</td><td className="py-2 px-3">2-3-1-2-3-4-1-2</td></tr>
+                      <tr className="bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-white">B♭ Minor</td><td className="py-2 px-3 text-slate-400">D♭ (5♭)</td><td className="py-2 px-3 text-slate-200 font-bold">4-1-2-3-1-2-3-4</td><td className="py-2 px-3">4-3-2-1-3-2-1-4</td><td className="py-2 px-3 text-slate-200 font-bold">2-1-3-2-1-4-3-2</td><td className="py-2 px-3">2-3-4-1-2-3-1-2</td></tr>
+                      <tr className="bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-white">F Minor</td><td className="py-2 px-3 text-slate-400">A♭ (4♭)</td><td className="py-2 px-3 text-cyan-300 font-bold">1-2-3-4-1-2-3-4</td><td className="py-2 px-3">4-3-2-1-4-3-2-1</td><td className="py-2 px-3 text-slate-200 font-bold">5-4-3-2-1-3-2-1</td><td className="py-2 px-3">1-2-3-1-2-3-4-5</td></tr>
                     </tbody>
                   </table>
                 </div>
@@ -3461,12 +4541,12 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
                 <div className="bg-slate-900/90 border border-slate-800/80 shadow-xl border border-slate-800 rounded-xl p-5 space-y-3">
                   <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                    <span className="font-mono font-bold text-base text-amber-400">{L("CHROMATIC SCALE & 1-OCTAVE ARPEGGIO FINGERING", "FINGERING TANGGA NADA KROMATIK & ARPEGGIO 1-OKTAF", "DIGITACIÓN DE ESCALA CROMÁTICA Y ARPEGIOS")}</span>
+                    <span className="font-mono font-bold text-base text-cyan-400">{L("CHROMATIC SCALE & 1-OCTAVE ARPEGGIO FINGERING", "FINGERING TANGGA NADA KROMATIK & ARPEGGIO 1-OKTAF", "DIGITACIÓN DE ESCALA CROMÁTICA Y ARPEGIOS")}</span>
                     <span className="text-xs font-mono font-medium text-slate-400">{L("PATTERN ENGINE", "POLA JARI", "PATRÓN GUÍA")}</span>
                   </div>
                   <div className="space-y-2.5 text-slate-300">
                     <div className="p-3 bg-slate-900/70 rounded-lg border border-slate-800">
-                      <div className="font-mono font-bold text-amber-300 mb-1">{L("Chromatic Scale (≥4 Semitones):", "Tangga Nada Kromatik (≥4 Semitone):", "Escala Cromática (≥4 Semitonos):")}</div>
+                      <div className="font-mono font-bold text-cyan-300 mb-1">{L("Chromatic Scale (≥4 Semitones):", "Tangga Nada Kromatik (≥4 Semitone):", "Escala Cromática (≥4 Semitonos):")}</div>
                       <p className="text-xs md:text-sm leading-relaxed">
                         {isId ? (
                           <>
@@ -3487,7 +4567,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                       </p>
                     </div>
                     <div className="p-3 bg-slate-900/70 rounded-lg border border-slate-800">
-                      <div className="font-mono font-bold text-emerald-300 mb-1">{L("1-Octave Arpeggio Triads & Dom7:", "Arpeggio Trinitas 1-Oktaf & Dom7:", "Arpegios de Tríada y Dom7 (1 Octava):")}</div>
+                      <div className="font-mono font-bold text-cyan-300 mb-1">{L("1-Octave Arpeggio Triads & Dom7:", "Arpeggio Trinitas 1-Oktaf & Dom7:", "Arpegios de Tríada y Dom7 (1 Octava):")}</div>
                       <p className="text-xs md:text-sm font-mono leading-relaxed">
                         • {L("White Root", "Akar Putih", "Tónica Blanca")} (C–E–G–C): RH <b>1-2-3-5</b> | LH <b>5-4-2-1</b> ({L("or", "atau", "o")} 5-3-2-1)<br />
                         • {L("Black Root", "Akar Hitam", "Tónica Negra")} (D♭–F–A♭–D♭): RH <b>2-1-2-4</b> | LH <b>2-1-4-2</b><br />
@@ -3507,16 +4587,16 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                       <tr className="text-slate-400 border-b border-slate-800">
                         <th className="py-1.5">{L("Structure / Span", "Struktur / Bentangan", "Estructura / Intervalo")}</th>
                         <th className="py-1.5 text-cyan-400">{L("Right Hand (RH)", "Tangan Kanan (RH)", "Mano Derecha (MD)")}</th>
-                        <th className="py-1.5 text-indigo-400">{L("Left Hand (LH)", "Tangan Kiri (LH)", "Mano Izquierda (MI)")}</th>
+                        <th className="py-1.5 text-slate-300">{L("Left Hand (LH)", "Tangan Kiri (LH)", "Mano Izquierda (MI)")}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60 text-slate-300">
-                      <tr><td className="py-1.5">{L("Dyad 2nd / 3rd / 4th", "Dwi-nada 2nd / 3rd / 4th", "Díada 2ª / 3ª / 4ª")}</td><td className="text-cyan-300">1–2 / 1–3 / 1–4</td><td className="text-indigo-300">2–1 / 3–1 / 4–1</td></tr>
-                      <tr><td className="py-1.5">{L("Dyad 5th / 6th / 8ve", "Dwi-nada 5th / 6th / Oktaf", "Díada 5ª / 6ª / 8ª")}</td><td className="text-cyan-300">1–5</td><td className="text-indigo-300">5–1</td></tr>
-                      <tr><td className="py-1.5">{L("Triad Root Position (5/3)", "Trinitas Root (5/3)", "Tríada Fundamental (5/3)")}</td><td className="text-cyan-300 font-bold">1 – 3 – 5</td><td className="text-indigo-300 font-bold">5 – 3 – 1</td></tr>
-                      <tr><td className="py-1.5">{L("Triad 1st Inversion (6/3)", "Trinitas Inversi 1 (6/3)", "Tríada 1ª Inversión (6/3)")}</td><td className="text-cyan-300 font-bold">1 – 2 – 5</td><td className="text-indigo-300 font-bold">5 – 3 – 1</td></tr>
-                      <tr><td className="py-1.5">{L("Triad 2nd Inversion (6/4)", "Trinitas Inversi 2 (6/4)", "Tríada 2ª Inversión (6/4)")}</td><td className="text-cyan-300 font-bold">1 – 3 – 5</td><td className="text-indigo-300 font-bold">5 – 2 – 1</td></tr>
-                      <tr><td className="py-1.5">{L("4-Note 7th / Triad+8ve", "Akor 4-Nada 7th / Trinitas+Oktaf", "Acorde 4 Notas Séptima / Tríada+8ª")}</td><td className="text-cyan-300 font-bold">1 – 2 – 3 – 5</td><td className="text-indigo-300 font-bold">5 – 3 – 2 – 1</td></tr>
+                      <tr><td className="py-1.5">{L("Dyad 2nd / 3rd / 4th", "Dwi-nada 2nd / 3rd / 4th", "Díada 2ª / 3ª / 4ª")}</td><td className="text-cyan-300">1–2 / 1–3 / 1–4</td><td className="text-slate-400">2–1 / 3–1 / 4–1</td></tr>
+                      <tr><td className="py-1.5">{L("Dyad 5th / 6th / 8ve", "Dwi-nada 5th / 6th / Oktaf", "Díada 5ª / 6ª / 8ª")}</td><td className="text-cyan-300">1–5</td><td className="text-slate-400">5–1</td></tr>
+                      <tr><td className="py-1.5">{L("Triad Root Position (5/3)", "Trinitas Root (5/3)", "Tríada Fundamental (5/3)")}</td><td className="text-cyan-300 font-bold">1 – 3 – 5</td><td className="text-slate-200 font-bold">5 – 3 – 1</td></tr>
+                      <tr><td className="py-1.5">{L("Triad 1st Inversion (6/3)", "Trinitas Inversi 1 (6/3)", "Tríada 1ª Inversión (6/3)")}</td><td className="text-cyan-300 font-bold">1 – 2 – 5</td><td className="text-slate-200 font-bold">5 – 3 – 1</td></tr>
+                      <tr><td className="py-1.5">{L("Triad 2nd Inversion (6/4)", "Trinitas Inversi 2 (6/4)", "Tríada 2ª Inversión (6/4)")}</td><td className="text-cyan-300 font-bold">1 – 3 – 5</td><td className="text-slate-200 font-bold">5 – 2 – 1</td></tr>
+                      <tr><td className="py-1.5">{L("4-Note 7th / Triad+8ve", "Akor 4-Nada 7th / Trinitas+Oktaf", "Acorde 4 Notas Séptima / Tríada+8ª")}</td><td className="text-cyan-300 font-bold">1 – 2 – 3 – 5</td><td className="text-slate-200 font-bold">5 – 3 – 2 – 1</td></tr>
                     </tbody>
                   </table>
                 </div>
@@ -3526,7 +4606,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
               <div className="bg-slate-900/90 border border-slate-800/80 shadow-xl border border-slate-800 rounded-xl p-6 space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
                   <div>
-                    <span className="text-xs font-mono font-medium font-bold text-rose-400 uppercase tracking-widest block">
+                    <span className="text-xs font-mono font-medium font-bold text-cyan-400 uppercase tracking-widest block">
                       {isId ? 'BAGIAN 3.6 — DIAGNOSIS BIOMEKANIKA & PENCEGAHAN CEDERA' : isEs ? 'SECCIÓN 3.6 — DIAGNÓSTICO BIOMECÁNICO Y PREVENCIÓN DE LESIONES' : 'SECTION 3.6 — BIOMECHANICAL DIAGNOSTICS & INJURY PREVENTION'}
                     </span>
                     <h3 className="text-base font-bold text-white mt-0.5">
@@ -3701,49 +4781,73 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                       </text>
                     </g>
 
-                    {/* Right Viewport: Sheet Music QWERTY */}
+                    {/* Right Viewport: Sheet Music QWERTY (Identical to In-Game: No Staff Lines, Only Bar Lines & Playhead) */}
                     <g transform="translate(440, 16)">
                       <rect width="400" height="252" rx="6" fill="#0a0f1a" stroke="#1e293b" />
                       <text x="16" y="22" fill="#38bdf8" fontSize="13.5" fontFamily="monospace" fontWeight="bold">
-                        VIEWPORT 02 • SHEET MUSIC QWERTY (GRAND STAFF + KEY BADGES)
+                        VIEWPORT 02 • SHEET MUSIC QWERTY (IN-GAME FORMAT)
                       </text>
 
-                      <g transform="translate(20, 42)">
-                        {/* Staff Lines */}
-                        {[0, 12, 24, 36, 48].map((y, i) => (
-                          <line key={`st1-${i}`} x1="65" y1={10 + y} x2="355" y2={10 + y} stroke="#334155" strokeWidth="1.3" />
-                        ))}
-                        {[0, 12, 24, 36, 48].map((y, i) => (
-                          <line key={`st2-${i}`} x1="65" y1={84 + y} x2="355" y2={84 + y} stroke="#334155" strokeWidth="1.3" />
-                        ))}
-                        <text x="72" y="48" fill="#38bdf8" fontSize="30" fontFamily="serif">𝄞</text>
-                        <text x="72" y="118" fill="#818cf8" fontSize="26" fontFamily="serif">𝄢</text>
+                      {/* In-Game Sidebar Panel Replica */}
+                      <rect x="16" y="34" width="60" height="148" rx="4" fill="#f7f5ed" stroke="#cbd5e1" strokeWidth="1" />
+                      <text x="46" y="50" fill="#64748b" fontSize="8" fontFamily="sans-serif" fontWeight="bold" textAnchor="middle">KEY</text>
+                      <text x="46" y="65" fill="#0f172a" fontSize="10.5" fontFamily="sans-serif" fontWeight="bold" textAnchor="middle">C Major</text>
+                      <text x="46" y="90" fill="#64748b" fontSize="8" fontFamily="sans-serif" fontWeight="bold" textAnchor="middle">BPM</text>
+                      <text x="46" y="106" fill="#0f172a" fontSize="15" fontFamily="monospace" fontWeight="bold" textAnchor="middle">120</text>
+                      <text x="46" y="130" fill="#64748b" fontSize="7.5" fontFamily="sans-serif" fontWeight="bold" textAnchor="middle">LAYOUT</text>
+                      <text x="46" y="144" fill="#0f172a" fontSize="10" fontFamily="sans-serif" fontWeight="bold" textAnchor="middle">Roblox</text>
 
-                        {/* Playhead */}
-                        <line x1="140" y1="2" x2="140" y2="140" stroke="#ef4444" strokeWidth="1.5" strokeDasharray="3 2" />
+                      {/* Scrolling Area: NO Staff Lines, ONLY Vertical Bar Lines & Playhead */}
+                      {/* Measure Bar Line 1 */}
+                      <line x1="95" y1="36" x2="95" y2="180" stroke="#334155" strokeWidth="1.2" />
+                      <text x="99" y="47" fill="#94a3b8" fontSize="10" fontFamily="sans-serif" fontWeight="bold">1</text>
 
-                        {/* Notes with stamped QWERTY letters */}
-                        {[
-                          { x: 140, y: 70, key: 't', pitch: 'C4', col: '#f59e0b', ledger: true },
-                          { x: 195, y: 58, key: 'u', pitch: 'E4', col: '#38bdf8', ledger: false },
-                          { x: 250, y: 46, key: 'o', pitch: 'G4', col: '#38bdf8', ledger: false },
-                          { x: 305, y: 28, key: 's', pitch: 'C5', col: '#38bdf8', ledger: false },
-                          { x: 140, y: 114, key: '8', pitch: 'C3', col: '#818cf8', ledger: false },
-                        ].map((n, idx) => (
-                          <g key={idx} transform={`translate(${n.x}, ${n.y})`}>
-                            {n.ledger && <line x1="-14" y1="0" x2="14" y2="0" stroke="#f59e0b" strokeWidth="1.8" />}
-                            <ellipse cx="0" cy="0" rx="9.5" ry="7" fill={n.col} />
-                            <text x="0" y="3.5" textAnchor="middle" fill="#020617" fontSize="13" fontFamily="monospace" fontWeight="bold">{n.key}</text>
-                          </g>
-                        ))}
+                      {/* Measure Bar Line 2 */}
+                      <line x1="235" y1="36" x2="235" y2="180" stroke="#334155" strokeWidth="1.2" />
+                      <text x="239" y="47" fill="#94a3b8" fontSize="10" fontFamily="sans-serif" fontWeight="bold">2</text>
+
+                      {/* Measure Bar Line 3 */}
+                      <line x1="375" y1="36" x2="375" y2="180" stroke="#334155" strokeWidth="1.2" />
+                      <text x="379" y="47" fill="#94a3b8" fontSize="10" fontFamily="sans-serif" fontWeight="bold">3</text>
+
+                      {/* Vertical Red Playhead / Hit Line */}
+                      <line x1="145" y1="34" x2="145" y2="182" stroke="#ef4444" strokeWidth="1.8" />
+
+                      {/* Notes: Stamped QWERTY Keycap Boxes Stacked in 1 Single Lane */}
+                      {/* Note 1 (Melody, Active on Playhead): [t] (C4, RH) */}
+                      <g transform="translate(145, 82)">
+                        <rect x="-12" y="-10" width="24" height="20" rx="4" fill="#f59e0b" stroke="#020617" strokeWidth="1" />
+                        <text x="0" y="4" textAnchor="middle" fill="#020617" fontSize="12" fontFamily="monospace" fontWeight="bold">t</text>
+                      </g>
+
+                      {/* Note 2 (Bass, Stacked on Same Beat at Playhead): [8] (C3, LH) */}
+                      <g transform="translate(145, 118)">
+                        <rect x="-12" y="-10" width="24" height="20" rx="4" fill="#818cf8" stroke="#020617" strokeWidth="1" />
+                        <text x="0" y="4" textAnchor="middle" fill="#ffffff" fontSize="12" fontFamily="monospace" fontWeight="bold">8</text>
+                      </g>
+
+                      {/* Upcoming Melody Notes */}
+                      <g transform="translate(205, 82)">
+                        <rect x="-12" y="-10" width="24" height="20" rx="4" fill="#38bdf8" stroke="#020617" strokeWidth="1" />
+                        <text x="0" y="4" textAnchor="middle" fill="#020617" fontSize="12" fontFamily="monospace" fontWeight="bold">u</text>
+                      </g>
+
+                      <g transform="translate(265, 82)">
+                        <rect x="-12" y="-10" width="24" height="20" rx="4" fill="#38bdf8" stroke="#020617" strokeWidth="1" />
+                        <text x="0" y="4" textAnchor="middle" fill="#020617" fontSize="12" fontFamily="monospace" fontWeight="bold">o</text>
+                      </g>
+
+                      <g transform="translate(325, 82)">
+                        <rect x="-12" y="-10" width="24" height="20" rx="4" fill="#38bdf8" stroke="#020617" strokeWidth="1" />
+                        <text x="0" y="4" textAnchor="middle" fill="#020617" fontSize="12" fontFamily="monospace" fontWeight="bold">s</text>
                       </g>
 
                       <rect x="16" y="192" width="368" height="48" rx="4" fill="#0f172a" stroke="#1e293b" />
-                      <text x="26" y="210" fill="#e2e8f0" fontSize="12.5" fontFamily="monospace" fontWeight="bold">
-                        • Stamped Key Badges: [t]=C4, [u]=E4, [o]=G4, [8]=C3 directly on noteheads
+                      <text x="26" y="210" fill="#e2e8f0" fontSize="12" fontFamily="monospace" fontWeight="bold">
+                        {isId ? '• Format In-Game: Key Signature di panel kiri (C Major / A Minor)' : isEs ? '• Formato In-Game: Armadura en panel izquierdo (C Major / A Minor)' : '• In-Game Format: Key Signature on left panel (C Major / A Minor)'}
                       </text>
-                      <text x="26" y="227" fill="#94a3b8" fontSize="12.5" fontFamily="monospace">
-                        • Builds real Grand Staff sight-reading while playing on a PC keyboard
+                      <text x="26" y="227" fill="#94a3b8" fontSize="12" fontFamily="monospace">
+                        {isId ? '• Sheet bersih tanpa paranada/clef, hanya garis bar dan tuts bertumpuk' : isEs ? '• Partitura limpia sin pentagrama/claves, solo compases y teclas apiladas' : '• Clean sheet without staves/clefs, only bar lines and stacked keys'}
                       </text>
                     </g>
                   </svg>
@@ -3754,7 +4858,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
               <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-6 md:p-8 space-y-6 shadow-2xl backdrop-blur-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
                   <div>
-                    <span className="text-xs font-mono font-bold text-amber-400 uppercase tracking-widest block">
+                    <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest block">
                       FIG 4.2 — COMPLETE 61-KEY ROBLOX (MIRP) VIRTUAL PIANO MASTER KEYBOARD MAP (C2 — C7)
                     </span>
                     <h3 className="text-base md:text-lg font-bold text-white mt-1">
@@ -3763,7 +4867,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                         : 'Complete 61-Key Roblox / Virtual Piano (MIRP) Pitch Matrix: White Keys & Shift Black Keys'}
                     </h3>
                   </div>
-                  <span className="text-xs font-mono font-medium text-amber-300 bg-amber-950/50 px-2.5 py-1 rounded border border-amber-500/30">
+                  <span className="text-xs font-mono font-medium text-slate-300 bg-slate-800 px-2.5 py-1 rounded border border-slate-700">
                     KEY [t] = MIDDLE C4 (MIDI 60)
                   </span>
                 </div>
@@ -3886,7 +4990,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
               <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-6 md:p-8 space-y-6 shadow-2xl backdrop-blur-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
                   <div>
-                    <span className="text-xs font-mono font-bold text-emerald-400 uppercase tracking-widest block">
+                    <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest block">
                       FIG 4.3 — STANDARD COMPACT 2-TIER CHROMATIC LAYOUT &amp; SHEET SYNTAX DECODER
                     </span>
                     <h3 className="text-base md:text-lg font-bold text-white mt-1">
@@ -3969,7 +5073,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                 {/* Syntax & Hardware Engineering Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs pt-1">
                   <div className="p-3.5 bg-slate-900/70 rounded-lg border border-slate-800 space-y-1.5">
-                    <div className="font-mono font-bold text-base text-amber-400">
+                    <div className="font-mono font-bold text-base text-cyan-400">
                       {isId ? '1. Sintaks Tanda Kurung Virtual Piano' : isEs ? '1. Sintaxis de Corchetes en Virtual Piano' : '1. Virtual Piano Bracket Syntax'}
                     </div>
                     <p className="text-slate-300 leading-relaxed font-mono text-xs md:text-sm">
@@ -4007,7 +5111,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                     </p>
                   </div>
                   <div className="p-3.5 bg-slate-900/70 rounded-lg border border-slate-800 space-y-1.5">
-                    <div className="font-mono font-bold text-emerald-400">
+                    <div className="font-mono font-bold text-cyan-400">
                       {isId ? '3. NKRO vs. Ghosting Matriks Membran' : isEs ? '3. NKRO vs. Efecto Fantasma de Matriz de Membrana' : '3. NKRO vs. Membrane Matrix Ghosting'}
                     </div>
                     <p className="text-slate-300 leading-relaxed">
@@ -4036,7 +5140,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                         : 'Complete PC Keyboard Real-Time Transposition Guide & Zero-Shift Strategy'}
                     </h3>
                   </div>
-                  <span className="text-xs font-mono font-medium text-amber-300 bg-slate-900 px-2.5 py-1 rounded border border-slate-800">
+                  <span className="text-xs font-mono font-medium text-slate-300 bg-slate-900 px-2.5 py-1 rounded border border-slate-800">
                     {isId ? 'PANAH ATAS (↑) / PANAH BAWAH (↓)' : isEs ? 'FLECHA ARRIBA (↑) / FLECHA ABAJO (↓)' : 'ARROW UP (↑) / ARROW DOWN (↓)'}
                   </span>
                 </div>
@@ -4064,9 +5168,9 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                     </div>
                   </div>
 
-                  <div className="bg-[#070a12] border border-amber-500/30 rounded-xl p-4 space-y-2">
+                  <div className="bg-[#070a12] border border-slate-700 rounded-xl p-4 space-y-2">
                     <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-300 flex items-center justify-center font-mono font-bold text-sm">
+                      <div className="w-8 h-8 rounded-lg bg-slate-800 text-cyan-300 border border-slate-700 flex items-center justify-center font-mono font-bold text-sm">
                         0-⇧
                       </div>
                       <h4 className="text-sm font-bold text-white">
@@ -4080,14 +5184,14 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                         ? 'Las teclas blancas no requieren Shift, mientras que las negras obligan a mantener pulsado Shift. Transpón canciones difíciles con muchos sostenidos/bemoles (como Fa♯ o Re♭) a Do Mayor para tocar sin usar Shift.'
                         : 'Naturals require no Shift, while accidentals demand holding Shift. Transpose black-key heavy songs (like F♯ or D♭) toward C Major to play the entire piece purely on natural keys with zero Shift gymnastics!'}
                     </p>
-                    <div className="bg-slate-900/80 p-2.5 rounded border border-slate-800 font-mono text-xs md:text-sm text-amber-300">
+                    <div className="bg-slate-900/80 p-2.5 rounded border border-slate-800 font-mono text-xs md:text-sm text-cyan-300">
                       <span>F♯ Major (6♯) + Transpose (-6) = C Major (0♯)</span>
                     </div>
                   </div>
 
-                  <div className="bg-[#070a12] border border-purple-500/30 rounded-xl p-4 space-y-2">
+                  <div className="bg-[#070a12] border border-slate-800 rounded-xl p-4 space-y-2">
                     <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-300 flex items-center justify-center font-mono font-bold text-sm">
+                      <div className="w-8 h-8 rounded-lg bg-slate-800 text-cyan-300 border border-slate-700 flex items-center justify-center font-mono font-bold text-sm">
                         8va
                       </div>
                       <h4 className="text-sm font-bold text-white">
@@ -4101,7 +5205,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                         ? 'Octavia incluye un botón de transposición automática según la armadura. En el modo Compact de 2 octavas, las flechas cambian octavas (-3 a +2) para recorrer de Do1 a Do8.'
                         : 'Octavia offers a 1-click Auto-Transpose button calculated from the song Key Signature. In the 2-octave Compact layout, arrows act as an Octave Shift (-3 to +2 octaves) spanning C1 to C8.'}
                     </p>
-                    <div className="bg-slate-900/80 p-2.5 rounded border border-slate-800 font-mono text-xs md:text-sm text-purple-300">
+                    <div className="bg-slate-900/80 p-2.5 rounded border border-slate-800 font-mono text-xs md:text-sm text-cyan-300">
                       <span>Reticle visual otomatis bergeser ke tuts baru</span>
                     </div>
                   </div>
@@ -4124,7 +5228,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                         <tr className="border-b border-slate-800 text-xs uppercase text-slate-400 bg-slate-900/90">
                           <th className="py-2.5 px-3">{isId ? 'Tonalitas Asli' : isEs ? 'Tonalidad Original' : 'Original Key'}</th>
                           <th className="py-2.5 px-3">{isId ? 'Jumlah Kres / Mol' : isEs ? 'Cantidad de ♯ / ♭' : 'Sharps / Flats'}</th>
-                          <th className="py-2.5 px-3 text-amber-400">{isId ? 'Nilai Transpose Disarankan' : isEs ? 'Transposición Sugerida' : 'Recommended Transposition'}</th>
+                          <th className="py-2.5 px-3 text-slate-300">{isId ? 'Nilai Transpose Disarankan' : isEs ? 'Transposición Sugerida' : 'Recommended Transposition'}</th>
                           <th className="py-2.5 px-3 text-cyan-400">{isId ? 'Tonalitas Hasil Transpose' : isEs ? 'Tonalidad Resultante' : 'Resulting Key'}</th>
                           <th className="py-2.5 px-3">{isId ? 'Keuntungan Bermain di PC' : isEs ? 'Ventaja en Teclado PC' : 'PC Gaming Advantage'}</th>
                         </tr>
@@ -4133,84 +5237,84 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                         <tr className="hover:bg-slate-900/40">
                           <td className="py-2 px-3 font-sans font-bold text-white">C Major / A Minor</td>
                           <td className="py-2 px-3">0 ♯ / 0 ♭</td>
-                          <td className="py-2 px-3 text-amber-400 font-bold">{isId ? '0 (Tanpa Ubah)' : isEs ? '0 (Sin Cambios)' : '0 (No Change)'}</td>
+                          <td className="py-2 px-3 text-slate-200 font-mono font-bold">{isId ? '0 (Tanpa Ubah)' : isEs ? '0 (Sin Cambios)' : '0 (No Change)'}</td>
                           <td className="py-2 px-3 text-cyan-300 font-bold">C Major / A Minor</td>
                           <td className="py-2 px-3 font-sans text-slate-400">{isId ? '100% tuts putih alami, tanpa kombinasi Shift sama sekali.' : isEs ? '100% teclas naturales sin Shift.' : '100% natural keys, zero Shift key combinations.'}</td>
                         </tr>
                         <tr className="hover:bg-slate-900/40">
                           <td className="py-2 px-3 font-sans font-bold text-white">G Major / E Minor</td>
                           <td className="py-2 px-3">1 ♯ (F♯)</td>
-                          <td className="py-2 px-3 text-amber-400 font-bold">{isId ? '-1 semitone (Panah ↓)' : isEs ? '-1 semitono (Flecha ↓)' : '-1 semitone (Arrow ↓)'}</td>
+                          <td className="py-2 px-3 text-slate-200 font-mono font-bold">{isId ? '-1 semitone (Panah ↓)' : isEs ? '-1 semitono (Flecha ↓)' : '-1 semitone (Arrow ↓)'}</td>
                           <td className="py-2 px-3 text-cyan-300 font-bold">F Major (1 ♭) / C Major</td>
                           <td className="py-2 px-3 font-sans text-slate-400">{isId ? 'Hanya 1 tuts hitam tersisa; mudah dimainkan.' : isEs ? 'Casi sin teclas negras.' : 'Nearly all naturals; smooth scalar runs.'}</td>
                         </tr>
                         <tr className="hover:bg-slate-900/40">
                           <td className="py-2 px-3 font-sans font-bold text-white">D Major / B Minor</td>
                           <td className="py-2 px-3">2 ♯ (F♯, C♯)</td>
-                          <td className="py-2 px-3 text-amber-400 font-bold">{isId ? '-2 semitone (Panah ↓ 2×)' : isEs ? '-2 semitonos (Flecha ↓ 2×)' : '-2 semitones (Arrow ↓ 2×)'}</td>
+                          <td className="py-2 px-3 text-slate-200 font-mono font-bold">{isId ? '-2 semitone (Panah ↓ 2×)' : isEs ? '-2 semitonos (Flecha ↓ 2×)' : '-2 semitones (Arrow ↓ 2×)'}</td>
                           <td className="py-2 px-3 text-cyan-300 font-bold">C Major</td>
                           <td className="py-2 px-3 font-sans text-slate-400">{isId ? 'Menghilangkan 2 nada kres menjadi tangga nada C natural.' : isEs ? 'Elimina los 2 sostenidos.' : 'Converts 2 sharps into 100% natural C Major white keys.'}</td>
                         </tr>
                         <tr className="hover:bg-slate-900/40">
                           <td className="py-2 px-3 font-sans font-bold text-white">A Major / F♯ Minor</td>
                           <td className="py-2 px-3">3 ♯ (F♯, C♯, G♯)</td>
-                          <td className="py-2 px-3 text-amber-400 font-bold">{isId ? '-3 semitone (Panah ↓ 3×)' : isEs ? '-3 semitonos (Flecha ↓ 3×)' : '-3 semitones (Arrow ↓ 3×)'}</td>
+                          <td className="py-2 px-3 text-slate-200 font-mono font-bold">{isId ? '-3 semitone (Panah ↓ 3×)' : isEs ? '-3 semitonos (Flecha ↓ 3×)' : '-3 semitones (Arrow ↓ 3×)'}</td>
                           <td className="py-2 px-3 text-cyan-300 font-bold">F Major / C Major</td>
                           <td className="py-2 px-3 font-sans text-slate-400">{isId ? 'Mengurangi drastis lompatan Shift pada tangan kanan.' : isEs ? 'Reduce drásticamente combinaciones Shift.' : 'Dramatically reduces right-hand Shift combinations.'}</td>
                         </tr>
                         <tr className="hover:bg-slate-900/40">
                           <td className="py-2 px-3 font-sans font-bold text-white">E Major / C♯ Minor</td>
                           <td className="py-2 px-3">4 ♯ (F♯, C♯, G♯, D♯)</td>
-                          <td className="py-2 px-3 text-amber-400 font-bold">{isId ? '-4 semitone (Panah ↓ 4×)' : isEs ? '-4 semitonos (Flecha ↓ 4×)' : '-4 semitones (Arrow ↓ 4×)'}</td>
+                          <td className="py-2 px-3 text-slate-200 font-mono font-bold">{isId ? '-4 semitone (Panah ↓ 4×)' : isEs ? '-4 semitonos (Flecha ↓ 4×)' : '-4 semitones (Arrow ↓ 4×)'}</td>
                           <td className="py-2 px-3 text-cyan-300 font-bold">C Major</td>
                           <td className="py-2 px-3 font-sans text-slate-400">{isId ? 'Menghilangkan 4 tuts hitam yang rawan misinput.' : isEs ? 'Elimina 4 teclas negras propensas a error.' : 'Eliminates 4 tricky black keys prone to missed inputs.'}</td>
                         </tr>
                         <tr className="hover:bg-slate-900/40">
                           <td className="py-2 px-3 font-sans font-bold text-white">B Major / G♯ Minor</td>
                           <td className="py-2 px-3">5 ♯ (F♯, C♯, G♯, D♯, A♯)</td>
-                          <td className="py-2 px-3 text-amber-400 font-bold">{isId ? '+1 semitone (Panah ↑ 1×)' : isEs ? '+1 semitono (Flecha ↑ 1×)' : '+1 semitone (Arrow ↑ 1×)'}</td>
+                          <td className="py-2 px-3 text-slate-200 font-mono font-bold">{isId ? '+1 semitone (Panah ↑ 1×)' : isEs ? '+1 semitono (Flecha ↑ 1×)' : '+1 semitone (Arrow ↑ 1×)'}</td>
                           <td className="py-2 px-3 text-cyan-300 font-bold">C Major</td>
                           <td className="py-2 px-3 font-sans text-slate-400">{isId ? 'Hanya geser 1 semitone ke atas, 5 kres hilang seketika!' : isEs ? 'Sube 1 semitono y desaparecen 5 sostenidos.' : 'Shift up 1 semitone: all 5 sharps disappear instantly!'}</td>
                         </tr>
                         <tr className="hover:bg-slate-900/40">
                           <td className="py-2 px-3 font-sans font-bold text-white">F♯ / G♭ Major</td>
                           <td className="py-2 px-3">{isId ? '6 ♯ / 6 ♭ (Maksimal Kres/Mol)' : isEs ? '6 ♯ / 6 ♭ (Máximo ♯/♭)' : '6 ♯ / 6 ♭ (Max Sharps/Flats)'}</td>
-                          <td className="py-2 px-3 text-amber-400 font-bold">{isId ? '+6 atau -6 semitone' : isEs ? '+6 o -6 semitonos' : '+6 or -6 semitones'}</td>
+                          <td className="py-2 px-3 text-slate-200 font-mono font-bold">{isId ? '+6 atau -6 semitone' : isEs ? '+6 o -6 semitonos' : '+6 or -6 semitones'}</td>
                           <td className="py-2 px-3 text-cyan-300 font-bold">C Major</td>
                           <td className="py-2 px-3 font-sans text-slate-400">{isId ? 'Lagu tersulit menjadi lagu paling mudah dimainkan di PC.' : isEs ? 'Convierte la tonalidad más difícil en la más fácil.' : 'Turns the hardest keyboard piece into pure natural white keys.'}</td>
                         </tr>
                         <tr className="hover:bg-slate-900/40">
                           <td className="py-2 px-3 font-sans font-bold text-white">D♭ Major / B♭ Minor</td>
                           <td className="py-2 px-3">5 ♭ (B♭, E♭, A♭, D♭, G♭)</td>
-                          <td className="py-2 px-3 text-amber-400 font-bold">{isId ? '-1 semitone (Panah ↓ 1×)' : isEs ? '-1 semitono (Flecha ↓ 1×)' : '-1 semitone (Arrow ↓ 1×)'}</td>
+                          <td className="py-2 px-3 text-slate-200 font-mono font-bold">{isId ? '-1 semitone (Panah ↓ 1×)' : isEs ? '-1 semitono (Flecha ↓ 1×)' : '-1 semitone (Arrow ↓ 1×)'}</td>
                           <td className="py-2 px-3 text-cyan-300 font-bold">C Major</td>
                           <td className="py-2 px-3 font-sans text-slate-400">{isId ? 'Turunkan 1 semitone: 5 mol hilang menjadi C Mayor murni!' : isEs ? 'Baja 1 semitono y desaparecen 5 bemoles.' : 'Shift down 1 semitone: 5 flats resolve into clean C Major.'}</td>
                         </tr>
                         <tr className="hover:bg-slate-900/40">
                           <td className="py-2 px-3 font-sans font-bold text-white">A♭ Major / F Minor</td>
                           <td className="py-2 px-3">4 ♭ (B♭, E♭, A♭, D♭)</td>
-                          <td className="py-2 px-3 text-amber-400 font-bold">{isId ? '+4 semitone (Panah ↑ 4×)' : isEs ? '+4 semitonos (Flecha ↑ 4×)' : '+4 semitones (Arrow ↑ 4×)'}</td>
+                          <td className="py-2 px-3 text-slate-200 font-mono font-bold">{isId ? '+4 semitone (Panah ↑ 4×)' : isEs ? '+4 semitonos (Flecha ↑ 4×)' : '+4 semitones (Arrow ↑ 4×)'}</td>
                           <td className="py-2 px-3 text-cyan-300 font-bold">C Major</td>
                           <td className="py-2 px-3 font-sans text-slate-400">{isId ? 'Sangat direkomendasikan untuk repertoar pop/anime ber-flat.' : isEs ? 'Ideal para repertorio anime/pop con bemoles.' : 'Perfect for pop and anime ballads composed in flat keys.'}</td>
                         </tr>
                         <tr className="hover:bg-slate-900/40">
                           <td className="py-2 px-3 font-sans font-bold text-white">E♭ Major / C Minor</td>
                           <td className="py-2 px-3">3 ♭ (B♭, E♭, A♭)</td>
-                          <td className="py-2 px-3 text-amber-400 font-bold">-3 semitone (Panah ↓ 3×)</td>
+                          <td className="py-2 px-3 text-slate-200 font-mono font-bold">-3 semitone (Panah ↓ 3×)</td>
                           <td className="py-2 px-3 text-cyan-300 font-bold">C Major</td>
                           <td className="py-2 px-3 font-sans text-slate-400">{isId ? 'Mengubah akor Eb-Ab-Bb menjadi C-F-G tanpa Shift.' : isEs ? 'Toca Eb-Ab-Bb como C-F-G sin Shift.' : 'Play Eb-Ab-Bb progression as effortless C-F-G chords.'}</td>
                         </tr>
                         <tr className="hover:bg-slate-900/40">
                           <td className="py-2 px-3 font-sans font-bold text-white">B♭ Major / G Minor</td>
                           <td className="py-2 px-3">2 ♭ (B♭, E♭)</td>
-                          <td className="py-2 px-3 text-amber-400 font-bold">{isId ? '+2 semitone (Panah ↑ 2×)' : isEs ? '+2 semitonos (Flecha ↑ 2×)' : '+2 semitones (Arrow ↑ 2×)'}</td>
+                          <td className="py-2 px-3 text-slate-200 font-mono font-bold">{isId ? '+2 semitone (Panah ↑ 2×)' : isEs ? '+2 semitonos (Flecha ↑ 2×)' : '+2 semitones (Arrow ↑ 2×)'}</td>
                           <td className="py-2 px-3 text-cyan-300 font-bold">C Major</td>
                           <td className="py-2 px-3 font-sans text-slate-400">{isId ? 'Mengoptimalkan kombo kecepatan tinggi pada lagu cepat.' : isEs ? 'Optimiza combos a alta velocidad.' : 'Optimizes high-speed combo execution without misclicks.'}</td>
                         </tr>
                         <tr className="hover:bg-slate-900/40">
                           <td className="py-2 px-3 font-sans font-bold text-white">F Major / D Minor</td>
                           <td className="py-2 px-3">1 ♭ (B♭)</td>
-                          <td className="py-2 px-3 text-amber-400 font-bold">{isId ? '-5 atau +1 semitone' : isEs ? '-5 o +1 semitono' : '-5 or +1 semitone'}</td>
+                          <td className="py-2 px-3 text-slate-200 font-mono font-bold">{isId ? '-5 atau +1 semitone' : isEs ? '-5 o +1 semitono' : '-5 or +1 semitone'}</td>
                           <td className="py-2 px-3 text-cyan-300 font-bold">C Major / G Major</td>
                           <td className="py-2 px-3 font-sans text-slate-400">{isId ? 'Hanya 1 tuts hitam; dapat dimainkan dengan atau tanpa transpose.' : isEs ? 'Apenas 1 bemol; muy accesible.' : 'Only 1 flat; easily playable with or without transposition.'}</td>
                         </tr>
@@ -4238,26 +5342,26 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                       </thead>
                       <tbody className="divide-y divide-slate-800/60 text-slate-300 text-xs md:text-sm">
                         <tr className="hover:bg-slate-900/40">
-                          <td className="py-2 px-3 font-bold text-amber-300"><kbd className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700">{isId ? 'Panah Atas (↑)' : isEs ? 'Flecha Arriba (↑)' : 'Arrow Up (↑)'}</kbd></td>
+                          <td className="py-2 px-3 font-bold text-slate-200 font-mono"><kbd className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700">{isId ? 'Panah Atas (↑)' : isEs ? 'Flecha Arriba (↑)' : 'Arrow Up (↑)'}</kbd></td>
                           <td className="py-2 px-3 text-cyan-400">Roblox (MIRP)</td>
                           <td className="py-2 px-3 font-sans font-bold text-white">{isId ? 'Transpose Semitone (+1)' : isEs ? 'Transponer Semitono (+1)' : 'Transpose Semitone (+1)'}</td>
                           <td className="py-2 px-3 font-sans text-slate-400">{isId ? 'Menaikkan nada seluruh tombol keyboard sebesar 1 semitone.' : isEs ? 'Sube el tono de todas las teclas 1 semitono.' : 'Raises pitch of all mapped keys by +1 semitone.'}</td>
                         </tr>
                         <tr className="hover:bg-slate-900/40">
-                          <td className="py-2 px-3 font-bold text-amber-300"><kbd className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700">{isId ? 'Panah Bawah (↓)' : isEs ? 'Flecha Abajo (↓)' : 'Arrow Down (↓)'}</kbd></td>
+                          <td className="py-2 px-3 font-bold text-slate-200 font-mono"><kbd className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700">{isId ? 'Panah Bawah (↓)' : isEs ? 'Flecha Abajo (↓)' : 'Arrow Down (↓)'}</kbd></td>
                           <td className="py-2 px-3 text-cyan-400">Roblox (MIRP)</td>
                           <td className="py-2 px-3 font-sans font-bold text-white">{isId ? 'Transpose Semitone (-1)' : isEs ? 'Transponer Semitono (-1)' : 'Transpose Semitone (-1)'}</td>
                           <td className="py-2 px-3 font-sans text-slate-400">{isId ? 'Menurunkan nada seluruh tombol keyboard sebesar 1 semitone.' : isEs ? 'Baja el tono de todas las teclas 1 semitono.' : 'Lowers pitch of all mapped keys by -1 semitone.'}</td>
                         </tr>
                         <tr className="hover:bg-slate-900/40">
-                          <td className="py-2 px-3 font-bold text-purple-300"><kbd className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700">{isId ? 'Panah Atas (↑)' : isEs ? 'Flecha Arriba (↑)' : 'Arrow Up (↑)'}</kbd></td>
-                          <td className="py-2 px-3 text-indigo-400">Compact Standard</td>
+                          <td className="py-2 px-3 font-bold text-slate-200 font-mono"><kbd className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700">{isId ? 'Panah Atas (↑)' : isEs ? 'Flecha Arriba (↑)' : 'Arrow Up (↑)'}</kbd></td>
+                          <td className="py-2 px-3 text-slate-300">Compact Standard</td>
                           <td className="py-2 px-3 font-sans font-bold text-white">{isId ? 'Geser Oktaf Naik (+12)' : isEs ? 'Subir Octava (+12)' : 'Octave Shift Up (+12)'}</td>
                           <td className="py-2 px-3 font-sans text-slate-400">{isId ? 'Menggeser register tuts 1 oktaf ke atas (hingga maksimal +2 oktaf).' : isEs ? 'Desplaza el registro 1 octava arriba (hasta +2).' : 'Shifts register up 1 octave (+12 semitones, up to +2 octaves).'}</td>
                         </tr>
                         <tr className="hover:bg-slate-900/40">
-                          <td className="py-2 px-3 font-bold text-purple-300"><kbd className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700">{isId ? 'Panah Bawah (↓)' : isEs ? 'Flecha Abajo (↓)' : 'Arrow Down (↓)'}</kbd></td>
-                          <td className="py-2 px-3 text-indigo-400">Compact Standard</td>
+                          <td className="py-2 px-3 font-bold text-slate-200 font-mono"><kbd className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700">{isId ? 'Panah Bawah (↓)' : isEs ? 'Flecha Abajo (↓)' : 'Arrow Down (↓)'}</kbd></td>
+                          <td className="py-2 px-3 text-slate-300">Compact Standard</td>
                           <td className="py-2 px-3 font-sans font-bold text-white">{isId ? 'Geser Oktaf Turun (-12)' : isEs ? 'Bajar Octava (-12)' : 'Octave Shift Down (-12)'}</td>
                           <td className="py-2 px-3 font-sans text-slate-400">{isId ? 'Menggeser register tuts 1 oktaf ke bawah (hingga minimal -3 oktaf).' : isEs ? 'Desplaza el registro 1 octava abajo (hasta -3).' : 'Shifts register down 1 octave (-12 semitones, down to -3 octaves).'}</td>
                         </tr>
@@ -4291,18 +5395,18 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                         <tr className="border-b border-slate-800 text-xs uppercase text-slate-400 bg-slate-900/90">
                           <th className="py-2.5 px-3">{isId ? 'Akor' : isEs ? 'Acorde' : 'Chord'}</th>
                           <th className="py-2.5 px-3">{isId ? 'Not Musik' : isEs ? 'Notas Musicales' : 'Notes'}</th>
-                          <th className="py-2.5 px-3 text-amber-400">{isId ? 'Tombol Roblox (MIRP)' : isEs ? 'Teclas Roblox (MIRP)' : 'Roblox Keys (MIRP)'}</th>
+                          <th className="py-2.5 px-3 text-slate-300">{isId ? 'Tombol Roblox (MIRP)' : isEs ? 'Teclas Roblox (MIRP)' : 'Roblox Keys (MIRP)'}</th>
                           <th className="py-2.5 px-3 text-cyan-400">{isId ? 'Tombol Compact (Atas)' : isEs ? 'Teclas Compact (Arriba)' : 'Compact Keys (Upper)'}</th>
-                          <th className="py-2.5 px-3 text-indigo-400">{isId ? 'Tombol Compact (Bawah)' : isEs ? 'Teclas Compact (Abajo)' : 'Compact Keys (Lower)'}</th>
+                          <th className="py-2.5 px-3 text-slate-300">{isId ? 'Tombol Compact (Bawah)' : isEs ? 'Teclas Compact (Abajo)' : 'Compact Keys (Lower)'}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800/60 text-slate-200 text-xs md:text-sm">
-                        <tr className="hover:bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-white">{isId ? 'C Mayor (I)' : isEs ? 'Do Mayor (I)' : 'C Major (I)'}</td><td className="py-2 px-3 text-slate-400">C4 – E4 – G4</td><td className="py-2 px-3 text-amber-300 font-bold">[tuo]</td><td className="py-2 px-3 text-cyan-300">[qet]</td><td className="py-2 px-3 text-indigo-300">[zcb]</td></tr>
-                        <tr className="hover:bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-white">{isId ? 'G Mayor (V)' : isEs ? 'Sol Mayor (V)' : 'G Major (V)'}</td><td className="py-2 px-3 text-slate-400">G3 – B3 – D4</td><td className="py-2 px-3 text-amber-300 font-bold">[ywp]</td><td className="py-2 px-3 text-cyan-300">[tuo]</td><td className="py-2 px-3 text-indigo-300">[bnx]</td></tr>
-                        <tr className="hover:bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-white">{isId ? 'A Minor (vi)' : isEs ? 'La Menor (vi)' : 'A Minor (vi)'}</td><td className="py-2 px-3 text-slate-400">A3 – C4 – E4</td><td className="py-2 px-3 text-amber-300 font-bold">[wtu]</td><td className="py-2 px-3 text-cyan-300">[yqe]</td><td className="py-2 px-3 text-indigo-300">[nzc]</td></tr>
-                        <tr className="hover:bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-white">{isId ? 'F Mayor (IV)' : isEs ? 'Fa Mayor (IV)' : 'F Major (IV)'}</td><td className="py-2 px-3 text-slate-400">F3 – A3 – C4</td><td className="py-2 px-3 text-amber-300 font-bold">[qet]</td><td className="py-2 px-3 text-cyan-300">[ryq]</td><td className="py-2 px-3 text-indigo-300">[vnz]</td></tr>
-                        <tr className="hover:bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-white">{isId ? 'D Minor (ii)' : isEs ? 'Re Menor (ii)' : 'D Minor (ii)'}</td><td className="py-2 px-3 text-slate-400">D4 – F4 – A4</td><td className="py-2 px-3 text-amber-300 font-bold">[ryi]</td><td className="py-2 px-3 text-cyan-300">[wry]</td><td className="py-2 px-3 text-indigo-300">[xvn]</td></tr>
-                        <tr className="hover:bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-white">{isId ? 'E Minor (iii)' : isEs ? 'Mi Menor (iii)' : 'E Minor (iii)'}</td><td className="py-2 px-3 text-slate-400">E4 – G4 – B4</td><td className="py-2 px-3 text-amber-300 font-bold">[tuo]</td><td className="py-2 px-3 text-cyan-300">[etu]</td><td className="py-2 px-3 text-indigo-300">[cbm]</td></tr>
+                        <tr className="hover:bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-white">{isId ? 'C Mayor (I)' : isEs ? 'Do Mayor (I)' : 'C Major (I)'}</td><td className="py-2 px-3 text-slate-400">C4 – E4 – G4</td><td className="py-2 px-3 text-slate-200 font-bold">[tuo]</td><td className="py-2 px-3 text-cyan-300">[qet]</td><td className="py-2 px-3 text-slate-400">[zcb]</td></tr>
+                        <tr className="hover:bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-white">{isId ? 'G Mayor (V)' : isEs ? 'Sol Mayor (V)' : 'G Major (V)'}</td><td className="py-2 px-3 text-slate-400">G3 – B3 – D4</td><td className="py-2 px-3 text-slate-200 font-bold">[ywp]</td><td className="py-2 px-3 text-cyan-300">[tuo]</td><td className="py-2 px-3 text-slate-400">[bnx]</td></tr>
+                        <tr className="hover:bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-white">{isId ? 'A Minor (vi)' : isEs ? 'La Menor (vi)' : 'A Minor (vi)'}</td><td className="py-2 px-3 text-slate-400">A3 – C4 – E4</td><td className="py-2 px-3 text-slate-200 font-bold">[wtu]</td><td className="py-2 px-3 text-cyan-300">[yqe]</td><td className="py-2 px-3 text-slate-400">[nzc]</td></tr>
+                        <tr className="hover:bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-white">{isId ? 'F Mayor (IV)' : isEs ? 'Fa Mayor (IV)' : 'F Major (IV)'}</td><td className="py-2 px-3 text-slate-400">F3 – A3 – C4</td><td className="py-2 px-3 text-slate-200 font-bold">[qet]</td><td className="py-2 px-3 text-cyan-300">[ryq]</td><td className="py-2 px-3 text-slate-400">[vnz]</td></tr>
+                        <tr className="hover:bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-white">{isId ? 'D Minor (ii)' : isEs ? 'Re Menor (ii)' : 'D Minor (ii)'}</td><td className="py-2 px-3 text-slate-400">D4 – F4 – A4</td><td className="py-2 px-3 text-slate-200 font-bold">[ryi]</td><td className="py-2 px-3 text-cyan-300">[wry]</td><td className="py-2 px-3 text-slate-400">[xvn]</td></tr>
+                        <tr className="hover:bg-slate-900/40"><td className="py-2 px-3 font-sans font-bold text-white">{isId ? 'E Minor (iii)' : isEs ? 'Mi Menor (iii)' : 'E Minor (iii)'}</td><td className="py-2 px-3 text-slate-400">E4 – G4 – B4</td><td className="py-2 px-3 text-slate-200 font-bold">[tuo]</td><td className="py-2 px-3 text-cyan-300">[etu]</td><td className="py-2 px-3 text-slate-400">[cbm]</td></tr>
                       </tbody>
                     </table>
                   </div>
@@ -4500,7 +5604,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
               <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-6 md:p-8 space-y-6 shadow-2xl backdrop-blur-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
                   <div>
-                    <span className="text-xs font-mono font-bold text-emerald-400 uppercase tracking-widest block">
+                    <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest block">
                       FIG 5.2 — CHORD INVERSIONS (5/3, 6/3, 6/4) &amp; PARSIMONIOUS VOICE LEADING
                     </span>
                     <h3 className="text-base md:text-lg font-bold text-white mt-1">
@@ -4509,7 +5613,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                         : 'Triad Inversion Geometry & Smooth Voice Leading (Playing I – IV – V – I Without Hand Jumps)'}
                     </h3>
                   </div>
-                  <span className="text-xs font-mono font-medium text-emerald-400 bg-emerald-950/40 px-2.5 py-1 rounded border border-emerald-500/30">
+                  <span className="text-xs font-mono font-medium text-emerald-400 bg-emerald-950/40 px-2.5 py-1 rounded border border-slate-800">
                     COMMON-TONE RETENTION
                   </span>
                 </div>
@@ -4615,7 +5719,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
               <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-6 md:p-8 space-y-6 shadow-2xl backdrop-blur-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
                   <div>
-                    <span className="text-xs font-mono font-bold text-amber-400 uppercase tracking-widest block">
+                    <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest block">
                       FIG 5.3 — LEFT-HAND ACCOMPANIMENT PATTERNS, CADENCES &amp; THE 7 DIATONIC MODES
                     </span>
                     <h3 className="text-base md:text-lg font-bold text-white mt-1">
@@ -4691,24 +5795,24 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                       </thead>
                       <tbody className="divide-y divide-slate-800/60 text-slate-300">
                         <tr><td className="py-1 font-bold text-white">I. Ionian (C–C)</td><td>1 2 3 4 5 6 7</td><td className="text-cyan-400">{isId ? 'Mayor Terang' : isEs ? 'Mayor Brillante' : 'Bright Major'}</td></tr>
-                        <tr><td className="py-1 font-bold text-white">II. Dorian (D–D)</td><td>1 2 ♭3 4 5 6 ♭7</td><td className="text-emerald-400">{isId ? 'Nada 6 Alami (Jazz/Funk)' : isEs ? '6ª Natural (Jazz/Funk)' : 'Natural 6 (Jazz/Funk)'}</td></tr>
-                        <tr><td className="py-1 font-bold text-white">III. Phrygian (E–E)</td><td>1 ♭2 ♭3 4 5 ♭6 ♭7</td><td className="text-rose-400">{isId ? 'Nada ♭2 Rendah (Flamenco)' : isEs ? '2ª Bemol ♭2 (Flamenco)' : 'Flat ♭2 (Flamenco)'}</td></tr>
-                        <tr><td className="py-1 font-bold text-white">IV. Lydian (F–F)</td><td>1 2 3 ♯4 5 6 7</td><td className="text-amber-400">{isId ? 'Nada ♯4 Naik (Sinematik)' : isEs ? '4ª Aumentada ♯4 (Cinemático)' : 'Raised ♯4 (Cinematic)'}</td></tr>
-                        <tr><td className="py-1 font-bold text-white">V. Mixolydian (G–G)</td><td>1 2 3 4 5 6 ♭7</td><td className="text-purple-400">{isId ? 'Nada ♭7 Rendah (Blues/Rock)' : isEs ? '7ª Menor ♭7 (Blues/Rock)' : 'Flat ♭7 (Blues/Rock)'}</td></tr>
-                        <tr><td className="py-1 font-bold text-white">VI. Aeolian (A–A)</td><td>1 2 ♭3 4 5 ♭6 ♭7</td><td className="text-indigo-400">{isId ? 'Minor Alami' : isEs ? 'Menor Natural' : 'Natural Minor'}</td></tr>
+                        <tr><td className="py-1 font-bold text-white">II. Dorian (D–D)</td><td>1 2 ♭3 4 5 6 ♭7</td><td className="text-slate-300">{isId ? 'Nada 6 Alami (Jazz/Funk)' : isEs ? '6ª Natural (Jazz/Funk)' : 'Natural 6 (Jazz/Funk)'}</td></tr>
+                        <tr><td className="py-1 font-bold text-white">III. Phrygian (E–E)</td><td>1 ♭2 ♭3 4 5 ♭6 ♭7</td><td className="text-slate-300">{isId ? 'Nada ♭2 Rendah (Flamenco)' : isEs ? '2ª Bemol ♭2 (Flamenco)' : 'Flat ♭2 (Flamenco)'}</td></tr>
+                        <tr><td className="py-1 font-bold text-white">IV. Lydian (F–F)</td><td>1 2 3 ♯4 5 6 7</td><td className="text-slate-300">{isId ? 'Nada ♯4 Naik (Sinematik)' : isEs ? '4ª Aumentada ♯4 (Cinemático)' : 'Raised ♯4 (Cinematic)'}</td></tr>
+                        <tr><td className="py-1 font-bold text-white">V. Mixolydian (G–G)</td><td>1 2 3 4 5 6 ♭7</td><td className="text-slate-300">{isId ? 'Nada ♭7 Rendah (Blues/Rock)' : isEs ? '7ª Menor ♭7 (Blues/Rock)' : 'Flat ♭7 (Blues/Rock)'}</td></tr>
+                        <tr><td className="py-1 font-bold text-white">VI. Aeolian (A–A)</td><td>1 2 ♭3 4 5 ♭6 ♭7</td><td className="text-slate-300">{isId ? 'Minor Alami' : isEs ? 'Menor Natural' : 'Natural Minor'}</td></tr>
                         <tr><td className="py-1 font-bold text-white">VII. Locrian (B–B)</td><td>1 ♭2 ♭3 4 ♭5 ♭6 ♭7</td><td className="text-slate-400">{isId ? 'Kuint Berkurang ♭5' : isEs ? 'Quinta Disminuida ♭5' : 'Diminished ♭5'}</td></tr>
                       </tbody>
                     </table>
                   </div>
 
                   <div className="p-4 bg-slate-900/70 rounded-lg border border-slate-800 space-y-2">
-                    <div className="font-mono font-bold text-amber-400 uppercase">{isId ? '4 Kadensa Inti & Progresi Populer' : isEs ? '4 Cadencias Clave y Progresiones de Éxito' : '4 Core Cadences & Hit Progressions'}</div>
+                    <div className="font-mono font-bold text-cyan-400 uppercase">{isId ? '4 Kadensa Inti & Progresi Populer' : isEs ? '4 Cadencias Clave y Progresiones de Éxito' : '4 Core Cadences & Hit Progressions'}</div>
                     <ul className="space-y-1.5 text-slate-300">
                       <li>• <b>{isId ? 'Kadensa Autentik' : isEs ? 'Cadencia Auténtica' : 'Authentic Cadence'} (<code className="text-cyan-300">V7 → I</code>):</b> {isId ? 'Resolusi paling kuat (G7 → C); tritone B–F menyelesaikan ke C–E.' : isEs ? 'Resolución armónica más fuerte (Sol7 → Do); el tritono Si–Fa resuelve hacia Do–Mi.' : 'Strongest harmonic resolution (G7 → C); the B–F tritone resolves inward to C–E.'}</li>
-                      <li>• <b>{isId ? 'Kadensa Plagal' : isEs ? 'Cadencia Plagal' : 'Plagal Cadence'} (<code className="text-emerald-300">IV → I</code>):</b> {isId ? 'Kadensa "Amen" (F → C); hangat dan tenang tanpa ketegangan leading-tone.' : isEs ? 'Cadencia "Amén" (Fa → Do); resolución cálida y suave sin la tensión de la sensible.' : 'The "Amen" cadence (F → C); warm subdominant resolution.'}</li>
-                      <li>• <b>{isId ? 'Kadensa Tipuan (Deceptive)' : isEs ? 'Cadencia Rota (Engañosa)' : 'Deceptive Cadence'} (<code className="text-amber-300">V → vi</code>):</b> {isId ? 'G → Am; mengecoh telinga ke relatif minor untuk memperpanjang emosi lagu.' : isEs ? 'Sol → Lam; resuelve la tensión dominante en el relativo menor para prolongar la emoción.' : 'G → Am; resolves dominant tension into the relative minor.'}</li>
-                      <li>• <b>{isId ? 'Putaran Jazz (Turnaround)' : isEs ? 'Turnaround de Jazz' : 'Jazz Turnaround'} (<code className="text-purple-300">ii7 – V7 – Imaj7</code>):</b> <code className="font-mono">Dm7 → G7 → Cmaj7</code>.</li>
-                      <li>• <b>{isId ? 'Jalan Kerajaan (Royal Road / J-Pop):' : isEs ? 'Camino Real (Royal Road / J-Pop):' : 'Royal Road (J-Pop / Anime):'}</b> <code className="font-mono text-rose-300">IVmaj7 – V7 – iii7 – vi</code> (<code className="font-mono">Fmaj7 → G7 → Em7 → Am</code>).</li>
+                      <li>• <b>{isId ? 'Kadensa Plagal' : isEs ? 'Cadencia Plagal' : 'Plagal Cadence'} (<code className="text-cyan-300 font-mono">IV → I</code>):</b> {isId ? 'Kadensa "Amen" (F → C); hangat dan tenang tanpa ketegangan leading-tone.' : isEs ? 'Cadencia "Amén" (Fa → Do); resolución cálida y suave sin la tensión de la sensible.' : 'The "Amen" cadence (F → C); warm subdominant resolution.'}</li>
+                      <li>• <b>{isId ? 'Kadensa Tipuan (Deceptive)' : isEs ? 'Cadencia Rota (Engañosa)' : 'Deceptive Cadence'} (<code className="text-cyan-300 font-mono">V → vi</code>):</b> {isId ? 'G → Am; mengecoh telinga ke relatif minor untuk memperpanjang emosi lagu.' : isEs ? 'Sol → Lam; resuelve la tensión dominante en el relativo menor para prolongar la emoción.' : 'G → Am; resolves dominant tension into the relative minor.'}</li>
+                      <li>• <b>{isId ? 'Putaran Jazz (Turnaround)' : isEs ? 'Turnaround de Jazz' : 'Jazz Turnaround'} (<code className="text-cyan-300 font-mono">ii7 – V7 – Imaj7</code>):</b> <code className="font-mono">Dm7 → G7 → Cmaj7</code>.</li>
+                      <li>• <b>{isId ? 'Jalan Kerajaan (Royal Road / J-Pop):' : isEs ? 'Camino Real (Royal Road / J-Pop):' : 'Royal Road (J-Pop / Anime):'}</b> <code className="font-mono text-cyan-300">IVmaj7 – V7 – iii7 – vi</code> (<code className="font-mono">Fmaj7 → G7 → Em7 → Am</code>).</li>
                     </ul>
                   </div>
                 </div>
@@ -4727,7 +5831,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                         : 'Interactive Circle of Fifths Compass (Click Any Key Slice to Inspect Key Signature & Diatonic 7-Chord Family)'}
                     </h3>
                   </div>
-                  <span className="text-xs font-mono font-medium bg-slate-900 px-2.5 py-1 rounded text-amber-300 border border-slate-800">
+                  <span className="text-xs font-mono font-medium bg-slate-900 px-2.5 py-1 rounded text-cyan-300 border border-slate-800">
                     {isId ? 'LUAR: MAYOR • DALAM: RELATIF MINOR' : isEs ? 'EXTERIOR: MAYOR • INTERIOR: MENOR RELATIVO' : 'OUTER: MAJOR • INNER: RELATIVE MINOR'}
                   </span>
                 </div>
@@ -4859,16 +5963,16 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                         <div className="bg-slate-900/80 border border-slate-800 p-5 rounded-xl space-y-4">
                           <div className="border-b border-slate-800 pb-3">
                             <div className="flex items-center justify-between">
-                              <span className="text-xs font-mono font-medium text-amber-400 uppercase font-bold">{isId ? 'TANDA KUNCI AKTIF' : isEs ? 'ARMADURA ACTIVA' : 'ACTIVE KEY SIGNATURE'}</span>
+                              <span className="text-xs font-mono font-medium text-cyan-400 uppercase font-bold">{isId ? 'TANDA KUNCI AKTIF' : isEs ? 'ARMADURA ACTIVA' : 'ACTIVE KEY SIGNATURE'}</span>
                               <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-slate-950 text-cyan-300 border border-slate-800">
                                 {sel.sigLabel}
                               </span>
                             </div>
                             <h4 className="text-lg font-bold text-white mt-1">
-                              {sel.major} Major <span className="text-slate-500 font-normal">/</span> <span className="text-indigo-300">{sel.minor} Relative Minor</span>
+                              {sel.major} Major <span className="text-slate-500 font-normal">/</span> <span className="text-slate-400">{sel.minor} Relative Minor</span>
                             </h4>
                             <p className="text-xs text-slate-400 font-mono mt-1">
-                              {isId ? 'Kres / Mol:' : isEs ? 'Alteraciones:' : 'Accidentals:'} <strong className="text-amber-300">{sel.accidentals}</strong>
+                              {isId ? 'Kres / Mol:' : isEs ? 'Alteraciones:' : 'Accidentals:'} <strong className="text-cyan-300 font-mono">{sel.accidentals}</strong>
                             </p>
                           </div>
 
@@ -4891,20 +5995,20 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                               {isId ? 'Keluarga 7 Akor Diatonis (Angka Romawi)' : isEs ? 'Familia de 7 Acordes Diatónicos (Números Romanos)' : 'Diatonic 7-Chord Family (Roman Numerals)'}
                             </div>
                             <div className="grid grid-cols-2 gap-2 font-mono text-xs">
-                              <div className="p-2.5 bg-slate-950 rounded border border-amber-500/40 flex justify-between">
-                                <span className="text-amber-400 font-bold">{isId ? 'I (Tonika)' : isEs ? 'I (Tónica)' : 'I (Tonic)'}</span>
+                              <div className="p-2.5 bg-slate-950 rounded border border-slate-800 flex justify-between">
+                                <span className="text-cyan-300 font-bold">{isId ? 'I (Tonika)' : isEs ? 'I (Tónica)' : 'I (Tonic)'}</span>
                                 <span className="text-white font-bold">{sel.majorChords.tonic}</span>
                               </div>
-                              <div className="p-2.5 bg-slate-950 rounded border border-emerald-500/40 flex justify-between">
-                                <span className="text-emerald-400 font-bold">{isId ? 'IV (Subdominan)' : isEs ? 'IV (Subdominante)' : 'IV (Subdom)'}</span>
+                              <div className="p-2.5 bg-slate-950 rounded border border-slate-800 flex justify-between">
+                                <span className="text-cyan-300 font-bold">{isId ? 'IV (Subdominan)' : isEs ? 'IV (Subdominante)' : 'IV (Subdom)'}</span>
                                 <span className="text-white font-bold">{sel.majorChords.subdom}</span>
                               </div>
                               <div className="p-2.5 bg-slate-950 rounded border border-cyan-500/40 flex justify-between">
                                 <span className="text-cyan-400 font-bold">{isId ? 'V (Dominan)' : isEs ? 'V (Dominante)' : 'V (Dominant)'}</span>
                                 <span className="text-white font-bold">{sel.majorChords.dom}</span>
                               </div>
-                              <div className="p-2.5 bg-slate-950 rounded border border-purple-500/40 flex justify-between">
-                                <span className="text-purple-300 font-bold">{isId ? 'vi (Relatif Min)' : isEs ? 'vi (Menor Rel)' : 'vi (Rel Min)'}</span>
+                              <div className="p-2.5 bg-slate-950 rounded border border-slate-800 flex justify-between">
+                                <span className="text-cyan-300 font-bold">{isId ? 'vi (Relatif Min)' : isEs ? 'vi (Menor Rel)' : 'vi (Rel Min)'}</span>
                                 <span className="text-white font-bold">{sel.minorChords.tonicRel}</span>
                               </div>
                               <div className="p-2.5 bg-slate-950 rounded border border-slate-800 flex justify-between">
@@ -4934,7 +6038,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
               <div className="border-b border-slate-800 pb-6 flex flex-col md:flex-row md:items-end justify-between gap-4">
                 <div>
                   <div className="flex items-center gap-2 mb-2">
-                    <span className="text-xs md:text-sm font-mono font-bold text-emerald-400 uppercase tracking-widest">
+                    <span className="text-xs md:text-sm font-mono font-bold text-cyan-400 uppercase tracking-widest">
                       {isId ? 'MODUL 06 • GENERATOR LATIHAN TEKNIS 12 KUNCI & RUTINITAS HARIAN' : isEs ? 'MÓDULO 06 • EJERCICIOS TÉCNICOS EN 12 TONALIDADES' : 'MODULE 06 • 12-KEY TECHNICAL DRILL GENERATOR & DAILY ROUTINE'}
                     </span>
                     <span className="text-xs font-mono px-3 py-1 rounded-lg bg-slate-800/90 text-slate-300 border border-slate-700">
@@ -4950,7 +6054,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                 </div>
                 <div className="bg-slate-900 px-4 py-2.5 rounded-lg border border-slate-800 flex items-center gap-2 flex-shrink-0">
                   <span className="text-xs font-mono text-slate-400">{isId ? 'KUNCI AKTIF:' : isEs ? 'TONALIDAD ACTIVA:' : 'ACTIVE ROOT:'}</span>
-                  <strong className="text-sm font-mono font-bold text-emerald-400">{selectedKey}</strong>
+                  <strong className="text-sm font-mono font-bold text-cyan-400">{selectedKey}</strong>
                 </div>
               </div>
 
@@ -4958,7 +6062,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
               <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-6 md:p-8 space-y-6 shadow-2xl backdrop-blur-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
                   <div>
-                    <span className="text-xs font-mono font-bold text-emerald-400 uppercase tracking-widest block">
+                    <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest block">
                       FIG 6.1 — CONSERVATORY 30-MINUTE DAILY PRACTICE ARCHITECTURE
                     </span>
                     <h3 className="text-base md:text-lg font-bold text-white mt-1">
@@ -5017,7 +6121,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                         onClick={() => setSelectedKey(k)}
                         className={`py-3 px-2 rounded-xl text-sm md:text-base font-mono font-bold transition-all shadow-sm active:scale-95 ${
                           isSelected
-                            ? 'bg-emerald-600 text-white border border-emerald-400'
+                            ? 'bg-emerald-600 text-white border border-cyan-400'
                             : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
                         }`}
                       >
@@ -5112,7 +6216,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                               onClick={() => {
                                 onLaunchCustomExercise?.(selectedKey, drill.id, drill.name);
                               }}
-                              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-sm flex items-center gap-2 transition-all shadow-md active:scale-95"
+                              className="px-5 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-xl text-sm flex items-center gap-2 transition-all shadow-md active:scale-95"
                             >
                               <span>{t.ch6PlayDrill}</span>
                               <span>→</span>
@@ -5124,11 +6228,1316 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                   </div>
                 ))}
               </div>
+
+              {/* Transition Banner to Chapter 7 */}
+              <div className="p-6 rounded-2xl bg-gradient-to-r bg-slate-900/90 border border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4 mt-8 shadow-xl">
+                <div>
+                  <div className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest">
+                    {isId ? 'MODUL SELANJUTNYA • BAB 07' : isEs ? 'SIGUIENTE MÓDULO • CAP. 07' : 'NEXT MODULE • CH. 07'}
+                  </div>
+                  <h4 className="text-base md:text-lg font-black text-white mt-0.5">
+                    {t.chPPTitle}
+                  </h4>
+                  <p className="text-xs text-slate-300 mt-1 max-w-xl">
+                    {isId
+                      ? 'Setelah mengasah ketangkasan jari, uji dan latih ketajaman pendengaran telinga Anda dengan kuis pengenalan pitch absolut dan interval.'
+                      : isEs
+                      ? 'Tras perfeccionar la destreza de los dedos, pon a prueba tu oído musical con pruebas auditivas de notas absolutas e intervalos.'
+                      : 'After sharpening your finger dexterity, train your musical ear with absolute pitch identification tests and interval quizzes.'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleSelectChapter('perfectpitch')}
+                  className="px-5 py-3 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs md:text-sm flex items-center gap-2 transition-all shadow-lg shadow-cyan-950 active:scale-95 flex-shrink-0 border border-cyan-400/30 cursor-pointer"
+                >
+                  <span>{isId ? 'Buka Pelatihan Perfect Pitch' : isEs ? 'Ir a Oído Absoluto' : 'Open Perfect Pitch Trainer'}</span>
+                  <span>→</span>
+                </button>
+              </div>
             </article>
           )}
 
           {/* ========================================================================= */}
-          {/* CHAPTER 7: MIDI Editor, Sequencer & Audio Calibration Masterclass */}
+          {/* CHAPTER 7: Perfect Pitch Training & Active Ear Mastery Masterclass */}
+          {/* ========================================================================= */}
+          {activeChapter === 'perfectpitch' && (
+            <article data-no-ui-sound="true" className="space-y-8 animate-fadeIn max-w-5xl mx-auto">
+              {/* Chapter Header */}
+              <div className="border-b border-slate-800 pb-6 flex flex-col md:flex-row md:items-end justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xs md:text-sm font-mono font-bold text-cyan-400 uppercase tracking-widest">
+                      {isId ? 'MODUL 07 • PELATIHAN PERFECT PITCH & TELINGA' : isEs ? 'MÓDULO 07 • ENTRENAMIENTO DE OÍDO ABSOLUTO' : 'MODULE 07 • PERFECT PITCH TRAINING & ACTIVE EAR MASTERY'}
+                    </span>
+                    <span className="text-xs font-mono px-3 py-1 rounded-lg bg-slate-800/90 text-slate-300 border border-slate-700">
+                      440 HZ CONCERT PITCH • 12 CHROMATIC FREQUENCIES
+                    </span>
+                  </div>
+                  <h2 className="text-xl md:text-2xl font-black text-white tracking-tight">
+                    {t.chPPTitle}
+                  </h2>
+                  <p className="text-sm md:text-[15px] text-slate-200 mt-3 leading-relaxed max-w-4xl">
+                    {t.chPPDesc}
+                  </p>
+                </div>
+                <div className="bg-slate-900 px-4 py-2.5 rounded-lg border border-slate-800 flex items-center gap-2 flex-shrink-0">
+                  <span className="text-xs font-mono text-slate-400">{isId ? 'MODE PELATIHAN:' : isEs ? 'MODO ENTRENAMIENTO:' : 'TRAINER ENGINE:'}</span>
+                  <span className="text-sm font-bold text-cyan-400 font-mono">OCTAVIA PITCH AI</span>
+                </div>
+              </div>
+
+              {/* ========================================================================= */}
+              {/* INTERACTIVE PERFECT PITCH CONSOLE */}
+              {/* ========================================================================= */}
+              <div data-no-ui-sound="true" className="p-6 md:p-8 rounded-2xl bg-gradient-to-b from-slate-900/95 via-slate-950/90 to-slate-900/95 border border-slate-800 shadow-2xl space-y-6">
+                {/* Console Top Controls */}
+                <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 pb-5 border-b border-slate-800/80">
+                  <div>
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-slate-800 text-cyan-400 border border-slate-700 flex items-center justify-center">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12 0c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z" />
+                        </svg>
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-bold text-white tracking-wide">
+                          {t.chPPTrainerHeading}
+                        </h3>
+                        <p className="text-xs text-slate-400">
+                          {t.chPPTrainerSubtitle}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Mode & Auto-Advance Selectors */}
+                  <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+                    {/* Training Mode Pills */}
+                    <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEarTrainingMode('pitch');
+                          handleGenerateNewEarQuestion('pitch');
+                        }}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                          earTrainingMode === 'pitch'
+                            ? 'bg-cyan-600 text-white shadow-md'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        {t.chPPModePitch}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEarTrainingMode('interval');
+                          handleGenerateNewEarQuestion('interval');
+                        }}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                          earTrainingMode === 'interval'
+                            ? 'bg-cyan-600 text-white shadow-md'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        {t.chPPModeInterval}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEarTrainingMode('chord');
+                          handleGenerateNewEarQuestion('chord');
+                        }}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                          earTrainingMode === 'chord'
+                            ? 'bg-cyan-600 text-white shadow-md'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        {t.chPPModeChord}
+                      </button>
+                    </div>
+
+                    {/* Unified Scale / Key Selector for ALL Modes */}
+                    <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                      <span className="text-[10px] font-mono text-slate-400 uppercase px-1.5 font-bold hidden sm:inline">
+                        {t.chPPScaleLabel}
+                      </span>
+                      <select
+                        value={earScaleSetting}
+                        onChange={(e) => {
+                          setEarScaleSetting(e.target.value);
+                          setCurrentQuizMidi(null);
+                          setCurrentQuizInterval(null);
+                          setCurrentQuizChord(null);
+                          setEarQuizAnswered(false);
+                        }}
+                        className="bg-slate-900 text-xs font-mono text-cyan-300 border border-slate-700 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-cyan-400"
+                      >
+                        <option value="all">{t.chPPScaleAll12}</option>
+                        <option value="random">{t.chPPScaleRandom}</option>
+                        <optgroup label={isId ? 'Tangga Nada Mayor (12 Key)' : isEs ? 'Escalas Mayores (12 Tonos)' : 'Major Keys (All 12)'}>
+                          {EAR_SCALES.filter(s => !s.id.includes('_min')).map(s => (
+                            <option key={s.id} value={s.id}>
+                              {isId ? s.name.id : isEs ? s.name.es : s.name.en} ({s.accidentals})
+                            </option>
+                          ))}
+                        </optgroup>
+                        <optgroup label={isId ? 'Tangga Nada Minor (12 Key)' : isEs ? 'Escalas Menores (12 Tonos)' : 'Minor Keys (All 12)'}>
+                          {EAR_SCALES.filter(s => s.id.includes('_min')).map(s => (
+                            <option key={s.id} value={s.id}>
+                              {isId ? s.name.id : isEs ? s.name.es : s.name.en} ({s.accidentals})
+                            </option>
+                          ))}
+                        </optgroup>
+                      </select>
+                    </div>
+
+                    {/* Octave Range Pills for All Modes */}
+                    <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEarPitchDifficulty('chromatic');
+                          setCurrentQuizMidi(null);
+                          setCurrentQuizInterval(null);
+                          setCurrentQuizChord(null);
+                          setEarQuizAnswered(false);
+                        }}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                          earPitchDifficulty === 'chromatic' || earPitchDifficulty === 'white'
+                            ? 'bg-slate-800 text-cyan-300 font-bold'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                        title={isId ? 'Oktaf Standar (Oktaf 4)' : isEs ? 'Octava Estándar' : 'Standard (Octave 4)'}
+                      >
+                        {earTrainingMode === 'pitch' ? t.chPPDiffAll12 : (isId ? 'Oktaf 4' : isEs ? 'Octava 4' : 'Octave 4')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEarPitchDifficulty('wide');
+                          setCurrentQuizMidi(null);
+                          setCurrentQuizInterval(null);
+                          setCurrentQuizChord(null);
+                          setEarQuizAnswered(false);
+                        }}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                          earPitchDifficulty === 'wide'
+                            ? 'bg-slate-800 text-slate-200 font-bold'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                        title={isId ? 'Rentang Luas (Oktaf 2-5)' : isEs ? 'Rango Amplio (Octavas 2-5)' : 'Wide Range (Octaves 2-5)'}
+                      >
+                        {t.chPPDiffWide}
+                      </button>
+                    </div>
+
+                    {/* Root Variation Mode (Fixed vs Mixed) for Interval & Chord */}
+                    {(earTrainingMode === 'interval' || earTrainingMode === 'chord') && (
+                      <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEarChoiceRootMode('fixed');
+                            setCurrentQuizInterval(null);
+                            setCurrentQuizChord(null);
+                            setEarQuizAnswered(false);
+                          }}
+                          className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                            earChoiceRootMode === 'fixed'
+                              ? 'bg-slate-800 text-cyan-300 font-bold'
+                              : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                          title={isId ? 'Semua pilihan jawaban menggunakan Root yang sama' : 'All choices share the same root'}
+                        >
+                          {t.chPPRootModeFixed}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEarChoiceRootMode('mixed');
+                            setCurrentQuizInterval(null);
+                            setCurrentQuizChord(null);
+                            setEarQuizAnswered(false);
+                          }}
+                          className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                            earChoiceRootMode === 'mixed'
+                              ? 'bg-slate-800 text-cyan-300 font-bold'
+                              : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                          title={isId ? 'Pilihan jawaban divariasikan dengan berbagai Root acak' : 'Choices vary with mixed root keys'}
+                        >
+                          {t.chPPRootModeMixed}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Auto-advance toggle */}
+                    <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer bg-slate-950/80 px-3 py-1.5 rounded-xl border border-slate-800 select-none">
+                      <input
+                        type="checkbox"
+                        checked={earAutoAdvance}
+                        onChange={(e) => setEarAutoAdvance(e.target.checked)}
+                        className="rounded border-slate-700 text-cyan-500 focus:ring-cyan-400 bg-slate-900"
+                      />
+                      <span>{isId ? 'Auto Maju' : isEs ? 'Auto Avanzar' : 'Auto-Advance'}</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Active Scale & Root Context Pills */}
+                {(earActiveScaleId || (earScaleSetting !== 'all' && earScaleSetting !== 'random') || currentQuizChord || currentQuizInterval) && (
+                  <div className="flex flex-wrap items-center gap-2 p-2 rounded-xl bg-slate-950/70 border border-slate-800/80 text-xs font-mono">
+                    <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-200">
+                      <span className="text-cyan-400 font-bold">{t.chPPActiveScaleBadge}</span>
+                      <span className="font-bold text-white">
+                        {(() => {
+                          const scaleId = earActiveScaleId || (earScaleSetting !== 'all' && earScaleSetting !== 'random' ? earScaleSetting : null);
+                          const found = scaleId ? EAR_SCALES.find(s => s.id === scaleId) : null;
+                          return found ? (isId ? found.name.id : isEs ? found.name.es : found.name.en) : (isId ? '12 Kromatik Bebas' : isEs ? '12 Cromáticas' : '12 Chromatics Free');
+                        })()}
+                      </span>
+                      {(() => {
+                        const scaleId = earActiveScaleId || (earScaleSetting !== 'all' && earScaleSetting !== 'random' ? earScaleSetting : null);
+                        const found = scaleId ? EAR_SCALES.find(s => s.id === scaleId) : null;
+                        return found ? (
+                          <span className="text-slate-400 text-[11px]">
+                            ({found.accidentals})
+                          </span>
+                        ) : null;
+                      })()}
+                      {earScaleSetting === 'random' && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300 font-bold uppercase">
+                          {isId ? 'Acak' : isEs ? 'Aleatorio' : 'Random Key'}
+                        </span>
+                      )}
+                    </div>
+
+                    {(earTrainingMode === 'chord' || earTrainingMode === 'interval') && (
+                      <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-200">
+                        <span className="text-slate-300 font-bold">
+                          {earTrainingMode === 'chord' ? t.chPPChordInRoot : (isId ? 'Tala Dasar:' : isEs ? 'Tónica:' : 'Root:')}
+                        </span>
+                        <span className="font-black text-emerald-300 text-sm">
+                          {earTrainingMode === 'chord' ? currentQuizChord?.rootName : currentQuizInterval?.rootName}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* HUD / Scoreboard */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800/90 flex flex-col justify-between">
+                    <span className="text-[11px] font-mono text-slate-400 uppercase tracking-wider">{t.chPPStreak}</span>
+                    <div className="flex items-baseline gap-2 mt-1">
+                      <span className="text-2xl font-black text-cyan-400 font-mono flex items-center gap-1.5">
+                        {earStreak > 0 && (
+                          <svg className="w-5 h-5 text-cyan-400 animate-bounce" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.527.82-1.127 2.18-1.503 3.61a15.86 15.86 0 00-.472 2.766 8.358 8.358 0 01-.84-1.228 1 1 0 00-1.708.97c.504 1.48 1.41 2.87 2.456 3.923A8.005 8.005 0 0010 18a8 8 0 008-8c0-2.483-1.144-4.838-2.906-6.425a1 1 0 00-1.385.083c-.342.368-.696.757-1.053 1.168-.45.52-.89 1.052-1.309 1.597a15.228 15.228 0 011.048-3.87zM8.88 12.003c.09-.16.195-.323.313-.487a9.387 9.387 0 011.458-1.53c-.027.604.093 1.22.373 1.776a3.992 3.992 0 003.58 2.234 4 4 0 11-5.724-2z" clipRule="evenodd" />
+                          </svg>
+                        )}
+                        {earStreak}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800/90 flex flex-col justify-between">
+                    <span className="text-[11px] font-mono text-slate-400 uppercase tracking-wider">{t.chPPBestStreak}</span>
+                    <div className="flex items-baseline gap-2 mt-1">
+                      <span className="text-2xl font-black text-yellow-300 font-mono flex items-center gap-1.5">
+                        <svg className="w-5 h-5 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 3v4M3 5h4M6 17v4m-2 0h4m5-18v2m0 14v4m-3 0h6m4-18v4m-2-2h4m-7 5a4 4 0 00-4 4v3h8v-3a4 4 0 00-4-4z" />
+                        </svg>
+                        {earBestStreak}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800/90 flex flex-col justify-between">
+                    <span className="text-[11px] font-mono text-slate-400 uppercase tracking-wider">{t.chPPAccuracy}</span>
+                    <div className="flex items-baseline gap-2 mt-1">
+                      <span className="text-2xl font-black text-cyan-400 font-mono">
+                        {earTotalGuessed > 0 ? Math.round((earCorrectGuessed / earTotalGuessed) * 100) : 0}%
+                      </span>
+                      <span className="text-xs text-slate-400 font-mono">({earCorrectGuessed}/{earTotalGuessed})</span>
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800/90 flex items-center justify-between">
+                    <div>
+                      <span className="text-[11px] font-mono text-slate-400 uppercase tracking-wider">{t.chPPTotalTested}</span>
+                      <div className="text-2xl font-black text-cyan-400 font-mono mt-1">
+                        {earTotalGuessed}
+                      </div>
+                    </div>
+                    {earTotalGuessed > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleResetEarStats}
+                        className="px-2.5 py-1 rounded bg-slate-800 hover:bg-rose-950/60 border border-slate-700 hover:border-rose-500/50 text-[10px] text-slate-300 hover:text-rose-300 transition-all font-mono"
+                      >
+                        Reset
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Audio Trigger & Reference Center */}
+                <div className="p-5 rounded-2xl bg-slate-950/90 border border-slate-800 flex flex-col md:flex-row items-center justify-between gap-4">
+                  {/* Primary Play Button */}
+                  <div className="flex items-center gap-3 w-full md:w-auto">
+                    <button
+                      type="button"
+                      disabled={isAudioTonePlaying}
+                      onClick={() => {
+                        if (earTrainingMode === 'pitch') {
+                          if (currentQuizMidi === null || earQuizAnswered) {
+                            handleGenerateNewEarQuestion('pitch');
+                          } else {
+                            void playEarNoteSound(currentQuizMidi);
+                          }
+                        } else if (earTrainingMode === 'interval') {
+                          if (currentQuizInterval === null || earQuizAnswered) {
+                            handleGenerateNewEarQuestion('interval');
+                          } else {
+                            void playEarIntervalSound(currentQuizInterval.rootMidi, currentQuizInterval.semitones);
+                          }
+                        } else {
+                          if (currentQuizChord === null || earQuizAnswered) {
+                            handleGenerateNewEarQuestion('chord');
+                          } else {
+                            void playEarChordSound(currentQuizChord.rootMidi, currentQuizChord.chord.intervals);
+                          }
+                        }
+                      }}
+                      className={`w-full md:w-auto px-6 py-3.5 rounded-xl font-black text-base shadow-lg flex items-center justify-center gap-3 transition-all border ${
+                        isAudioTonePlaying
+                          ? 'bg-slate-800 border-slate-700 text-slate-400 cursor-not-allowed opacity-80 scale-[0.99]'
+                          : 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-cyan-950 active:scale-95 border-cyan-400/30 cursor-pointer'
+                      }`}
+                    >
+                      {/* Animated Soundwave bars */}
+                      <div className="flex items-end gap-1 h-5 w-5">
+                        <span className={`w-1 bg-white rounded-full transition-all ${isAudioTonePlaying ? 'h-5 animate-pulse' : 'h-2'}`} />
+                        <span className={`w-1 bg-white rounded-full transition-all ${isAudioTonePlaying ? 'h-3 animate-pulse delay-75' : 'h-4'}`} />
+                        <span className={`w-1 bg-white rounded-full transition-all ${isAudioTonePlaying ? 'h-5 animate-pulse delay-150' : 'h-3'}`} />
+                      </div>
+                      <span>
+                        {isAudioTonePlaying
+                          ? (isId ? 'Sedang Membunyikan...' : isEs ? 'Reproduciendo...' : 'Playing Audio...')
+                          : (earTrainingMode === 'pitch' ? currentQuizMidi === null : earTrainingMode === 'interval' ? currentQuizInterval === null : currentQuizChord === null)
+                          ? t.chPPPlayQuestion
+                          : earQuizAnswered
+                          ? t.chPPNextBtn
+                          : t.chPPReplay}
+                      </span>
+                    </button>
+
+                    {(earTrainingMode === 'pitch' ? currentQuizMidi !== null : earTrainingMode === 'interval' ? currentQuizInterval !== null : currentQuizChord !== null) && !earQuizAnswered && (
+                      <button
+                        type="button"
+                        disabled={isAudioTonePlaying}
+                        onClick={() => {
+                          if (earTrainingMode === 'pitch' && currentQuizMidi !== null) {
+                            void playEarNoteSound(currentQuizMidi);
+                          } else if (earTrainingMode === 'interval' && currentQuizInterval !== null) {
+                            void playEarIntervalSound(currentQuizInterval.rootMidi, currentQuizInterval.semitones);
+                          } else if (earTrainingMode === 'chord' && currentQuizChord !== null) {
+                            void playEarChordSound(currentQuizChord.rootMidi, currentQuizChord.chord.intervals);
+                          }
+                        }}
+                        className={`px-4 py-3 rounded-xl border text-xs font-bold transition-all flex items-center gap-2 ${
+                          isAudioTonePlaying
+                            ? 'bg-slate-900 border-slate-800 text-slate-500 cursor-not-allowed opacity-50'
+                            : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700 active:scale-95 cursor-pointer'
+                        }`}
+                        title={t.chPPReplay}
+                      >
+                        <svg className="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                        </svg>
+                        <span>{t.chPPReplay}</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Reference Pitch Buttons */}
+                  <div className="flex items-center gap-2 w-full md:w-auto justify-end">
+                    <span className="text-xs font-mono text-slate-400 hidden sm:inline">{isId ? 'Tala Referensi:' : isEs ? 'Tono Referencia:' : 'Reference:'}</span>
+                    <button
+                      type="button"
+                      disabled={isAudioTonePlaying}
+                      onClick={() => void playEarNoteSound(69, 1.2)}
+                      className={`px-3 py-2 rounded-xl border text-xs font-mono transition-all flex items-center gap-1.5 ${
+                        isAudioTonePlaying
+                          ? 'bg-slate-950 border-slate-900 text-slate-600 cursor-not-allowed opacity-50'
+                          : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-cyan-400 hover:text-cyan-300 active:scale-95 cursor-pointer'
+                      }`}
+                      title="Play A4 (440.00 Hz)"
+                    >
+                      <svg className="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="9" strokeWidth="2" />
+                        <circle cx="12" cy="12" r="3" strokeWidth="2" />
+                        <path strokeLinecap="round" strokeWidth="2" d="M12 2v3m0 14v3M2 12h3m14 0h3" />
+                      </svg>
+                      <span>A4 (440Hz)</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isAudioTonePlaying}
+                      onClick={() => void playEarNoteSound(60, 1.2)}
+                      className={`px-3 py-2 rounded-xl border text-xs font-mono transition-all flex items-center gap-1.5 ${
+                        isAudioTonePlaying
+                          ? 'bg-slate-950 border-slate-900 text-slate-600 cursor-not-allowed opacity-50'
+                          : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-cyan-400 hover:text-cyan-300 active:scale-95 cursor-pointer'
+                      }`}
+                      title="Play C4 (261.63 Hz)"
+                    >
+                      <svg className="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4a3 3 0 100 6 3 3 0 000-6zm0 6v10m-6-4a6 6 0 0012 0" />
+                      </svg>
+                      <span>C4 (261Hz)</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Hint Bar */}
+                {(earTrainingMode === 'pitch' ? currentQuizMidi === null : earTrainingMode === 'interval' ? currentQuizInterval === null : currentQuizChord === null) && (
+                  <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 text-center text-sm text-slate-200 font-medium animate-pulse flex items-center justify-center gap-2">
+                    <svg className="w-4 h-4 text-cyan-300 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
+                    </svg>
+                    <span>{t.chPPWaitingFirstNote}</span>
+                  </div>
+                )}
+
+                {/* ========================================================================= */}
+                {/* CHOICE GRID: SINGLE PITCH MODE */}
+                {/* ========================================================================= */}
+                {earTrainingMode === 'pitch' && (
+                  <div className="space-y-4">
+                    <div className="text-xs font-mono text-slate-400 flex items-center justify-between">
+                      <span>{isId ? 'PILIH NADA YANG ANDA DENGAR:' : isEs ? 'ELIGE LA NOTA QUE ESCUCHAS:' : 'SELECT THE NOTE YOU HEAR:'}</span>
+                      <span className="text-[11px] text-slate-500 italic">
+                        {earScaleSetting !== 'all' ? (
+                          (() => {
+                            const found = EAR_SCALES.find(s => s.id === (earActiveScaleId || earScaleSetting));
+                            return found ? `${isId ? found.name.id : isEs ? found.name.es : found.name.en} • 12 ${isId ? 'Pilihan' : isEs ? 'Opciones' : 'Choices'}` : '12 Chromatic Choices';
+                          })()
+                        ) : (
+                          '12 Chromatic Choices'
+                        )}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5">
+                      {PITCH_NOTES_OCTAVE4.map((note) => {
+                        const isCorrectNote = currentQuizMidi !== null && (note.midi % 12 === currentQuizMidi % 12);
+                        const isGuessedNote = lastGuessedValue === note.id;
+
+                        let btnStyle = 'bg-slate-900/90 hover:bg-slate-800 border-slate-800 hover:border-slate-700 text-slate-200';
+                        if (note.isBlack) {
+                          btnStyle = 'bg-slate-950/90 hover:bg-slate-900 border-slate-800/90 text-slate-300';
+                        }
+
+                        if (earQuizAnswered) {
+                          if (isCorrectNote) {
+                            btnStyle = 'bg-emerald-600/90 border-cyan-400 text-white shadow-lg shadow-emerald-900/50 scale-[1.02] ring-2 ring-emerald-400';
+                          } else if (isGuessedNote && !isCorrectNote) {
+                            btnStyle = 'bg-rose-700/90 border-rose-400 text-white shadow-lg shadow-rose-900/50 animate-shake';
+                          } else {
+                            btnStyle = 'opacity-40 bg-slate-950 border-slate-900 text-slate-500 cursor-not-allowed';
+                          }
+                        }
+
+                        return (
+                          <button
+                            key={note.id}
+                            type="button"
+                            disabled={earQuizAnswered || currentQuizMidi === null || isAudioTonePlaying}
+                            onClick={() => handlePitchGuess(note.id)}
+                            className={`p-3 rounded-xl border flex flex-col items-center justify-center transition-all relative group ${btnStyle} ${
+                              isAudioTonePlaying ? 'cursor-wait opacity-70' : 'cursor-pointer active:scale-95'
+                            }`}
+                          >
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <span
+                                className="w-2.5 h-2.5 rounded-full shadow-sm"
+                                style={{ backgroundColor: note.color }}
+                              />
+                              <span className="text-base font-black tracking-tight">
+                                {note.display}
+                              </span>
+                            </div>
+                            <span className="text-[11px] font-mono text-slate-400 group-hover:text-slate-200">
+                              {note.solfege} • {note.freq.toFixed(1)}Hz
+                            </span>
+
+                            {/* Miniature Piano Keys Illustration */}
+                            <MiniPianoKeys
+                              activePitches={[note.midi % 12]}
+                              highlightColor={note.color}
+                              width={58}
+                              height={20}
+                              className="my-1.5 opacity-90 group-hover:opacity-100"
+                            />
+
+                            {earQuizAnswered && isCorrectNote && (
+                              <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-md">
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+                                </svg>
+                              </span>
+                            )}
+                            {earQuizAnswered && isGuessedNote && !isCorrectNote && (
+                              <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-rose-500 text-white flex items-center justify-center shadow-md">
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* ========================================================================= */}
+                {/* CHOICE GRID: INTERVAL MODE */}
+                {/* ========================================================================= */}
+                {earTrainingMode === 'interval' && (
+                  <div className="space-y-4">
+                    <div className="text-xs font-mono text-slate-400 flex items-center justify-between">
+                      <span>{isId ? 'PILIH INTERVAL YANG ANDA DENGAR:' : isEs ? 'ELIGE EL INTERVALO QUE ESCUCHAS:' : 'SELECT THE INTERVAL YOU HEAR:'}</span>
+                      <span className="text-[11px] text-slate-500 italic">
+                        {currentQuizInterval
+                          ? `${earChoiceRootMode === 'mixed' ? (isId ? 'Pilihan Root Acak Campur' : 'Mixed Roots') : currentQuizInterval.rootName} • 12 ${isId ? 'Interval' : isEs ? 'Intervalos' : 'Intervals'}`
+                          : `12 ${isId ? 'Interval' : isEs ? 'Intervalos' : 'Intervals'}`}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                      {(quizIntervalChoices.length > 0 ? quizIntervalChoices : EAR_INTERVALS.map(inv => {
+                        const activeRootPc = currentQuizInterval ? currentQuizInterval.rootPc : 0;
+                        return {
+                          id: `${activeRootPc}_${inv.semitones}`,
+                          rootPc: activeRootPc,
+                          rootName: getEarRootName(activeRootPc),
+                          targetName: getIntervalTargetName(activeRootPc, inv.semitones),
+                          interval: inv,
+                          isCorrect: currentQuizInterval !== null && currentQuizInterval.semitones === inv.semitones,
+                        };
+                      })).map((choice) => {
+                        const inv = choice.interval;
+                        const isCorrectChoice = earQuizAnswered && choice.isCorrect;
+                        const isGuessedChoice = lastGuessedValue === choice.id;
+
+                        let btnStyle = 'bg-slate-900/90 hover:bg-slate-800 border-slate-800 hover:border-slate-700 text-slate-200';
+                        if (earQuizAnswered) {
+                          if (isCorrectChoice) {
+                            btnStyle = 'bg-emerald-600/90 border-cyan-400 text-white shadow-lg shadow-emerald-900/50 scale-[1.02] ring-2 ring-emerald-400';
+                          } else if (isGuessedChoice && !isCorrectChoice) {
+                            btnStyle = 'bg-rose-700/90 border-rose-400 text-white shadow-lg shadow-rose-900/50';
+                          } else {
+                            btnStyle = 'opacity-40 bg-slate-950 border-slate-900 text-slate-500 cursor-not-allowed';
+                          }
+                        }
+
+                        return (
+                          <button
+                            key={choice.id}
+                            type="button"
+                            disabled={earQuizAnswered || currentQuizInterval === null || isAudioTonePlaying}
+                            onClick={() => handleIntervalGuess(choice.id, inv.semitones, choice.rootPc)}
+                            className={`p-3 rounded-xl border flex flex-col justify-between text-left transition-all relative ${btnStyle} ${
+                              isAudioTonePlaying ? 'cursor-wait opacity-70' : 'cursor-pointer active:scale-95'
+                            }`}
+                          >
+                            <div>
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm font-black text-white flex items-center gap-1.5">
+                                  <span className="text-cyan-300 font-mono font-bold">{choice.rootName}</span>
+                                  <span className="text-slate-500 font-mono">→</span>
+                                  <span className="text-cyan-300 font-mono font-extrabold">{choice.targetName}</span>
+                                </span>
+                                <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-slate-950 font-bold text-cyan-400 border border-slate-800">
+                                  {inv.shortCode}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between mt-1 text-[11px]">
+                                <span className="font-semibold text-slate-300 truncate mr-1.5">
+                                  {isId ? inv.name.id : isEs ? inv.name.es : inv.name.en}
+                                </span>
+                                <span className="font-mono text-slate-400 flex-shrink-0">
+                                  {inv.semitones} {isId ? 'semiton' : isEs ? 'semitonos' : 'st'}
+                                </span>
+                              </div>
+                              <div className="mt-1.5 flex items-center justify-between">
+                                <span className="text-[10px] font-mono text-slate-400">
+                                  {choice.rootName} + {inv.semitones}st
+                                </span>
+                                {/* Miniature Piano Keys Illustration showing root + interval */}
+                                <MiniPianoKeys
+                                  activePitches={[choice.rootPc, (choice.rootPc + inv.semitones) % 12]}
+                                  highlightColor="#38bdf8"
+                                  width={56}
+                                  height={18}
+                                  className="opacity-90"
+                                />
+                              </div>
+                            </div>
+                            <div className="mt-2 pt-2 border-t border-slate-800/80 text-[11px] text-slate-400 flex items-center gap-1.5 truncate">
+                              <svg className="w-3 h-3 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12 0c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z" />
+                              </svg>
+                              <span className="truncate">{isId ? inv.song.id : isEs ? inv.song.es : inv.song.en}</span>
+                            </div>
+
+                            {earQuizAnswered && isCorrectChoice && (
+                              <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-md">
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+                                </svg>
+                              </span>
+                            )}
+                            {earQuizAnswered && isGuessedChoice && !isCorrectChoice && (
+                              <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-rose-500 text-white flex items-center justify-center shadow-md">
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* ========================================================================= */}
+                {/* CHOICE GRID: CHORD MODE */}
+                {/* ========================================================================= */}
+                {earTrainingMode === 'chord' && (
+                  <div className="space-y-4">
+                    <div className="text-xs font-mono text-slate-400 flex items-center justify-between">
+                      <span>{t.chPPSelectChord}</span>
+                      <span className="text-[11px] text-slate-500 italic">
+                        {currentQuizChord
+                          ? `${earChoiceRootMode === 'mixed' ? (isId ? 'Pilihan Root Acak Campur' : 'Mixed Roots') : currentQuizChord.rootName} • 12 ${isId ? 'Kualitas Akor' : isEs ? 'Cualidades' : 'Chord Qualities'}`
+                          : `12 ${isId ? 'Kualitas Akor' : isEs ? 'Cualidades' : 'Chord Qualities'}`}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                      {(quizChordChoices.length > 0 ? quizChordChoices : EAR_CHORDS.map(ch => {
+                        const activeRootPc = currentQuizChord ? currentQuizChord.rootPc : 0;
+                        return {
+                          id: `${activeRootPc}_${ch.id}`,
+                          rootPc: activeRootPc,
+                          rootName: getEarRootName(activeRootPc),
+                          chord: ch,
+                          isCorrect: currentQuizChord !== null && currentQuizChord.chord.id === ch.id,
+                        };
+                      })).map((choice) => {
+                        const chord = choice.chord;
+                        const isCorrectChoice = earQuizAnswered && choice.isCorrect;
+                        const isGuessedChoice = lastGuessedValue === choice.id;
+                        const chordKeys = chord.intervals.map(inv => (choice.rootPc + inv) % 12);
+                        const chordNotes = getChordNotesSpelling(choice.rootPc, chord.intervals);
+
+                        let btnStyle = 'bg-slate-900/90 hover:bg-slate-800 border-slate-800 hover:border-slate-700 text-slate-200';
+                        if (earQuizAnswered) {
+                          if (isCorrectChoice) {
+                            btnStyle = 'bg-emerald-600/90 border-cyan-400 text-white shadow-lg shadow-emerald-900/50 scale-[1.02] ring-2 ring-emerald-400';
+                          } else if (isGuessedChoice && !isCorrectChoice) {
+                            btnStyle = 'bg-rose-700/90 border-rose-400 text-white shadow-lg shadow-rose-900/50';
+                          } else {
+                            btnStyle = 'opacity-40 bg-slate-950 border-slate-900 text-slate-500 cursor-not-allowed';
+                          }
+                        }
+
+                        return (
+                          <button
+                            key={choice.id}
+                            type="button"
+                            disabled={earQuizAnswered || currentQuizChord === null || isAudioTonePlaying}
+                            onClick={() => handleChordGuess(choice.id, chord.id, choice.rootPc)}
+                            className={`p-3.5 rounded-xl border flex flex-col justify-between text-left transition-all relative ${btnStyle} ${
+                              isAudioTonePlaying ? 'cursor-wait opacity-70' : 'cursor-pointer active:scale-95'
+                            }`}
+                          >
+                            <div>
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm font-black text-white flex items-center gap-1.5 truncate mr-1">
+                                  <span className="text-slate-200 font-mono font-black">{choice.rootName}</span>
+                                  <span className="truncate">{isId ? chord.name.id : isEs ? chord.name.es : chord.name.en}</span>
+                                </span>
+                                <span className="text-xs font-mono px-2 py-0.5 rounded-md bg-slate-800 font-bold text-cyan-300 border border-slate-700 flex-shrink-0">
+                                  {choice.rootName}{chord.symbol}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between mt-2">
+                                <span className="text-[11px] font-mono text-slate-200 font-bold truncate mr-2">
+                                  {chordNotes}
+                                </span>
+                                <span className="text-[10px] font-mono text-slate-400 flex-shrink-0">
+                                  {chord.formula}
+                                </span>
+                              </div>
+                              <div className="mt-2 flex justify-end">
+                                {/* Miniature Piano Keys Illustration showing the chord voicing on choice's root */}
+                                <MiniPianoKeys
+                                  activePitches={chordKeys}
+                                  highlightColor="#c084fc"
+                                  width={62}
+                                  height={20}
+                                  className="opacity-95"
+                                />
+                              </div>
+                            </div>
+                            <div className="mt-2.5 pt-2 border-t border-slate-800/80 text-[11px] text-slate-400 flex items-center gap-1.5 leading-snug">
+                              <svg className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
+                              </svg>
+                              <span>{isId ? chord.feeling.id : isEs ? chord.feeling.es : chord.feeling.en}</span>
+                            </div>
+
+                            {earQuizAnswered && isCorrectChoice && (
+                              <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-md">
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+                                </svg>
+                              </span>
+                            )}
+                            {earQuizAnswered && isGuessedChoice && !isCorrectChoice && (
+                              <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-rose-500 text-white flex items-center justify-center shadow-md">
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* ========================================================================= */}
+                {/* POST-GUESS FEEDBACK & COMPARISON BAR */}
+                {/* ========================================================================= */}
+                {earQuizAnswered && (
+                  <div className={`p-4 md:p-5 rounded-xl border flex flex-col md:flex-row items-center justify-between gap-4 animate-fadeIn ${
+                    isLastGuessCorrect
+                      ? 'bg-emerald-950/40 border-slate-800 text-emerald-200'
+                      : 'bg-rose-950/40 border-rose-500/40 text-rose-200'
+                  }`}>
+                    <div className="flex items-center gap-3 w-full md:w-auto">
+                      {isLastGuessCorrect ? (
+                        <svg className="w-8 h-8 text-emerald-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      ) : (
+                        <svg className="w-8 h-8 text-rose-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                      )}
+                      <div>
+                        <div className="font-black text-base md:text-lg">
+                          {isLastGuessCorrect ? t.chPPCorrectBadge : t.chPPIncorrectBadge}
+                        </div>
+                        <div className="text-xs md:text-sm text-slate-300 mt-0.5 flex flex-wrap items-center gap-2">
+                          {earTrainingMode === 'pitch' ? (
+                            <>
+                              <span>{t.chPPActualPitch}</span>
+                              <span className="font-bold text-white px-2 py-0.5 rounded bg-slate-900 border border-slate-700 font-mono">
+                                {currentQuizMidi !== null
+                                  ? (PITCH_NOTES_OCTAVE4.find(n => n.midi % 12 === currentQuizMidi % 12)?.display || '—')
+                                  : '—'}
+                              </span>
+                              {!isLastGuessCorrect && lastGuessedValue && (
+                                <>
+                                  <span className="text-slate-400">|</span>
+                                  <span>{t.chPPYouGuessed}</span>
+                                  <span className="font-bold text-rose-300 px-2 py-0.5 rounded bg-slate-900 border border-slate-700 font-mono">
+                                    {PITCH_NOTES_OCTAVE4.find(n => n.id === lastGuessedValue)?.display || lastGuessedValue}
+                                  </span>
+                                </>
+                              )}
+                            </>
+                          ) : earTrainingMode === 'interval' ? (
+                            <>
+                              <span>{t.chPPActualPitch}</span>
+                              <span className="font-bold text-white px-2 py-0.5 rounded bg-slate-900 border border-slate-700 font-mono">
+                                {(() => {
+                                  if (!currentQuizInterval) return '—';
+                                  const found = EAR_INTERVALS.find(i => i.semitones === currentQuizInterval.semitones);
+                                  if (!found) return '—';
+                                  const rName = getEarRootName(currentQuizInterval.rootPc);
+                                  const tName = getIntervalTargetName(currentQuizInterval.rootPc, currentQuizInterval.semitones);
+                                  return `${rName} → ${tName} (${isId ? found.name.id : isEs ? found.name.es : found.name.en})`;
+                                })()}
+                              </span>
+                              {!isLastGuessCorrect && lastGuessedValue && (
+                                <>
+                                  <span className="text-slate-400">|</span>
+                                  <span>{t.chPPYouGuessed}</span>
+                                  <span className="font-bold text-rose-300 px-2 py-0.5 rounded bg-slate-900 border border-slate-700 font-mono">
+                                    {(() => {
+                                      const foundChoice = quizIntervalChoices.find(c => c.id === lastGuessedValue);
+                                      if (foundChoice) {
+                                        return `${foundChoice.rootName} → ${foundChoice.targetName} (${isId ? foundChoice.interval.name.id : isEs ? foundChoice.interval.name.es : foundChoice.interval.name.en})`;
+                                      }
+                                      const foundInv = EAR_INTERVALS.find(i => String(i.semitones) === lastGuessedValue);
+                                      if (!foundInv || !currentQuizInterval) return `${lastGuessedValue} semitones`;
+                                      const rName = getEarRootName(currentQuizInterval.rootPc);
+                                      const tName = getIntervalTargetName(currentQuizInterval.rootPc, foundInv.semitones);
+                                      return `${rName} → ${tName} (${isId ? foundInv.name.id : isEs ? foundInv.name.es : foundInv.name.en})`;
+                                    })()}
+                                  </span>
+                                </>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              <span>{t.chPPActualPitch}</span>
+                              <span className="font-bold text-white px-2 py-0.5 rounded bg-slate-900 border border-slate-700 font-mono">
+                                {(() => {
+                                  if (!currentQuizChord) return '—';
+                                  const rName = getEarRootName(currentQuizChord.rootPc);
+                                  const cNotes = getChordNotesSpelling(currentQuizChord.rootPc, currentQuizChord.chord.intervals);
+                                  return `${rName} ${isId ? currentQuizChord.chord.name.id : isEs ? currentQuizChord.chord.name.es : currentQuizChord.chord.name.en} [${cNotes}]`;
+                                })()}
+                              </span>
+                              {!isLastGuessCorrect && lastGuessedValue && (
+                                <>
+                                  <span className="text-slate-400">|</span>
+                                  <span>{t.chPPYouGuessed}</span>
+                                  <span className="font-bold text-rose-300 px-2 py-0.5 rounded bg-slate-900 border border-slate-700 font-mono">
+                                    {(() => {
+                                      const foundChoice = quizChordChoices.find(c => c.id === lastGuessedValue);
+                                      if (foundChoice) {
+                                        return `${foundChoice.rootName} ${isId ? foundChoice.chord.name.id : isEs ? foundChoice.chord.name.es : foundChoice.chord.name.en} (${foundChoice.rootName}${foundChoice.chord.symbol})`;
+                                      }
+                                      const foundChord = EAR_CHORDS.find(c => c.id === lastGuessedValue);
+                                      if (!foundChord || !currentQuizChord) return lastGuessedValue;
+                                      const rName = getEarRootName(currentQuizChord.rootPc);
+                                      return `${rName} ${isId ? foundChord.name.id : isEs ? foundChord.name.es : foundChord.name.en} (${rName}${foundChord.symbol})`;
+                                    })()}
+                                  </span>
+                                </>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Audio Comparison & Next Question Actions */}
+                    <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-end">
+                      {!isLastGuessCorrect && lastGuessedValue && (
+                        <button
+                          type="button"
+                          disabled={isAudioTonePlaying}
+                          onClick={() => {
+                            if (earTrainingMode === 'pitch') {
+                              const guessedNote = PITCH_NOTES_OCTAVE4.find(n => n.id === lastGuessedValue);
+                              if (guessedNote) void playEarNoteSound(guessedNote.midi);
+                            } else if (earTrainingMode === 'interval') {
+                              const foundChoice = quizIntervalChoices.find(c => c.id === lastGuessedValue);
+                              if (foundChoice) {
+                                const baseMidi = currentQuizInterval ? (currentQuizInterval.rootMidi - (currentQuizInterval.rootPc) + foundChoice.rootPc) : (60 + foundChoice.rootPc);
+                                void playEarIntervalSound(baseMidi, foundChoice.interval.semitones);
+                              } else {
+                                const semitones = Number(lastGuessedValue);
+                                if (!isNaN(semitones) && currentQuizInterval) void playEarIntervalSound(currentQuizInterval.rootMidi, semitones);
+                              }
+                            } else if (earTrainingMode === 'chord') {
+                              const foundChoice = quizChordChoices.find(c => c.id === lastGuessedValue);
+                              if (foundChoice) {
+                                const baseMidi = currentQuizChord ? (currentQuizChord.rootMidi - (currentQuizChord.rootPc) + foundChoice.rootPc) : (60 + foundChoice.rootPc);
+                                void playEarChordSound(baseMidi, foundChoice.chord.intervals);
+                              } else {
+                                const found = EAR_CHORDS.find(c => c.id === lastGuessedValue);
+                                if (found && currentQuizChord) void playEarChordSound(currentQuizChord.rootMidi, found.intervals);
+                              }
+                            }
+                          }}
+                          className={`px-3 py-2 rounded-lg text-xs font-mono border transition-all flex items-center gap-1.5 ${
+                            isAudioTonePlaying
+                              ? 'bg-slate-900 border-slate-800 text-slate-500 cursor-not-allowed opacity-50'
+                              : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700 cursor-pointer active:scale-95'
+                          }`}
+                        >
+                          <svg className="w-3.5 h-3.5 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                          </svg>
+                          <span>{t.chPPPlayGuess}</span>
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        disabled={isAudioTonePlaying}
+                        onClick={() => {
+                          if (earTrainingMode === 'pitch' && currentQuizMidi !== null) {
+                            void playEarNoteSound(currentQuizMidi);
+                          } else if (earTrainingMode === 'interval' && currentQuizInterval !== null) {
+                            void playEarIntervalSound(currentQuizInterval.rootMidi, currentQuizInterval.semitones);
+                          } else if (earTrainingMode === 'chord' && currentQuizChord !== null) {
+                            void playEarChordSound(currentQuizChord.rootMidi, currentQuizChord.chord.intervals);
+                          }
+                        }}
+                        className={`px-3 py-2 rounded-lg text-xs font-mono border transition-all flex items-center gap-1.5 ${
+                          isAudioTonePlaying
+                            ? 'bg-slate-900 border-slate-800 text-slate-500 cursor-not-allowed opacity-50'
+                            : 'bg-slate-800 hover:bg-slate-700 text-cyan-300 border-slate-700 cursor-pointer active:scale-95'
+                        }`}
+                      >
+                        <svg className="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                        </svg>
+                        <span>{t.chPPPlayCorrect}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleGenerateNewEarQuestion()}
+                        className="px-5 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs md:text-sm transition-all shadow-md active:scale-95 flex items-center gap-1.5"
+                      >
+                        <span>{t.chPPNextBtn}</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* ========================================================================= */}
+                {/* 12-PITCH MEMORY HEATMAP & STATS MATRIX */}
+                {/* ========================================================================= */}
+                <div className="pt-4 border-t border-slate-800/80">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-mono text-slate-400 uppercase tracking-wider font-bold">
+                      {t.chPPHeatmapTitle}
+                    </span>
+                    <span className="text-[11px] font-mono text-slate-500">
+                      {isId ? 'Tingkat Keberhasilan per Nada' : isEs ? 'Precisión por Tono' : 'Per-Pitch Accuracy'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-12 gap-2">
+                    {PITCH_NOTES_OCTAVE4.map((note) => {
+                      const stat = earHeatmapStats[note.id];
+                      const total = stat?.total || 0;
+                      const correct = stat?.correct || 0;
+                      const pct = total > 0 ? Math.round((correct / total) * 100) : null;
+
+                      let badgeBg = 'bg-slate-950/80 border-slate-800 text-slate-500';
+                      if (pct !== null) {
+                        if (pct >= 80) badgeBg = 'bg-emerald-950/80 border-emerald-600/50 text-emerald-300';
+                        else if (pct >= 50) badgeBg = 'bg-slate-800 border-slate-700 text-slate-200';
+                        else badgeBg = 'bg-rose-950/80 border-rose-600/50 text-rose-300';
+                      }
+
+                      return (
+                        <div
+                          key={note.id}
+                          className={`p-2 rounded-xl border flex flex-col items-center justify-center text-center transition-all ${badgeBg}`}
+                        >
+                          <span className="text-xs font-black font-mono">{note.display}</span>
+                          <span className="text-[10px] font-mono font-bold mt-0.5">
+                            {pct !== null ? `${pct}%` : '—'}
+                          </span>
+                          <span className="text-[9px] font-mono text-slate-500">
+                            {correct}/{total}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* ========================================================================= */}
+              {/* EDUCATIONAL MASTERCLASS CONTENT */}
+              {/* ========================================================================= */}
+
+              {/* SECTION 1: THE SCIENCE OF ABSOLUTE VS RELATIVE PITCH */}
+              <div className="p-6 md:p-8 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-6">
+                <div className="border-b border-slate-800 pb-4">
+                  <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest">
+                    {isId ? 'BAGIAN 7.1 • DASAR NEUROLOGIS' : isEs ? 'SECCIÓN 7.1 • BASE NEUROLÓGICA' : 'SECTION 7.1 • NEUROLOGICAL FOUNDATIONS'}
+                  </span>
+                  <h3 className="text-lg md:text-xl font-black text-white mt-1">
+                    {t.chPPTheorySec1Title}
+                  </h3>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm text-slate-300 leading-relaxed">
+                  <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2.5">
+                    <div className="flex items-center gap-2 text-cyan-300 font-bold">
+                      <svg className="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                      </svg>
+                      <span>{isId ? 'Perfect Pitch (Pitch Absolut)' : isEs ? 'Oído Absoluto (Perfect Pitch)' : 'Absolute Pitch (AP)'}</span>
+                    </div>
+                    <p>
+                      {isId
+                        ? 'Kemampuan mengenali frekuensi suara musik secara instan tanpa bantuan nada referensi eksternal, mirip dengan cara mata mengenali warna merah atau biru. Pada anak usia 3–7 tahun, tonotopi otak dapat memetakan nada secara permanen jika terpapar nada piano secara konsisten.'
+                        : isEs
+                        ? 'La capacidad de identificar la frecuencia de una nota al instante sin un tono de referencia externo, similar a cómo los ojos reconocen el color rojo o azul. Entre los 3 y 7 años, la corteza auditiva puede mapear tonos de forma permanente con práctica temprana.'
+                        : 'The rare ability to identify and recreate any musical pitch without an external reference tone, analogous to identifying colors like red or blue. In early childhood (ages 3–7), the brain\'s tonotopic auditory cortex can hard-code pitch memory with consistent musical exposure.'}
+                    </p>
+                  </div>
+
+                  <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2.5">
+                    <div className="flex items-center gap-2 text-cyan-300 font-bold">
+                      <svg className="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                      </svg>
+                      <span>{isId ? 'Relative Pitch (Pitch Relatif)' : isEs ? 'Oído Relativo (Relative Pitch)' : 'Relative Pitch (RP)'}</span>
+                    </div>
+                    <p>
+                      {isId
+                        ? 'Kemampuan mengidentifikasi nada melalui perbandingan jarak (interval) dengan nada lain yang telah diketahui. Keterampilan ini dapat dilatih dan dikuasai 100% oleh musisi dewasa kapan saja, dan seringkali jauh lebih berharga untuk aransemen, harmoni, dan improvisasi.'
+                        : isEs
+                        ? 'La capacidad de identificar notas comparando la distancia interválica con respecto a un tono conocido. Esta habilidad puede entrenarse y dominarse al 100% a cualquier edad, siendo sumamente valiosa para arreglos, armonía e improvisación.'
+                        : 'The ability to identify pitches by calculating the interval distance from a known anchor note. Unlike absolute pitch, relative pitch can be mastered to 100% proficiency by any adult musician through consistent training, and is vital for harmony and transcribing.'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Mathematical Equation Callout */}
+                <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 text-xs md:text-sm text-slate-200 space-y-2">
+                  <div className="font-mono font-bold text-cyan-300 flex items-center gap-2">
+                    <svg className="w-4 h-4 text-cyan-400" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
+                    </svg>
+                    <span>{isId ? 'PERSAMAAN MATEMATIS FREKUENSI TEMPERAMEN SAMA (EQUAL TEMPERAMENT):' : isEs ? 'FÓRMULA MATEMÁTICA DE FRECUENCIA EN TEMPERAMENTO IGUAL:' : 'EQUAL TEMPERAMENT PITCH FREQUENCY FORMULA:'}</span>
+                  </div>
+                  <div className="font-mono text-center py-2 text-base md:text-lg text-slate-200 font-bold bg-slate-950/70 rounded-lg border border-slate-800">
+                    f(n) = 440 × 2^((n - 69) / 12) Hz
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    {isId
+                      ? 'Di mana n adalah nomor not MIDI (A4 = 69 = 440 Hz). Setiap semiton memiliki rasio frekuensi tepat 2^(1/12) ≈ 1.059463. Jarak 1 oktaf melipatgandakan frekuensi tepat 2 kali lipat.'
+                      : isEs
+                      ? 'Donde n es el número de nota MIDI (La4 = 69 = 440 Hz). Cada semitono representa una razón exacta de 2^(1/12) ≈ 1.059463. Una octava completa duplica la frecuencia exactamente por 2.'
+                      : 'Where n is the MIDI note number (A4 = 69 = 440 Hz). Each ascending semitone multiplies frequency by 2^(1/12) ≈ 1.059463. A full octave represents exactly double the acoustic frequency.'}
+                  </p>
+                </div>
+
+                {/* Frequency & Wavelength Table */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left border-collapse border border-slate-800">
+                    <thead>
+                      <tr className="bg-slate-950 text-slate-300 font-mono uppercase tracking-wider">
+                        <th className="p-2.5 border border-slate-800">Note</th>
+                        <th className="p-2.5 border border-slate-800">Solfege</th>
+                        <th className="p-2.5 border border-slate-800">MIDI</th>
+                        <th className="p-2.5 border border-slate-800">Freq (Hz)</th>
+                        <th className="p-2.5 border border-slate-800">{isId ? 'Panjang Gelombang' : isEs ? 'Longitud de Onda' : 'Wavelength'} (λ)</th>
+                        <th className="p-2.5 border border-slate-800">{isId ? 'Karakter Tonal' : isEs ? 'Carácter Tonal' : 'Tonal Character'}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/80 font-mono">
+                      {PITCH_NOTES_OCTAVE4.map((n) => (
+                        <tr key={n.id} className="hover:bg-slate-800/40 transition-colors">
+                          <td className="p-2.5 font-bold flex items-center gap-2">
+                            <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: n.color }} />
+                            <span className="text-white">{n.display}</span>
+                          </td>
+                          <td className="p-2.5 text-slate-300">{n.solfege}</td>
+                          <td className="p-2.5 text-slate-400">{n.midi}</td>
+                          <td className="p-2.5 font-bold text-slate-200 font-mono">{n.freq.toFixed(2)} Hz</td>
+                          <td className="p-2.5 text-slate-400">{n.wavelengthCm.toFixed(1)} cm</td>
+                          <td className="p-2.5 text-slate-300 font-sans">{isId ? n.character.id : isEs ? n.character.es : n.character.en}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* SECTION 2: SYNESTHESIA & COLOR SPECTRUM MAPPING */}
+              <div className="p-6 md:p-8 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-6">
+                <div className="border-b border-slate-800 pb-4">
+                  <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest">
+                    {isId ? 'BAGIAN 7.2 • ASOSIASI KOGNITIF & WARNA' : isEs ? 'SECCIÓN 7.2 • ASOCIACIÓN COGNITIVA Y COLOR' : 'SECTION 7.2 • SYNESTHETIC COLOR MAPPING'}
+                  </span>
+                  <h3 className="text-lg md:text-xl font-black text-white mt-1">
+                    {t.chPPTheorySec2Title}
+                  </h3>
+                  <p className="text-xs md:text-sm text-slate-300 mt-2 leading-relaxed">
+                    {isId
+                      ? 'Banyak komponis legendaris seperti Franz Liszt, Alexander Scriabin, dan Olivier Messiaen memiliki sinestesia—kemampuan otak menghubungkan getaran suara dengan warna cahaya. Anda dapat mengadopsi teknik jangkar mental ini untuk mengingat karakter masing-masing nada.'
+                      : isEs
+                      ? 'Compositores ilustres como Franz Liszt, Alexander Scriabin y Olivier Messiaen experimentaban sinestesia: la conexión espontánea entre tonos sonoros y colores visuales. Puedes usar estas asociaciones cromáticas como anclas mentales para identificar notas.'
+                      : 'Legendary composers including Liszt, Scriabin, and Messiaen experienced auditory-visual synesthesia—perceiving specific frequencies as luminous colors. Adult musicians can leverage these mnemonic anchors to develop near-instant pitch recognition.'}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                  {PITCH_NOTES_OCTAVE4.map((note) => (
+                    <div
+                      key={note.id}
+                      className="p-4 rounded-xl bg-slate-950/80 border border-slate-800/90 flex flex-col justify-between hover:border-slate-700 transition-all"
+                    >
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="w-3.5 h-3.5 rounded-full shadow-md" style={{ backgroundColor: note.color }} />
+                            <span className="text-base font-black text-white">{note.display}</span>
+                          </div>
+                          <span className="text-xs font-mono text-slate-400">{note.solfege}</span>
+                        </div>
+                        <p className="text-xs text-slate-300 leading-relaxed">
+                          {isId ? note.character.id : isEs ? note.character.es : note.character.en}
+                        </p>
+                      </div>
+                      <div className="mt-3 pt-2 border-t border-slate-800/80 text-[11px] font-mono text-slate-400 flex items-center gap-1.5 truncate">
+                        <svg className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                        </svg>
+                        <span className="truncate">{note.famousWork}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* SECTION 3: INTERVAL MNEMONIC CHEAT SHEET */}
+              <div data-no-ui-sound="true" className="p-6 md:p-8 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-6">
+                <div className="border-b border-slate-800 pb-4 flex flex-col sm:flex-row sm:items-end justify-between gap-2">
+                  <div>
+                    <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest">
+                      {isId ? 'BAGIAN 7.3 • JEMBATAN KELEDAI INTERVAL' : isEs ? 'SECCIÓN 7.3 • MNEMOTECNIAS DE INTERVALOS' : 'SECTION 7.3 • INTERVAL MNEMONICS'}
+                    </span>
+                    <h3 className="text-lg md:text-xl font-black text-white mt-1">
+                      {t.chPPTheorySec3Title}
+                    </h3>
+                  </div>
+                  <span className="text-xs font-mono text-slate-400">
+                    {isId ? 'Klik tombol Putar (Play) untuk mendengarkan' : isEs ? 'Haz clic en Reproducir para escuchar' : 'Click Play button to audition'}
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left border-collapse border border-slate-800">
+                    <thead>
+                      <tr className="bg-slate-950 text-slate-300 font-mono uppercase tracking-wider">
+                        <th className="p-2.5 border border-slate-800">{isId ? 'Interval' : isEs ? 'Intervalo' : 'Interval'}</th>
+                        <th className="p-2.5 border border-slate-800">Semitones</th>
+                        <th className="p-2.5 border border-slate-800">Ratio</th>
+                        <th className="p-2.5 border border-slate-800">{isId ? 'Lagu Referensi Populer' : isEs ? 'Canción de Referencia' : 'Famous Song Anchor'}</th>
+                        <th className="p-2.5 border border-slate-800">{isId ? 'Kesan Rasa' : isEs ? 'Sensación Tonal' : 'Emotional Feeling'}</th>
+                        <th className="p-2.5 border border-slate-800 text-center">Audio</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/80">
+                      {EAR_INTERVALS.map((inv) => (
+                        <tr key={inv.semitones} className="hover:bg-slate-800/40 transition-colors">
+                          <td className="p-2.5 font-bold font-mono text-white">
+                            {isId ? inv.name.id : isEs ? inv.name.es : inv.name.en} ({inv.shortCode})
+                          </td>
+                          <td className="p-2.5 font-mono text-slate-400">{inv.semitones}</td>
+                          <td className="p-2.5 font-mono text-cyan-400">{inv.ratio}</td>
+                          <td className="p-2.5 text-slate-300 font-medium">
+                            <span className="inline-flex items-center gap-1.5">
+                              <svg className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12 0c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z" />
+                              </svg>
+                              <span>{isId ? inv.song.id : isEs ? inv.song.es : inv.song.en}</span>
+                            </span>
+                          </td>
+                          <td className="p-2.5 text-slate-300">{isId ? inv.feeling.id : isEs ? inv.feeling.es : inv.feeling.en}</td>
+                          <td className="p-2.5 text-center">
+                            <button
+                              type="button"
+                              disabled={isAudioTonePlaying}
+                              onClick={() => void playEarIntervalSound(60, inv.semitones)}
+                              className={`px-2.5 py-1 rounded text-white font-mono text-xs transition-all inline-flex items-center justify-center ${
+                                isAudioTonePlaying
+                                  ? 'bg-slate-900 text-slate-600 cursor-not-allowed opacity-50'
+                                  : 'bg-slate-800 hover:bg-cyan-600 active:scale-95 cursor-pointer'
+                              }`}
+                              title={`Play ${inv.shortCode}`}
+                            >
+                              <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                              </svg>
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* SECTION 4: 10-MINUTE DAILY EAR ROUTINE */}
+              <div className="p-6 md:p-8 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-6">
+                <div className="border-b border-slate-800 pb-4">
+                  <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest">
+                    {isId ? 'BAGIAN 7.4 • RUTINITAS HARIAN' : isEs ? 'SECCIÓN 7.4 • RUTINA DIARIA' : 'SECTION 7.4 • DAILY PROTOCOL'}
+                  </span>
+                  <h3 className="text-lg md:text-xl font-black text-white mt-1">
+                    {t.chPPTheorySec4Title}
+                  </h3>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2">
+                    <div className="flex items-center gap-2 text-cyan-400 font-bold font-mono text-xs">
+                      <span>01.</span>
+                      <span>{isId ? 'UJI JANGKAR PAGI (2 MENIT)' : isEs ? 'TEST DE ANCLA MATUTINO (2 MIN)' : 'MORNING ANCHOR TEST (2 MIN)'}</span>
+                    </div>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      {isId
+                        ? 'Sebelum memainkan instrumen, nyanyikan nada C4 atau A4 langsung dari ingatan Anda. Kemudian tekan tuts piano untuk memeriksa apakah frekuensi vokal Anda tepat sasaran.'
+                        : isEs
+                        ? 'Antes de tocar cualquier nota, intenta cantar un Do4 o La4 solo de memoria. Luego presiona la tecla en el piano para verificar si tu memoria interna acertó.'
+                        : 'Before touching any instrument, sing Middle C (C4) or Concert A (A4) purely from internal memory. Then hit the piano key to verify your acoustic recall accuracy.'}
+                    </p>
+                  </div>
+
+                  <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2">
+                    <div className="flex items-center gap-2 text-cyan-400 font-bold font-mono text-xs">
+                      <span>02.</span>
+                      <span>{isId ? '20 KUIS BUTA DI OCTAVIA (5 MENIT)' : isEs ? '20 PRUEBAS A CIEGAS (5 MIN)' : '20 BLIND TESTS IN OCTAVIA (5 MIN)'}</span>
+                    </div>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      {isId
+                        ? 'Jalankan konsol kuis interaktif di atas selama 20 soal setiap hari. Mulai dari Tuts Putih C Major hingga 12 Kromatik lengkap, pertahankan streak setinggi mungkin!'
+                        : isEs
+                        ? 'Completa 20 preguntas en la consola interactiva de arriba cada día. Comienza con teclas blancas y avanza a las 12 cromáticas buscando rachas perfectas.'
+                        : 'Run 20 daily rounds on the Octavia Trainer console above. Progress from C Major naturals to all 12 chromatic tones, tracking your daily streak and heatmap mastery.'}
+                    </p>
+                  </div>
+
+                  <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2">
+                    <div className="flex items-center gap-2 text-cyan-300 font-bold font-mono text-xs">
+                      <span>03.</span>
+                      <span>{isId ? 'TRANSKRIPSI INTERVAL MALAM (3 MENIT)' : isEs ? 'TRANSCRIPCIÓN NOCTURNA (3 MIN)' : 'EVENING TRANSCRIPTION (3 MIN)'}</span>
+                    </div>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      {isId
+                        ? 'Dengarkan lagu favorit Anda di radio atau streaming, dan gunakan tabel lagu referensi interval untuk menebak lompatan 2 nada pertama melodi vokalnya.'
+                        : isEs
+                        ? 'Escucha tu canción favorita e intenta identificar los dos primeros tonos de la melodía usando las canciones mnemotécnicas de la tabla de intervalos.'
+                        : 'Listen to any vocal melody on the radio and identify the opening 2-note interval leap using your mental song reference catalog.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </article>
+          )}
+
+          {/* ========================================================================= */}
+          {/* CHAPTER 8: MIDI Editor, Sequencer & Audio Calibration Masterclass */}
           {/* ========================================================================= */}
           {activeChapter === 'midieditor' && (
             <article className="space-y-8 animate-fadeIn max-w-5xl mx-auto">
@@ -5137,7 +7546,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                 <div>
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-xs md:text-sm font-mono font-bold text-cyan-400 uppercase tracking-widest">
-                      {isId ? 'MODUL 07 • EDITOR MIDI & SEKUENSER' : isEs ? 'MÓDULO 07 • EDITOR MIDI Y SECUENCIADOR' : 'MODULE 07 • MIDI EDITOR & SEQUENCER'}
+                      {isId ? 'MODUL 08 • EDITOR MIDI & SEKUENSER' : isEs ? 'MÓDULO 08 • EDITOR MIDI Y SECUENCIADOR' : 'MODULE 08 • MIDI EDITOR & SEQUENCER'}
                     </span>
                     <span className="text-xs font-mono px-3 py-1 rounded-lg bg-slate-800/90 text-slate-300 border border-slate-700">
                       480 PPQ RESOLUTION • DUAL HAND SEQUENCER
@@ -5450,15 +7859,15 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                     <span className="text-cyan-300">{isId ? 'Sian / Melodi Treble' : isEs ? 'Cian / Melodía' : 'Cyan / Lead Mel'}</span>
                   </div>
                   <div className="bg-slate-900/80 p-2 rounded border border-slate-800 text-slate-300">
-                    <span className="text-indigo-400 font-bold block">{isId ? '04. TANGAN KIRI' : isEs ? '04. MANO IZQUIERDA' : '04. LEFT HAND'}</span>
-                    <span className="text-indigo-300">{isId ? 'Ungu / Bass & Akor' : isEs ? 'Índigo / Bajos' : 'Indigo / Bass Root'}</span>
+                    <span className="text-slate-300 font-bold block">{isId ? '04. TANGAN KIRI' : isEs ? '04. MANO IZQUIERDA' : '04. LEFT HAND'}</span>
+                    <span className="text-slate-400">{isId ? 'Ungu / Bass & Akor' : isEs ? 'Índigo / Bajos' : 'Indigo / Bass Root'}</span>
                   </div>
                   <div className="bg-slate-900/80 p-2 rounded border border-slate-800 text-slate-300">
-                    <span className="text-amber-400 font-bold block">{L("05. PLAYHEAD", "05. INDIKATOR PUTAR", "05. CABEZAL")}</span>
+                    <span className="text-slate-200 font-bold block">{L("05. PLAYHEAD", "05. INDIKATOR PUTAR", "05. CABEZAL")}</span>
                     <span>{isId ? 'Scrubber Posisi Audio' : isEs ? 'Línea de Reproducción' : 'Live Timeline Play'}</span>
                   </div>
                   <div className="bg-slate-900/80 p-2 rounded border border-slate-800 text-slate-300">
-                    <span className="text-rose-400 font-bold block">{L("06. VELOCITY", "06. VELOCITY DINAMIKA", "06. VELOCIDAD")}</span>
+                    <span className="text-slate-200 font-bold block">{L("06. VELOCITY", "06. VELOCITY DINAMIKA", "06. VELOCIDAD")}</span>
                     <span>{L("0–127 Dyn Dynamics", "0–127 Dinamika Bunyi", "0–127 Dinámica")}</span>
                   </div>
                 </div>
@@ -5497,7 +7906,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                   </div>
 
                   <div className="bg-slate-900/90 border border-slate-800/80 shadow-xl border border-slate-800 rounded-xl p-4 space-y-2">
-                    <div className="text-xs font-mono font-bold text-indigo-400 uppercase tracking-wider flex items-center gap-2">
+                    <div className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-2">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
                       </svg>
@@ -5513,7 +7922,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                   </div>
 
                   <div className="bg-slate-900/90 border border-slate-800/80 shadow-xl border border-slate-800 rounded-xl p-4 space-y-2">
-                    <div className="text-xs font-mono font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-2">
+                    <div className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-2">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16m-7 6h7" />
                       </svg>
@@ -5562,35 +7971,35 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                           <td className="p-3 text-cyan-400 font-bold text-sm">1/1</td>
                           <td className="p-3 font-sans font-semibold text-white">{isId ? 'Not Penuh (Whole Note)' : isEs ? 'Redonda' : 'Whole Note'}</td>
                           <td className="p-3 text-slate-200">{L("4.0 Beats", "4.0 Ketukan", "4.0 Tiempos")}</td>
-                          <td className="p-3 text-amber-300 font-bold">1,920 Ticks</td>
+                          <td className="p-3 text-slate-200 font-bold">1,920 Ticks</td>
                           <td className="p-3.5 font-sans text-sm text-slate-300">{isId ? 'Akor pad latar & pedal bass panjang' : isEs ? 'Acordes de fondo y bajos largos' : 'Long sustained background pads and bass drones'}</td>
                         </tr>
                         <tr className="hover:bg-slate-900/40">
                           <td className="p-3 text-cyan-400 font-bold text-sm">1/2</td>
                           <td className="p-3 font-sans font-semibold text-white">{isId ? 'Not Setengah (Half Note)' : isEs ? 'Blanca' : 'Half Note'}</td>
                           <td className="p-3 text-slate-200">{L("2.0 Beats", "2.0 Ketukan", "2.0 Tiempos")}</td>
-                          <td className="p-3 text-amber-300 font-bold">960 Ticks</td>
+                          <td className="p-3 text-slate-200 font-bold">960 Ticks</td>
                           <td className="p-3.5 font-sans text-sm text-slate-300">{isId ? 'Pola iringan tangan kiri lambat' : isEs ? 'Acompañamiento pausado de mano izquierda' : 'Slow left-hand chord changes'}</td>
                         </tr>
                         <tr className="hover:bg-slate-900/40">
                           <td className="p-3 text-cyan-400 font-bold text-sm">1/4</td>
                           <td className="p-3 font-sans font-semibold text-white">{isId ? 'Not Seperempat (Quarter Note)' : isEs ? 'Negra' : 'Quarter Note'}</td>
                           <td className="p-3 text-slate-200">{L("1.0 Beat", "1.0 Ketukan", "1.0 Tiempo")}</td>
-                          <td className="p-3 text-amber-300 font-bold">480 Ticks</td>
+                          <td className="p-3 text-slate-200 font-bold">480 Ticks</td>
                           <td className="p-3.5 font-sans text-sm text-slate-300">{isId ? 'Detak denyut utama lagu pop & klasik' : isEs ? 'Pulso rítmico principal' : 'Standard pulse of pop, rock, and classical pieces'}</td>
                         </tr>
                         <tr className="hover:bg-slate-900/40">
                           <td className="p-3 text-cyan-400 font-bold text-sm">1/8</td>
                           <td className="p-3 font-sans font-semibold text-white">{isId ? 'Not Seperdelapan (Eighth Note)' : isEs ? 'Corchea' : 'Eighth Note'}</td>
                           <td className="p-3 text-slate-200">{L("0.5 Beat", "0.5 Ketukan", "0.5 Tiempo")}</td>
-                          <td className="p-3 text-amber-300 font-bold">240 Ticks</td>
+                          <td className="p-3 text-slate-200 font-bold">240 Ticks</td>
                           <td className="p-3.5 font-sans text-sm text-slate-300">{isId ? 'Melodi lagu berjalan & arpeggio Alberti' : isEs ? 'Melodías fluidas y arpegios' : 'Walking melodies and Alberti bass arpeggios'}</td>
                         </tr>
                         <tr className="hover:bg-slate-900/40">
                           <td className="p-3 text-cyan-400 font-bold text-sm">1/16</td>
                           <td className="p-3 font-sans font-semibold text-white">{isId ? 'Not Seperenambelas (Sixteenth Note)' : isEs ? 'Semicorchea' : 'Sixteenth Note'}</td>
                           <td className="p-3 text-slate-200">{L("0.25 Beat", "0.25 Ketukan", "0.25 Tiempo")}</td>
-                          <td className="p-3 text-amber-300 font-bold">120 Ticks</td>
+                          <td className="p-3 text-slate-200 font-bold">120 Ticks</td>
                           <td className="p-3.5 font-sans text-sm text-slate-300">{isId ? 'Lari tangga nada cepat & melodi virtuoso' : isEs ? 'Escalas rápidas y adornos' : 'Fast scalar runs and virtuoso passages'}</td>
                         </tr>
                       </tbody>
@@ -5609,7 +8018,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                     </p>
                   </div>
                   <div className="bg-slate-900/90 border border-slate-800/80 shadow-xl border border-slate-800 rounded-lg p-3">
-                    <span className="text-xs font-mono font-bold text-amber-300 uppercase block mb-1">
+                    <span className="text-xs font-mono font-bold text-slate-300 uppercase block mb-1">
                       DOTTED (1.5×)
                     </span>
                     <p className="text-xs md:text-sm text-slate-400">
@@ -5617,7 +8026,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                     </p>
                   </div>
                   <div className="bg-slate-900/90 border border-slate-800/80 shadow-xl border border-slate-800 rounded-lg p-3">
-                    <span className="text-xs font-mono font-bold text-purple-300 uppercase block mb-1">
+                    <span className="text-xs font-mono font-bold text-slate-300 uppercase block mb-1">
                       TRIPLET (2/3×)
                     </span>
                     <p className="text-xs md:text-sm text-slate-400">
@@ -5654,7 +8063,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                   </div>
 
                   <div className="bg-slate-900/90 border border-slate-800/80 shadow-xl border border-slate-800 rounded-xl p-4 flex gap-3">
-                    <div className="w-9 h-9 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center flex-shrink-0">
+                    <div className="w-9 h-9 rounded-lg bg-slate-800 border border-slate-700 text-cyan-400 flex items-center justify-center flex-shrink-0">
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                       </svg>
@@ -5668,7 +8077,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                   </div>
 
                   <div className="bg-slate-900/90 border border-slate-800/80 shadow-xl border border-slate-800 rounded-xl p-4 flex gap-3">
-                    <div className="w-9 h-9 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center flex-shrink-0">
+                    <div className="w-9 h-9 rounded-lg bg-slate-800 border border-slate-700 text-cyan-400 flex items-center justify-center flex-shrink-0">
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
                       </svg>
@@ -5682,7 +8091,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                   </div>
 
                   <div className="bg-slate-900/90 border border-slate-800/80 shadow-xl border border-slate-800 rounded-xl p-4 flex gap-3">
-                    <div className="w-9 h-9 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center flex-shrink-0">
+                    <div className="w-9 h-9 rounded-lg bg-slate-800 border border-slate-700 text-cyan-400 flex items-center justify-center flex-shrink-0">
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                       </svg>
@@ -5716,8 +8125,8 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                     {isId ? 'SKALA DINAMIKA AKUSTIK VELOCITY (0–127)' : isEs ? 'ESCALA DINÁMICA DE VELOCIDAD (0–127)' : 'ACOUSTIC VELOCITY DYNAMIC SPECTRUM (0–127)'}
                   </h4>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div className="p-3 rounded-lg bg-slate-900/80 border border-emerald-500/30">
-                      <div className="flex items-center justify-between text-emerald-400 font-mono text-xs font-bold">
+                    <div className="p-3 rounded-lg bg-slate-900/80 border border-slate-800">
+                      <div className="flex items-center justify-between text-cyan-400 font-mono text-xs font-bold">
                         <span>PIANISSIMO</span>
                         <span>1–32</span>
                       </div>
@@ -5736,8 +8145,8 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                       </p>
                     </div>
 
-                    <div className="p-3 rounded-lg bg-slate-900/80 border border-amber-500/30">
-                      <div className="flex items-center justify-between text-amber-400 font-mono text-xs font-bold">
+                    <div className="p-3 rounded-lg bg-slate-900/80 border border-slate-700">
+                      <div className="flex items-center justify-between text-cyan-400 font-mono text-xs font-bold">
                         <span>MEZZO-FORTE</span>
                         <span>65–95</span>
                       </div>
@@ -5746,8 +8155,8 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                       </p>
                     </div>
 
-                    <div className="p-3 rounded-lg bg-slate-900/80 border border-rose-500/30">
-                      <div className="flex items-center justify-between text-rose-400 font-mono text-xs font-bold">
+                    <div className="p-3 rounded-lg bg-slate-900/80 border border-slate-800">
+                      <div className="flex items-center justify-between text-slate-300 font-mono text-xs font-bold">
                         <span>FORTE / FF</span>
                         <span>96–127</span>
                       </div>
@@ -5790,12 +8199,12 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                     </ul>
                   </div>
 
-                  <div className="bg-slate-900/90 border border-slate-800/80 shadow-xl border border-indigo-500/30 rounded-xl p-4 space-y-2">
+                  <div className="bg-slate-900/90 border border-slate-800/80 shadow-xl border border-slate-700 rounded-xl p-4 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-mono font-bold text-indigo-400 uppercase tracking-wider">
+                      <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-wider">
                         {isId ? 'TANGAN KIRI (LEFT HAND)' : isEs ? 'MANO IZQUIERDA (LEFT HAND)' : 'LEFT HAND (LH)'}
                       </span>
-                      <span className="text-xs font-mono font-medium px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+                      <span className="text-xs font-mono font-medium px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
                         INDIGO / #818CF8
                       </span>
                     </div>
@@ -5846,7 +8255,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                   <div className="bg-slate-900/90 border border-slate-800/80 shadow-xl border border-slate-800 rounded-xl p-5 space-y-3">
                     <div className="flex items-center justify-between">
                       <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                        <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-mono text-xs font-bold">{isId ? 'TUTORIAL 02' : isEs ? 'TUTORIAL 02' : 'TUTORIAL 02'}</span>
+                        <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-xs font-bold">{isId ? 'TUTORIAL 02' : isEs ? 'TUTORIAL 02' : 'TUTORIAL 02'}</span>
                         <span>{t.ch8Tutorial2Title}</span>
                       </h4>
                       <span className="text-xs font-mono font-medium text-slate-400">{isId ? 'PENYEMPURNAAN AUDIO' : isEs ? 'PULIDO DE AUDIO' : 'AUDIO POLISH'}</span>
@@ -5874,7 +8283,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                   <div className="bg-slate-900/90 border border-slate-800/80 shadow-xl border border-slate-800 rounded-xl p-5 space-y-3">
                     <div className="flex items-center justify-between">
                       <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                        <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 font-mono text-xs font-bold">{isId ? 'TUTORIAL 03' : isEs ? 'TUTORIAL 03' : 'TUTORIAL 03'}</span>
+                        <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-xs font-bold">{isId ? 'TUTORIAL 03' : isEs ? 'TUTORIAL 03' : 'TUTORIAL 03'}</span>
                         <span>{t.ch8Tutorial3Title}</span>
                       </h4>
                       <span className="text-xs font-mono font-medium text-slate-400">{isId ? 'KALIBRASI SINKRONISASI' : isEs ? 'CALIBRACIÓN DE SINCRONÍA' : 'SYNC CALIBRATION'}</span>
@@ -5897,7 +8306,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                   <div className="bg-slate-900/90 border border-slate-800/80 shadow-xl border border-slate-800 rounded-xl p-5 space-y-3">
                     <div className="flex items-center justify-between">
                       <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                        <span className="px-2 py-0.5 rounded bg-purple-500/20 text-purple-400 font-mono text-xs font-bold">{isId ? 'TUTORIAL 04' : isEs ? 'TUTORIAL 04' : 'TUTORIAL 04'}</span>
+                        <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-xs font-bold">{isId ? 'TUTORIAL 04' : isEs ? 'TUTORIAL 04' : 'TUTORIAL 04'}</span>
                         <span>{t.ch8Tutorial4Title}</span>
                       </h4>
                       <span className="text-xs font-mono font-medium text-slate-400">{isId ? 'EKSPOR & BAGIKAN' : isEs ? 'EXPORTAR Y COMPARTIR' : 'EXPORT & SHARE'}</span>
@@ -6015,14 +8424,14 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
           )}
 
           {/* ========================================================================= */}
-          {/* CHAPTER 8: Video Masterclasses & Study Guide (Last Chapter) */}
+          {/* CHAPTER 9: Video Masterclasses & Study Guide (Last Chapter) */}
           {/* ========================================================================= */}
           {activeChapter === 'videos' && (
             <article className="space-y-8 animate-fadeIn max-w-5xl mx-auto">
               <div className="border-b border-slate-800 pb-6">
                 <div className="flex items-center gap-2 mb-2">
                   <span className="text-xs md:text-sm font-mono font-bold text-cyan-400 uppercase tracking-widest">
-                    {isId ? 'MODUL 08 • REFERENSI VIDEO MASTERCLASS & INTISARI STUDI' : isEs ? 'MÓDULO 08 • VIDEOTECA Y GUÍA DE ESTUDIO' : 'MODULE 08 • VIDEO REFERENCE LIBRARY & STUDY NOTES'}
+                    {isId ? 'MODUL 09 • REFERENSI VIDEO MASTERCLASS & INTISARI STUDI' : isEs ? 'MÓDULO 09 • VIDEOTECA Y GUÍA DE ESTUDIO' : 'MODULE 09 • VIDEO REFERENCE LIBRARY & STUDY NOTES'}
                   </span>
                   <span className="text-xs font-mono px-3 py-1 rounded-lg bg-slate-800/90 text-slate-300 border border-slate-700">
                     {TUTORIAL_VIDEOS.length} CURATED LECTURES
@@ -6168,7 +8577,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                         idx === currentIndex
                           ? 'w-7 bg-cyan-400 shadow-sm shadow-cyan-400/50'
                           : idx < currentIndex
-                          ? 'w-2 bg-emerald-500 hover:bg-emerald-400'
+                          ? 'w-2 bg-cyan-400 hover:bg-cyan-300'
                           : 'w-2 bg-slate-700 hover:bg-slate-600'
                       }`}
                       title={`${ch.num}: ${ch.label}`}
@@ -6194,9 +8603,12 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                   <button
                     type="button"
                     onClick={isModal ? onCloseModal : onBackToMainMenu}
-                    className="w-full md:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold text-xs md:text-sm transition-all shadow-lg shadow-emerald-900/30 flex items-center justify-center gap-2 active:scale-95 border border-emerald-400/40 cursor-pointer"
+                    className="w-full md:w-auto px-6 py-3 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs md:text-sm transition-all shadow-lg shadow-cyan-950 flex items-center justify-center gap-2 active:scale-95 border border-cyan-400/30 cursor-pointer"
                   >
-                    <span>✓ {t.finishCurriculum}</span>
+                    <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>{t.finishCurriculum}</span>
                   </button>
                 )}
               </div>

@@ -66,8 +66,10 @@ export interface TranslationDictionary {
   showPianoTilesBg: string;
   pianoTilesOpacity: string;
   showPerfectText: string;
-  hidePianoKeyboardNonFalling: string;
-  hidePianoKeyboardNonFallingDesc: string;
+  showPianoKeyboardNonFalling: string;
+  showPianoKeyboardNonFallingDesc: string;
+  showDrumPads: string;
+  showDrumPadsDesc: string;
   showDynamics: string;
   showDynamicsDesc: string;
   inGameResolution: string;
@@ -266,6 +268,30 @@ export interface TranslationDictionary {
 
   step1Title: string;
   step2Title: string;
+  displayAndLabelsHeader: string;
+  visualSettingsHeader: string;
+  displayPanelDesc: string;
+  displayPanelDescDrum: string;
+  viewModeDrumTyper: string;
+  viewModeDrumMania: string;
+  viewModeFallingNotes: string;
+  viewModeSheetMusic: string;
+  viewModeRollSheet: string;
+  viewModeSheetQwerty: string;
+  viewModeQwertyTyper: string;
+  openDisplaySettingsBtn: string;
+  noteLabelNameDisplay: string;
+  noteLabelFingeringDisplay: string;
+  noteLabelNoneDisplay: string;
+  noteLabelQwertyDisplay: string;
+  autoSetupTitle: string;
+  autoSetupDesc: string;
+  openFullSettingsBtn: string;
+  quickPresets: string;
+  presetStandard: string;
+  presetFingering: string;
+  presetSheet: string;
+  presetQwerty: string;
   changeSongBtn: string;
   activeBadge: string;
   lenientBadgeDesc: string;
@@ -487,8 +513,10 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     showPianoTilesBg: "Show Piano Tiles Background",
     pianoTilesOpacity: "Piano Tiles Opacity",
     showPerfectText: "Show PERFECT Rating Text",
-    hidePianoKeyboardNonFalling: "Hide Piano Keyboard (Except Falling Notes)",
-    hidePianoKeyboardNonFallingDesc: "Hide piano keyboard on Sheet Music & Sheet Music Roll to maximize score area. In Falling Notes mode, the keyboard is always visible. (Default: Hidden)",
+    showPianoKeyboardNonFalling: "Show Piano Keyboard (Outside Falling Notes)",
+    showPianoKeyboardNonFallingDesc: "Shows the interactive piano keyboard on Sheet Music & Sheet Music Roll. In Falling Notes mode, the keyboard is always visible. (Default: Off)",
+    showDrumPads: "Show Drum Pads (Outside Drum Typer)",
+    showDrumPadsDesc: "Shows interactive drum pads on the bottom of the screen in drum modes other than Drum Typer (Drum Mania, Sheet Music) for touch/mobile play. (Default: Off)",
     showDynamics: "Show Dynamics & Velocity",
     showDynamicsDesc: "Show musical dynamic markings (p, mf, f, etc.) on Sheet Music and note velocity outline colors. (Default: Off)",
     inGameResolution: "In-Game View Resolution",
@@ -678,6 +706,30 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
 
     step1Title: "Select Game Mode",
     step2Title: "Customize Session",
+    displayAndLabelsHeader: "Display & Game View",
+    visualSettingsHeader: "Visual & Display Settings",
+    displayPanelDesc: "Configure game view mode (Falling Notes, Sheet Music, Qwerty Typer), note labels, 3D hand models, and visual options in Settings.",
+    displayPanelDescDrum: "Configure drum game view (Drum Typer, Drum Mania, Sheet Music), pad opacity, and visual display in Settings.",
+    viewModeDrumTyper: "Drum Typer",
+    viewModeDrumMania: "Drum Mania",
+    viewModeFallingNotes: "Falling Notes",
+    viewModeSheetMusic: "Sheet Music",
+    viewModeRollSheet: "Roll & Sheet",
+    viewModeSheetQwerty: "Sheet Music QWERTY",
+    viewModeQwertyTyper: "Qwerty Typer",
+    openDisplaySettingsBtn: "Configure Display & Labels",
+    noteLabelNameDisplay: "Note Name (C, D...)",
+    noteLabelFingeringDisplay: "Fingering (1-5)",
+    noteLabelNoneDisplay: "None",
+    noteLabelQwertyDisplay: "QWERTY Keys",
+    autoSetupTitle: "Auto Setup",
+    autoSetupDesc: "Apply recommended view & note labels for this mode",
+    openFullSettingsBtn: "Full Settings",
+    quickPresets: "Quick Presets",
+    presetStandard: "Standard",
+    presetFingering: "Fingering",
+    presetSheet: "Sheet",
+    presetQwerty: "QWERTY",
     changeSongBtn: "Change Song",
     activeBadge: "Active",
     lenientBadgeDesc: "Flexible Rhythm • Ideal for Learning",
@@ -744,11 +796,11 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     backingSyncNotice: "If the MP3 is still out of sync, try adjusting the USER MS (Audio Sync) by ±10 ms from the original offset; the goal is to match the backing track with the metronome.",
     defaultSource: "Default Source:",
     defaultOffset: "Default Offset:",
-    audioToMidiDirectTitle: "Direct In-Browser Audio-to-MIDI",
-    activeInBrowser: "Active (In-Browser)",
+    audioToMidiDirectTitle: "Direct Acoustic Piano (Microphone Pitch Detection)",
+    activeInBrowser: "Active (Pitch Tuner)",
     disabledStatus: "Disabled",
-    audioToMidiDesc: "Transcribe your real acoustic piano into live MIDI notes directly in your browser. 100% natively integrated into Octavia with zero downloads or external servers required.",
-    micListeningActive: "Microphone actively listening to piano keys",
+    audioToMidiDesc: "Real-time acoustic piano note detection powered by high-precision Autocorrelation / YIN Pitch Detection. Zero latency, instant response directly in your browser without external models.",
+    micListeningActive: "Microphone actively listening",
     allowMicrophoneBtn: "Allow Microphone",
     noMicrophonesFound: "No microphones found",
     micPermissionDeniedAlert: "Microphone permission denied. Please allow microphone access in your browser settings.",
@@ -897,8 +949,10 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     showPianoTilesBg: "Tampilkan Latar Belakang Piano Tiles",
     pianoTilesOpacity: "Opasitas Piano Tiles",
     showPerfectText: "Tampilkan Teks Penilaian PERFECT",
-    hidePianoKeyboardNonFalling: "Sembunyikan Tuts Piano (Kecuali Falling Notes)",
-    hidePianoKeyboardNonFallingDesc: "Sembunyikan tuts piano pada mode Partitur & Roll agar area notasi lebih luas. Pada Falling Notes tuts selalu muncul. (Default: Sembunyi)",
+    showPianoKeyboardNonFalling: "Tampilkan Tuts Piano (Di Luar Falling Notes)",
+    showPianoKeyboardNonFallingDesc: "Menampilkan tuts piano interaktif pada mode Partitur & Roll. Pada Falling Notes tuts selalu muncul. (Default: Tidak Aktif)",
+    showDrumPads: "Tampilkan Pad Drum (Di Luar Drum Typer)",
+    showDrumPadsDesc: "Menampilkan pad drum interaktif di bagian bawah layar pada mode selain Drum Typer (Drum Mania, Partitur) untuk permainan sentuh/HP. (Default: Tidak Aktif)",
     showDynamics: "Tampilkan Dinamika & Velocity",
     showDynamicsDesc: "Menampilkan tanda dinamika musik (p, mf, f, dll.) di partitur dan outline warna velocity not. (Default: Mati)",
     inGameResolution: "Resolusi Tampilan Dalam Game",
@@ -1088,6 +1142,30 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
 
     step1Title: "Pilih Gaya Permainan",
     step2Title: "Kustomisasi Sesi",
+    displayAndLabelsHeader: "Tampilan & Label Not",
+    visualSettingsHeader: "Pengaturan Visual & Tampilan",
+    displayPanelDesc: "Sesuaikan mode tampilan game (Falling Notes, Partitur, Qwerty Typer), label notasi nada, model tangan 3D, dan opsi visual di menu Pengaturan.",
+    displayPanelDescDrum: "Sesuaikan mode tampilan drum (Drum Typer, Drum Mania, Partitur), transparansi pad, dan opsi visual di menu Pengaturan.",
+    viewModeDrumTyper: "Drum Typer",
+    viewModeDrumMania: "Drum Mania",
+    viewModeFallingNotes: "Falling Notes",
+    viewModeSheetMusic: "Partitur (Sheet Music)",
+    viewModeRollSheet: "Roll & Partitur",
+    viewModeSheetQwerty: "Sheet Music QWERTY",
+    viewModeQwertyTyper: "Qwerty Typer",
+    openDisplaySettingsBtn: "Atur Tampilan & Label Not",
+    noteLabelNameDisplay: "Nama Not (C, D...)",
+    noteLabelFingeringDisplay: "Jari (1-5)",
+    noteLabelNoneDisplay: "Tanpa Label",
+    noteLabelQwertyDisplay: "Tombol Keyboard",
+    autoSetupTitle: "Atur Otomatis",
+    autoSetupDesc: "Terapkan tampilan & label rekomendasi untuk mode ini",
+    openFullSettingsBtn: "Pengaturan Lengkap",
+    quickPresets: "Preset Cepat",
+    presetStandard: "Standar",
+    presetFingering: "Fingering",
+    presetSheet: "Partitur",
+    presetQwerty: "QWERTY",
     changeSongBtn: "Ganti Lagu",
     activeBadge: "Aktif",
     lenientBadgeDesc: "Ritme Fleksibel • Cocok Belajar",
@@ -1154,11 +1232,11 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     backingSyncNotice: "Jika MP3 masih belum sinkron, coba sesuaikan USER MS (Audio Sync) sebesar ±10 ms dari offset aslinya; tujuannya agar musik pengiring selaras dengan ketukan metronom.",
     defaultSource: "Sumber Default:",
     defaultOffset: "Offset Default:",
-    audioToMidiDirectTitle: "Audio-to-MIDI Langsung di Browser",
-    activeInBrowser: "Aktif (Langsung di Browser)",
+    audioToMidiDirectTitle: "Direct Acoustic Piano (Microphone Pitch Detection)",
+    activeInBrowser: "Aktif (Pitch Detector)",
     disabledStatus: "Nonaktif",
-    audioToMidiDesc: "Ubah nada piano akustik asli Anda langsung menjadi not MIDI secara real-time melalui mikrofon browser. 100% terintegrasi langsung di Octavia tanpa perlu memasang aplikasi, berkas zip, atau server tambahan apa pun.",
-    micListeningActive: "Mikrofon aktif mendengarkan nada tuts piano Anda",
+    audioToMidiDesc: "Deteksi nada piano akustik real-time berbasis Pitch Detection (Autocorrelation / YIN) berpresisi tinggi. Zero latency, instan langsung di peramban tanpa model eksternal yang membebani.",
+    micListeningActive: "Mikrofon siap mendengar aktif",
     allowMicrophoneBtn: "Beri Izin Mikrofon",
     noMicrophonesFound: "Tidak ada mikrofon terdeteksi",
     micPermissionDeniedAlert: "Izin mikrofon ditolak. Silakan izinkan akses mikrofon di pengaturan browser Anda.",
@@ -1307,8 +1385,10 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     showPianoTilesBg: "Mostrar Fondo de Piano Tiles",
     pianoTilesOpacity: "Opacidad de Piano Tiles",
     showPerfectText: "Mostrar Texto de Calificación PERFECT",
-    hidePianoKeyboardNonFalling: "Ocultar Teclado de Piano (Excepto Notas Cayendo)",
-    hidePianoKeyboardNonFallingDesc: "Oculta el teclado en Partitura y Partitura Continua para maximizar el área de lectura. En modo Notas Cayendo, el teclado siempre está visible. (Por defecto: Oculto)",
+    showPianoKeyboardNonFalling: "Mostrar Teclado de Piano (Fuera de Notas Cayendo)",
+    showPianoKeyboardNonFallingDesc: "Muestra el teclado de piano en Partitura y Partitura Continua. En modo Notas Cayendo, el teclado siempre está visible. (Por defecto: Desactivado)",
+    showDrumPads: "Mostrar Pads de Batería (Fuera de Drum Typer)",
+    showDrumPadsDesc: "Muestra los pads interactivos de batería en modos distintos a Drum Typer (Drum Mania, Partitura) para jugar en pantallas táctiles o móviles. (Por defecto: Desactivado)",
     showDynamics: "Mostrar Dinámica y Velocidad",
     showDynamicsDesc: "Muestra marcas dinámicas musicales (p, mf, f, etc.) en la partitura y contornos según la velocidad de pulsación. (Por defecto: Desactivado)",
     inGameResolution: "Resolución de Vista en Juego",
@@ -1498,6 +1578,30 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
 
     step1Title: "Selecciona el Modo de Juego",
     step2Title: "Personalizar Sesión",
+    displayAndLabelsHeader: "Vista y Etiquetas",
+    visualSettingsHeader: "Ajustes Visuales y de Pantalla",
+    displayPanelDesc: "Configura el modo de vista (Notas que Caen, Partitura, Teclado Typer), etiquetas de notas, manos 3D y opciones visuales en Ajustes.",
+    displayPanelDescDrum: "Configura el modo de vista de batería (Drum Typer, Drum Mania, Partitura), opacidad de pads y opciones visuales en Ajustes.",
+    viewModeDrumTyper: "Drum Typer",
+    viewModeDrumMania: "Drum Mania",
+    viewModeFallingNotes: "Notas Cayendo (Falling Notes)",
+    viewModeSheetMusic: "Partitura (Sheet Music)",
+    viewModeRollSheet: "Roll y Partitura",
+    viewModeSheetQwerty: "Sheet Music QWERTY",
+    viewModeQwertyTyper: "Teclado Typer",
+    openDisplaySettingsBtn: "Configurar Vista y Etiquetas",
+    noteLabelNameDisplay: "Nombre de Nota (C, D...)",
+    noteLabelFingeringDisplay: "Digitación (1-5)",
+    noteLabelNoneDisplay: "Ninguno",
+    noteLabelQwertyDisplay: "Teclas QWERTY",
+    autoSetupTitle: "Ajuste Automático",
+    autoSetupDesc: "Aplica vista y etiquetas recomendadas para este modo",
+    openFullSettingsBtn: "Ajustes Completos",
+    quickPresets: "Ajustes Rápidos",
+    presetStandard: "Estándar",
+    presetFingering: "Digitación",
+    presetSheet: "Partitura",
+    presetQwerty: "QWERTY",
     changeSongBtn: "Cambiar Canción",
     activeBadge: "Activo",
     lenientBadgeDesc: "Ritmo Flexible • Ideal para Aprender",
@@ -1564,11 +1668,11 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     backingSyncNotice: "Si el MP3 sigue desincronizado, intenta ajustar USER MS (Sincronización de Audio) en ±10 ms respecto al desfase original; el objetivo es que la pista coincida con el metrónomo.",
     defaultSource: "Fuente Predeterminada:",
     defaultOffset: "Desfase Predeterminado:",
-    audioToMidiDirectTitle: "Audio-a-MIDI Directo en Navegador",
-    activeInBrowser: "Activo (En Navegador)",
+    audioToMidiDirectTitle: "Direct Acoustic Piano (Microphone Pitch Detection)",
+    activeInBrowser: "Activo (Detector de Tono)",
     disabledStatus: "Inactivo",
-    audioToMidiDesc: "Convierta notas de piano acústico directamente en notas MIDI en tiempo real a través del micrófono del navegador. 100% integrado directamente en Octavia sin descargas ni servidores externos.",
-    micListeningActive: "Micrófono activo escuchando las notas del piano",
+    audioToMidiDesc: "Detección de notas de piano acústico en tiempo real impulsada por detección de tono de alta precisión (Autocorrelación / YIN). Latencia cero, respuesta instantánea en el navegador.",
+    micListeningActive: "Micrófono escuchando activamente",
     allowMicrophoneBtn: "Permitir Micrófono",
     noMicrophonesFound: "No se encontraron micrófonos",
     micPermissionDeniedAlert: "Permiso de micrófono denegado. Permita el acceso al micrófono en la configuración de su navegador.",

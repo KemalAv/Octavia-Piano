@@ -37,7 +37,7 @@ npm run dev
 ```
 
 Once running, open your browser and navigate to:
-👉 **[http://localhost:3000](http://localhost:3000)** or **[http://127.0.0.1:3000](http://127.0.0.1:3000)**
+👉 **[http://localhost:727](http://localhost:727)** or **[http://127.0.0.1:727](http://127.0.0.1:727)**
 
 ---
 

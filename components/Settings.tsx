@@ -111,8 +111,10 @@ interface SettingsProps {
   userAudioSyncOffset?: number;
   onUserAudioSyncOffsetChange?: (offset: number) => void;
   detectedLatencyMs?: number;
-  hidePianoKeyboardNonFalling?: boolean;
-  onHidePianoKeyboardNonFallingChange?: (value: boolean) => void;
+  showPianoKeyboardNonFalling?: boolean;
+  onShowPianoKeyboardNonFallingChange?: (value: boolean) => void;
+  showDrumPads?: boolean;
+  onShowDrumPadsChange?: (value: boolean) => void;
   showDynamics?: boolean;
   onShowDynamicsChange?: (value: boolean) => void;
 }
@@ -199,8 +201,10 @@ export const Settings: React.FC<SettingsProps> = (props) => {
     userAudioSyncOffset = 0,
     onUserAudioSyncOffsetChange,
     detectedLatencyMs = 0,
-    hidePianoKeyboardNonFalling = true,
-    onHidePianoKeyboardNonFallingChange,
+    showPianoKeyboardNonFalling = false,
+    onShowPianoKeyboardNonFallingChange,
+    showDrumPads = false,
+    onShowDrumPadsChange,
     showDynamics = false,
     onShowDynamicsChange,
     appLanguage = 'en',
@@ -302,9 +306,9 @@ export const Settings: React.FC<SettingsProps> = (props) => {
   useEffect(() => {
     const timer = setTimeout(() => {
       setIsRendered(true);
-      if (initialScrollTarget) {
+      if (typeof initialScrollTarget === 'string' && initialScrollTarget) {
         setTimeout(() => {
-          const el = document.getElementById(initialScrollTarget!);
+          const el = document.getElementById(initialScrollTarget);
           if (el) {
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
             el.classList.add('ring-2', 'ring-cyan-400', 'ring-offset-2', 'ring-offset-slate-800', 'rounded-lg', 'transition-all', 'duration-1000');
@@ -402,7 +406,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
   const [settingsSearch, setSettingsSearch] = useState('');
 
   useEffect(() => {
-    if (initialScrollTarget) {
+    if (typeof initialScrollTarget === 'string' && initialScrollTarget) {
       if (initialScrollTarget.includes('offset') || initialScrollTarget.includes('audio') || initialScrollTarget.includes('latency')) {
         setActiveSettingsTab('audio');
       } else {
@@ -598,14 +602,14 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                   <div id="view-mode" role="radiogroup" className="flex flex-wrap gap-2">
                     {((instrumentMode === 'piano' && gameplayStyle === 'computer')
                       ? [
-                          { value: 'qwerty_mania', label: 'Qwerty Typer' },
-                          { value: 'sheet-qwerty', label: 'Sheet Music QWERTY' },
+                          { value: 'qwerty_mania', label: t.viewModeQwertyTyper || 'Qwerty Typer' },
+                          { value: 'sheet-qwerty', label: t.viewModeSheetQwerty || 'Sheet Music QWERTY' },
                         ]
                       : [
-                          { value: 'falling', label: instrumentMode === 'drum' ? 'Drum Typer' : 'Falling Notes' },
-                          ...(instrumentMode === 'drum' ? [{ value: 'drum_mania', label: 'Drum Mania' }] : []),
-                          { value: 'sheet', label: 'Sheet Music' },
-                          { value: 'sheet-roll', label: 'Sheet Music Roll' },
+                          { value: 'falling', label: instrumentMode === 'drum' ? (t.viewModeDrumTyper || 'Drum Typer') : (t.viewModeFallingNotes || 'Falling Notes') },
+                          ...(instrumentMode === 'drum' ? [{ value: 'drum_mania', label: t.viewModeDrumMania || 'Drum Mania' }] : []),
+                          { value: 'sheet', label: t.viewModeSheetMusic || 'Sheet Music' },
+                          { value: 'sheet-roll', label: t.viewModeRollSheet || 'Sheet Music Roll' },
                         ]
                     ).map(opt => (
                       <button
@@ -669,8 +673,29 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                 </p>
               </>
             )}
-            <ToggleRow id="major-notes-only" label={t.showMajorNotesOnly} checked={instrumentMode === 'drum' ? true : showOnlyMajorNotes} onChange={onShowOnlyMajorNotesChange} disabled={instrumentMode === 'drum'}/>
-            <p className="-mt-3 mb-4 text-xs text-slate-400">{t.showMajorNotesOnlyDesc}</p>
+            {(() => {
+              const isMajorNotesForced = instrumentMode === 'drum' || gameplayStyle === 'computer';
+              return (
+                <>
+                  <ToggleRow
+                    id="major-notes-only"
+                    label={t.showMajorNotesOnly}
+                    checked={isMajorNotesForced ? true : showOnlyMajorNotes}
+                    onChange={onShowOnlyMajorNotesChange}
+                    disabled={isMajorNotesForced}
+                  />
+                  <p className="-mt-3 mb-4 text-xs text-slate-400">
+                    {isMajorNotesForced && gameplayStyle === 'computer'
+                      ? (appLanguage === 'id'
+                          ? 'Selalu aktif pada mode Keyboard Komputer (QWERTY) agar visual not tetap ringkas dan presisi.'
+                          : appLanguage === 'es'
+                          ? 'Siempre activado en el modo Teclado de PC (QWERTY) para que las notas sean concisas y precisas.'
+                          : 'Always enabled in Computer Keyboard (QWERTY) mode to keep notes clean and precise.')
+                      : t.showMajorNotesOnlyDesc}
+                  </p>
+                </>
+              );
+            })()}
             <ToggleRow id="show-piano-tiles" label={t.showPianoTilesBg} checked={showPianoTilesBackground} onChange={onShowPianoTilesBackgroundChange} />
             {showPianoTilesBackground && (
                 <SettingRow label={`${t.pianoTilesOpacity} (${themeSettings.pianoTilesOpacity || 50}%)`} htmlFor="piano-tiles-opacity">
@@ -687,16 +712,29 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                 </SettingRow>
             )}
             <ToggleRow id="show-perfect-judgment" label={t.showPerfectText} checked={showPerfectJudgment} onChange={onShowPerfectJudgmentChange} />
-            {onHidePianoKeyboardNonFallingChange && (
+            {onShowPianoKeyboardNonFallingChange && (
               <>
                 <ToggleRow
-                  id="hide-piano-keyboard-non-falling"
-                  label={t.hidePianoKeyboardNonFalling}
-                  checked={hidePianoKeyboardNonFalling}
-                  onChange={onHidePianoKeyboardNonFallingChange}
+                  id="show-piano-keyboard-non-falling"
+                  label={t.showPianoKeyboardNonFalling}
+                  checked={showPianoKeyboardNonFalling}
+                  onChange={onShowPianoKeyboardNonFallingChange}
                 />
                 <p className="-mt-3 mb-4 text-xs text-slate-400">
-                  {t.hidePianoKeyboardNonFallingDesc}
+                  {t.showPianoKeyboardNonFallingDesc}
+                </p>
+              </>
+            )}
+            {onShowDrumPadsChange && (
+              <>
+                <ToggleRow
+                  id="show-drum-pads"
+                  label={t.showDrumPads}
+                  checked={showDrumPads}
+                  onChange={onShowDrumPadsChange}
+                />
+                <p className="-mt-3 mb-4 text-xs text-slate-400">
+                  {t.showDrumPadsDesc}
                 </p>
               </>
             )}
@@ -1033,6 +1071,9 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                     <span className="text-xs font-bold text-white tracking-wide">
                       {t.audioToMidiDirectTitle}
                     </span>
+                    <span className="text-[10px] uppercase font-black px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      BETA
+                    </span>
                   </div>
                   <span className={`text-[10px] uppercase font-black px-2 py-0.5 rounded-full border ${
                     isAudioInputEnabled 
@@ -1055,7 +1096,12 @@ export const Settings: React.FC<SettingsProps> = (props) => {
                 )}
               </div>
 
-              <ToggleRow id="audio-input-enabled" label={t.enableMicInput} checked={isAudioInputEnabled} onChange={onIsAudioInputEnabledChange} />
+              <ToggleRow 
+                id="audio-input-enabled" 
+                label={`${t.enableMicInput} (BETA)`} 
+                checked={isAudioInputEnabled} 
+                onChange={onIsAudioInputEnabledChange} 
+              />
               <SettingRow label={t.micInputDevice} htmlFor="audio-input-device">
                   <select 
                       id="audio-input-device" 
@@ -1093,24 +1139,41 @@ export const Settings: React.FC<SettingsProps> = (props) => {
               )}
               
               {isAudioInputEnabled && (
-                  <div className="bg-slate-900/50 p-4 rounded-lg mt-4 space-y-4 ring-1 ring-slate-700">
-                      <h4 className="text-md font-semibold text-slate-200 border-b border-slate-700 pb-2">{t.detectionSensitivity}</h4>
-                      <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-2">{t.adjustDbThresholds}</p>
-                      
-                      {(Object.keys(micThresholds) as Array<keyof MicThresholds>).map(key => (
-                          <SettingRow key={key} label={`${key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())} (${micThresholds[key]} dB)`} htmlFor={`mic-thresh-${key}`}>
-                              <input 
-                                  id={`mic-thresh-${key}`}
-                                  type="range" 
-                                  min="-100" 
-                                  max="-20" 
-                                  step="1" 
-                                  value={micThresholds[key]} 
-                                  onChange={e => handleThresholdChange(key, parseInt(e.target.value, 10))} 
-                                  className={`${rangeSliderStyle} max-w-[150px] md:max-w-[200px]`} 
+                  <div className="bg-slate-900/50 p-4 rounded-lg mt-4 space-y-4 ring-1 ring-cyan-500/30">
+                      <div className="space-y-3">
+                          <div className="flex items-center justify-between border-b border-slate-700 pb-2">
+                              <h4 className="text-md font-semibold text-cyan-400">{t.detectionSensitivity}</h4>
+                              <span className="text-xs px-2 py-0.5 rounded font-mono font-bold bg-cyan-950 text-cyan-300 border border-cyan-800">
+                                {micThresholds.mid ?? -20} dB
+                              </span>
+                          </div>
+
+                          <SettingRow label={`${t.detectionSensitivity} (-30 dB s/d 0 dB)`} htmlFor="mic-thresh-sensitivity">
+                              <input
+                                  id="mic-thresh-sensitivity"
+                                  type="range"
+                                  min="-30"
+                                  max="0"
+                                  step="1"
+                                  value={micThresholds.mid ?? -20}
+                                  onChange={e => {
+                                    const val = parseInt(e.target.value, 10);
+                                    onMicThresholdsChange({
+                                      subBass: val,
+                                      bass: val,
+                                      mid: val,
+                                      treble: val,
+                                      highTreble: val,
+                                    });
+                                  }}
+                                  className={`${rangeSliderStyle} max-w-[150px] md:max-w-[200px]`}
                               />
                           </SettingRow>
-                      ))}
+
+                          <p className="text-[11px] text-slate-400 leading-relaxed">
+                            {t.adjustDbThresholds}
+                          </p>
+                      </div>
                   </div>
               )}
 

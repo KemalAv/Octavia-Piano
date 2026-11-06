@@ -302,11 +302,11 @@ const MainMenu: React.FC<MainMenuProps> = memo(({
             <div 
               role="button"
               onClick={onLearnMode}
-              className="group relative bg-gradient-to-b from-violet-950/40 via-slate-900/90 to-slate-900/90 p-6 rounded-3xl border border-violet-500/30 hover:border-violet-400 shadow-xl hover:shadow-[0_0_30px_rgba(139,92,246,0.3)] transition-all duration-300 cursor-pointer flex flex-col justify-between overflow-hidden transform hover:-translate-y-1"
+              className="group relative bg-slate-900/80 hover:bg-slate-900 p-6 rounded-3xl border border-slate-800 hover:border-cyan-500/40 shadow-xl transition-all duration-300 cursor-pointer flex flex-col justify-between overflow-hidden transform hover:-translate-y-1"
             >
-              <div className="absolute top-0 right-0 w-32 h-32 bg-violet-500/10 rounded-full blur-2xl group-hover:bg-violet-500/20 transition-all pointer-events-none" />
+              <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/5 rounded-full blur-2xl group-hover:bg-cyan-500/10 transition-all pointer-events-none" />
               <div>
-                <div className="w-14 h-14 rounded-2xl bg-violet-500/20 border border-violet-500/30 flex items-center justify-center text-violet-300 mb-5 group-hover:scale-110 transition-transform">
+                <div className="w-14 h-14 rounded-2xl bg-slate-800/80 border border-slate-700/60 flex items-center justify-center text-cyan-400 mb-5 group-hover:scale-105 group-hover:border-cyan-500/30 transition-all">
                   {/* Book Open SVG */}
                   <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
@@ -314,18 +314,18 @@ const MainMenu: React.FC<MainMenuProps> = memo(({
                   </svg>
                 </div>
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300 border border-violet-500/30">
+                  <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
                     {t.lessonBadge}
                   </span>
                 </div>
-                <h3 className="text-2xl font-black text-white group-hover:text-violet-300 transition-colors mb-2">
+                <h3 className="text-2xl font-black text-white group-hover:text-cyan-300 transition-colors mb-2">
                   {t.learnMode}
                 </h3>
                 <p className="text-sm text-slate-400 leading-relaxed mb-4">
                   {t.learnCardDesc}
                 </p>
               </div>
-              <div className="pt-4 border-t border-white/5 flex items-center justify-between text-violet-400 font-bold text-sm">
+              <div className="pt-4 border-t border-white/5 flex items-center justify-between text-cyan-400 font-bold text-sm">
                 <span>{t.startLearningBtn}</span>
                 <svg className="w-4 h-4 transform group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/>

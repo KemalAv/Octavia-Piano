@@ -408,7 +408,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = memo(({
 
   // Pointer Interaction Handlers
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isInteractive || e.pointerType === 'touch') return;
+    if (!isInteractive) return;
     e.preventDefault();
     const keyDef = getKeyFromClientCoords(e.clientX, e.clientY);
     if (keyDef) {
@@ -418,7 +418,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = memo(({
   }, [isInteractive, getKeyFromClientCoords, onUiKeyPress]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isInteractive || e.pointerType === 'touch') return;
+    if (!isInteractive) return;
     const oldKeyName = activePointers.current.get(e.pointerId);
     if (!oldKeyName) return;
 
@@ -441,7 +441,7 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = memo(({
   }, [isInteractive, getKeyFromClientCoords, keyDefMap, onUiKeyPress, onUiKeyRelease]);
 
   const handlePointerUp = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isInteractive || e.pointerType === 'touch') return;
+    if (!isInteractive) return;
     e.preventDefault();
     const keyName = activePointers.current.get(e.pointerId);
     if (keyName) {

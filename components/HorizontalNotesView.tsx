@@ -505,16 +505,21 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
   }, [tempoEvents, activeBpmForDisplay, playbackTempoMultiplier]);
 
   const isDrum = instrumentMode === 'drum';
-  const effectiveShowOnlyMajorNotes = isDrum ? true : showOnlyMajorNotes;
+  const effectiveShowOnlyMajorNotes = isDrum || isQwertyView ? true : showOnlyMajorNotes;
   const bpm = vexFlowData?.tempoMarkings[0]?.bpm || activeBpmForDisplay || 120;
   const eighthNoteMs = (60000 / bpm) / 2;
-  const noteCap = effectiveShowOnlyMajorNotes
-    ? (majorNoteVisualDurationMs ?? eighthNoteMs)
-    : VISUAL_NOTE_CAP_MS;
+  const thirtySecondNoteMs = (60000 / bpm) / 8;
+  const noteCap = isQwertyView
+    ? thirtySecondNoteMs
+    : (effectiveShowOnlyMajorNotes
+        ? (majorNoteVisualDurationMs ?? eighthNoteMs)
+        : VISUAL_NOTE_CAP_MS);
   const visualDuration = (note: NoteFragment) =>
-    effectiveShowOnlyMajorNotes
-      ? (visualDurationByNoteId?.get(note.originalNoteId) ?? Math.min(note.durationMs, noteCap))
-      : note.durationMs;
+    isQwertyView
+      ? Math.min(note.durationMs, thirtySecondNoteMs)
+      : (effectiveShowOnlyMajorNotes
+          ? (visualDurationByNoteId?.get(note.originalNoteId) ?? Math.min(note.durationMs, noteCap))
+          : note.durationMs);
 
   const visibleNotes = useMemo(() => {
     if (!vexFlowData || pixelsPerMillisecond <= 0 || !vexFlowData.fragments || vexFlowData.fragments.length === 0) return [];
@@ -552,7 +557,8 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
     const groups = new Map<string, NoteFragment[]>();
     for (let i = 0; i < visibleNotes.length; i++) {
       const note = visibleNotes[i];
-      const key = `${note.timeMs}-${note.hand}`;
+      // For isQwertyView: merge both hands into a single time group so notes stack directly on the single staff
+      const key = isQwertyView ? `${note.timeMs}` : `${note.timeMs}-${note.hand}`;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)!.push(note);
     }
@@ -613,14 +619,14 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
     // 2a. Draw Staff Lines & Barlines
     const effectiveStaffLineSpacing = (isQwertyView || isMixedHandView) ? 14 : STAFF_LINE_SPACING;
     const staffHeight = (effectiveStaffLineSpacing * 4);
-    const trebleTop = topStaveYOffset | 0;
+    const trebleTop = (isQwertyView ? Math.floor((height - staffHeight) / 2) : topStaveYOffset) | 0;
     const trebleBottom = (trebleTop + staffHeight) | 0;
     const bassTop = (topStaveYOffset + verticalSpacing) | 0;
     const bassBottom = (bassTop + staffHeight) | 0;
-    const barTop = trebleTop;
-    const barBottom = (isDrum || isQwertyView || isMixedHandView) ? (isDrum ? trebleBottom : bassBottom) : bassBottom;
+    const barTop = isQwertyView ? (Math.floor(height * 0.15) | 0) : trebleTop;
+    const barBottom = isQwertyView ? (Math.floor(height * 0.85) | 0) : ((isDrum || isMixedHandView) ? trebleBottom : bassBottom);
 
-    if (vexFlowData.measures.length > 0) {
+    if (!isQwertyView && vexFlowData.measures.length > 0) {
       const firstM = vexFlowData.measures[0];
       const lastM = vexFlowData.measures[vexFlowData.measures.length - 1];
       const startStaffX = Math.min(
@@ -653,7 +659,7 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
         ctx.font = 'bold 11px sans-serif';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'bottom';
-        ctx.fillText(`${idx + 1}`, measureLeft + 2, trebleTop - 4);
+        ctx.fillText(`${idx + 1}`, measureLeft + 2, barTop - 4);
 
         const drawVerticalLine = (x: number, y1: number, y2: number, w: number) => {
           ctx.fillStyle = '#0f172a';
@@ -663,10 +669,11 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
         const drawRepeatDots = (x: number) => {
           ctx.fillStyle = '#000000';
           ctx.beginPath();
-          ctx.arc(x | 0, (trebleTop + 1.5 * effectiveStaffLineSpacing) | 0, 2.5, 0, Math.PI * 2);
-          ctx.arc(x | 0, (trebleTop + 2.5 * effectiveStaffLineSpacing) | 0, 2.5, 0, Math.PI * 2);
+          const dotCenterY = (barTop + barBottom) / 2;
+          ctx.arc(x | 0, (dotCenterY - 12) | 0, 2.5, 0, Math.PI * 2);
+          ctx.arc(x | 0, (dotCenterY + 12) | 0, 2.5, 0, Math.PI * 2);
           ctx.fill();
-          if (!isDrum && !isMixedHandView) {
+          if (!isDrum && !isMixedHandView && !isQwertyView) {
             ctx.beginPath();
             ctx.arc(x | 0, (bassTop + 1.5 * effectiveStaffLineSpacing) | 0, 2.5, 0, Math.PI * 2);
             ctx.arc(x | 0, (bassTop + 2.5 * effectiveStaffLineSpacing) | 0, 2.5, 0, Math.PI * 2);
@@ -698,7 +705,7 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
         }
 
         // Signature changes: Full-size clef, key signature, and time signature changes right before new notes start (matching left bar)
-        if (!isDrum && idx > 0) {
+        if (!isDrum && !isQwertyView && idx > 0) {
           const hasChangeRH = measure.isClefChangeRH || measure.isKeySigChange || measure.isTimeSigChange;
           const hasChangeLH = (!isMixedHandView && !isQwertyView) && (measure.isClefChangeLH || measure.isKeySigChange || measure.isTimeSigChange);
 
@@ -758,7 +765,7 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
         }
 
         // 2a-2. Mid-Measure Clef Changes (Mini Clefs)
-        if (!isDrum) {
+        if (!isDrum && !isQwertyView) {
           // Right hand mid-measure clef changes
           let curClefRH = measure.effectiveClefRH || 'treble';
           const drawnMidClefRH = new Set<number>();
@@ -854,40 +861,42 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
       }
 
       // 2c. Draw Octave Lines (8va / 15ma)
-      const octaveLines = vexFlowData.octaveLines;
-      for (let i = 0; i < octaveLines.length; i++) {
-        const line = octaveLines[i];
-        const y = line.startY;
-        const text = line.type;
-        const isAbove = line.type === '8va' || line.type === '15ma';
-        const lineY = (isAbove ? y + 4 : y + 16) | 0;
-        const hookEndY = (isAbove ? lineY + 10 : lineY - 10) | 0;
+      if (!isQwertyView) {
+        const octaveLines = vexFlowData.octaveLines;
+        for (let i = 0; i < octaveLines.length; i++) {
+          const line = octaveLines[i];
+          const y = line.startY;
+          const text = line.type;
+          const isAbove = line.type === '8va' || line.type === '15ma';
+          const lineY = (isAbove ? y + 4 : y + 16) | 0;
+          const hookEndY = (isAbove ? lineY + 10 : lineY - 10) | 0;
 
-        const lineStartX = (line.startTimeMs !== undefined)
-          ? (((line.startTimeMs - firstMeasureStartTime) * pixelsPerMillisecond) + HORIZONTAL_PADDING) | 0
-          : (line.startX | 0);
-        const lineEndX = (line.endTimeMs !== undefined)
-          ? (((line.endTimeMs - firstMeasureStartTime) * pixelsPerMillisecond) + HORIZONTAL_PADDING) | 0
-          : (line.endX | 0);
+          const lineStartX = (line.startTimeMs !== undefined)
+            ? (((line.startTimeMs - firstMeasureStartTime) * pixelsPerMillisecond) + HORIZONTAL_PADDING) | 0
+            : (line.startX | 0);
+          const lineEndX = (line.endTimeMs !== undefined)
+            ? (((line.endTimeMs - firstMeasureStartTime) * pixelsPerMillisecond) + HORIZONTAL_PADDING) | 0
+            : (line.endX | 0);
 
-        ctx.fillStyle = '#000000';
-        ctx.font = 'italic bold 14px sans-serif';
-        ctx.textAlign = 'left';
-        ctx.fillText(text, lineStartX, y | 0);
+          ctx.fillStyle = '#000000';
+          ctx.font = 'italic bold 14px sans-serif';
+          ctx.textAlign = 'left';
+          ctx.fillText(text, lineStartX, y | 0);
 
-        ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([4, 3]);
-        ctx.beginPath();
-        ctx.moveTo((lineStartX + text.length * 10) | 0, lineY);
-        ctx.lineTo(lineEndX, lineY);
-        ctx.stroke();
-        ctx.setLineDash([]);
+          ctx.strokeStyle = '#000000';
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([4, 3]);
+          ctx.beginPath();
+          ctx.moveTo((lineStartX + text.length * 10) | 0, lineY);
+          ctx.lineTo(lineEndX, lineY);
+          ctx.stroke();
+          ctx.setLineDash([]);
 
-        ctx.beginPath();
-        ctx.moveTo(lineEndX, lineY);
-        ctx.lineTo(lineEndX, hookEndY);
-        ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(lineEndX, lineY);
+          ctx.lineTo(lineEndX, hookEndY);
+          ctx.stroke();
+        }
       }
 
       if (!isQwertyView && !isMixedHandView) {
@@ -1075,16 +1084,14 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
         const entries = Array.from(notesGroupedByTimeAndHand.entries());
         for (let g = 0; g < entries.length; g++) {
           const [key, group] = entries[g];
-          const [timeMsStr, hand] = key.split('-');
+          const [timeMsStr, groupHand] = key.split('-');
           const timeMs = parseFloat(timeMsStr);
           const xPos = (((timeMs - firstMeasureStartTime) * pixelsPerMillisecond) + HORIZONTAL_PADDING) | 0;
 
-          // If isQwertyView, we still use the two staves logic, but we center the stack in each.
-          // IF isMixedHandView, we might stack everything in one? (The user didn't explicitly complain about roll view, mostly QWERTY).
-          
-          const staffTopY = (isMixedHandView 
-            ? topStaveYOffset 
-            : (hand === 'left' ? topStaveYOffset + verticalSpacing : topStaveYOffset)) | 0;
+          // For isQwertyView and isMixedHandView, all notes are centered on the single staff (trebleTop)
+          const staffTopY = (isMixedHandView || isQwertyView 
+            ? trebleTop 
+            : (groupHand === 'left' ? topStaveYOffset + verticalSpacing : topStaveYOffset)) | 0;
             
           const staffCenterY = (staffTopY + (2 * effectiveStaffLineSpacing)) | 0;
 
@@ -1098,7 +1105,7 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
 
             const active = activePlaybackNotesInfo.get(note.noteId);
             const status = active?.status || null;
-            let baseC = hand === 'left' ? leftHandColor : rightHandColor;
+            let baseC = note.hand === 'left' ? leftHandColor : rightHandColor;
             if (isBlackKey(note.midi)) baseC = darkenHex(baseC, 25);
             const noteColor = status === 'user_played' ? hitNoteColor : baseC;
 
@@ -1172,13 +1179,13 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
 
       ctx.textAlign = 'center';
       
-      // KEY (Simplified for QWERTY/Roll sidebar)
+      // KEY
       ctx.fillStyle = '#64748b';
       ctx.font = 'bold 10px sans-serif';
-      ctx.fillText('KEY', (SIDEBAR_WIDTH / 2) | 0, (height * 0.15) | 0);
+      ctx.fillText('KEY', (SIDEBAR_WIDTH / 2) | 0, (height * 0.14) | 0);
       ctx.fillStyle = '#0f172a';
-      ctx.font = 'bold 18px sans-serif';
-      ctx.fillText(formatKeySignatureForDisplay(activeKeySignature || ''), (SIDEBAR_WIDTH / 2) | 0, (height * 0.22) | 0);
+      ctx.font = 'bold 16px sans-serif';
+      ctx.fillText(formatKeySignatureForDisplay(activeKeySignature || 'C'), (SIDEBAR_WIDTH / 2) | 0, (height * 0.21) | 0);
 
       // BPM
       ctx.fillStyle = '#64748b';
@@ -1186,7 +1193,7 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
       ctx.fillText('BPM', (SIDEBAR_WIDTH / 2) | 0, (height * 0.35) | 0);
       ctx.fillStyle = '#0f172a';
       ctx.font = 'bold 24px monospace';
-      ctx.fillText(`${bpmText}`, (SIDEBAR_WIDTH / 2) | 0, (height * 0.42) | 0);
+      ctx.fillText(`${bpmText}`, (SIDEBAR_WIDTH / 2) | 0, (height * 0.43) | 0);
 
       if (isQwertyView) {
         // QWERTY LAYOUT

@@ -508,14 +508,18 @@ export const HowToConnect: React.FC<InfoPageProps> = ({ onBack, onNavigate, appL
 
         <div className="bg-slate-900/90 p-5 rounded-2xl border border-cyan-500/30 mb-6 space-y-3">
           <h4 className="text-sm font-bold text-cyan-400">
-            {isId ? "100% Terintegrasi Langsung di Browser" : isEs ? "100% Integrado Directamente en el Navegador" : "100% Directly Integrated in Browser"}
+            {isId
+              ? "DeepPiano AI + Hybrid NMF (TensorFlow.js WebGL + ONNX • Polyphonic • <20ms)"
+              : isEs
+              ? "DeepPiano AI + Hybrid NMF (TensorFlow.js WebGL + ONNX • Polifónico • <20ms)"
+              : "DeepPiano AI + Hybrid NMF (TensorFlow.js WebGL + ONNX • Polyphonic • <20ms)"}
           </h4>
           <p className="text-xs text-slate-300 leading-relaxed">
             {isId
-              ? "Octavia memproses frekuensi nada piano akustik secara instan melalui Web Audio API bawaan peramban Anda. Cukup izinkan akses mikrofon saat diminta dan letakkan perangkat Anda di dekat piano. Langsung berfungsi tanpa perlu menginstal berkas zip atau aplikasi tambahan apa pun!"
+              ? "Octavia memadukan arsitektur Web Audio API + AudioWorklet dengan akselerasi GPU (tf.setBackend('webgl') + Model ONNX Piano Onsets & Frames) serta dekomposisi chord NMF CQT 30-iterasi. Dengan mematikan echoCancellation, noiseSuppression, dan autoGainControl pada mikrofon browser, suara gema dan chord piano asli (banyak nada ditekan bersamaan) masuk 100% utuh ke AI dan terdeteksi akurat di bawah 20ms tanpa lag!"
               : isEs
-              ? "Octavia procesa las frecuencias de las notas de forma instantánea a través de la Web Audio API del navegador. Conceda permiso de micrófono y coloque su dispositivo cerca del piano. ¡Funciona al instante sin descargas ni archivos zip externos!"
-              : "Octavia processes acoustic piano note frequencies instantly via the browser's built-in Web Audio API. Simply allow microphone access when prompted and place your device near the piano. Works out of the box with zero downloads!"}
+              ? "Octavia combina Web Audio API + AudioWorklet con aceleración GPU (tf.setBackend('webgl') + Modelo ONNX Piano Onsets & Frames) y descomposición de acordes NMF CQT. Desactiva echoCancellation y noiseSuppression para detectar acordes polifónicos y velocidad en <20ms sin retrasos."
+              : "Octavia combines Web Audio API + AudioWorklet streaming with GPU hardware acceleration (tf.setBackend('webgl') + ONNX Piano Onsets & Frames model) and 30-iteration NMF CQT chord decomposition. By bypassing browser echoCancellation, noiseSuppression, and autoGainControl, full polyphonic piano chords and note velocities are transcribed accurately in under 20ms!"}
           </p>
         </div>
       </section>
