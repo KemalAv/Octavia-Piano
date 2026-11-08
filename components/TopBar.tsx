@@ -1,7 +1,7 @@
 
-import React, { useState, useEffect, memo } from 'react';
+import React, { useState, useEffect, memo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ViewMode, WaitMode, MetronomeMode, ExtendedResult, TimeSignatureInfo, AppLanguage } from '../types';
+import { ViewMode, WaitMode, MetronomeMode, ExtendedResult, TimeSignatureInfo, AppLanguage, NoteLabelType } from '../types';
 import VisualMetronome from './VisualMetronome';
 import { translations } from '../translations';
 
@@ -59,7 +59,7 @@ interface TopBarProps {
   greatWindow: number;
   goodWindow: number;
   combo: number;
-  lastJudgment: 'perfect' | 'great' | 'good' | 'miss' | null;
+  lastJudgment: 'perfect' | 'great' | 'good' | 'miss' | 'hit' | 'error' | null;
   // NEW: Free Play props
   freePlayBpm?: number;
   onFreePlayBpmChange?: (bpm: number) => void;
@@ -72,6 +72,83 @@ interface TopBarProps {
   hp?: number;
   appLanguage?: AppLanguage;
 }
+
+const StatBox: React.FC<{ label: string; value: string | number; color: string; subValue?: string }> = memo(({ label, value, color, subValue }) => (
+  <div className="flex flex-col items-center justify-center min-w-[44px]">
+    <div className="text-[8px] font-bold text-slate-500 uppercase tracking-widest leading-none mb-0.5">{label}</div>
+    <div className={`text-sm font-black leading-none tabular-nums ${color}`}>{value}</div>
+    {subValue && <div className="text-[8px] font-mono text-slate-400 mt-0">{subValue}</div>}
+  </div>
+));
+
+const JudgmentDisplay: React.FC<{
+  displayJudgment: { id: number; type: 'perfect' | 'great' | 'good' | 'miss' | 'hit' | 'error' } | null;
+}> = memo(({ displayJudgment }) => (
+  <div className="flex items-center justify-center min-w-[100px] h-10 relative">
+    {displayJudgment && (
+      <motion.div
+        key={displayJudgment.id}
+        initial={{ scale: 0.8, opacity: 1, y: 5 }}
+        animate={{ scale: 1.2, opacity: 1, y: 0 }}
+        transition={{ type: "spring", stiffness: 600, damping: 10 }}
+        className="absolute inset-0 flex items-center justify-center pointer-events-none"
+      >
+        <span className={`text-xl font-black italic uppercase tracking-tighter ${
+          displayJudgment.type === 'hit' ? 'text-yellow-400' :
+          displayJudgment.type === 'perfect' ? 'text-yellow-400' :
+          displayJudgment.type === 'great' ? 'text-emerald-400' :
+          displayJudgment.type === 'good' ? 'text-blue-400' :
+          'text-rose-500'
+        }`}>
+          {displayJudgment.type}
+        </span>
+      </motion.div>
+    )}
+  </div>
+));
+
+const ZoomControls: React.FC<{
+  viewMode: ViewMode;
+  instrumentMode: 'piano' | 'drum';
+  noteSpeedMultiplier: number;
+  sheetMusicZoom: number;
+  isFileLoaded: boolean;
+  onAdjustZoom: (isSpeedControl: boolean, increment: boolean) => void;
+  iconButtonStyles: string;
+}> = memo(({ viewMode, instrumentMode, noteSpeedMultiplier, sheetMusicZoom, isFileLoaded, onAdjustZoom, iconButtonStyles }) => {
+  const isSpeedControl = viewMode === 'falling' || viewMode === 'sheet-roll' || viewMode === 'qwerty_mania' || viewMode === 'sheet-qwerty' || (instrumentMode === 'drum' && viewMode !== 'sheet');
+  const value = isSpeedControl ? noteSpeedMultiplier : sheetMusicZoom;
+  const titleText = isSpeedControl ? "Adjust Note Speed / AR" : "Adjust Sheet Zoom";
+
+  return (
+    <div className="flex items-center gap-1 bg-slate-800/50 rounded-lg p-1 border border-slate-700" title={titleText}>
+      <button
+        type="button"
+        onClick={() => onAdjustZoom(isSpeedControl, false)}
+        disabled={!isFileLoaded}
+        className={`${iconButtonStyles} w-7 h-7 bg-transparent hover:bg-slate-700 text-slate-400 hover:text-white disabled:opacity-30 cursor-pointer`}
+        aria-label="Decrease zoom"
+      >
+        −
+      </button>
+      <div className="flex flex-col items-center justify-center w-12 select-none pointer-events-none">
+        <span className="text-[9px] font-bold uppercase text-slate-400 leading-tight">ZOOM</span>
+        <span className="text-xs font-bold tabular-nums text-slate-200 leading-tight">
+          {`${Math.round(value * 100)}%`}
+        </span>
+      </div>
+      <button
+        type="button"
+        onClick={() => onAdjustZoom(isSpeedControl, true)}
+        disabled={!isFileLoaded}
+        className={`${iconButtonStyles} w-7 h-7 bg-transparent hover:bg-slate-700 text-slate-400 hover:text-white disabled:opacity-30 cursor-pointer`}
+        aria-label="Increase zoom"
+      >
+        +
+      </button>
+    </div>
+  );
+});
 
 const HpMeter = ({ hp }: { hp: number }) => {
   const maxHp = 100;
@@ -182,7 +259,7 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
 
   const t = translations[appLanguage] || translations.en;
 
-  const [displayJudgment, setDisplayJudgment] = useState<{ id: number; type: 'perfect' | 'great' | 'good' | 'miss' } | null>(null);
+  const [displayJudgment, setDisplayJudgment] = useState<{ id: number; type: 'perfect' | 'great' | 'good' | 'miss' | 'hit' | 'error' } | null>(null);
 
   useEffect(() => {
     if (lastJudgment) {
@@ -220,7 +297,7 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
     return `+${seconds}.${String(milliseconds).padStart(3, '0')}`;
   };
 
-  const adjustZoom = (isSpeedControl: boolean, increment: boolean) => {
+  const adjustZoom = useCallback((isSpeedControl: boolean, increment: boolean) => {
       const current = isSpeedControl ? noteSpeedMultiplier : sheetMusicZoom;
       const setter = isSpeedControl ? onNoteSpeedMultiplierChange : onSheetMusicZoomChange;
       const step = 0.1;
@@ -228,13 +305,13 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
       newValue = Math.round(newValue * 10) / 10;
       newValue = Math.max(0.1, Math.min(4.0, newValue));
       setter(newValue);
-  };
+  }, [noteSpeedMultiplier, sheetMusicZoom, onNoteSpeedMultiplierChange, onSheetMusicZoomChange]);
 
   if (isCalibrationMode) {
     return (
       <div className="relative z-[100] w-full bg-slate-900/60 border-b border-white/10 p-2 flex items-center justify-between shadow-2xl">
         <div className="flex items-center gap-3">
-          <button onClick={onExit} className={`${iconButtonStyles} ${secondaryButtonStyles}`} title="Exit Calibration">
+          <button onClick={onExit} className={`${iconButtonStyles} ${secondaryButtonStyles}`} title={t.exitCalibration}>
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path></svg>
           </button>
           <div className="h-8 w-px bg-white/10 mx-1"></div>
@@ -245,7 +322,7 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
 
         <div className="flex items-center gap-4 bg-slate-800/80 rounded-xl p-2 border border-cyan-500/30 shadow-[0_0_20px_rgba(6,182,212,0.15)]">
            <div className="flex flex-col items-center mr-4">
-              <span className="text-[10px] font-bold uppercase text-slate-400 tracking-widest leading-none mb-1">Status</span>
+              <span className="text-[10px] font-bold uppercase text-slate-400 tracking-widest leading-none mb-1">{t.midiStatusLabel}</span>
               <div className="flex items-center gap-2">
                 <div className={`w-2 h-2 rounded-full ${isPlaying ? 'bg-emerald-500 animate-pulse' : 'bg-slate-500'}`}></div>
                 <span className="text-xs font-mono text-slate-200 uppercase"></span>
@@ -357,9 +434,9 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
                 </button>
             </div>
             
-            <div className="text-sm font-bold text-cyan-400 tracking-wider uppercase">Free Play</div>
+            <div className="text-sm font-bold text-cyan-400 tracking-wider uppercase">{t.freePlayTab}</div>
 
-            <button onClick={onToggleVisibility} className="text-slate-400 hover:text-white transition-colors" title="Show Full Menu">
+            <button onClick={onToggleVisibility} className="text-slate-400 hover:text-white transition-colors" title={t.showFullMenu}>
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
             </button>
           </div>
@@ -423,7 +500,7 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
                   </div>
 
                   <div className="flex flex-col items-center">
-                      <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest leading-none mb-1">Time Sig</span>
+                      <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest leading-none mb-1">{t.timeSignatureLabel}</span>
                       <select 
                           value={`${freePlayTimeSignature?.numerator}/${freePlayTimeSignature?.denominator}`}
                           onChange={(e) => {
@@ -439,7 +516,7 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
                       </select>
                   </div>
                   
-                  <button onClick={onToggleVisibility} className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-slate-500 hover:text-white transition-colors" title="Hide Full Menu">
+                  <button onClick={onToggleVisibility} className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-slate-500 hover:text-white transition-colors" title={t.hideFullMenu}>
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 15l7-7 7 7"></path></svg>
                   </button>
               </div>
@@ -448,20 +525,20 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
                   <button
                       onClick={onToggleRecording}
                       className={`${iconButtonStyles} ${isRecording ? recordingActiveButtonStyle : secondaryButtonStyles} h-10 px-4 gap-2`}
-                      title={isRecording ? "Stop Recording" : "Start MIDI Recording"}
+                      title={isRecording ? t.stopRecording : t.startRecording}
                   >
                       <div className={`w-3 h-3 rounded-full ${isRecording ? 'bg-white' : 'bg-rose-500'}`} />
-                      <span className="text-xs font-bold uppercase">{isRecording ? 'Stop' : 'Record'}</span>
+                      <span className="text-xs font-bold uppercase">{isRecording ? t.stop : t.record}</span>
                   </button>
                   
                   {showSaveButton && onSaveRecording && (
                       <button
                           onClick={onSaveRecording}
                           className={`${iconButtonStyles} bg-emerald-600 hover:bg-emerald-500 text-white h-10 px-4 gap-2 shadow-emerald-500/20`}
-                          title="Download Recording as MIDI"
+                          title={t.downloadRecordingAsMidi}
                       >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                          <span className="text-xs font-bold uppercase">Save MIDI</span>
+                          <span className="text-xs font-bold uppercase">{t.saveMidi}</span>
                       </button>
                   )}
               </div>
@@ -484,56 +561,6 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
   }
 
   const isPracticeMode = waitMode === 'strict' || waitMode === 'rhythm';
-
-  const ZoomControls = () => {
-    const isSpeedControl = viewMode === 'falling' || viewMode === 'sheet-roll' || viewMode === 'qwerty_mania' || viewMode === 'sheet-qwerty' || (instrumentMode === 'drum' && viewMode !== 'sheet');
-    const value = isSpeedControl ? noteSpeedMultiplier : sheetMusicZoom;
-    const titleText = isSpeedControl ? "Adjust Note Speed / AR" : "Adjust Sheet Zoom";
-
-    return (
-        <div className="flex items-center gap-1 bg-slate-800/50 rounded-lg p-1 border border-slate-700" title={titleText}>
-            <button onClick={() => adjustZoom(isSpeedControl, false)} disabled={!isFileLoaded} className={`${iconButtonStyles} w-7 h-7 bg-transparent hover:bg-slate-700 text-slate-400 hover:text-white disabled:opacity-30`} aria-label="Decrease zoom">−</button>
-            <div className="flex flex-col items-center justify-center w-12">
-                <span className="text-[9px] font-bold uppercase text-slate-400 leading-tight">ZOOM</span>
-                <span className="text-xs font-bold tabular-nums text-slate-200 leading-tight">
-                    {`${Math.round(value * 100)}%`}
-                </span>
-            </div>
-            <button onClick={() => adjustZoom(isSpeedControl, true)} disabled={!isFileLoaded} className={`${iconButtonStyles} w-7 h-7 bg-transparent hover:bg-slate-700 text-slate-400 hover:text-white disabled:opacity-30`} aria-label="Increase zoom">+</button>
-        </div>
-    );
-  };
-
-  const StatBox: React.FC<{ label: string; value: string | number; color: string; subValue?: string }> = ({ label, value, color, subValue }) => (
-    <div className="flex flex-col items-center justify-center min-w-[44px]">
-        <div className="text-[8px] font-bold text-slate-500 uppercase tracking-widest leading-none mb-0.5">{label}</div>
-        <div className={`text-sm font-black leading-none tabular-nums ${color}`}>{value}</div>
-        {subValue && <div className="text-[8px] font-mono text-slate-400 mt-0">{subValue}</div>}
-    </div>
-  );
-
-  const JudgmentDisplay = () => (
-    <div className="flex items-center justify-center min-w-[100px] h-10 relative">
-      {displayJudgment && (
-        <motion.div
-          key={displayJudgment.id}
-          initial={{ scale: 0.8, opacity: 1, y: 5 }}
-          animate={{ scale: 1.2, opacity: 1, y: 0 }}
-          transition={{ type: "spring", stiffness: 600, damping: 10 }}
-          className="absolute inset-0 flex items-center justify-center"
-        >
-          <span className={`text-xl font-black italic uppercase tracking-tighter ${
-            displayJudgment.type === 'perfect' ? 'text-yellow-400' :
-            displayJudgment.type === 'great' ? 'text-emerald-400' :
-            displayJudgment.type === 'good' ? 'text-blue-400' :
-            'text-rose-500'
-          }`}>
-            {displayJudgment.type}
-          </span>
-        </motion.div>
-      )}
-    </div>
-  );
 
   return (
     <div className="relative z-50">
@@ -568,7 +595,7 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
             </button>
           </div>
 
-          <button onClick={onToggleVisibility} className="text-slate-400 hover:text-white transition-colors" title="Show Full Menu">
+          <button onClick={onToggleVisibility} className="text-slate-400 hover:text-white transition-colors" title={t.showFullMenu}>
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
           </button>
         </div>
@@ -577,7 +604,7 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
       {/* FULL TOP BAR */}
       <div className={`${hudContainerStyle} ${!isTopBarVisible ? '-translate-y-full' : 'translate-y-0'}`}>
         <div className="flex items-center gap-3 pl-2">
-          <button onClick={onExit} className={`${iconButtonStyles} ${secondaryButtonStyles}`} aria-label="Exit to song selection" title="Exit">
+          <button onClick={onExit} className={`${iconButtonStyles} ${secondaryButtonStyles}`} aria-label={t.exitToSongSelection} title="Exit">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path></svg>
           </button>
           
@@ -604,12 +631,12 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
                   </button>
                   {isLooping && (
                   <div className="flex items-center gap-2 text-xs pr-2">
-                      <button onClick={onSetLoopStart} className="px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded font-bold" title="Set Loop Start to Current Bar">[A]</button>
-                      <span className="font-mono text-slate-300 w-14 text-center">Bar {getBarNumber(loopStartMs)}</span>
+                      <button onClick={onSetLoopStart} className="px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded font-bold" title={t.setLoopStartTooltip}>[A]</button>
+                      <span className="font-mono text-slate-300 w-14 text-center">{t.barLabel} {getBarNumber(loopStartMs)}</span>
                       <span className="text-slate-500">-</span>
-                      <span className="font-mono text-slate-300 w-14 text-center">Bar {getBarNumber(loopEndMs)}</span>
-                      <button onClick={onSetLoopEnd} className="px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded font-bold" title="Set Loop End to Current Bar">[B]</button>
-                      <button onClick={onClearLoop} className="p-1 bg-slate-700 hover:bg-slate-600 rounded font-bold" title="Clear Loop">
+                      <span className="font-mono text-slate-300 w-14 text-center">{t.barLabel} {getBarNumber(loopEndMs)}</span>
+                      <button onClick={onSetLoopEnd} className="px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded font-bold" title={t.setLoopEndTooltip}>[B]</button>
+                      <button onClick={onClearLoop} className="p-1 bg-slate-700 hover:bg-slate-600 rounded font-bold" title={t.clearLoopTooltip}>
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                       </button>
                   </div>
@@ -632,7 +659,7 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
               </>
               )}
           </div>
-          <button onClick={onToggleVisibility} className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-slate-500 hover:text-white transition-colors" title="Hide Full Menu">
+          <button onClick={onToggleVisibility} className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-slate-500 hover:text-white transition-colors" title={t.hideFullMenu}>
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 15l7-7 7 7"></path></svg>
           </button>
           <div className="md:hidden text-center">
@@ -651,7 +678,15 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
                )}
           </div>
 
-          <ZoomControls />
+          <ZoomControls
+            viewMode={viewMode}
+            instrumentMode={instrumentMode}
+            noteSpeedMultiplier={noteSpeedMultiplier}
+            sheetMusicZoom={sheetMusicZoom}
+            isFileLoaded={isFileLoaded}
+            onAdjustZoom={adjustZoom}
+            iconButtonStyles={iconButtonStyles}
+          />
           
           <div className="flex items-center gap-2">
               {!isPlaying ? (
@@ -663,7 +698,7 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
                       <svg className="w-5 h-5 fill-current" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 4a1 1 0 00-1 1v10a1 1 0 001 1h1a1 1 0 001-1V5a1 1 0 00-1-1H5zM12 4a1 1 0 00-1 1v10a1 1 0 001 1h1a1 1 0 001-1V5a1 1 0 00-1-1h-1z" clipRule="evenodd"></path></svg>
                   </button>
               )}
-              <button onClick={onStop} disabled={!isFileLoaded} className={`${iconButtonStyles} ${secondaryButtonStyles}`} aria-label="Stop playback and reset" title="Stop">
+              <button onClick={onStop} disabled={!isFileLoaded} className={`${iconButtonStyles} ${secondaryButtonStyles}`} aria-label={t.stopPlaybackAndReset} title="Stop">
                   <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M5 5a1 1 0 00-1 1v8a1 1 0 001 1h8a1 1 0 001-1V6a1 1 0 00-1-1H5z"></path></svg>
               </button>
           </div>

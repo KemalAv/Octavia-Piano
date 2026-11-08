@@ -14,6 +14,26 @@ import { convertScoreToPerformanceSummary } from '../utils'; // NEW: Import util
 // Temporary cache for user usernames to avoid redundant Supabase calls
 const userUsernameCache = new Map<string, string>();
 
+const getErrorMessage = (error: unknown): string => {
+  if (!error) return 'Unknown error';
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'object') {
+    const errObj = error as Record<string, unknown>;
+    if (typeof errObj.message === 'string') {
+      const hint = typeof errObj.hint === 'string' && errObj.hint ? ` (${errObj.hint})` : '';
+      const details = typeof errObj.details === 'string' && errObj.details ? `: ${errObj.details}` : '';
+      return `${errObj.message}${details}${hint}`;
+    }
+    if (typeof errObj.error_description === 'string') return errObj.error_description;
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  }
+  return String(error);
+};
+
 interface OnlineSongBrowserProps {
   onSongLoaded: (file: File, onlineSongId: string, isRanked: boolean, midiLink: string | null, midiOffset: number | null, backgroundUrl?: string | null, accuracyLevel?: number | null) => Promise<void>;
   isLoading: boolean;
@@ -31,6 +51,7 @@ const UPLOAD_LIMIT = 5;
 const PAGE_SIZE = 20;
 
 type SortOrder = 'newest_desc' | 'newest_asc' | 'difficulty_desc' | 'difficulty_asc' | 'alphabetical_asc' | 'alphabetical_desc' | 'mostLiked_desc' | 'mostLiked_asc';
+type DifficultyFilter = 'all' | 'novice' | 'beginner' | 'intermediate' | 'advanced' | 'virtuoso' | 'legendary';
 
 const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isLoading, setLoadingState, onGoToOnlineSong, instrumentMode, appLanguage = 'en' }) => {
   const t = translations[appLanguage] || translations.en;
@@ -51,7 +72,8 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
 
   // NEW: State for sorting, filtering, and pagination
   const [sortOrder, setSortOrder] = useState<SortOrder>('newest_desc'); // Default to newest_desc
-  const [rankedFilter, setRankedFilter] = useState<'all' | 'ranked' | 'nonRanked' | 'liked'>('ranked'); // Default to ranked only
+  const [rankedFilter, setRankedFilter] = useState<'all' | 'ranked' | 'nonRanked' | 'liked'>('ranked'); // Default to ranked
+  const [difficultyFilter, setDifficultyFilter] = useState<DifficultyFilter>('all');
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -81,7 +103,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
 
   useEffect(() => {
     isFilterChange.current = true;
-  }, [sortOrder, rankedFilter, searchQuery, instrumentMode]);
+  }, [sortOrder, rankedFilter, difficultyFilter, searchQuery, instrumentMode]);
 
 
   useEffect(() => {
@@ -137,7 +159,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
 
     if (error && error.code !== 'PGRST116') { // PGRST116: no rows found
       // FIX: Safely access error message for console output.
-      console.warn(`Error fetching username for user ${userId}:`, (error instanceof Error ? error.message : String(error)));
+      console.warn(`Error fetching username for user ${userId}:`, getErrorMessage(error));
     }
 
     const username = data?.username || userId.substring(0, 8); // Fallback
@@ -196,6 +218,21 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
         query = query.eq('is_ranked', true);
       } else if (rankedFilter === 'nonRanked') {
         query = query.eq('is_ranked', false);
+      }
+
+      // Apply difficulty range filter
+      if (difficultyFilter === 'novice') {
+        query = query.gte('difficulty_level', 1).lt('difficulty_level', 3);
+      } else if (difficultyFilter === 'beginner') {
+        query = query.gte('difficulty_level', 3).lt('difficulty_level', 4);
+      } else if (difficultyFilter === 'intermediate') {
+        query = query.gte('difficulty_level', 4).lt('difficulty_level', 6);
+      } else if (difficultyFilter === 'advanced') {
+        query = query.gte('difficulty_level', 6).lt('difficulty_level', 8);
+      } else if (difficultyFilter === 'virtuoso') {
+        query = query.gte('difficulty_level', 8).lt('difficulty_level', 10);
+      } else if (difficultyFilter === 'legendary') {
+        query = query.gte('difficulty_level', 10);
       }
 
       // Apply search query
@@ -322,13 +359,13 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
 
     } catch (error: unknown) {
       console.error('Error fetching data:', error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = getErrorMessage(error);
       setFetchError(`Failed to load online library: ${errorMessage}`);
     } finally {
       setLoadingState(false);
       setIsLoadingMore(false);
     }
-  }, [setLoadingState, user, fetchUsername, sortOrder, rankedFilter, searchQuery, page, setUserLikes]);
+  }, [setLoadingState, user, fetchUsername, sortOrder, rankedFilter, difficultyFilter, searchQuery, page, setUserLikes]);
 
   // Initial fetch and re-fetch on filter change
   useEffect(() => {
@@ -336,7 +373,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
       fetchSongsAndInteractions(false);
       isFilterChange.current = false;
     }
-  }, [sortOrder, rankedFilter, searchQuery, fetchSongsAndInteractions]);
+  }, [sortOrder, rankedFilter, difficultyFilter, searchQuery, fetchSongsAndInteractions]);
 
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -362,7 +399,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
       window.URL.revokeObjectURL(url);
     } catch (err: unknown) {
       console.error("Error downloading MIDI:", err);
-      alert(`Failed to download MIDI: ${(err instanceof Error ? err.message : String(err))}`);
+      alert(`Failed to download MIDI: ${getErrorMessage(err)}`);
     }
   };
 
@@ -379,10 +416,11 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
 
       // Convert Blob to File
       const file = new File([data], song.title + '.mid', { type: data?.type || 'audio/midi' });
-      await onSongLoaded(file, song.id, song.is_ranked, song.midi_link || null, song.midi_offset || null, song.background_url || null, song.accuracy_level || null); // Pass is_ranked status and extra metadata
+      const rawOffset = song.midi_offset !== null && song.midi_offset !== undefined ? Number(song.midi_offset) : null;
+      await onSongLoaded(file, song.id, song.is_ranked, song.midi_link || null, rawOffset !== null && !isNaN(rawOffset) ? rawOffset : null, song.background_url || null, song.accuracy_level || null); // Pass is_ranked status and extra metadata
     } catch (err: unknown) {
       console.error("Error downloading or processing MIDI:", err);
-      alert(`Failed to load MIDI: ${(err instanceof Error ? err.message : String(err))}`);
+      alert(`Failed to load MIDI: ${getErrorMessage(err)}`);
     } finally {
       setLoadingState(false);
     }
@@ -419,7 +457,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
         setIsUploadModalOpen(true);
       }
     } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
+      const errorMessage = getErrorMessage(err);
       setFetchError(`Could not check your upload limit: ${errorMessage}`);
       console.error(err);
     } finally {
@@ -506,7 +544,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
         arranger: uploadArranger.trim() || null,
         description: uploadDescription.trim() || null,
         midi_link: uploadMidiLink.trim() || null,
-        midi_offset: uploadMidiOffset ? parseInt(uploadMidiOffset, 10) : null,
+        midi_offset: uploadMidiOffset.trim() !== '' && !isNaN(parseInt(uploadMidiOffset, 10)) ? parseInt(uploadMidiOffset, 10) : null,
         background_url: uploadBackgroundUrl.trim() || null,
         accuracy_level: uploadAccuracyLevel,
         file_path: filePath,
@@ -550,7 +588,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
 
     } catch (err: unknown) {
       console.error("Upload error:", err);
-      setUploadMessage({ type: 'error', text: (err instanceof Error ? err.message : String(err)) || 'MIDI upload failed.' });
+      setUploadMessage({ type: 'error', text: getErrorMessage(err) || 'MIDI upload failed.' });
     } finally {
       setIsUploading(false);
     }
@@ -602,7 +640,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
         arranger: editArranger.trim() || null,
         description: editDescription.trim() || null,
         midi_link: editMidiLink.trim() || null,
-        midi_offset: editMidiOffset ? parseInt(editMidiOffset, 10) : null,
+        midi_offset: editMidiOffset.trim() !== '' && !isNaN(parseInt(editMidiOffset, 10)) ? parseInt(editMidiOffset, 10) : null,
         background_url: editBackgroundUrl.trim() || null,
         accuracy_level: editAccuracyLevel,
       };
@@ -657,7 +695,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
       setTimeout(() => setIsEditModalOpen(false), 1500);
     } catch (err: unknown) {
       console.error("Update error:", err);
-      setEditMessage({ type: 'error', text: (err instanceof Error ? err.message : String(err)) || 'Failed to update MIDI.' });
+      setEditMessage({ type: 'error', text: getErrorMessage(err) || 'Failed to update MIDI.' });
     } finally {
       setIsEditing(false);
     }
@@ -681,7 +719,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
       fetchSongsAndInteractions(false);
     } catch (err: unknown) {
       console.error("Error toggling ranked status:", err);
-      alert(`Failed to update ranked status: ${(err instanceof Error ? err.message : String(err))}`);
+      alert(`Failed to update ranked status: ${getErrorMessage(err)}`);
     } finally {
       setLoadingState(false);
     }
@@ -733,7 +771,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
       // No need to fetch all, just removed from local state
     } catch (err: unknown) {
       console.error("Delete error:", err);
-      setDeleteError(`Failed to delete MIDI: ${(err instanceof Error ? err.message : String(err))}`);
+      setDeleteError(`Failed to delete MIDI: ${getErrorMessage(err)}`);
     } finally {
       setLoadingState(false);
     }
@@ -937,55 +975,76 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
           </div>
         </div>
 
-        {/* Filter Pills */}
-        <div className="flex items-center gap-2 flex-wrap ml-auto">
-          <span className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">{t.filterLabel}</span>
-          <div className="flex bg-slate-950/60 p-0.5 rounded-xl border border-white/5 gap-1">
-            <button
-              onClick={() => setRankedFilter('all')}
-              className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
-                rankedFilter === 'all' 
-                  ? 'bg-slate-800 text-white shadow-sm' 
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
+        {/* Filter Section: Status & Difficulty */}
+        <div className="flex items-center gap-3 flex-wrap ml-auto">
+          {/* Difficulty Dropdown / Picker */}
+          <div className="flex items-center gap-1.5 bg-slate-950/60 px-2 py-1 rounded-xl border border-white/5">
+            <span className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">{t.filterDifficultyLabel}</span>
+            <select
+              value={difficultyFilter}
+              onChange={(e) => setDifficultyFilter(e.target.value as DifficultyFilter)}
+              className="bg-slate-900 text-slate-200 text-xs font-semibold rounded-lg px-2 py-1 border border-white/10 outline-none focus:ring-1 focus:ring-cyan-500 cursor-pointer"
             >
-              {t.filterAll}
-            </button>
-            <button
-              onClick={() => setRankedFilter('ranked')}
-              className={`px-2.5 py-1 rounded-lg font-bold transition-all flex items-center gap-1 ${
-                rankedFilter === 'ranked' 
-                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm' 
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6M18 9h1.5a2.5 2.5 0 0 0 0-5H18M4 22h16M18 2H6v7a6 6 0 0 0 12 0V2z"/></svg>
-              <span>{t.filterRanked}</span>
-            </button>
-            <button
-              onClick={() => setRankedFilter('nonRanked')}
-              className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
-                rankedFilter === 'nonRanked' 
-                  ? 'bg-slate-800 text-white shadow-sm' 
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {t.filterNonRanked}
-            </button>
-            <button
-              onClick={() => user && setRankedFilter('liked')}
-              disabled={!user}
-              className={`px-2.5 py-1 rounded-lg font-bold transition-all flex items-center gap-1 ${
-                !user 
-                  ? 'opacity-40 cursor-not-allowed text-slate-500' 
-                  : rankedFilter === 'liked' 
-                    ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-sm' 
+              <option value="all">{t.difficultyAll}</option>
+              <option value="novice">{t.difficultyNovice}</option>
+              <option value="beginner">{t.difficultyBeginner}</option>
+              <option value="intermediate">{t.difficultyIntermediate}</option>
+              <option value="advanced">{t.difficultyAdvanced}</option>
+              <option value="virtuoso">{t.difficultyVirtuoso}</option>
+              <option value="legendary">{t.difficultyLegendary}</option>
+            </select>
+          </div>
+
+          {/* Status Pills */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">{t.filterLabel}</span>
+            <div className="flex bg-slate-950/60 p-0.5 rounded-xl border border-white/5 gap-1">
+              <button
+                onClick={() => setRankedFilter('all')}
+                className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
+                  rankedFilter === 'all' 
+                    ? 'bg-slate-800 text-white shadow-sm' 
                     : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <svg className="w-3 h-3 fill-current" viewBox="0 0 24 24"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
-              <span>{t.filterLiked}</span>
-            </button>
+                }`}
+              >
+                {t.filterAll}
+              </button>
+              <button
+                onClick={() => setRankedFilter('ranked')}
+                className={`px-2.5 py-1 rounded-lg font-bold transition-all flex items-center gap-1 ${
+                  rankedFilter === 'ranked' 
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm' 
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6M18 9h1.5a2.5 2.5 0 0 0 0-5H18M4 22h16M18 2H6v7a6 6 0 0 0 12 0V2z"/></svg>
+                <span>{t.filterRanked}</span>
+              </button>
+              <button
+                onClick={() => setRankedFilter('nonRanked')}
+                className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
+                  rankedFilter === 'nonRanked' 
+                    ? 'bg-slate-800 text-white shadow-sm' 
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {t.filterNonRanked}
+              </button>
+              <button
+                onClick={() => user && setRankedFilter('liked')}
+                disabled={!user}
+                className={`px-2.5 py-1 rounded-lg font-bold transition-all flex items-center gap-1 ${
+                  !user 
+                    ? 'opacity-40 cursor-not-allowed text-slate-500' 
+                    : rankedFilter === 'liked' 
+                      ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-sm' 
+                      : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <svg className="w-3 h-3 fill-current" viewBox="0 0 24 24"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
+                <span>{t.filterLiked}</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1042,7 +1101,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                           className="px-2 py-0.5 text-[10px] font-black rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1 shadow-sm"
                         >
                           <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6M18 9h1.5a2.5 2.5 0 0 0 0-5H18M4 22h16M18 2H6v7a6 6 0 0 0 12 0V2z"/></svg>
-                          <span>RANKED</span>
+                          <span>{t.rankedTag}</span>
                         </span>
                       )}
                       {song.midi_link && (
@@ -1050,7 +1109,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                           className="px-2 py-0.5 text-[10px] font-black rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 flex items-center gap-1"
                         >
                           <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 18v-6a9 9 0 0 1 18 0v6M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>
-                          <span>BACKING</span>
+                          <span>{t.backingTag}</span>
                         </span>
                       )}
                     </div>
@@ -1187,21 +1246,21 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                         <button 
                           onClick={() => openEditModal(song)} 
                           className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1.5 rounded-lg border border-slate-700 transition-colors" 
-                          title="Edit"
+                          title={t.editBtn}
                         >
                           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                         </button>
                         <button 
                           onClick={() => handleDownloadMidi(song)} 
                           className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1.5 rounded-lg border border-slate-700 transition-colors" 
-                          title="Download"
+                          title={t.downloadBtn}
                         >
                           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
                         </button>
                         <button 
                           onClick={() => handleDeleteSong(song.id)} 
                           className="text-xs bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-500/30 px-2.5 py-1.5 rounded-lg transition-colors" 
-                          title="Delete"
+                          title={t.deleteBtn}
                         >
                           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                         </button>
@@ -1227,7 +1286,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                         className="text-xs bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 transition-colors" 
                       >
                         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6M18 9h1.5a2.5 2.5 0 0 0 0-5H18M4 22h16M18 2H6v7a6 6 0 0 0 12 0V2z"/></svg>
-                        <span className="hidden sm:inline">Leaderboard</span>
+                        <span className="hidden sm:inline">{t.leaderboardTitle}</span>
                       </button>
                     )}
 
@@ -1287,32 +1346,32 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
             role="document"
           >
             <h2 id="login-reminder-title" className="text-2xl font-bold text-cyan-400 mb-4">
-              Login Required
+              {appLanguage === 'id' ? 'Perlu Masuk Akun' : appLanguage === 'es' ? 'Inicio de Sesión Requerido' : 'Login Required'}
             </h2>
             <p className="text-slate-300 mb-6">
-              Please log in to upload MIDIs and share them with the community.
+              {appLanguage === 'id' ? 'Silakan masuk akun untuk mengunggah MIDI dan berbagi dengan komunitas.' : appLanguage === 'es' ? 'Inicia sesión para subir archivos MIDI y compartirlos con la comunidad.' : 'Please log in to upload MIDIs and share them with the community.'}
             </p>
             <button
               onClick={() => setIsLoginReminderModalOpen(false)}
               className="px-6 py-2 bg-slate-600 hover:bg-slate-500 text-white font-bold rounded-lg transition-colors"
             >
-              Close
+              {t.close}
             </button>
           </div>
         </div>
       )}
 
       {/* FIX: Pass 'onGoToOnlineSong' prop to LeaderboardModal */}
-      {leaderboardSong && <LeaderboardModal song={leaderboardSong} onClose={() => setLeaderboardSong(null)} onGoToOnlineSong={onGoToOnlineSong} />}
+      {leaderboardSong && <LeaderboardModal song={leaderboardSong} onClose={() => setLeaderboardSong(null)} onGoToOnlineSong={onGoToOnlineSong} appLanguage={appLanguage} />}
 
       {isUploadModalOpen && (
         <div className={`fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'bg-opacity-80' : 'bg-opacity-0'}`} onClick={() => setIsUploadModalOpen(false)}>
           <div className={`bg-slate-800 p-8 rounded-xl shadow-2xl max-w-md w-full ring-1 ring-slate-600 flex flex-col max-h-[90vh] transform transition-all duration-300 ease-in-out ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`} onClick={e => e.stopPropagation()}>
             <div className="flex-shrink-0">
-              <h2 className="text-2xl font-bold text-white mb-2">Upload MIDI</h2>
+              <h2 className="text-2xl font-bold text-white mb-2">{t.uploadMidiModalTitle}</h2>
               {user && user.id !== ADMIN_UUID && (
                 <p className="text-sm text-slate-400 mb-4">
-                  Your uploads: {userUploadCount} / {UPLOAD_LIMIT}
+                  {appLanguage === 'id' ? 'Unggahan Anda:' : appLanguage === 'es' ? 'Tus subidas:' : 'Your uploads:'} {userUploadCount} / {UPLOAD_LIMIT}
                 </p>
               )}
 
@@ -1326,7 +1385,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
             <form onSubmit={handleUploadSubmit} className="flex-grow flex flex-col min-h-0 mt-4">
               <div className="flex-grow overflow-y-auto custom-scrollbar -mr-4 pr-4 space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">MIDI Title</label>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">{t.midiTitleLabel}</label>
                   <input
                     type="text"
                     required
@@ -1340,7 +1399,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Artist</label>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">{t.artistLabel}</label>
                   <input
                     type="text"
                     required
@@ -1354,12 +1413,12 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Arrangement by (Optional)</label>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">{t.arrangerOptional}</label>
                   <input
                     type="text"
                     value={uploadArranger}
                     onChange={e => setUploadArranger(e.target.value)}
-                    placeholder="Your name or alias"
+                    placeholder={t.arrangerPlaceholder}
                     className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500"
                     maxLength={25}
                   />
@@ -1368,11 +1427,11 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Description (Optional)</label>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">{t.descOptional}</label>
                   <textarea
                     value={uploadDescription}
                     onChange={e => setUploadDescription(e.target.value)}
-                    placeholder="A short description of the MIDI or arrangement."
+                    placeholder={t.descPlaceholder}
                     className="w-full p-2 rounded bg-slate-700 border border-slate-600 text-white focus:ring-cyan-500 h-20 resize-none"
                     maxLength={100}
                   />
@@ -1381,7 +1440,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">MP3 Link (Optional)</label>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">{t.mp3LinkOptional}</label>
                   <input
                     type="text"
                     value={uploadMidiLink}
@@ -1395,7 +1454,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">MP3 Offset (Optional)</label>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">{t.mp3OffsetOptional}</label>
                   <input
                     type="number"
                     value={uploadMidiOffset}
@@ -1409,7 +1468,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Background URL (Optional)</label>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">{t.bgUrlOptional}</label>
                   <input
                     type="text"
                     value={uploadBackgroundUrl}
@@ -1424,7 +1483,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Song File (MIDI)</label>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">{t.songFileMidi}</label>
                   <input
                     type="file"
                     required
@@ -1434,7 +1493,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                     className="w-full text-slate-300 text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-600 file:text-white hover:file:bg-violet-700"
                   />
                   <p className="text-xs text-yellow-400 mt-2 text-left font-bold">
-                    You need to edit midi in Local Import before submitting new midi, like snyc the midi with mp3, etc so the midi will be playable and fun.
+                    {appLanguage === 'id' ? 'Anda perlu mengedit MIDI di Impor Lokal sebelum mengirim MIDI baru, seperti sinkronisasi dengan MP3, agar dapat dimainkan secara menyenangkan.' : appLanguage === 'es' ? 'Debes editar el archivo MIDI en Importar Local antes de enviarlo, sincronizándolo con el MP3 para que sea divertido de tocar.' : 'You need to edit midi in Local Import before submitting new midi, like snyc the midi with mp3, etc so the midi will be playable and fun.'}
                   </p>
                 </div>
               </div>
@@ -1446,14 +1505,14 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                   className="px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white rounded-lg"
                   disabled={isUploading}
                 >
-                  Cancel
+                  {t.cancel}
                 </button>
                 <button
                   type="submit"
                   disabled={isUploading || !uploadTitle.trim() || uploadTitle.length > 50 || !uploadArtist.trim() || uploadArtist.length > 25 || uploadArranger.length > 25 || uploadDescription.length > 100 || uploadMidiLink.length > 300 || uploadMidiOffset.length > 7 || !uploadFile}
                   className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isUploading ? 'Uploading...' : 'Upload'}
+                  {isUploading ? t.uploadingBtn : t.uploadBtn}
                 </button>
               </div>
             </form>
@@ -1465,7 +1524,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
         <div className={`fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'bg-opacity-80' : 'bg-opacity-0'}`} onClick={() => setIsEditModalOpen(false)}>
           <div className={`bg-slate-800 p-8 rounded-xl shadow-2xl max-w-md w-full ring-1 ring-slate-600 flex flex-col max-h-[90vh] transform transition-all duration-300 ease-in-out ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`} onClick={e => e.stopPropagation()}>
             <div className="flex-shrink-0">
-              <h2 className="text-2xl font-bold text-white mb-2">Edit MIDI</h2>
+              <h2 className="text-2xl font-bold text-white mb-2">{t.editMidiModalTitle}</h2>
               {editMessage && (
                 <div className={`p-3 my-4 rounded text-sm ${editMessage.type === 'error' ? 'bg-red-900/50 text-red-200' : 'bg-green-900/50 text-green-200'}`}>
                   {editMessage.text}
@@ -1580,7 +1639,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                   </div>
 
                   <div className="pt-4 border-t border-slate-700">
-                    <label className="block text-sm font-medium text-slate-300 mb-1">Replace Song File (Optional, MIDI only)</label>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">{t.replaceSongFileOptional}</label>
                     <input
                       type="file"
                       ref={editFileInputRef}
@@ -1589,7 +1648,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                       className="w-full text-slate-300 text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-600 file:text-white hover:file:bg-violet-700"
                       disabled={isEditing}
                     />
-                    <p className="text-[10px] text-amber-400 mt-1 italic">Selecting a file will replace the current MIDI file on the server.</p>
+                    <p className="text-[10px] text-amber-400 mt-1 italic">{t.replaceSongFileNotice}</p>
                   </div>
                 </div>
               </div>
@@ -1601,14 +1660,14 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
                   className="px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white rounded-lg"
                   disabled={isEditing}
                 >
-                  Cancel
+                  {t.cancel}
                 </button>
                 <button
                   type="submit"
                   disabled={isEditing || !editTitle.trim() || editTitle.length > 50 || !editArtist.trim() || editArtist.length > 25 || editArranger.length > 25 || editDescription.length > 100 || editMidiLink.length > 300 || editMidiOffset.length > 7 || editBackgroundUrl.length > 300}
                   className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isEditing ? 'Saving...' : 'Save Changes'}
+                  {isEditing ? t.savingBtn : t.saveChangesBtn}
                 </button>
               </div>
             </form>
@@ -1621,6 +1680,7 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
           isVisible={!!selectedPerformanceSummary}
           summary={selectedPerformanceSummary}
           onClose={handleClosePerformanceSummary}
+          appLanguage={appLanguage}
         />
       )}
     </div>

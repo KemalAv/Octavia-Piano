@@ -277,16 +277,30 @@ export const DRUM_KEYBOARD_MAP: Record<string, number> = {
   'o': 51, 'p': 51, // ride
 };
 
+// Default Drum Typer layout (circular kit)
 export const DRUM_PADS: DrumPadConfig[] = [
     { id: 'bass', name: 'BASS DRUM', midiNotes: [35, 36], x: 0.55, y: 0.75, radius: 0.15 },
     { id: 'snare', name: 'SNARE DRUM', midiNotes: [38, 40, 37, 39], x: 0.35, y: 0.55, radius: 0.1 },
     { id: 'hihat', name: 'HIT HAT', midiNotes: [42, 46, 54, 56, 58, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81], x: 0.15, y: 0.5, radius: 0.12 },
-    { id: 'hihat_foot', name: 'HIT HAT FOOT', midiNotes: [44], x: 0.15, y: 0.85, radius: 0.08 },
+    { id: 'hihat_foot', name: 'HIT HAT FOOT', midiNotes: [44], x: 0.22, y: 0.85, radius: 0.12 },
     { id: 'high_tom', name: 'HIGH TOM', midiNotes: [50, 48, 60, 62, 63, 65, 67], x: 0.45, y: 0.3, radius: 0.1 },
     { id: 'low_tom', name: 'LOW TOM', midiNotes: [47, 45, 61, 64, 66, 68], x: 0.65, y: 0.3, radius: 0.1 },
     { id: 'floor_tom', name: 'FLOOR TOM', midiNotes: [43, 41], x: 0.75, y: 0.55, radius: 0.1 },
     { id: 'crash', name: 'CRASH CYMBAL', midiNotes: [49, 57, 52, 55], x: 0.25, y: 0.2, radius: 0.12 },
     { id: 'ride', name: 'RIDE CYMBAL', midiNotes: [51, 53, 59], x: 0.85, y: 0.2, radius: 0.12 },
+];
+
+// Bottom Drum Pad layout (for bottom drum kit in Mania / other modes)
+export const BOTTOM_DRUM_PADS: DrumPadConfig[] = [
+    { id: 'hihat', name: 'HIT HAT', midiNotes: [42, 46, 54, 56, 58, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81], x: 0.21, y: 0.22, radius: 0.12 },
+    { id: 'hihat_foot', name: 'HIT HAT FOOT', midiNotes: [44], x: 0.23, y: 0.77, radius: 0.12 },
+    { id: 'crash', name: 'CRASH CYMBAL', midiNotes: [49, 57, 52, 55], x: 0.32, y: 0.22, radius: 0.12 },
+    { id: 'snare', name: 'SNARE DRUM', midiNotes: [38, 40, 37, 39], x: 0.37, y: 0.70, radius: 0.1 },
+    { id: 'high_tom', name: 'HIGH TOM', midiNotes: [50, 48, 60, 62, 63, 65, 67], x: 0.44, y: 0.28, radius: 0.1 },
+    { id: 'bass', name: 'BASS DRUM', midiNotes: [35, 36], x: 0.52, y: 0.73, radius: 0.18 },
+    { id: 'low_tom', name: 'LOW TOM', midiNotes: [47, 45, 61, 64, 66, 68], x: 0.60, y: 0.28, radius: 0.1 },
+    { id: 'floor_tom', name: 'FLOOR TOM', midiNotes: [43, 41], x: 0.66, y: 0.70, radius: 0.1 },
+    { id: 'ride', name: 'RIDE CYMBAL', midiNotes: [51, 53, 59], x: 0.73, y: 0.22, radius: 0.12 },
 ];
 
 export const DRUM_MIDI_TO_NAME_MAP: Record<number, string> = {};
@@ -503,8 +517,9 @@ export const DEFAULT_METRONOME_VOLUME = 1.0;
 export const DEFAULT_MP3_VOLUME = 1.0; // NEW: Default MP3 volume
 export const DEFAULT_VIEW_MODE: ViewMode = 'falling';
 export const DEFAULT_NOTE_LABEL_TYPE: NoteLabelType = 'none'; // Updated to 'none'
-export const DEFAULT_SHOW_ONLY_MAJOR_NOTES = false;
-export const DEFAULT_SHOW_QWERTY_SHORTCUTS = false;
+export const DEFAULT_SHOW_ONLY_MAJOR_NOTES = true;
+export const DEFAULT_SHOW_HAND_3D = false;
+export const DEFAULT_SHOW_QWERTY_SHORTCUTS = true;
 export const DEFAULT_SHOW_PIANO_TILES_BACKGROUND = true; // New Default
 export const DEFAULT_SHOW_PERFECT_JUDGMENT = false;
 export const DEFAULT_ZOOM_DIRECTION: 'normal' | 'reverse' = 'normal';

@@ -56,6 +56,12 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
             <p className="text-xl text-slate-200 mb-6">
               An unexpected error occurred.
             </p>
+            {this.state.error && (
+              <div className="bg-slate-900 border border-red-500/50 p-4 rounded-lg text-left text-xs font-mono text-red-300 mb-6 max-h-48 overflow-auto whitespace-pre-wrap select-text">
+                <div className="font-bold text-red-400 mb-1">{this.state.error.name}: {this.state.error.message}</div>
+                <div className="text-slate-400 text-[10px]">{this.state.error.stack}</div>
+              </div>
+            )}
             <p className="text-lg text-red-200 mb-8 italic">
               "Oops, there's a bug because the dev is too lazy to fix it." 
             </p>

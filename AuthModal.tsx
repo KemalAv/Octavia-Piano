@@ -1,14 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 import { useAuth } from './AuthContext';
+import { AppLanguage } from './types';
+import { translations } from './translations';
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   lowDetailMode?: boolean;
+  appLanguage?: AppLanguage;
 }
 
-const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
+const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, appLanguage = 'en' }) => {
+  const t = translations[appLanguage] || translations.en;
   const { session, user, authError, clearAuthError } = useAuth();
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -110,9 +114,9 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
           </svg>
         </button>
 
-        <h2 className="text-xl font-bold mb-2">Sign In</h2>
+        <h2 className="text-xl font-bold mb-2">{appLanguage === 'id' ? 'Masuk Akun' : appLanguage === 'es' ? 'Iniciar Sesión' : 'Sign In'}</h2>
         <p className="text-sm text-slate-400 mb-6">
-          Choose your Google account to save scores and your player profile.
+          {appLanguage === 'id' ? 'Pilih akun Google Anda untuk menyimpan skor dan profil pemain.' : appLanguage === 'es' ? 'Elige tu cuenta de Google para guardar puntuaciones y tu perfil de jugador.' : 'Choose your Google account to save scores and your player profile.'}
         </p>
 
         {errorMessage && (
@@ -139,7 +143,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               <path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571c0.001-0.001,0.002-0.001,0.003-0.002l6.19,5.238C36.971,39.205,44,34,44,24C44,22.659,43.862,21.35,43.611,20.083z"/>
             </svg>
           )}
-          <span>{loading ? 'Opening Google...' : 'Sign in with Google'}</span>
+          <span>{loading ? (appLanguage === 'id' ? 'Membuka Google...' : appLanguage === 'es' ? 'Abriendo Google...' : 'Opening Google...') : (appLanguage === 'id' ? 'Masuk dengan Google' : appLanguage === 'es' ? 'Iniciar sesión con Google' : 'Sign in with Google')}</span>
         </button>
       </div>
     </div>

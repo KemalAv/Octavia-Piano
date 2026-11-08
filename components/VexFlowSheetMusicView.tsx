@@ -5,6 +5,7 @@ import React, {
   useState,
   useCallback,
   useLayoutEffect,
+  memo,
 } from 'react';
 import {
   Accidental,
@@ -244,6 +245,212 @@ function getSystemLeadWidth(
   }
   return Math.ceil(lead + 10);
 }
+
+const EMPTY_HIGHLIGHTS_ARRAY: Array<{ key: string; cx: number; cy: number; color: string; isWaiting: boolean }> = [];
+const EMPTY_OVERLAY_ITEMS: any[] = [];
+
+interface SheetMusicSystemRowProps {
+  system: SystemLayout;
+  sysIdx: number;
+  isDrum: boolean;
+  notationColor: string;
+  showDynamics?: boolean;
+  octaves: any[];
+  tempos: any[];
+  dynamics: any[];
+  playhead: { x: number; y: number; w: number; h: number } | null;
+  activeHighlights: Array<{ key: string; cx: number; cy: number; color: string; isWaiting: boolean }>;
+  onMeasureClick: (startTimeMs: number) => void;
+  setCanvasRef: (el: HTMLCanvasElement | null) => void;
+  setDivRef: (el: HTMLDivElement | null) => void;
+}
+
+const SheetMusicSystemRow: React.FC<SheetMusicSystemRowProps> = memo(({
+  system,
+  sysIdx,
+  isDrum,
+  notationColor,
+  showDynamics,
+  octaves,
+  tempos,
+  dynamics,
+  playhead,
+  activeHighlights,
+  onMeasureClick,
+  setCanvasRef,
+  setDivRef,
+}) => {
+  return (
+    <div
+      ref={setDivRef}
+      className="relative"
+      style={{
+        width: `${system.width}px`,
+        height: `${system.height}px`,
+        marginBottom: `${isDrum ? DRUM_SYSTEM_SPACING : 12}px`,
+        borderRadius: '6px',
+      }}
+    >
+      {/* VexFlow System Canvas */}
+      <canvas
+        ref={setCanvasRef}
+        className="absolute top-0 left-0"
+        style={{
+          width: `${system.width}px`,
+          height: `${system.height}px`,
+        }}
+      />
+
+      {/* SVG Overlay: Playhead cursor, Measure numbers, Octaves, Tempo, Notehead Highlights. */}
+      <svg
+        className="absolute top-0 left-0 pointer-events-none"
+        style={{
+          width: `${system.width}px`,
+          height: `${system.height}px`,
+          zIndex: 10,
+        }}
+        viewBox={`0 0 ${system.virtualWidth} ${system.virtualHeight}`}
+        preserveAspectRatio="none"
+      >
+        {/* Measure Numbers */}
+        {system.measures.map((mLayout) => {
+          const measureNum = mLayout.globalIndex + 1;
+          const textX = mLayout.x + (mLayout.isFirstInSystem ? mLayout.noteStartX - 28 : 2);
+          const isSystemFirst = mLayout.isFirstInSystem;
+
+          return (
+            <g key={`measure-header-${mLayout.globalIndex}`}>
+              <text
+                x={Math.max(2, textX)}
+                y={TOP_STAVE_Y - 8}
+                fontFamily="'Times New Roman', Cambria, Georgia, serif"
+                fontSize={isSystemFirst ? '14' : '12'}
+                fontWeight={isSystemFirst ? 'bold' : 'normal'}
+                fill={notationColor}
+              >
+                {measureNum}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* Octave Markings */}
+        {octaves.map(oItem => (
+          <g key={oItem.key} fill={notationColor} stroke={notationColor} strokeWidth="0.8">
+            <text x={oItem.startX} y={oItem.textY} fontSize="11" fontStyle="italic" fontWeight="bold" stroke="none">
+              {oItem.type}
+            </text>
+            <line
+              x1={oItem.startX + (oItem.type.startsWith('15') ? 28 : 22)}
+              y1={oItem.lineY}
+              x2={oItem.endX}
+              y2={oItem.lineY}
+              strokeDasharray="3,3"
+            />
+            <line x1={oItem.endX} y1={oItem.lineY} x2={oItem.endX} y2={oItem.hookY} />
+          </g>
+        ))}
+
+        {/* Tempo Markings */}
+        {tempos.map(tItem => (
+          <text
+            key={tItem.key}
+            x={tItem.textX}
+            y={TOP_STAVE_Y - 10}
+            fontSize="13"
+            fontWeight="bold"
+            fontFamily="sans-serif"
+            fill={notationColor}
+          >
+            ♩ = {tItem.bpm}
+          </text>
+        ))}
+
+        {/* Traditional Sheet Music Dynamics per Beat */}
+        {showDynamics && dynamics.map(dItem => (
+          <g key={dItem.key}>
+            <text
+              x={dItem.textX}
+              y={dItem.textY}
+              fontFamily="'Times New Roman', Cambria, Georgia, serif"
+              fontSize="22"
+              fontStyle="italic"
+              fontWeight="900"
+              dominantBaseline="central"
+              fill={notationColor}
+            >
+              {dItem.mark}
+            </text>
+          </g>
+        ))}
+
+        {/* Sleek Playhead Indicator Line */}
+        {playhead && (
+          <g key={`playhead-${sysIdx}`}>
+            <line
+              x1={playhead.x}
+              y1={playhead.y}
+              x2={playhead.x}
+              y2={playhead.y + playhead.h}
+              stroke="rgba(239, 68, 68, 0.9)"
+              strokeWidth={2.2}
+              strokeLinecap="round"
+            />
+            <polygon
+              points={`
+                ${playhead.x - 4},${playhead.y}
+                ${playhead.x + 4},${playhead.y}
+                ${playhead.x},${playhead.y + 6}
+              `}
+              fill="rgba(239, 68, 68, 0.95)"
+            />
+          </g>
+        )}
+
+        {/* User Note Glow Highlights */}
+        {activeHighlights.map(hl => (
+          <g key={hl.key} transform={`rotate(-20, ${hl.cx}, ${hl.cy})`}>
+            <ellipse
+              cx={hl.cx}
+              cy={hl.cy}
+              rx={9}
+              ry={6}
+              fill={hl.color}
+              opacity={hl.isWaiting ? 0.35 : 0.4}
+            />
+            <ellipse
+              cx={hl.cx}
+              cy={hl.cy}
+              rx={6.8}
+              ry={4.5}
+              fill={hl.color}
+              opacity={hl.isWaiting ? 0.8 : 0.9}
+              stroke={hl.isWaiting ? '#fbbf24' : '#34d399'}
+              strokeWidth={1}
+            />
+          </g>
+        ))}
+      </svg>
+
+      {/* Clickable Measure Hitboxes for Seeking */}
+      {system.measures.map((mLayout) => (
+        <div
+          key={`hitbox-${mLayout.globalIndex}`}
+          className="absolute cursor-pointer hover:bg-black/[0.03] transition-colors rounded"
+          style={{
+            left: `${Math.round(mLayout.x * system.scale)}px`,
+            top: 0,
+            width: `${Math.round(mLayout.width * system.scale)}px`,
+            height: `${system.height}px`,
+            zIndex: 20,
+          }}
+          onClick={() => onMeasureClick(mLayout.measure.startTimeMs)}
+          title={`Measure ${mLayout.globalIndex + 1} - Click to seek`}
+        />
+      ))}
+    </div>
+  );
+});
 
 export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
   notes,
@@ -1479,29 +1686,54 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
     setRenderedLayoutId(prev => prev + 1);
   }, [vexFlowData, systems, width, height, instrumentMode, resolutionScale, noteLabelType, notationColor, sheetMusicZoom]);
 
-  // Find currently active measure and system based on currentTimeMs
+  // Precompute O(1) mapping from measureIndex to system & systemMeasure layout
+  const measureToSystemMap = useMemo(() => {
+    const map = new Map<number, { system: SystemLayout; systemMeasure: any }>();
+    systems.forEach(system => {
+      system.measures.forEach(sm => {
+        map.set(sm.globalIndex, { system, systemMeasure: sm });
+      });
+    });
+    return map;
+  }, [systems]);
+
+  // Find currently active measure and system based on currentTimeMs using O(log N) binary search
   const activeMeasureInfo = useMemo(() => {
     if (!vexFlowData || vexFlowData.measures.length === 0) return null;
-    let mIdx = vexFlowData.measures.findIndex(m => currentTimeMs >= m.startTimeMs && currentTimeMs < m.endTimeMs);
+    const measures = vexFlowData.measures;
+    let low = 0;
+    let high = measures.length - 1;
+    let mIdx = -1;
+    while (low <= high) {
+      const mid = (low + high) >> 1;
+      const m = measures[mid];
+      if (currentTimeMs < m.startTimeMs) {
+        high = mid - 1;
+      } else if (currentTimeMs >= m.endTimeMs) {
+        low = mid + 1;
+      } else {
+        mIdx = mid;
+        break;
+      }
+    }
     if (mIdx === -1) {
-      if (currentTimeMs >= (vexFlowData.measures[vexFlowData.measures.length - 1]?.endTimeMs || 0)) {
-        mIdx = vexFlowData.measures.length - 1;
+      if (currentTimeMs >= (measures[measures.length - 1]?.endTimeMs || 0)) {
+        mIdx = measures.length - 1;
       } else {
         mIdx = 0;
       }
     }
 
-    const measure = vexFlowData.measures[mIdx];
-    const system = systems.find(s => mIdx >= s.firstMeasureIndex && mIdx <= s.lastMeasureIndex);
-    const systemMeasure = system?.measures.find(m => m.globalIndex === mIdx);
+    const measure = measures[mIdx];
+    const sysInfo = measureToSystemMap.get(mIdx);
 
     return {
       measureIndex: mIdx,
       measure,
-      system,
-      systemMeasure,
+      system: sysInfo?.system,
+      systemMeasure: sysInfo?.systemMeasure,
     };
-  }, [vexFlowData, systems, currentTimeMs]);
+  }, [vexFlowData, measureToSystemMap, currentTimeMs]);
 
   // Traditional Sheet Music Dynamic Markings (p, mp, mf, f, ff, etc.) per Beat:
   // Dynamically tracked per beat whenever dynamic changes (cukup per BEAT saja agar tidak lag)!
@@ -1738,69 +1970,113 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
     return { tempoBySystem, dynamicsBySystem, octavesBySystem };
   }, [systems, effectiveTempoEvents, dynamicEvents, notePositions, showDynamics, instrumentMode]);
 
-  // Compute smooth playhead X coordinate within active measure:
-  // Monotonically interpolates from note to note within the active measure
+  // Precompute measure anchors for smooth O(1) playhead interpolation without runtime note filtering
+  const measureAnchorsByMeasure = useMemo(() => {
+    const map = new Map<number, { timeMs: number; x: number }[]>();
+    if (!vexFlowData || systems.length === 0) return map;
+
+    const notesByMIdx = new Map<number, NotePosInfo[]>();
+    for (const np of notePositions.values()) {
+      let list = notesByMIdx.get(np.measureIndex);
+      if (!list) {
+        list = [];
+        notesByMIdx.set(np.measureIndex, list);
+      }
+      list.push(np);
+    }
+
+    systems.forEach(system => {
+      system.measures.forEach(sm => {
+        const mIdx = sm.globalIndex;
+        const measure = vexFlowData.measures[mIdx];
+        if (!measure) return;
+
+        const measureStartX = sm.x + (sm.isFirstInSystem ? sm.noteStartX : 15);
+        const measureEndX = sm.x + sm.width;
+
+        const mNotes = notesByMIdx.get(mIdx) || [];
+        const timeToX = new Map<number, number[]>();
+        for (let i = 0; i < mNotes.length; i++) {
+          const np = mNotes[i];
+          let xs = timeToX.get(np.timeMs);
+          if (!xs) {
+            xs = [];
+            timeToX.set(np.timeMs, xs);
+          }
+          xs.push(np.x + np.w / 2);
+        }
+
+        const anchors: { timeMs: number; x: number }[] = [];
+        anchors.push({ timeMs: measure.startTimeMs, x: measureStartX });
+
+        Array.from(timeToX.entries())
+          .sort((a, b) => a[0] - b[0])
+          .forEach(([t, xs]) => {
+            const avgX = xs.reduce((sum, v) => sum + v, 0) / xs.length;
+            if (t > measure.startTimeMs && t < measure.endTimeMs) {
+              anchors.push({ timeMs: t, x: avgX });
+            }
+          });
+
+        anchors.push({ timeMs: measure.endTimeMs, x: measureEndX });
+        map.set(mIdx, anchors);
+      });
+    });
+
+    return map;
+  }, [vexFlowData, systems, notePositions]);
+
+  // Compute smooth playhead X coordinate within active measure in O(1)
   const playheadHighlightInfo = useMemo(() => {
     if (!activeMeasureInfo || !activeMeasureInfo.system || !activeMeasureInfo.systemMeasure) return null;
     const { system, systemMeasure, measure } = activeMeasureInfo;
     const isDrum = instrumentMode === 'drum';
 
     // 1. If there are notes currently waiting in activePlaybackNotesInfo, lock playhead directly to that notehead
-    const waitingEntry = Array.from(activePlaybackNotesInfo.entries()).find(([_, info]) => info.status === 'waiting');
-    if (waitingEntry) {
-      const noteId = waitingEntry[0];
-      const pos = notePositions.get(noteId) || notePositions.get(`${noteId}-0`);
-      if (pos && pos.systemIndex === system.systemIndex) {
-        return {
-          systemIndex: system.systemIndex,
-          x: pos.x + pos.w / 2,
-          y: TOP_STAVE_Y - 4,
-          w: 2,
-          h: isDrum ? 86 : (VERTICAL_STAFF_SPACING + 72),
-        };
+    if (activePlaybackNotesInfo.size > 0) {
+      for (const [noteId, info] of activePlaybackNotesInfo.entries()) {
+        if (info.status === 'waiting') {
+          const pos = notePositions.get(noteId) || notePositions.get(`${noteId}-0`);
+          if (pos && pos.systemIndex === system.systemIndex) {
+            return {
+              systemIndex: system.systemIndex,
+              x: pos.x + pos.w / 2,
+              y: TOP_STAVE_Y - 4,
+              w: 2,
+              h: isDrum ? 86 : (VERTICAL_STAFF_SPACING + 72),
+            };
+          }
+        }
       }
     }
 
-    // 2. Interpolate within active measure's note anchors
-    const measureStartX = systemMeasure.x + (systemMeasure.isFirstInSystem ? systemMeasure.noteStartX : 15);
-    const measureEndX = systemMeasure.x + systemMeasure.width;
+    // 2. Interpolate within precomputed measure note anchors in O(1)
+    const measureAnchors = measureAnchorsByMeasure.get(activeMeasureInfo.measureIndex);
+    if (!measureAnchors || measureAnchors.length === 0) {
+      return {
+        systemIndex: system.systemIndex,
+        x: systemMeasure.x + 15,
+        y: TOP_STAVE_Y - 4,
+        w: 2,
+        h: isDrum ? 86 : (VERTICAL_STAFF_SPACING + 72),
+      };
+    }
 
-    const measureNotePositions = Array.from(notePositions.values())
-      .filter(np => np.systemIndex === system.systemIndex && np.measureIndex === activeMeasureInfo.measureIndex);
-
-    const timeToXMap = new Map<number, number[]>();
-    measureNotePositions.forEach(np => {
-      if (!timeToXMap.has(np.timeMs)) timeToXMap.set(np.timeMs, []);
-      timeToXMap.get(np.timeMs)!.push(np.x + np.w / 2);
-    });
-
-    const measureAnchors: { timeMs: number; x: number }[] = [];
-    measureAnchors.push({ timeMs: measure.startTimeMs, x: measureStartX });
-
-    Array.from(timeToXMap.entries())
-      .sort((a, b) => a[0] - b[0])
-      .forEach(([t, xs]) => {
-        const avgX = xs.reduce((sum, v) => sum + v, 0) / xs.length;
-        if (t > measure.startTimeMs && t < measure.endTimeMs) {
-          measureAnchors.push({ timeMs: t, x: avgX });
-        }
-      });
-
-    measureAnchors.push({ timeMs: measure.endTimeMs, x: measureEndX });
-
-    let currentX = measureStartX;
+    let currentX = measureAnchors[0].x;
     if (currentTimeMs <= measureAnchors[0].timeMs) {
       currentX = measureAnchors[0].x;
     } else if (currentTimeMs >= measureAnchors[measureAnchors.length - 1].timeMs) {
       currentX = measureAnchors[measureAnchors.length - 1].x;
     } else {
-      const nextIdx = measureAnchors.findIndex(pt => pt.timeMs > currentTimeMs);
-      if (nextIdx > 0) {
-        const prev = measureAnchors[nextIdx - 1];
-        const next = measureAnchors[nextIdx];
-        const span = next.timeMs - prev.timeMs;
-        const ratio = span > 0 ? (currentTimeMs - prev.timeMs) / span : 0;
-        currentX = prev.x + (next.x - prev.x) * ratio;
+      for (let i = 1; i < measureAnchors.length; i++) {
+        if (measureAnchors[i].timeMs >= currentTimeMs) {
+          const prev = measureAnchors[i - 1];
+          const next = measureAnchors[i];
+          const span = next.timeMs - prev.timeMs;
+          const ratio = span > 0 ? (currentTimeMs - prev.timeMs) / span : 0;
+          currentX = prev.x + (next.x - prev.x) * ratio;
+          break;
+        }
       }
     }
 
@@ -1811,7 +2087,7 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
       w: 2,
       h: isDrum ? 86 : (VERTICAL_STAFF_SPACING + 72),
     };
-  }, [activeMeasureInfo, notePositions, activePlaybackNotesInfo, currentTimeMs, instrumentMode]);
+  }, [activeMeasureInfo, measureAnchorsByMeasure, notePositions, activePlaybackNotesInfo, currentTimeMs, instrumentMode]);
 
   // Reset to Bar 1 at top when entering in-game or when currentTimeMs === 0
   useEffect(() => {
@@ -1853,7 +2129,7 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
       if (activeSysIdx === 0) {
         container.scrollTo({
           top: 0,
-          behavior: isPlaying ? 'smooth' : 'auto',
+          behavior: 'auto',
         });
         return;
       }
@@ -1868,22 +2144,50 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
           parent = parent.offsetParent as HTMLElement | null;
         }
 
-        const targetHeight = targetEl.offsetHeight || activeMeasureInfo.system.height;
-        const containerHeight = container.clientHeight;
-
-        // Position active system comfortably near the top of the viewing area
-        // with sufficient clearance so it stays well below the top HUD bar and never gets covered.
         const desiredTopOffset = SHEET_TOP_PADDING_PX;
-
         const targetTop = Math.max(0, Math.round(elementAbsoluteTop - desiredTopOffset));
 
         container.scrollTo({
           top: targetTop,
-          behavior: isPlaying ? 'smooth' : 'auto',
+          behavior: 'auto',
         });
       }
     }
   }, [activeMeasureInfo, isPlaying]);
+
+  const activeHighlightsBySystem = useMemo(() => {
+    const map = new Map<number, Array<{ key: string; cx: number; cy: number; color: string; isWaiting: boolean }>>();
+    if (activePlaybackNotesInfo.size === 0) return map;
+
+    for (const [noteId, info] of activePlaybackNotesInfo.entries()) {
+      if (info.status !== 'user_played' && info.status !== 'waiting') continue;
+      const positions = notePositionsByNoteId.get(noteId)
+        || notePositionsByNoteId.get(`${noteId}-0`)
+        || (notePositions.get(noteId) ? [notePositions.get(noteId)!] : (notePositions.get(`${noteId}-0`) ? [notePositions.get(`${noteId}-0`)!] : []));
+      if (!positions || positions.length === 0) continue;
+
+      const isWaiting = info.status === 'waiting';
+      const highlightColor = isWaiting ? '#f59e0b' : (hitNoteColor || '#10b981');
+
+      for (let pIdx = 0; pIdx < positions.length; pIdx++) {
+        const pos = positions[pIdx];
+        if (!pos) continue;
+        let list = map.get(pos.systemIndex);
+        if (!list) {
+          list = [];
+          map.set(pos.systemIndex, list);
+        }
+        list.push({
+          key: `hit-${noteId}-${pIdx}`,
+          cx: pos.x + pos.w / 2,
+          cy: pos.y + pos.h / 2,
+          color: highlightColor,
+          isWaiting,
+        });
+      }
+    }
+    return map;
+  }, [activePlaybackNotesInfo, notePositionsByNoteId, notePositions, hitNoteColor]);
 
   // Click on a measure in the sheet music to seek to its start time
   const handleMeasureClick = useCallback((measureStartTimeMs: number) => {
@@ -1920,198 +2224,29 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
         >
           {systems.map((system, sysIdx) => {
             const isSystemActive = playheadHighlightInfo?.systemIndex === sysIdx;
+            const playhead = isSystemActive ? playheadHighlightInfo : null;
+            const octaves = systemOverlayData.octavesBySystem?.get(sysIdx) || EMPTY_OVERLAY_ITEMS;
+            const tempos = systemOverlayData.tempoBySystem.get(sysIdx) || EMPTY_OVERLAY_ITEMS;
+            const dynamics = systemOverlayData.dynamicsBySystem.get(sysIdx) || EMPTY_OVERLAY_ITEMS;
+            const highlights = activeHighlightsBySystem.get(sysIdx) || EMPTY_HIGHLIGHTS_ARRAY;
 
             return (
-              <div
+              <SheetMusicSystemRow
                 key={`system-${sysIdx}`}
-                ref={el => { systemDivRefs.current[sysIdx] = el; }}
-                className="relative"
-                style={{
-                  width: `${system.width}px`,
-                  height: `${system.height}px`,
-                  marginBottom: `${isDrum ? DRUM_SYSTEM_SPACING : 12}px`,
-                  borderRadius: '6px',
-                }}
-              >
-                {/* VexFlow System Canvas */}
-                <canvas
-                  ref={el => { canvasRefs.current[sysIdx] = el; }}
-                  className="absolute top-0 left-0"
-                  style={{
-                    width: `${system.width}px`,
-                    height: `${system.height}px`,
-                  }}
-                />
-
-                {/* SVG Overlay: Playhead cursor, Measure numbers, Octaves, Tempo, Notehead Highlights.
-                    preserveAspectRatio="none" ensures exact pixel-perfect 1:1 match with canvas! */}
-                <svg
-                  className="absolute top-0 left-0 pointer-events-none"
-                  style={{
-                    width: `${system.width}px`,
-                    height: `${system.height}px`,
-                    zIndex: 10,
-                  }}
-                  viewBox={`0 0 ${system.virtualWidth} ${system.virtualHeight}`}
-                  preserveAspectRatio="none"
-                >
-                  {/* Measure Numbers */}
-                  {system.measures.map((mLayout) => {
-                    const measureNum = mLayout.globalIndex + 1;
-                    const textX = mLayout.x + (mLayout.isFirstInSystem ? mLayout.noteStartX - 28 : 2);
-                    const isSystemFirst = mLayout.isFirstInSystem;
-
-                    return (
-                      <g key={`measure-header-${mLayout.globalIndex}`}>
-                        <text
-                          x={Math.max(2, textX)}
-                          y={TOP_STAVE_Y - 8}
-                          fontFamily="'Times New Roman', Cambria, Georgia, serif"
-                          fontSize={isSystemFirst ? '14' : '12'}
-                          fontWeight={isSystemFirst ? 'bold' : 'normal'}
-                          fill={notationColor}
-                        >
-                          {measureNum}
-                        </text>
-                      </g>
-                    );
-                  })}
-
-                  {/* Octave Markings: Rendered per beat directly from precalculated overlay data */}
-                  {(systemOverlayData.octavesBySystem?.get(sysIdx) || []).map(oItem => (
-                    <g key={oItem.key} fill={notationColor} stroke={notationColor} strokeWidth="0.8">
-                      <text x={oItem.startX} y={oItem.textY} fontSize="11" fontStyle="italic" fontWeight="bold" stroke="none">
-                        {oItem.type}
-                      </text>
-                      <line
-                        x1={oItem.startX + (oItem.type.startsWith('15') ? 28 : 22)}
-                        y1={oItem.lineY}
-                        x2={oItem.endX}
-                        y2={oItem.lineY}
-                        strokeDasharray="3,3"
-                      />
-                      <line x1={oItem.endX} y1={oItem.lineY} x2={oItem.endX} y2={oItem.hookY} />
-                    </g>
-                  ))}
-
-                  {/* Tempo Markings: Rendered per beat directly from precalculated overlay data */}
-                  {(systemOverlayData.tempoBySystem.get(sysIdx) || []).map(tItem => (
-                    <text
-                      key={tItem.key}
-                      x={tItem.textX}
-                      y={TOP_STAVE_Y - 10}
-                      fontSize="13"
-                      fontWeight="bold"
-                      fontFamily="sans-serif"
-                      fill={notationColor}
-                    >
-                      ♩ = {tItem.bpm}
-                    </text>
-                  ))}
-
-                  {/* Traditional Sheet Music Dynamics per Beat: Centered between staves from precalculated overlay data */}
-                  {showDynamics && (systemOverlayData.dynamicsBySystem.get(sysIdx) || []).map(dItem => (
-                    <g key={dItem.key}>
-                      <text
-                        x={dItem.textX}
-                        y={dItem.textY}
-                        fontFamily="'Times New Roman', Cambria, Georgia, serif"
-                        fontSize="22"
-                        fontStyle="italic"
-                        fontWeight="900"
-                        dominantBaseline="central"
-                        fill={notationColor}
-                      >
-                        {dItem.mark}
-                      </text>
-                    </g>
-                  ))}
-
-                  {/* Sleek Playhead Indicator Line: slender cursor across staves */}
-                  {isSystemActive && playheadHighlightInfo && (
-                    <g key={`playhead-${sysIdx}`}>
-                      <line
-                        x1={playheadHighlightInfo.x}
-                        y1={playheadHighlightInfo.y}
-                        x2={playheadHighlightInfo.x}
-                        y2={playheadHighlightInfo.y + playheadHighlightInfo.h}
-                        stroke="rgba(239, 68, 68, 0.9)"
-                        strokeWidth={2.2}
-                        strokeLinecap="round"
-                      />
-                      <polygon
-                        points={`
-                          ${playheadHighlightInfo.x - 4},${playheadHighlightInfo.y}
-                          ${playheadHighlightInfo.x + 4},${playheadHighlightInfo.y}
-                          ${playheadHighlightInfo.x},${playheadHighlightInfo.y + 6}
-                        `}
-                        fill="rgba(239, 68, 68, 0.95)"
-                      />
-                    </g>
-                  )}
-
-                  {/* User Note Glow Highlights: ONLY for user notes (played or waiting).
-                      No left/right hand color distinction. Perfectly tailored to notehead ellipse tilted at -20 deg */}
-                  {Array.from(activePlaybackNotesInfo.entries()).map(([noteId, info]) => {
-                    if (info.status !== 'user_played' && info.status !== 'waiting') return null;
-                    const positions = notePositionsByNoteId.get(noteId)
-                      || notePositionsByNoteId.get(`${noteId}-0`)
-                      || (notePositions.get(noteId) ? [notePositions.get(noteId)!] : (notePositions.get(`${noteId}-0`) ? [notePositions.get(`${noteId}-0`)!] : []));
-                    if (!positions || positions.length === 0) return null;
-
-                    const isWaiting = info.status === 'waiting';
-                    const highlightColor = isWaiting ? '#f59e0b' : (hitNoteColor || '#10b981');
-
-                    return positions.map((pos, pIdx) => {
-                      if (!pos || pos.systemIndex !== sysIdx) return null;
-                      const cx = pos.x + pos.w / 2;
-                      const cy = pos.y + pos.h / 2;
-
-                      return (
-                        <g key={`hit-${noteId}-${pIdx}`} transform={`rotate(-20, ${cx}, ${cy})`}>
-                          {/* Soft ambient glow */}
-                          <ellipse
-                            cx={cx}
-                            cy={cy}
-                            rx={9}
-                            ry={6}
-                            fill={highlightColor}
-                            opacity={isWaiting ? 0.35 : 0.4}
-                          />
-                          {/* Notehead highlight matching note shape */}
-                          <ellipse
-                            cx={cx}
-                            cy={cy}
-                            rx={6.8}
-                            ry={4.5}
-                            fill={highlightColor}
-                            opacity={isWaiting ? 0.8 : 0.9}
-                            stroke={isWaiting ? '#fbbf24' : '#34d399'}
-                            strokeWidth={1}
-                          />
-                        </g>
-                      );
-                    });
-                  })}
-                </svg>
-
-                {/* Clickable Measure Hitboxes for Seeking */}
-                {system.measures.map((mLayout) => (
-                  <div
-                    key={`hitbox-${mLayout.globalIndex}`}
-                    className="absolute cursor-pointer hover:bg-black/[0.03] transition-colors rounded"
-                    style={{
-                      left: `${Math.round(mLayout.x * system.scale)}px`,
-                      top: 0,
-                      width: `${Math.round(mLayout.width * system.scale)}px`,
-                      height: `${system.height}px`,
-                      zIndex: 20,
-                    }}
-                    onClick={() => handleMeasureClick(mLayout.measure.startTimeMs)}
-                    title={`Measure ${mLayout.globalIndex + 1} - Click to seek`}
-                  />
-                ))}
-              </div>
+                system={system}
+                sysIdx={sysIdx}
+                isDrum={isDrum}
+                notationColor={notationColor}
+                showDynamics={showDynamics}
+                octaves={octaves}
+                tempos={tempos}
+                dynamics={dynamics}
+                playhead={playhead}
+                activeHighlights={highlights}
+                onMeasureClick={handleMeasureClick}
+                setCanvasRef={el => { canvasRefs.current[sysIdx] = el; }}
+                setDivRef={el => { systemDivRefs.current[sysIdx] = el; }}
+              />
             );
           })}
         </div>

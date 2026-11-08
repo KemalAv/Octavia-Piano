@@ -247,6 +247,9 @@ export interface GameSettings {
   zoomDirection?: 'normal' | 'reverse'; // NEW: Zoom direction
   isCalibrationMode?: boolean; // NEW: Calibration mode for sync offset
   drumTyperPadOpacity?: number; // NEW: Opacity for pads in Drum Typer mode (0-100)
+  showDrumPads?: boolean; // Show drum pads in modes other than Drum Typer
+  hideDrumPads?: boolean; // Deprecated backwards compatibility
+  showPianoKeyboardNonFalling?: boolean; // Show piano keyboard in modes other than Falling Notes
   isAutoplay?: boolean; // Explicit flag for computer Autoplay mode
 }
 

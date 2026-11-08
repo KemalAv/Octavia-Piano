@@ -27,7 +27,7 @@ export const getLearnTranslations = (lang: AppLanguage = 'en') => {
       ? 'Las partituras de piano utilizan dos pentagramas unidos por una llave, llamados Gran Pentagrama. El pentagrama superior es la Clave de Sol (mano derecha) y el inferior es la Clave de Fa (mano izquierda).'
       : 'Piano sheet music uses two staves joined together by a brace, called the Grand Staff. The upper staff is the Treble Clef (played by the Right Hand), and the lower staff is the Bass Clef (played by the Left Hand).',
     ch1VisualTitle: isId ? 'Panduan Visual: Grand Staff & C Tengah' : isEs ? 'Guía Visual: Gran Pentagrama y Do Central' : 'Visual Guide: The Grand Staff & Middle C',
-    ch1TrebleTitle: isId ? 'Kunci G / Treble Clef 𝄞' : isEs ? 'Clave de Sol 𝄞' : 'Treble Clef (G Clef) 𝄞',
+    ch1TrebleTitle: isId ? 'Kunci G / Treble Clef' : isEs ? 'Clave de Sol' : 'Treble Clef (G Clef)',
     ch1RightHand: isId ? 'Tangan Kanan' : isEs ? 'Mano Derecha' : 'Right Hand',
     ch1TrebleDesc: isId
       ? 'Pusaran Kunci G melingkari garis kedua dari bawah, yaitu nada G4. Mengatur melodi register menengah hingga tinggi.'
@@ -38,7 +38,7 @@ export const getLearnTranslations = (lang: AppLanguage = 'en') => {
     ch1Spaces4: isId ? '4 Spasi (Bawah ke Atas):' : isEs ? '4 Espacios (De abajo hacia arriba):' : '4 Spaces (Bottom to Top):',
     ch1TrebleLineMnemo: isId ? 'Jembatan Keledai: "Every Good Boy Does Fine" (E - G - B - D - F)' : isEs ? 'Mnemotecnia: "Every Good Boy Does Fine" (E - G - B - D - F)' : 'Mnemonic: "Every Good Boy Does Fine"',
     ch1TrebleSpaceMnemo: isId ? 'Membentuk kata: "FACE" (F - A - C - E)' : isEs ? 'Forma la palabra: "FACE" (F - A - C - E)' : 'Mnemonic: Spells the word "FACE"',
-    ch1BassTitle: isId ? 'Kunci F / Bass Clef 𝄢' : isEs ? 'Clave de Fa 𝄢' : 'Bass Clef (F Clef) 𝄢',
+    ch1BassTitle: isId ? 'Kunci F / Bass Clef' : isEs ? 'Clave de Fa' : 'Bass Clef (F Clef)',
     ch1LeftHand: isId ? 'Tangan Kiri' : isEs ? 'Mano Izquierda' : 'Left Hand',
     ch1BassDesc: isId
       ? 'Dua titik Kunci F mengapit garis keempat, yaitu nada F3. Mengatur pola bass rendah, nada dasar akor, dan pengiring ritmis.'
@@ -200,8 +200,72 @@ export const getLearnTranslations = (lang: AppLanguage = 'en') => {
     ch6RootKeyDesc: isId ? 'Mentransposisi semua latihan secara dinamis ke nada yang dipilih' : isEs ? 'Transpone todos los ejercicios dinámicamente a la clave elegida' : 'Transposes all drills dynamically to chosen key',
     ch6PlayDrill: isId ? 'Mulai Latihan' : isEs ? 'Tocar Ejercicio' : 'Play Drill',
 
-    // Chapter 7
-    ch7Badge: isId ? 'Masterclass Video YouTube Terpilih' : isEs ? 'Clases Magistrales Seleccionadas de YouTube' : 'Curated YouTube Masterclasses',
+    // Chapter 7 • Perfect Pitch Training & Ear Academy
+    chPPBadge: isId ? 'Bab 7 • Pelatihan Perfect Pitch' : isEs ? 'Capítulo 7 • Entrenamiento de Oído Absoluto' : 'Chapter 7 • Perfect Pitch Training',
+    chPPMasterclass: isId ? 'Masterclass Pengenalan Pitch Absolut & Relatif' : isEs ? 'Clase Magistral de Oído Absoluto y Relativo' : 'Absolute & Relative Pitch Masterclass',
+    chPPTitle: isId ? 'Pelatihan Perfect Pitch & Ketajaman Pendengaran Musik' : isEs ? 'Entrenamiento de Oído Absoluto y Agudeza Auditiva' : 'Perfect Pitch Training & Active Ear Mastery',
+    chPPDesc: isId
+      ? 'Kembangkan kemampuan mengenali dan mereproduksi nada piano secara instan tanpa alat bantu. Latih memori pendengaran absolut, pemetaan frekuensi Hertz, asosiasi warna timbre, dan pengenalan interval dengan kuis interaktif.'
+      : isEs
+      ? 'Desarrolla la capacidad de reconocer y reproducir notas de piano al instante sin referencias externas. Entrena la memoria tonal absoluta, frecuencias en Hertz, colores tímbricos y reconocimiento de intervalos con el entrenador interactivo.'
+      : 'Develop the ability to identify and reproduce piano pitches instantly without an external reference. Train absolute pitch memory, Hertz frequencies, timbral color anchors, and interval recognition with the interactive ear trainer.',
+
+    // Interactive Ear Trainer UI
+    chPPTrainerHeading: isId ? 'Konsol Latihan Perfect Pitch Interaktif' : isEs ? 'Consola Interactiva de Oído Absoluto' : 'Interactive Perfect Pitch Console',
+    chPPTrainerSubtitle: isId ? 'Dengarkan nada yang dibunyikan dan tebak tuts yang benar!' : isEs ? '¡Escucha la nota reproducida y selecciona la tecla correcta!' : 'Listen to the audio pitch and select the correct piano key!',
+    chPPPlayQuestion: isId ? 'Bunyikan Nada Baru' : isEs ? 'Tocar Nueva Nota' : 'Play New Pitch',
+    chPPReplay: isId ? 'Dengarkan Ulang' : isEs ? 'Repetir Tono' : 'Replay Pitch',
+    chPPReferenceA4: isId ? 'Referensi A4 (440 Hz)' : isEs ? 'Referencia La4 (440 Hz)' : 'Reference A4 (440 Hz)',
+    chPPReferenceC4: isId ? 'Referensi C4 (261.6 Hz)' : isEs ? 'Referencia Do4 (261.6 Hz)' : 'Reference C4 (261.6 Hz)',
+    chPPModeLabel: isId ? 'Mode Latihan:' : isEs ? 'Modo de Entrenamiento:' : 'Training Mode:',
+    chPPModePitch: isId ? 'Nada Tunggal (Absolute)' : isEs ? 'Nota Individual (Absoluto)' : 'Single Pitch (Absolute)',
+    chPPModeInterval: isId ? 'Pengenalan Interval (Relatif)' : isEs ? 'Intervalos (Relativo)' : 'Intervals (Relative)',
+    chPPModeChord: isId ? 'Karakter Akor (Harmoni)' : isEs ? 'Cualidad de Acorde (Armonía)' : 'Chord Quality (Harmony)',
+    chPPDiffLabel: isId ? 'Tingkat Kesulitan:' : isEs ? 'Dificultad:' : 'Difficulty:',
+    chPPDiffWhite: isId ? 'Tuts Putih (C Major)' : isEs ? 'Teclas Blancas (Do Mayor)' : 'White Keys (C Major)',
+    chPPDiffAll12: isId ? '12 Kromatik (Oktaf 4)' : isEs ? '12 Cromáticas (Octava 4)' : '12 Chromatic (Octave 4)',
+    chPPDiffWide: isId ? 'Rentang Luas (Oktaf 3-5)' : isEs ? 'Rango Amplio (Octavas 3-5)' : 'Wide Range (Octaves 3-5)',
+    chPPStreak: isId ? 'Streak Beruntun' : isEs ? 'Racha Actual' : 'Current Streak',
+    chPPBestStreak: isId ? 'Streak Terbaik' : isEs ? 'Mejor Racha' : 'Best Streak',
+    chPPAccuracy: isId ? 'Akurasi' : isEs ? 'Precisión' : 'Accuracy',
+    chPPTotalTested: isId ? 'Total Soal' : isEs ? 'Total Pruebas' : 'Total Tested',
+    chPPCorrectBadge: isId ? 'Tepat Sekali!' : isEs ? '¡Correcto!' : 'Correct!',
+    chPPIncorrectBadge: isId ? 'Kurang Tepat!' : isEs ? '¡Incorrecto!' : 'Incorrect!',
+    chPPYouGuessed: isId ? 'Pilihan Anda:' : isEs ? 'Tu Selección:' : 'Your Selection:',
+    chPPActualPitch: isId ? 'Nada Sebenarnya:' : isEs ? 'Nota Real:' : 'Actual Pitch:',
+    chPPListenDiff: isId ? 'Bandingkan Bunyi' : isEs ? 'Comparar Sonidos' : 'Compare Sounds',
+    chPPPlayGuess: isId ? 'Bunyikan Pilihan Anda' : isEs ? 'Tocar Tu Selección' : 'Play Your Guess',
+    chPPPlayCorrect: isId ? 'Bunyikan Nada Benar' : isEs ? 'Tocar Nota Correcta' : 'Play Correct Note',
+    chPPNextBtn: isId ? 'Soal Berikutnya →' : isEs ? 'Siguiente Nota →' : 'Next Pitch →',
+    chPPResetBtn: isId ? 'Reset Statistik' : isEs ? 'Reiniciar Datos' : 'Reset Stats',
+    chPPWaitingFirstNote: isId ? 'Klik "Bunyikan Nada Baru" untuk memulai kuis!' : isEs ? '¡Haz clic en "Tocar Nueva Nota" para iniciar la prueba!' : 'Click "Play New Pitch" to begin the quiz!',
+    chPPHintAnchor: isId ? 'Petunjuk: Gunakan nada referensi C4 atau A4 jika membutuhkan perbandingan relatif.' : isEs ? 'Consejo: Usa los tonos de referencia Do4 o La4 si necesitas comparar de forma relativa.' : 'Tip: Use the C4 or A4 reference tones if you need a relative comparison.',
+    chPPHeatmapTitle: isId ? 'Matriks Memori & Ketajaman 12 Nada' : isEs ? 'Matriz de Memoria Auditiva de 12 Notas' : '12-Pitch Memory & Accuracy Matrix',
+    chPPSelectChord: isId ? 'PILIH KUALITAS AKOR YANG ANDA DENGAR:' : isEs ? 'ELIGE LA CUALIDAD DEL ACORDE QUE ESCUCHAS:' : 'SELECT THE CHORD QUALITY YOU HEAR:',
+    chPPScaleLabel: isId ? 'Tangga Nada:' : isEs ? 'Escala Musical:' : 'Scale / Key:',
+    chPPScaleAll12: isId ? '12 Kromatik Bebas' : isEs ? '12 Notas Cromáticas' : '12 Chromatics (Free)',
+    chPPScaleRandom: isId ? 'Acak Tangga Nada' : isEs ? 'Escala Aleatoria' : 'Random Scale',
+    chPPRootLabel: isId ? 'Nada Dasar (Root):' : isEs ? 'Tónica / Fundamental:' : 'Root Key:',
+    chPPRootRandom: isId ? 'Acak Semua Nada' : isEs ? 'Aleatorio (Todas)' : 'Random Root (Any)',
+    chPPActiveScaleBadge: isId ? 'Tangga Nada Aktif:' : isEs ? 'Escala Activa:' : 'Active Scale:',
+    chPPChordInRoot: isId ? 'Akor Nada Dasar' : isEs ? 'Acorde en Tónica' : 'Chord in Root',
+    chPPRootModeLabel: isId ? 'Pilihan Root:' : isEs ? 'Tónicas de Opciones:' : 'Choice Roots:',
+    chPPRootModeFixed: isId ? 'Satu Root (Fixed)' : isEs ? 'Misma Tónica' : 'Single Root',
+    chPPRootModeMixed: isId ? 'Campur (Mixed Roots)' : isEs ? 'Mezcladas (Mixed)' : 'Mixed Roots',
+    chPPRangeWideAll: isId ? 'Rentang Luas (Oktaf 2–5)' : isEs ? 'Rango Amplio (Octavas 2–5)' : 'Wide Range (Octaves 2–5)',
+    chPPRangeOctave4: isId ? 'Oktaf Standar (Oktaf 4)' : isEs ? 'Octava Estándar (Octava 4)' : 'Standard (Octave 4)',
+
+    // Theory & Guide sections
+    chPPTheorySec1Title: isId ? '1. Sains di Balik Perfect Pitch vs. Relative Pitch' : isEs ? '1. La Ciencia del Oído Absoluto vs. Oído Relativo' : '1. The Science of Perfect Pitch vs. Relative Pitch',
+    chPPTheorySec2Title: isId ? '2. Spektrum Warna & Asosiasi Karakter 12 Nada' : isEs ? '2. El Espectro de Color y Timbre de las 12 Notas' : '2. Color Spectrum & Timbral Character of the 12 Notes',
+    chPPTheorySec3Title: isId ? '3. Tabel Jembatan Keledai Interval & Lagu Populer' : isEs ? '3. Mnemotecnias de Intervalos y Canciones Célebres' : '3. Interval Mnemonics & Song Reference Matrix',
+    chPPTheorySec4Title: isId ? '4. Protokol Latihan Harian 10 Menit' : isEs ? '4. Protocolo Diario de 10 Minutos para el Oído' : '4. 10-Minute Daily Ear Workout Protocol',
+
+    // Chapter 8 • MIDI Editor & Sequencer
+    ch8Badge: isId ? 'Bab 8 • Editor MIDI & Sekuenser' : isEs ? 'Capítulo 8 • Editor MIDI y Secuenciador' : 'Chapter 8 • MIDI Editor & Sequencer',
+
+    // Chapter 9 • Curated YouTube Masterclasses
+    ch7Badge: isId ? 'Bab 9 • Masterclass Video YouTube Terpilih' : isEs ? 'Capítulo 9 • Clases Magistrales Seleccionadas de YouTube' : 'Chapter 9 • Curated YouTube Masterclasses',
     ch7Title: isId ? 'Masterclass Tutorial Video Visual' : isEs ? 'Clases Magistrales en Video' : 'Visual Video Masterclasses',
     ch7Desc: isId
       ? 'Tonton panduan visual berkualitas tinggi yang membahas membaca notasi balok, tanda kunci, pembentukan akor, biomekanika pergelangan tangan, dan kontrol piano Roblox PC.'
@@ -210,9 +274,6 @@ export const getLearnTranslations = (lang: AppLanguage = 'en') => {
       : 'Watch high-yield visual breakdowns covering sheet music notation, key signatures, chord voicings, ergonomic wrist mechanics, and Roblox PC virtual piano controls.',
     ch7ReadChapter: isId ? 'Baca Bab Terkait' : isEs ? 'Leer Capítulo' : 'Read Chapter',
     ch7WatchYoutube: isId ? 'Tonton di YouTube' : isEs ? 'Ver en YouTube' : 'Watch on YouTube',
-
-    // Chapter 8 • MIDI Editor & Sequencer
-    ch8Badge: isId ? 'Bab 8 • Editor MIDI & Sekuenser' : isEs ? 'Capítulo 8 • Editor MIDI y Secuenciador' : 'Chapter 8 • MIDI Editor & Sequencer',
     ch8Masterclass: isId ? 'Masterclass Editor MIDI & Piano Roll' : isEs ? 'Clase Magistral de Editor MIDI y Piano Roll' : 'MIDI Editor & Piano Roll Masterclass',
     ch8Title: isId ? 'Panduan Lengkap Editor MIDI Octavia: Piano Roll, Kuantisasi, Velocity & Aransemen' : isEs ? 'Guía Completa del Editor MIDI de Octavia: Piano Roll, Cuantización, Dinámica y Arreglos' : 'Complete Octavia MIDI Editor Guide: Piano Roll, Quantization, Velocity & Sequencing',
     ch8Desc: isId
@@ -288,5 +349,15 @@ export const getLearnTranslations = (lang: AppLanguage = 'en') => {
       : 'Once editing is complete, export as a Standard MIDI Format 1 file ready to play in Octavia\'s Local Songs library or open in external DAWs.',
     ch8ShortcutsTitle: isId ? 'Tabel Pintasan Keyboard Editor MIDI' : isEs ? 'Atajos de Teclado del Editor MIDI' : 'MIDI Editor Keyboard Shortcuts',
 
+    // Sequential Curriculum Navigation ("Beruntun")
+    stepIndicator: (cur: number, total: number) => isId ? `Langkah ${cur} dari ${total}` : isEs ? `Paso ${cur} de ${total}` : `Step ${cur} of ${total}`,
+    curriculumProgress: isId ? 'Jalur Kemajuan Kurikulum' : isEs ? 'Progreso Secuencial del Curso' : 'Curriculum Progression Track',
+    prevChapter: isId ? 'Bab Sebelumnya' : isEs ? 'Capítulo Anterior' : 'Previous Chapter',
+    nextChapter: isId ? 'Bab Selanjutnya' : isEs ? 'Capítulo Siguiente' : 'Next Chapter',
+    finishCurriculum: isId ? 'Selesai Kurikulum • Kembali ke Menu' : isEs ? 'Finalizar Curso • Volver al Menú' : 'Finish Curriculum • Return to Menu',
+    jumpToDrills: isId ? 'Buka Drill Generator (Bab 06)' : isEs ? 'Ir al Generador de Drills (Cap. 06)' : 'Open Drill Generator (Ch. 06)',
+    activeStep: isId ? 'Sedang Dipelajari' : isEs ? 'En Curso' : 'Current Step',
+    stepShort: isId ? 'Langkah' : isEs ? 'Paso' : 'Step',
+    roadmapTitle: isId ? 'Jalur Kurikulum Beruntun' : isEs ? 'Ruta Secuencial del Curso' : 'Sequential Curriculum Roadmap',
   };
 };

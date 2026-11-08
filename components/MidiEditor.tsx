@@ -1291,7 +1291,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
             if (gridX > totalHeight) return; // Ruler click
             const index = Math.floor(gridX / effectiveRowHeight);
             midi = keysConfig[index]?.midiNote ?? -1;
-            tick = snapTick(pxToTick(absoluteY));
+            tick = snapTick(Math.max(0, pxToTick(totalWidth - absoluteY)));
             selectStartX = gridX;
             selectStartY = absoluteY;
         } else {
@@ -1392,16 +1392,30 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
         if (editingTempoIndex !== null) return;
         e.stopPropagation();
         handleMouseDownShared(() => {
-            const laneEl = e.currentTarget as HTMLDivElement;
-            const rect = laneEl.getBoundingClientRect();
-            const x = (e.clientX - rect.left) / zoomScale;
-            const tick = pxToTick(x + (gridContainerRef.current?.scrollLeft || 0));
             if (index !== undefined) {
                 setDragInfo({ type: 'tempo', tempoIndex: index, initialBpm: editorState?.tempos[index].bpm, startX: e.clientX, startY: e.clientY });
-            } else {
-                const y = (e.clientY - rect.top) / zoomScale;
-                const bpm = 500 - (y / laneEl.clientHeight) * 480;
-                setEditorState(prev => ({ ...prev, tempos: [...prev.tempos, { ticks: snapTick(tick), bpm: Math.round(Math.max(20, bpm)) }].sort((a, b) => a.ticks - b.ticks) }));
+            } else if (gridContainerRef.current) {
+                const scrollContainer = gridContainerRef.current;
+                const containerRect = scrollContainer.getBoundingClientRect();
+                if (isVertical) {
+                    const x = (e.clientX - containerRect.left) / zoomScale + scrollContainer.scrollLeft;
+                    const y = (e.clientY - containerRect.top) / zoomScale + scrollContainer.scrollTop;
+                    const tick = snapTick(Math.max(0, pxToTick(totalWidth - y)));
+                    const bpm = Math.round(Math.max(20, Math.min(500, 20 + (x / totalHeight) * 480)));
+                    setEditorState(prev => {
+                        if (!prev) return prev;
+                        return { ...prev, tempos: [...prev.tempos, { ticks: tick, bpm }].sort((a, b) => a.ticks - b.ticks) };
+                    });
+                } else {
+                    const x = (e.clientX - containerRect.left) / zoomScale + scrollContainer.scrollLeft;
+                    const y = (e.clientY - containerRect.top) / zoomScale + scrollContainer.scrollTop - RULER_HEIGHT;
+                    const tick = snapTick(Math.max(0, pxToTick(x)));
+                    const bpm = Math.round(Math.max(20, Math.min(500, 500 - (y / totalHeight) * 480)));
+                    setEditorState(prev => {
+                        if (!prev) return prev;
+                        return { ...prev, tempos: [...prev.tempos, { ticks: tick, bpm }].sort((a, b) => a.ticks - b.ticks) };
+                    });
+                }
             }
         });
     };
@@ -1464,20 +1478,31 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                         })
                     }), true);
                 } else if (dragInfo.type === 'tempo' && dragInfo.tempoIndex !== undefined) {
-                    const dy = (e.clientY - dragInfo.startY) / zoomScale;
-                    const bpmDelta = (dy / (gridContainerRef.current?.clientHeight ?? totalHeight)) * 480;
-                    setEditorState(prev => {
-                        const newTempos = [...prev.tempos];
-                        const rawNewBpm = Math.max(20, Math.min(500, dragInfo.initialBpm! - bpmDelta));
-                        const newBpm = Math.round(rawNewBpm * 4) / 4;
-                        newTempos[dragInfo.tempoIndex!].bpm = newBpm;
-                        return { ...prev, tempos: newTempos };
-                    }, true);
-                } else if (dragInfo.type === 'velocity' && dragInfo.noteId) {
-                    const currentTotalH = gridContainerRef.current?.clientHeight ?? totalHeight;
                     if (isVertical) {
                         const dx = (e.clientX - dragInfo.startX) / zoomScale;
-                        const velDelta = dx / currentTotalH;
+                        const bpmDelta = (dx / totalHeight) * 480;
+                        setEditorState(prev => {
+                            const newTempos = [...prev.tempos];
+                            const rawNewBpm = Math.max(20, Math.min(500, dragInfo.initialBpm! + bpmDelta));
+                            const newBpm = Math.round(rawNewBpm * 4) / 4;
+                            newTempos[dragInfo.tempoIndex!].bpm = newBpm;
+                            return { ...prev, tempos: newTempos };
+                        }, true);
+                    } else {
+                        const dy = (e.clientY - dragInfo.startY) / zoomScale;
+                        const bpmDelta = (dy / totalHeight) * 480;
+                        setEditorState(prev => {
+                            const newTempos = [...prev.tempos];
+                            const rawNewBpm = Math.max(20, Math.min(500, dragInfo.initialBpm! - bpmDelta));
+                            const newBpm = Math.round(rawNewBpm * 4) / 4;
+                            newTempos[dragInfo.tempoIndex!].bpm = newBpm;
+                            return { ...prev, tempos: newTempos };
+                        }, true);
+                    }
+                } else if (dragInfo.type === 'velocity' && dragInfo.noteId) {
+                    if (isVertical) {
+                        const dx = (e.clientX - dragInfo.startX) / zoomScale;
+                        const velDelta = dx / totalHeight;
                         const newVel = Math.max(0.02, Math.min(1.0, (dragInfo.initialVelocity ?? 0.8) + velDelta));
                         setEditorState(prev => ({
                             ...prev,
@@ -1494,7 +1519,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                         }), true);
                     } else {
                         const dy = (e.clientY - dragInfo.startY) / zoomScale;
-                        const velDelta = -dy / currentTotalH;
+                        const velDelta = -dy / totalHeight;
                         const newVel = Math.max(0.02, Math.min(1.0, (dragInfo.initialVelocity ?? 0.8) + velDelta));
                         setEditorState(prev => ({
                             ...prev,
@@ -1525,8 +1550,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
 
         const handleMouseUp = async (e: MouseEvent) => {
             if (isDraggingRulerRef.current && (backingTrackUrl || backingTrackRef.current)) {
-                // Apply a hidden -350ms offset for mp3 and ytmp3 in MIDI editor
-                const defaultOffsetMs = backingTrackOffset - 350;
+                const defaultOffsetMs = backingTrackOffset - 0;
                 const userOffsetMs = userAudioSyncOffset;
                 const totalOffsetMs = defaultOffsetMs + userOffsetMs;
                 const midiStartMs = ticksToMs(cursorTick);
@@ -1834,12 +1858,14 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
         const tempo = tempos[editingTempoIndex];
         if (!tempo) return null;
 
-        const x = tickToPx(tempo.ticks);
-        const y = totalHeight - ((tempo.bpm - 20) / 480 * totalHeight);
+        const x = isVertical ? ((tempo.bpm - 20) / 480) * totalHeight : tickToPx(tempo.ticks);
+        const y = isVertical ? totalWidth - tickToPx(tempo.ticks) : totalHeight - ((tempo.bpm - 20) / 480 * totalHeight);
 
-        // Logika khusus untuk tick 0 agar tidak tertutup sidebar
+        // Positioning transform
         const isFirstTick = tempo.ticks === 0;
-        const transformStyle = isFirstTick ? 'translate(10%, -120%)' : 'translate(-50%, -120%)';
+        const transformStyle = isVertical
+            ? (x > totalHeight - 110 ? 'translate(-105%, -50%)' : 'translate(10px, -50%)')
+            : (isFirstTick ? 'translate(10%, -120%)' : 'translate(-50%, -120%)');
 
         return (
             <div
@@ -2242,23 +2268,37 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                                     </div>
 
                                     <svg width="100%" height="100%" className="absolute inset-0 z-10 overflow-visible">
-                                        <defs><linearGradient id="bpmGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="rgba(251, 191, 36, 0.2)" /><stop offset="100%" stopColor="rgba(251, 191, 36, 0.0)" /></linearGradient></defs>
-                                        <path d={`M ${tempos.map(t => `${tickToPx(t.ticks)},${totalHeight - ((t.bpm - 20) / 480 * totalHeight)}`).join(' L ')}`} stroke="#fbbf24" strokeWidth="2" fill="none" />
-                                        <path d={`M ${tickToPx(tempos[0].ticks)},${totalHeight} L ${tempos.map(t => `${tickToPx(t.ticks)},${totalHeight - ((t.bpm - 20) / 480 * totalHeight)}`).join(' L ')} L ${tickToPx(tempos[tempos.length - 1].ticks)},${totalHeight} Z`} fill="url(#bpmGradient)" />
+                                        <defs>
+                                            <linearGradient id="bpmGradient" x1={isVertical ? "1" : "0"} y1="0" x2="0" y2={isVertical ? "0" : "1"}>
+                                                <stop offset="0%" stopColor="rgba(251, 191, 36, 0.2)" />
+                                                <stop offset="100%" stopColor="rgba(251, 191, 36, 0.0)" />
+                                            </linearGradient>
+                                        </defs>
+                                        {isVertical ? (
+                                            <>
+                                                <path d={`M ${tempos.map(t => `${((t.bpm - 20) / 480) * totalHeight},${totalWidth - tickToPx(t.ticks)}`).join(' L ')}`} stroke="#fbbf24" strokeWidth="2" fill="none" />
+                                                <path d={`M 0,${totalWidth - tickToPx(tempos[0].ticks)} L ${tempos.map(t => `${((t.bpm - 20) / 480) * totalHeight},${totalWidth - tickToPx(t.ticks)}`).join(' L ')} L 0,${totalWidth - tickToPx(tempos[tempos.length - 1].ticks)} Z`} fill="url(#bpmGradient)" />
+                                            </>
+                                        ) : (
+                                            <>
+                                                <path d={`M ${tempos.map(t => `${tickToPx(t.ticks)},${totalHeight - ((t.bpm - 20) / 480 * totalHeight)}`).join(' L ')}`} stroke="#fbbf24" strokeWidth="2" fill="none" />
+                                                <path d={`M ${tickToPx(tempos[0].ticks)},${totalHeight} L ${tempos.map(t => `${tickToPx(t.ticks)},${totalHeight - ((t.bpm - 20) / 480 * totalHeight)}`).join(' L ')} L ${tickToPx(tempos[tempos.length - 1].ticks)},${totalHeight} Z`} fill="url(#bpmGradient)" />
+                                            </>
+                                        )}
 
                                         {tempos.map((tempo, i) => {
-                                            const x = tickToPx(tempo.ticks);
-                                            const y = totalHeight - ((tempo.bpm - 20) / 480 * totalHeight);
-                                            // Peningkatan offset label horizontal agar tidak tertutup sidebar
-                                            const textX = x < 40 ? x + 45 : x;
+                                            const x = isVertical ? ((tempo.bpm - 20) / 480) * totalHeight : tickToPx(tempo.ticks);
+                                            const y = isVertical ? (totalWidth - tickToPx(tempo.ticks)) : (totalHeight - ((tempo.bpm - 20) / 480 * totalHeight));
+                                            const textX = isVertical ? Math.min(totalHeight - 35, x + 8) : (x < 40 ? x + 45 : x);
+                                            const textY = isVertical ? y + 3 : y - 12;
                                             return (
                                                 <g key={`text-${i}`}>
                                                     <text
                                                         x={textX}
-                                                        y={y - 12}
+                                                        y={textY}
                                                         fill="#fbbf24"
                                                         fontSize="10"
-                                                        textAnchor={x < 40 ? "start" : "middle"}
+                                                        textAnchor={isVertical ? "start" : (x < 40 ? "start" : "middle")}
                                                         className="cursor-pointer font-black"
                                                         onClick={(e) => { e.stopPropagation(); setEditingTempoIndex(i); }}
                                                     >
@@ -2271,36 +2311,65 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
 
                                     {renderBpmInput()}
 
-                                    {tempos.map((tempo, i) => (
-                                        <div key={i} className="absolute w-3 h-3 bg-amber-400 rounded-full border-2 border-black cursor-pointer transform -translate-x-1/2 -translate-y-1/2 z-20 hover:scale-150 transition-transform"
-                                            style={{ left: tickToPx(tempo.ticks), top: totalHeight - ((tempo.bpm - 20) / 480 * totalHeight) }}
-                                            onMouseDown={(e) => handleBpmMouseDown(e, i)}
-                                            onClick={(e) => { e.stopPropagation(); setEditingTempoIndex(i); }}
-                                        />
-                                    ))}
+                                    {tempos.map((tempo, i) => {
+                                        const left = isVertical ? ((tempo.bpm - 20) / 480) * totalHeight : tickToPx(tempo.ticks);
+                                        const top = isVertical ? (totalWidth - tickToPx(tempo.ticks)) : (totalHeight - ((tempo.bpm - 20) / 480 * totalHeight));
+                                        return (
+                                            <div key={i} className="absolute w-3 h-3 bg-amber-400 rounded-full border-2 border-black cursor-pointer transform -translate-x-1/2 -translate-y-1/2 z-20 hover:scale-150 transition-transform"
+                                                style={{ left, top }}
+                                                onMouseDown={(e) => handleBpmMouseDown(e, i)}
+                                                onClick={(e) => { e.stopPropagation(); setEditingTempoIndex(i); }}
+                                            />
+                                        );
+                                    })}
 
-                                    <div className="absolute top-0 bottom-0 z-40" style={{ left: tickToPx(cursorTick), pointerEvents: 'none' }}>
-                                        <div className="absolute top-0 bottom-0 w-0.5 bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.8)]" />
-                                        <div className="absolute -top-4 -translate-x-1/2 flex items-center justify-center gap-1.5 p-1 rounded-full bg-slate-900/50" style={{ pointerEvents: 'auto' }}>
-                                            <button
-                                                onMouseDown={(e) => { e.stopPropagation(); handleDeleteTempoPoint(); }}
-                                                disabled={!nearestTempoPoint || nearestTempoPoint.ticks === 0}
-                                                className="w-5 h-5 rounded-full bg-slate-700 text-white font-black text-lg flex items-center justify-center leading-none disabled:opacity-30 disabled:cursor-not-allowed hover:bg-red-500"
-                                                title="Remove nearest tempo point"
-                                            >
-                                                -
-                                            </button>
-                                            <div className="w-4 h-4 bg-amber-400 rotate-45 transform" />
-                                            <button
-                                                onMouseDown={(e) => { e.stopPropagation(); handleAddTempoPoint(); }}
-                                                disabled={tempos.some(t => t.ticks === cursorTick)}
-                                                className="w-5 h-5 rounded-full bg-slate-700 text-white font-black text-lg flex items-center justify-center leading-none disabled:opacity-30 disabled:cursor-not-allowed hover:bg-green-500"
-                                                title="Add tempo point at cursor"
-                                            >
-                                                +
-                                            </button>
+                                    {isVertical ? (
+                                        <div className="absolute left-0 right-0 z-40" style={{ top: totalWidth - tickToPx(cursorTick), pointerEvents: 'none' }}>
+                                            <div className="absolute left-0 right-0 h-0.5 bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.8)]" />
+                                            <div className="absolute -top-3 right-2 flex items-center justify-center gap-1.5 p-1 rounded-full bg-slate-900/80 border border-white/10" style={{ pointerEvents: 'auto' }}>
+                                                <button
+                                                    onMouseDown={(e) => { e.stopPropagation(); handleDeleteTempoPoint(); }}
+                                                    disabled={!nearestTempoPoint || nearestTempoPoint.ticks === 0}
+                                                    className="w-5 h-5 rounded-full bg-slate-700 text-white font-black text-lg flex items-center justify-center leading-none disabled:opacity-30 disabled:cursor-not-allowed hover:bg-red-500"
+                                                    title="Remove nearest tempo point"
+                                                >
+                                                    -
+                                                </button>
+                                                <div className="w-3.5 h-3.5 bg-amber-400 rotate-45 transform" />
+                                                <button
+                                                    onMouseDown={(e) => { e.stopPropagation(); handleAddTempoPoint(); }}
+                                                    disabled={tempos.some(t => t.ticks === cursorTick)}
+                                                    className="w-5 h-5 rounded-full bg-slate-700 text-white font-black text-lg flex items-center justify-center leading-none disabled:opacity-30 disabled:cursor-not-allowed hover:bg-green-500"
+                                                    title="Add tempo point at cursor"
+                                                >
+                                                    +
+                                                </button>
+                                            </div>
                                         </div>
-                                    </div>
+                                    ) : (
+                                        <div className="absolute top-0 bottom-0 z-40" style={{ left: tickToPx(cursorTick), pointerEvents: 'none' }}>
+                                            <div className="absolute top-0 bottom-0 w-0.5 bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.8)]" />
+                                            <div className="absolute -top-4 -translate-x-1/2 flex items-center justify-center gap-1.5 p-1 rounded-full bg-slate-900/50" style={{ pointerEvents: 'auto' }}>
+                                                <button
+                                                    onMouseDown={(e) => { e.stopPropagation(); handleDeleteTempoPoint(); }}
+                                                    disabled={!nearestTempoPoint || nearestTempoPoint.ticks === 0}
+                                                    className="w-5 h-5 rounded-full bg-slate-700 text-white font-black text-lg flex items-center justify-center leading-none disabled:opacity-30 disabled:cursor-not-allowed hover:bg-red-500"
+                                                    title="Remove nearest tempo point"
+                                                >
+                                                    -
+                                                </button>
+                                                <div className="w-4 h-4 bg-amber-400 rotate-45 transform" />
+                                                <button
+                                                    onMouseDown={(e) => { e.stopPropagation(); handleAddTempoPoint(); }}
+                                                    disabled={tempos.some(t => t.ticks === cursorTick)}
+                                                    className="w-5 h-5 rounded-full bg-slate-700 text-white font-black text-lg flex items-center justify-center leading-none disabled:opacity-30 disabled:cursor-not-allowed hover:bg-green-500"
+                                                    title="Add tempo point at cursor"
+                                                >
+                                                    +
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             ) : editorViewMode === 'velocity' ? (
                                 <div className="relative w-full h-full bg-[#0c0e12] border-t-2 border-emerald-500/50 select-none overflow-hidden" onMouseDown={(e) => {
@@ -2367,6 +2436,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                                                     >
                                                         <span className="text-[7px] font-black text-white">{getNoteName(note.midi)}</span>
                                                         <span className="text-[7px] font-extrabold italic text-amber-200">{dynamic}</span>
+                                                        <span className="text-[7px] font-mono text-white/80">{Math.round(vel * 127)}</span>
                                                     </div>
                                                 </div>
                                             );

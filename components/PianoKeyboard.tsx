@@ -68,8 +68,8 @@ const PianoKeyboard: React.FC<PianoKeyboardProps> = memo(({
 
   // Unified helper to compute QWERTY key label for a key, shared across rendering loops
   const getQwertyShortcut = useCallback((keyDef: PianoKeyDefinition): string => {
-    const shouldShow = showQwertyShortcuts || gameplayStyle === 'computer';
-    if (!shouldShow) return '';
+    // QWERTY shortcuts on keys are always shown in Computer Keyboard gameplay style
+    if (gameplayStyle !== 'computer') return '';
     if (qwertyLayout === 'mirp') {
       const targetBaseMidi = keyDef.midiNote - mirpTranspose;
       const matching = MIRP_KEYBOARD_MAPPING.filter(m => m.midi === targetBaseMidi);

@@ -35,50 +35,238 @@ export const getNoteBeatPosition = (n: MidiNotePlaybackItem): { startBeat: numbe
 };
 
 const BLACK_KEYS = new Set([1, 3, 6, 8, 10]);
-const isBlack = (midi: number) => BLACK_KEYS.has(midi % 12);
-const isWhite = (midi: number) => !isBlack(midi);
+export const isBlackKey = (midi: number): boolean => BLACK_KEYS.has(midi % 12);
+export const isWhiteKey = (midi: number): boolean => !isBlackKey(midi);
+const isBlack = isBlackKey;
+const isWhite = isWhiteKey;
 
-interface ScaleFingering {
+export interface ScaleFingeringConfig {
   rhUp: Finger[];
-  rhDown: Finger[];
+  rhTop: Finger;
   lhUp: Finger[];
-  lhDown: Finger[];
+  lhTop: Finger;
 }
 
-const MAJOR_SCALE_TABLE: Record<number, ScaleFingering> = {
-  0: { rhUp: [1, 2, 3, 1, 2, 3, 4, 5], rhDown: [5, 4, 3, 2, 1, 3, 2, 1], lhUp: [5, 4, 3, 2, 1, 3, 2, 1], lhDown: [1, 2, 3, 1, 2, 3, 4, 5] },
-  7: { rhUp: [1, 2, 3, 1, 2, 3, 4, 5], rhDown: [5, 4, 3, 2, 1, 3, 2, 1], lhUp: [5, 4, 3, 2, 1, 3, 2, 1], lhDown: [1, 2, 3, 1, 2, 3, 4, 5] },
-  2: { rhUp: [1, 2, 3, 1, 2, 3, 4, 5], rhDown: [5, 4, 3, 2, 1, 3, 2, 1], lhUp: [5, 4, 3, 2, 1, 3, 2, 1], lhDown: [1, 2, 3, 1, 2, 3, 4, 5] },
-  9: { rhUp: [1, 2, 3, 1, 2, 3, 4, 5], rhDown: [5, 4, 3, 2, 1, 3, 2, 1], lhUp: [5, 4, 3, 2, 1, 3, 2, 1], lhDown: [1, 2, 3, 1, 2, 3, 4, 5] },
-  4: { rhUp: [1, 2, 3, 1, 2, 3, 4, 5], rhDown: [5, 4, 3, 2, 1, 3, 2, 1], lhUp: [5, 4, 3, 2, 1, 3, 2, 1], lhDown: [1, 2, 3, 1, 2, 3, 4, 5] },
-  11: { rhUp: [1, 2, 3, 1, 2, 3, 4, 5], rhDown: [5, 4, 3, 2, 1, 3, 2, 1], lhUp: [4, 3, 2, 1, 4, 3, 2, 1], lhDown: [1, 2, 3, 4, 1, 2, 3, 4] },
-  6: { rhUp: [2, 3, 4, 1, 2, 3, 1, 2], rhDown: [2, 1, 3, 2, 1, 4, 3, 2], lhUp: [4, 3, 2, 1, 3, 2, 1, 4], lhDown: [4, 1, 2, 3, 1, 2, 3, 4] },
-  1: { rhUp: [2, 3, 1, 2, 3, 4, 1, 2], rhDown: [2, 1, 4, 3, 2, 1, 3, 2], lhUp: [3, 2, 1, 4, 3, 2, 1, 3], lhDown: [3, 1, 2, 3, 4, 1, 2, 3] },
-  8: { rhUp: [3, 4, 1, 2, 3, 1, 2, 3], rhDown: [3, 2, 1, 3, 2, 1, 4, 3], lhUp: [3, 2, 1, 4, 3, 2, 1, 3], lhDown: [3, 1, 2, 3, 4, 1, 2, 3] },
-  3: { rhUp: [3, 1, 2, 3, 4, 1, 2, 3], rhDown: [3, 2, 1, 4, 3, 2, 1, 3], lhUp: [3, 2, 1, 4, 3, 2, 1, 3], lhDown: [3, 1, 2, 3, 4, 1, 2, 3] },
-  10: { rhUp: [4, 1, 2, 3, 1, 2, 3, 4], rhDown: [4, 3, 2, 1, 3, 2, 1, 4], lhUp: [3, 2, 1, 4, 3, 2, 1, 3], lhDown: [3, 1, 2, 3, 4, 1, 2, 3] },
-  5: { rhUp: [1, 2, 3, 4, 1, 2, 3, 4], rhDown: [4, 3, 2, 1, 4, 3, 2, 1], lhUp: [5, 4, 3, 2, 1, 3, 2, 1], lhDown: [1, 2, 3, 1, 2, 3, 4, 5] }
+export const MAJOR_SCALE_FINGERING: Record<number, ScaleFingeringConfig> = {
+  0: { rhUp: [1, 2, 3, 1, 2, 3, 4], rhTop: 5, lhUp: [5, 4, 3, 2, 1, 3, 2], lhTop: 1 },
+  7: { rhUp: [1, 2, 3, 1, 2, 3, 4], rhTop: 5, lhUp: [5, 4, 3, 2, 1, 3, 2], lhTop: 1 },
+  2: { rhUp: [1, 2, 3, 1, 2, 3, 4], rhTop: 5, lhUp: [5, 4, 3, 2, 1, 3, 2], lhTop: 1 },
+  9: { rhUp: [1, 2, 3, 1, 2, 3, 4], rhTop: 5, lhUp: [5, 4, 3, 2, 1, 3, 2], lhTop: 1 },
+  4: { rhUp: [1, 2, 3, 1, 2, 3, 4], rhTop: 5, lhUp: [5, 4, 3, 2, 1, 3, 2], lhTop: 1 },
+  11: { rhUp: [1, 2, 3, 1, 2, 3, 4], rhTop: 5, lhUp: [4, 3, 2, 1, 4, 3, 2], lhTop: 1 },
+  6: { rhUp: [2, 3, 4, 1, 2, 3, 1], rhTop: 2, lhUp: [4, 3, 2, 1, 3, 2, 1], lhTop: 1 },
+  1: { rhUp: [2, 3, 1, 2, 3, 4, 1], rhTop: 2, lhUp: [3, 2, 1, 4, 3, 2, 1], lhTop: 1 },
+  8: { rhUp: [3, 4, 1, 2, 3, 1, 2], rhTop: 3, lhUp: [3, 2, 1, 4, 3, 2, 1], lhTop: 1 },
+  3: { rhUp: [3, 1, 2, 3, 4, 1, 2], rhTop: 3, lhUp: [3, 2, 1, 4, 3, 2, 1], lhTop: 1 },
+  10: { rhUp: [4, 1, 2, 3, 1, 2, 3], rhTop: 4, lhUp: [3, 2, 1, 4, 3, 2, 1], lhTop: 1 },
+  5: { rhUp: [1, 2, 3, 4, 1, 2, 3], rhTop: 4, lhUp: [5, 4, 3, 2, 1, 3, 2], lhTop: 1 },
 };
 
-const MINOR_SCALE_TABLE: Record<number, ScaleFingering> = {
-  9: { rhUp: [1, 2, 3, 1, 2, 3, 4, 5], rhDown: [5, 4, 3, 2, 1, 3, 2, 1], lhUp: [5, 4, 3, 2, 1, 3, 2, 1], lhDown: [1, 2, 3, 1, 2, 3, 4, 5] },
-  4: { rhUp: [1, 2, 3, 1, 2, 3, 4, 5], rhDown: [5, 4, 3, 2, 1, 3, 2, 1], lhUp: [5, 4, 3, 2, 1, 3, 2, 1], lhDown: [1, 2, 3, 1, 2, 3, 4, 5] },
-  11: { rhUp: [1, 2, 3, 1, 2, 3, 4, 5], rhDown: [5, 4, 3, 2, 1, 3, 2, 1], lhUp: [4, 3, 2, 1, 4, 3, 2, 1], lhDown: [1, 2, 3, 4, 1, 2, 3, 4] },
-  6: { rhUp: [2, 3, 1, 2, 3, 1, 2, 3], rhDown: [3, 2, 1, 3, 2, 1, 3, 2], lhUp: [4, 3, 2, 1, 3, 2, 1, 4], lhDown: [4, 1, 2, 3, 1, 2, 3, 4] },
-  1: { rhUp: [2, 3, 1, 2, 3, 4, 1, 2], rhDown: [3, 2, 1, 3, 2, 1, 3, 2], lhUp: [3, 2, 1, 4, 3, 2, 1, 3], lhDown: [3, 1, 2, 3, 4, 1, 2, 3] },
-  8: { rhUp: [2, 3, 1, 2, 3, 1, 2, 3], rhDown: [3, 2, 1, 3, 2, 1, 3, 2], lhUp: [3, 2, 1, 3, 2, 1, 4, 3], lhDown: [3, 4, 1, 2, 3, 1, 2, 3] },
-  3: { rhUp: [2, 1, 2, 3, 4, 1, 2, 3], rhDown: [3, 2, 1, 4, 3, 2, 1, 2], lhUp: [2, 1, 4, 3, 2, 1, 3, 2], lhDown: [2, 3, 1, 2, 3, 4, 1, 2] },
-  10: { rhUp: [4, 1, 2, 3, 1, 2, 3, 4], rhDown: [4, 3, 2, 1, 3, 2, 1, 4], lhUp: [2, 1, 3, 2, 1, 4, 3, 2], lhDown: [2, 3, 4, 1, 2, 3, 1, 2] },
-  5: { rhUp: [1, 2, 3, 4, 1, 2, 3, 4], rhDown: [4, 3, 2, 1, 4, 3, 2, 1], lhUp: [5, 4, 3, 2, 1, 3, 2, 1], lhDown: [1, 2, 3, 1, 2, 3, 4, 5] },
-  0: { rhUp: [1, 2, 3, 1, 2, 3, 4, 5], rhDown: [5, 4, 3, 2, 1, 3, 2, 1], lhUp: [5, 4, 3, 2, 1, 3, 2, 1], lhDown: [1, 2, 3, 1, 2, 3, 4, 5] },
-  7: { rhUp: [1, 2, 3, 1, 2, 3, 4, 5], rhDown: [5, 4, 3, 2, 1, 3, 2, 1], lhUp: [5, 4, 3, 2, 1, 3, 2, 1], lhDown: [1, 2, 3, 1, 2, 3, 4, 5] },
-  2: { rhUp: [1, 2, 3, 1, 2, 3, 4, 5], rhDown: [5, 4, 3, 2, 1, 3, 2, 1], lhUp: [5, 4, 3, 2, 1, 3, 2, 1], lhDown: [1, 2, 3, 1, 2, 3, 4, 5] }
+export const MINOR_SCALE_FINGERING: Record<number, ScaleFingeringConfig> = {
+  9: { rhUp: [1, 2, 3, 1, 2, 3, 4], rhTop: 5, lhUp: [5, 4, 3, 2, 1, 3, 2], lhTop: 1 },
+  4: { rhUp: [1, 2, 3, 1, 2, 3, 4], rhTop: 5, lhUp: [5, 4, 3, 2, 1, 3, 2], lhTop: 1 },
+  11: { rhUp: [1, 2, 3, 1, 2, 3, 4], rhTop: 5, lhUp: [4, 3, 2, 1, 4, 3, 2], lhTop: 1 },
+  6: { rhUp: [2, 3, 1, 2, 3, 1, 2], rhTop: 3, lhUp: [4, 3, 2, 1, 3, 2, 1], lhTop: 1 },
+  1: { rhUp: [2, 3, 1, 2, 3, 4, 1], rhTop: 2, lhUp: [3, 2, 1, 4, 3, 2, 1], lhTop: 1 },
+  8: { rhUp: [2, 3, 1, 2, 3, 1, 2], rhTop: 3, lhUp: [3, 2, 1, 3, 2, 1, 4], lhTop: 3 },
+  3: { rhUp: [2, 1, 2, 3, 4, 1, 2], rhTop: 3, lhUp: [2, 1, 4, 3, 2, 1, 3], lhTop: 2 },
+  10: { rhUp: [4, 1, 2, 3, 1, 2, 3], rhTop: 4, lhUp: [2, 1, 3, 2, 1, 4, 3], lhTop: 2 },
+  5: { rhUp: [1, 2, 3, 4, 1, 2, 3], rhTop: 4, lhUp: [5, 4, 3, 2, 1, 3, 2], lhTop: 1 },
+  0: { rhUp: [1, 2, 3, 1, 2, 3, 4], rhTop: 5, lhUp: [5, 4, 3, 2, 1, 3, 2], lhTop: 1 },
+  7: { rhUp: [1, 2, 3, 1, 2, 3, 4], rhTop: 5, lhUp: [5, 4, 3, 2, 1, 3, 2], lhTop: 1 },
+  2: { rhUp: [1, 2, 3, 1, 2, 3, 4], rhTop: 5, lhUp: [5, 4, 3, 2, 1, 3, 2], lhTop: 1 },
+};
+
+export const getChromaticScaleFingers = (midis: number[], hand: HandType): Finger[] => {
+  const n = midis.length;
+  const fingers: Finger[] = new Array(n);
+  const half = Math.floor(n / 2);
+
+  for (let i = 0; i < n; i++) {
+    const midi = midis[i];
+    const isAsc = i < half;
+    const pc = midi % 12;
+    if (isBlackKey(midi)) {
+      fingers[i] = 3;
+    } else {
+      if (hand === 'right') {
+        if (isAsc) {
+          if ((pc === 5 && i > 0 && midis[i - 1] % 12 === 4) || (pc === 0 && i > 0 && midis[i - 1] % 12 === 11)) {
+            fingers[i] = 2;
+          } else {
+            fingers[i] = 1;
+          }
+        } else {
+          if ((pc === 5 && i < n - 1 && midis[i + 1] % 12 === 4) || (pc === 0 && i < n - 1 && midis[i + 1] % 12 === 11)) {
+            fingers[i] = 2;
+          } else {
+            fingers[i] = 1;
+          }
+        }
+      } else {
+        if (isAsc) {
+          if ((pc === 11 && i < n - 1 && midis[i + 1] % 12 === 0) || (pc === 4 && i < n - 1 && midis[i + 1] % 12 === 5)) {
+            fingers[i] = 2;
+          } else {
+            fingers[i] = 1;
+          }
+        } else {
+          if ((pc === 11 && i > 0 && midis[i - 1] % 12 === 0) || (pc === 4 && i > 0 && midis[i - 1] % 12 === 5)) {
+            fingers[i] = 2;
+          } else {
+            fingers[i] = 1;
+          }
+        }
+      }
+    }
+  }
+  return fingers;
+};
+
+export const getWholeToneScaleFingers = (midis: number[], hand: HandType): Finger[] => {
+  const n = midis.length;
+  if (hand === 'right') {
+    const up: Finger[] = [1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3, 5];
+    const down = [...up.slice(0, 12)].reverse();
+    return [...up, ...down].slice(0, n);
+  } else {
+    const up: Finger[] = [5, 4, 3, 2, 1, 3, 2, 1, 3, 2, 1, 2, 1];
+    const down = [...up.slice(0, 12)].reverse();
+    return [...up, ...down].slice(0, n);
+  }
+};
+
+export const getPentatonicScaleFingers = (midis: number[], hand: HandType): Finger[] => {
+  const n = midis.length;
+  if (hand === 'right') {
+    const up: Finger[] = [1, 2, 3, 1, 2, 1, 2, 3, 1, 2, 5];
+    const down = [...up.slice(0, 10)].reverse();
+    return [...up, ...down].slice(0, n);
+  } else {
+    const up: Finger[] = [5, 4, 3, 2, 1, 4, 3, 2, 1, 2, 1];
+    const down = [...up.slice(0, 10)].reverse();
+    return [...up, ...down].slice(0, n);
+  }
+};
+
+export const getDiatonicScaleFingers = (
+  tonicMidi: number,
+  scaleType: string,
+  seqLength: number,
+  hand: HandType
+): Finger[] => {
+  const tonicPc = ((tonicMidi % 12) + 12) % 12;
+  const isMinor = scaleType.includes('minor') || scaleType === 'dorian' || scaleType === 'phrygian' || scaleType === 'aeolian' || scaleType === 'locrian';
+  const table = isMinor ? MINOR_SCALE_FINGERING : MAJOR_SCALE_FINGERING;
+  const config = table[tonicPc] || table[0];
+
+  const pat = hand === 'right' ? config.rhUp : config.lhUp;
+  const top = hand === 'right' ? config.rhTop : config.lhTop;
+
+  const up: Finger[] = [...pat, ...pat, top];
+  const down: Finger[] = [...up.slice(0, up.length - 1)].reverse();
+  const full = [...up, ...down];
+  if (full.length > seqLength) return full.slice(0, seqLength);
+  while (full.length < seqLength) full.push(hand === 'right' ? 1 : 5);
+  return full;
+};
+
+export const getScaleFingers = (
+  tonicMidi: number,
+  scaleType: string,
+  typeId: string,
+  midis: number[],
+  hand: HandType
+): Finger[] => {
+  if (scaleType === 'chromatic') {
+    return getChromaticScaleFingers(midis, hand);
+  }
+  if (scaleType === 'whole_tone') {
+    return getWholeToneScaleFingers(midis, hand);
+  }
+  if (scaleType === 'major_pentatonic') {
+    return getPentatonicScaleFingers(midis, hand);
+  }
+  return getDiatonicScaleFingers(tonicMidi, scaleType, midis.length, hand);
+};
+
+export const getChordFingers = (
+  chordMidis: number[],
+  hand: HandType
+): Finger[] => {
+  const n = chordMidis.length;
+  const sorted = [...chordMidis].sort((a, b) => a - b);
+  const root = sorted[0];
+
+  if (n === 2) {
+    const span = sorted[1] - root;
+    if (span === 12) {
+      return hand === 'right' ? [1, 5] : [5, 1];
+    }
+    if (hand === 'right') {
+      if (span <= 2) return [1, 2];
+      if (span <= 4) return [1, 3];
+      if (span <= 6) return [1, 4];
+      return [1, 5];
+    } else {
+      if (span <= 4) return [3, 1];
+      if (span <= 6) return [4, 1];
+      return [5, 1];
+    }
+  }
+
+  if (n === 3) {
+    const i1 = sorted[1] - root;
+    const i2 = sorted[2] - root;
+    // Octave chord with middle note (Root + 5th/3rd + Octave)
+    if (i2 === 12) {
+      if (hand === 'right') {
+        if (i1 <= 4) return [1, 2, 5];
+        return [1, 3, 5];
+      } else {
+        if (i1 >= 6) return [5, 2, 1]; // Left hand: 5th + 4th octave (e.g. C-G-C) -> 5-2-1!
+        return [5, 3, 1];
+      }
+    }
+    if ((i2 - i1) >= 5) {
+      return hand === 'right' ? [1, 2, 5] : [5, 3, 1];
+    } else if (i1 >= 5) {
+      return hand === 'right' ? [1, 3, 5] : [5, 2, 1];
+    } else {
+      return hand === 'right' ? [1, 3, 5] : [5, 3, 1];
+    }
+  } else if (n === 4) {
+    const span = sorted[3] - root;
+    const gap01 = sorted[1] - sorted[0];
+    const gap12 = sorted[2] - sorted[1];
+    const gap23 = sorted[3] - sorted[2];
+
+    // 4-note chord spanning octave or more (e.g. C-E-G-C or C-G-C-E)
+    if (span >= 12) {
+      if (hand === 'right') {
+        return (gap01 <= 3 && gap12 >= 4) ? [1, 2, 4, 5] : [1, 2, 3, 5];
+      } else {
+        return (gap23 <= 3 && gap12 >= 4) ? [5, 4, 2, 1] : [5, 3, 2, 1];
+      }
+    }
+
+    if (gap01 <= 2) {
+      return hand === 'right' ? [1, 2, 4, 5] : [5, 4, 2, 1];
+    } else if (gap12 <= 2) {
+      return hand === 'right' ? [1, 2, 3, 5] : [5, 3, 2, 1];
+    } else if (gap23 <= 2) {
+      return hand === 'right' ? [1, 2, 4, 5] : [5, 4, 2, 1];
+    } else {
+      return hand === 'right' ? [1, 2, 3, 5] : [5, 3, 2, 1];
+    }
+  }
+  return hand === 'right' ? ([1, 2, 3, 4, 5].slice(0, n) as Finger[]) : ([5, 4, 3, 2, 1].slice(0, n) as Finger[]);
 };
 
 const SPAN_DEFS: Record<string, [number, number, number, number, number, number]> = {
   '1-2': [-5, -3, 1, 5, 8, 10],
-  '1-3': [-4, -2, 3, 7, 10, 12],
-  '1-4': [-3, -1, 5, 9, 12, 14],
+  '1-3': [-7, -5, 3, 7, 10, 12],
+  '1-4': [-8, -6, 5, 9, 12, 14],
   '1-5': [-1, 1, 7, 10, 13, 15],
   '2-3': [1, 1, 1, 2, 3, 5],
   '2-4': [1, 1, 3, 4, 5, 7],
@@ -111,7 +299,7 @@ interface CostContext {
   isFingerOccupied: boolean;
 }
 
-const calculateDeterministicCostV22 = (ctx: CostContext): number => {
+export const calculateDeterministicCostV22 = (ctx: CostContext): number => {
   const { hand, prevNote, currNote, prevFinger: f, currFinger: g, isFingerOccupied } = ctx;
   const prevBeat = getNoteBeatPosition(prevNote);
   const currBeat = getNoteBeatPosition(currNote);
@@ -141,18 +329,18 @@ const calculateDeterministicCostV22 = (ctx: CostContext): number => {
   }
 
   if (f === g) {
-    if (ioiMs < 160 || beatDelta <= SIXTEENTH_NOTE_BEAT) return 600;
-    if (ioiMs < 300 || beatDelta <= EIGHTH_NOTE_BEAT) return 350;
-    return Math.abs(interval) <= 2 ? 10 : 80;
+    // interval !== 0: Repeating the exact same finger on two different consecutive notes (poking / hopping)
+    // is anatomically and pianistically prohibited in continuous melodic playing.
+    return 750;
   }
 
   if (Math.abs(interval) === 12) {
     if (hand === 'right') {
-      if (interval === 12) return (f === 1 && g === 5) ? 0 : 120;
-      if (interval === -12) return (f === 5 && g === 1) ? 0 : 120;
+      if (interval === 12) return (f === 1 && g === 5) ? 0 : 500;
+      if (interval === -12) return (f === 5 && g === 1) ? 0 : 500;
     } else {
-      if (interval === 12) return (f === 5 && g === 1) ? 0 : 120;
-      if (interval === -12) return (f === 1 && g === 5) ? 0 : 120;
+      if (interval === 12) return (f === 5 && g === 1) ? 0 : 500;
+      if (interval === -12) return (f === 1 && g === 5) ? 0 : 500;
     }
   }
 
@@ -193,8 +381,11 @@ const calculateDeterministicCostV22 = (ctx: CostContext): number => {
   if (normInterval > 0 && f > g) {
     if (g === 1 && (f === 2 || f === 3 || f === 4)) {
       // Thumb tuck allowed only under fingers 2, 3, or 4
+    } else if (f === 5 && (g === 1 || g === 2)) {
+      // Natural hand shift upward after pinky (5): hand repositions so thumb 1 or index 2 takes higher register
+      cost += (g === 1 ? 35 : 55);
     } else {
-      return 450; // Thumb tuck under pinky (5) or finger crossing without thumb is anatomically impossible!
+      return 450; // Finger crossing without thumb is anatomically impossible!
     }
   }
   if (normInterval < 0 && f < g) {
@@ -203,6 +394,11 @@ const calculateDeterministicCostV22 = (ctx: CostContext): number => {
       if (g === 2) {
         cost += 45; // Substantial penalty: prefer crossing 3 or 4 over thumb in runs!
       }
+    } else if (f === 1 && g === 5) {
+      // Natural hand shift downward after thumb (1): hand repositions so pinky 5 takes lower register
+      cost += 40;
+    } else if ((f === 1 || f === 2) && g === 5) {
+      cost += 55;
     } else {
       return 450; // Pinky cross over thumb or finger cross without thumb is anatomically impossible!
     }
@@ -241,42 +437,22 @@ const calculateDeterministicCostV22 = (ctx: CostContext): number => {
 
 const detectAndApplyChromaticV22 = (notes: MidiNotePlaybackItem[], hand: HandType): boolean => {
   if (notes.length < 4) return false;
+  const firstDiff = notes[1].midi - notes[0].midi;
+  if (Math.abs(firstDiff) !== 1) return false;
+  const isAscending = firstDiff > 0;
+
   for (let i = 1; i < notes.length; i++) {
-    if (Math.abs(notes[i].midi - notes[i - 1].midi) !== 1) return false;
+    const diff = notes[i].midi - notes[i - 1].midi;
+    if (isAscending && diff !== 1) return false;
+    if (!isAscending && diff !== -1) return false;
     const b1 = getNoteBeatPosition(notes[i - 1]);
     const b2 = getNoteBeatPosition(notes[i]);
     if (b2.startBeat - b1.startBeat > PATTERN_MAX_BEAT) return false;
   }
 
-  const ascending = notes[notes.length - 1].midi > notes[0].midi;
+  const fingers = getChromaticScaleFingers(notes.map(n => n.midi), hand);
   notes.forEach((note, idx) => {
-    if (note.finger && note.finger >= 1 && note.finger <= 5) return;
-
-    const pc = note.midi % 12;
-    let f: Finger = 1;
-
-    if (hand === 'right') {
-      if (ascending) {
-        if (isBlack(note.midi)) f = 3;
-        else if (pc === 5 || pc === 0) f = (idx > 0 && notes[idx - 1].midi % 12 === (pc === 5 ? 4 : 11)) ? 2 : 1;
-        else f = 1;
-      } else {
-        if (isBlack(note.midi)) f = 3;
-        else if (pc === 4 || pc === 11) f = (idx > 0 && notes[idx - 1].midi % 12 === (pc === 4 ? 5 : 0)) ? 1 : 2;
-        else f = 1;
-      }
-    } else {
-      if (ascending) {
-        if (isBlack(note.midi)) f = 3;
-        else if (pc === 5 || pc === 0) f = (idx > 0 && notes[idx - 1].midi % 12 === (pc === 5 ? 4 : 11)) ? 1 : 2;
-        else f = 1;
-      } else {
-        if (isBlack(note.midi)) f = 3;
-        else if (pc === 4 || pc === 11) f = (idx > 0 && notes[idx - 1].midi % 12 === (pc === 4 ? 5 : 0)) ? 2 : 1;
-        else f = 1;
-      }
-    }
-    note.finger = f;
+    if (!note.finger) note.finger = fingers[idx];
   });
   return true;
 };
@@ -287,14 +463,14 @@ const getMultiOctaveScaleFingersV22 = (
   tonicPc: number,
   isMinor: boolean
 ): Finger[] => {
-  const table = isMinor ? MINOR_SCALE_TABLE : MAJOR_SCALE_TABLE;
+  const table = isMinor ? MINOR_SCALE_FINGERING : MAJOR_SCALE_FINGERING;
   const config = table[tonicPc] || table[0];
   const n = midis.length;
   if (n === 8) {
     const ascending = midis[7] > midis[0];
     return hand === 'right'
-      ? (ascending ? config.rhUp : config.rhDown)
-      : (ascending ? config.lhUp : config.lhDown);
+      ? (ascending ? config.rhUp : [...config.rhUp.slice(0, 7), config.rhTop].reverse())
+      : (ascending ? config.lhUp : [...config.lhUp.slice(0, 7), config.lhTop].reverse());
   }
 
   let peakIdx = 0;
@@ -308,9 +484,7 @@ const getMultiOctaveScaleFingersV22 = (
   const isAscending = !isArch && midis[n - 1] > midis[0];
 
   const pat = hand === 'right' ? config.rhUp.slice(0, 7) : config.lhUp.slice(0, 7);
-  const topFinger = hand === 'right'
-    ? (config.rhUp[7] || (tonicPc === 6 || tonicPc === 1 ? 2 : tonicPc === 8 || tonicPc === 3 ? 3 : tonicPc === 10 || tonicPc === 5 ? 4 : 5))
-    : (config.lhUp[7] || 1);
+  const topFinger = hand === 'right' ? config.rhTop : config.lhTop;
 
   if (isArch) {
     const upCount = peakIdx + 1;
@@ -336,40 +510,43 @@ const getMultiOctaveScaleFingersV22 = (
     }
     return fingers;
   } else {
-    const patDown = hand === 'right' ? config.rhDown.slice(0, 7) : config.lhDown.slice(0, 7);
-    const topF = hand === 'right' ? config.rhDown[0] : config.lhDown[0];
-    const fingers: Finger[] = [];
+    const revPat = [...pat].reverse();
+    const upFingers: Finger[] = [];
     for (let i = 0; i < n; i++) {
-      if (i === 0) fingers.push(topF as Finger);
-      else fingers.push(patDown[(i - 1) % 7] as Finger);
+      if (i === 0) upFingers.push(topFinger as Finger);
+      else upFingers.push(revPat[(i - 1) % 7] as Finger);
     }
-    return fingers;
+    return upFingers;
   }
 };
 
 const detectAndApplyScaleV22 = (notes: MidiNotePlaybackItem[], hand: HandType): boolean => {
   if (notes.length < 5) return false;
+  const firstDiff = notes[1].midi - notes[0].midi;
+  if (Math.abs(firstDiff) < 1 || Math.abs(firstDiff) > 2) return false;
+  const isAscending = firstDiff > 0;
+
   for (let i = 1; i < notes.length; i++) {
-    const diff = Math.abs(notes[i].midi - notes[i - 1].midi);
-    if (diff < 1 || diff > 2) return false;
+    const diff = notes[i].midi - notes[i - 1].midi;
+    if (isAscending && (diff < 1 || diff > 2)) return false;
+    if (!isAscending && (diff > -1 || diff < -2)) return false;
     const b1 = getNoteBeatPosition(notes[i - 1]);
     const b2 = getNoteBeatPosition(notes[i]);
     if (b2.startBeat - b1.startBeat > PATTERN_MAX_BEAT) return false;
   }
 
-  const n = notes.length;
-  let minMidi = notes[0].midi;
-  for (let i = 1; i < n; i++) {
-    if (notes[i].midi < minMidi) minMidi = notes[i].midi;
-  }
-  const tonicPc = minMidi % 12;
-
-  const isMinor = MINOR_SCALE_TABLE[tonicPc] !== undefined;
-  const fingers = getMultiOctaveScaleFingersV22(notes.map(n => n.midi), hand, tonicPc, isMinor);
+  const fingers = getClassicalScaleRunFingers(notes.map(n => n.midi), hand, isAscending);
   notes.forEach((n, idx) => {
     if (!n.finger) n.finger = fingers[idx];
   });
   return true;
+};
+
+export const getArpeggioFingers = (
+  midis: number[],
+  hand: HandType
+): Finger[] => {
+  return getArpeggioFingeringV22(midis, hand);
 };
 
 export const getArpeggioFingeringV22 = (
@@ -458,7 +635,8 @@ export const getArpeggioFingeringV22 = (
 };
 
 const detectAndApplyArpeggioV22 = (notes: MidiNotePlaybackItem[], hand: HandType): boolean => {
-  if (notes.length < 5) return false;
+  const n = notes.length;
+  if (n !== 7 && n !== 9 && n !== 13 && n !== 17) return false;
   for (let i = 1; i < notes.length; i++) {
     const diff = Math.abs(notes[i].midi - notes[i - 1].midi);
     if (diff < 3 || diff > 7) return false;
@@ -529,6 +707,8 @@ export const assignDeterministicChordFingeringV22 = (
         pattern = [1, 3];
       } else if (span <= 6) {
         pattern = [1, 4];
+      } else if (span === 12) {
+        pattern = [1, 5];
       } else {
         pattern = [1, 5];
       }
@@ -542,58 +722,20 @@ export const assignDeterministicChordFingeringV22 = (
         pattern = [3, 1];
       } else if (pitchDiff === 0 && prevChordSorted && prevChordSorted.length === 2 && chord[1].midi === prevChordSorted[1].midi) {
         pattern = [prevChordSorted[0].finger || 3, prevChordSorted[1].finger || 1];
-      } else if (span <= 2) {
-        pattern = [2, 1];
       } else if (span <= 4) {
         pattern = [3, 1];
       } else if (span <= 6) {
         pattern = [4, 1];
+      } else if (span === 12) {
+        pattern = [5, 1];
       } else {
         pattern = [5, 1];
       }
     }
   }
-  // G2. CHORD 3 NADA
-  else if (n === 3) {
-    const i1 = chord[1].midi - rootMidi;
-    const i2 = chord[2].midi - rootMidi;
-
-    if (i1 === 4 && i2 === 7) pattern = hand === 'right' ? [1, 3, 5] : [5, 3, 1];
-    else if (i1 === 3 && i2 === 7) pattern = hand === 'right' ? [1, 3, 5] : [5, 3, 1];
-    else if (i1 === 4 && i2 === 8) pattern = hand === 'right' ? [1, 3, 5] : [5, 3, 1]; // Augmented Triad Root
-    else if (i1 === 3 && i2 === 6) pattern = hand === 'right' ? [1, 3, 5] : [5, 3, 1]; // Diminished Triad Root
-    else if (i1 === 3 && i2 === 8) pattern = hand === 'right' ? [1, 2, 5] : [5, 3, 1]; // Major 1st Inv
-    else if (i1 === 4 && i2 === 9) pattern = hand === 'right' ? [1, 2, 5] : [5, 3, 1]; // Minor 1st Inv
-    else if (i1 === 5 && i2 === 9) pattern = hand === 'right' ? [1, 3, 5] : [5, 2, 1]; // Major 2nd Inv
-    else if (i1 === 5 && i2 === 8) pattern = hand === 'right' ? [1, 3, 5] : [5, 2, 1]; // Minor 2nd Inv
-    else {
-      if (span > 11) pattern = hand === 'right' ? [1, 2, 5] : [5, 2, 1];
-      else if (i1 >= 5) pattern = hand === 'right' ? [1, 3, 5] : [5, 2, 1];
-      else if ((i2 - i1) >= 5) pattern = hand === 'right' ? [1, 2, 5] : [5, 3, 1];
-      else pattern = hand === 'right' ? [1, 3, 5] : [5, 3, 1];
-    }
-  }
-  // H2. CHORD 4 NADA
-  else if (n === 4) {
-    const gap01 = chord[1].midi - chord[0].midi;
-    const gap12 = chord[2].midi - chord[1].midi;
-    const gap23 = chord[3].midi - chord[2].midi;
-
-    if (hand === 'right') {
-      if (gap23 <= 3 && gap12 >= 3) pattern = [1, 2, 4, 5];
-      else if (gap23 <= 2) pattern = [1, 2, 4, 5];
-      else if (gap01 <= 3 && gap12 >= 4) pattern = [1, 2, 4, 5];
-      else if (gap23 < gap12 && gap23 <= 4) pattern = [1, 2, 4, 5];
-      else pattern = [1, 2, 3, 5];
-    } else {
-      if (gap01 <= 3 && gap12 >= 3) pattern = [5, 4, 2, 1];
-      else if (gap01 <= 2) pattern = [5, 4, 2, 1];
-      else if (gap23 <= 3 && gap12 >= 4) pattern = [5, 4, 2, 1];
-      else if (gap01 < gap12 && gap01 <= 4) pattern = [5, 4, 2, 1];
-      else pattern = [5, 3, 2, 1];
-    }
-  } else {
-    pattern = hand === 'right' ? [1, 2, 3, 4, 5] : [5, 4, 3, 2, 1];
+  // G2 & H2. CHORD 3 & 4+ NADA (Menggunakan rumus drill terstandarisasi)
+  else {
+    pattern = getChordFingers(chord.map(c => c.midi), hand);
   }
 
   chord.forEach((note, idx) => {
@@ -618,8 +760,90 @@ export const assignDeterministicChordFingeringV22 = (
 };
 
 // ==================================================================================
-// SUB-SEQUENCE PATTERN DETECTORS (SCALES, CHROMATICS, BROKEN CHORDS)
+// SUB-SEQUENCE PATTERN DETECTORS (SCALES, CHROMATICS, BROKEN CHORDS, OCTAVES)
 // ==================================================================================
+
+/**
+ * Detects broken octave patterns (alternating / running octave jumps)
+ * e.g. C4 -> C5 -> C4 -> C5 or C3 -> C4 -> D3 -> D4
+ */
+const applyBrokenOctaveSubPatterns = (notes: MidiNotePlaybackItem[], hand: HandType) => {
+  const n = notes.length;
+  let i = 0;
+  while (i < n - 1) {
+    const diff = notes[i + 1].midi - notes[i].midi;
+    if (Math.abs(diff) === 12) {
+      let j = i + 1;
+      while (j < n - 1) {
+        const dNext = notes[j + 1].midi - notes[j].midi;
+        const b1 = getNoteBeatPosition(notes[j]);
+        const b2 = getNoteBeatPosition(notes[j + 1]);
+        if (b2.startBeat - b1.startBeat > 1.25) break;
+
+        if (Math.abs(dNext) === 12) {
+          j++;
+        } else if (j + 2 < n && Math.abs(notes[j + 2].midi - notes[j + 1].midi) === 12) {
+          const step = Math.abs(notes[j + 1].midi - notes[j - 1].midi);
+          if (step <= 5) {
+            j += 2;
+          } else {
+            break;
+          }
+        } else {
+          break;
+        }
+      }
+
+      if (j > i) {
+        for (let k = i; k <= j; k++) {
+          if (notes[k].finger) continue;
+          let isUpper = false;
+          if (k < j && Math.abs(notes[k + 1].midi - notes[k].midi) === 12) {
+            isUpper = notes[k].midi > notes[k + 1].midi;
+          } else if (k > i && Math.abs(notes[k].midi - notes[k - 1].midi) === 12) {
+            isUpper = notes[k].midi > notes[k - 1].midi;
+          }
+
+          if (hand === 'right') {
+            notes[k].finger = isUpper ? 5 : 1;
+          } else {
+            notes[k].finger = isUpper ? 1 : 5;
+          }
+        }
+        i = j + 1;
+        continue;
+      }
+    }
+    i++;
+  }
+};
+
+/**
+ * Automatically locks any octave pair (interval 12 within 250ms) in the same hand.
+ * In piano technique, octaves are exclusively played with:
+ * Right Hand: Thumb 1 on lower note, Pinky 5 on upper note (1 - 5).
+ * Left Hand: Pinky 5 on lower note, Thumb 1 on upper note (5 - 1).
+ */
+export const lockOctavePairs = (notes: MidiNotePlaybackItem[], hand: HandType) => {
+  const n = notes.length;
+  for (let i = 0; i < n; i++) {
+    const a = notes[i];
+    for (let j = i + 1; j < n; j++) {
+      const b = notes[j];
+      if (Math.abs(b.timeMs - a.timeMs) > 250) break;
+      if (Math.abs(b.midi - a.midi) === 12) {
+        const [lowNote, highNote] = a.midi < b.midi ? [a, b] : [b, a];
+        if (hand === 'right') {
+          lowNote.finger = 1;
+          highNote.finger = 5;
+        } else {
+          lowNote.finger = 5;
+          highNote.finger = 1;
+        }
+      }
+    }
+  }
+};
 
 /**
  * Detects broken chord / Alberti bass / ostinato accompaniment patterns in single-line notes.
@@ -629,7 +853,7 @@ const applyBrokenChordSubPatterns = (notes: MidiNotePlaybackItem[], hand: HandTy
   const n = notes.length;
   let i = 0;
 
-  while (i < n - 4) {
+  while (i < n - 3) {
     let j = i;
     const pitchSet = new Set<number>();
     let minPitch = notes[i].midi;
@@ -639,7 +863,7 @@ const applyBrokenChordSubPatterns = (notes: MidiNotePlaybackItem[], hand: HandTy
       const midi = notes[j].midi;
       const nextMin = Math.min(minPitch, midi);
       const nextMax = Math.max(maxPitch, midi);
-      if (nextMax - nextMin > 16) break;
+      if (nextMax - nextMin > 19) break;
 
       const testSet = new Set(pitchSet);
       testSet.add(midi);
@@ -658,29 +882,69 @@ const applyBrokenChordSubPatterns = (notes: MidiNotePlaybackItem[], hand: HandTy
     }
 
     const windowLen = j - i;
-    if (windowLen >= 5 && pitchSet.size >= 2 && pitchSet.size <= 4) {
-      const sortedPitches = Array.from(pitchSet).sort((a, b) => a - b);
-      const numPitches = sortedPitches.length;
+    const sortedPitches = Array.from(pitchSet).sort((a, b) => a - b);
+    const numPitches = sortedPitches.length;
+    const totalSpan = sortedPitches[numPitches - 1] - sortedPitches[0];
+
+    // An ostinato / broken chord / hand frame must NOT be a pure monotonic stepwise scale run!
+    // A scale run has windowLen === numPitches, all steps 1-2 semitones in a single monotonic direction.
+    const isPureMonotonicScale = (windowLen === numPitches) && (() => {
+      let allAsc = true;
+      let allDesc = true;
+      for (let k = i; k < j - 1; k++) {
+        const step = notes[k + 1].midi - notes[k].midi;
+        if (step < 1 || step > 2) allAsc = false;
+        if (step > -1 || step < -2) allDesc = false;
+      }
+      return allAsc || allDesc;
+    })();
+
+    if (isPureMonotonicScale) {
+      i++;
+      continue;
+    }
+
+    // Localized hand-frame ostinato or broken chord pattern:
+    // Window of at least 4 notes with 2 to 4 distinct pitches within a playable hand span (<= 19 semitones).
+    if (windowLen >= 4 && numPitches >= 2 && numPitches <= 4 && totalSpan <= 19) {
       const pitchToFinger = new Map<number, Finger>();
 
       if (numPitches === 2) {
         const span = sortedPitches[1] - sortedPitches[0];
-        if (span <= 2) {
-          // Trill between 2 adjacent notes: ALWAYS 2 and 3!
+        if (span === 12) {
           if (hand === 'right') {
-            pitchToFinger.set(sortedPitches[0], 2);
-            pitchToFinger.set(sortedPitches[1], 3);
+            pitchToFinger.set(sortedPitches[0], 1);
+            pitchToFinger.set(sortedPitches[1], 5);
           } else {
-            pitchToFinger.set(sortedPitches[0], 3);
-            pitchToFinger.set(sortedPitches[1], 2);
+            pitchToFinger.set(sortedPitches[0], 5);
+            pitchToFinger.set(sortedPitches[1], 1);
+          }
+        } else if (span >= 7) {
+          if (hand === 'right') {
+            pitchToFinger.set(sortedPitches[0], 1);
+            pitchToFinger.set(sortedPitches[1], 5);
+          } else {
+            pitchToFinger.set(sortedPitches[0], 5);
+            pitchToFinger.set(sortedPitches[1], 1);
           }
         } else {
           if (hand === 'right') {
-            pitchToFinger.set(sortedPitches[0], 1);
-            pitchToFinger.set(sortedPitches[1], span >= 7 ? 5 : 3);
+            if (isBlack(sortedPitches[0]) && isWhite(sortedPitches[1])) {
+              // Avoid thumb 1 on black key when reaching up to a white key (Image 2) -> use 2 - 4
+              pitchToFinger.set(sortedPitches[0], 2);
+              pitchToFinger.set(sortedPitches[1], (span >= 5 ? 5 : 4));
+            } else {
+              pitchToFinger.set(sortedPitches[0], 1);
+              pitchToFinger.set(sortedPitches[1], (span >= 5 ? 4 : 3));
+            }
           } else {
-            pitchToFinger.set(sortedPitches[0], span >= 7 ? 5 : 3);
-            pitchToFinger.set(sortedPitches[1], 1);
+            if (isBlack(sortedPitches[1]) && isWhite(sortedPitches[0])) {
+              pitchToFinger.set(sortedPitches[0], (span >= 5 ? 5 : 4));
+              pitchToFinger.set(sortedPitches[1], 2);
+            } else {
+              pitchToFinger.set(sortedPitches[0], (span >= 5 ? 4 : 3));
+              pitchToFinger.set(sortedPitches[1], 1);
+            }
           }
         }
       } else if (numPitches === 3) {
@@ -689,7 +953,22 @@ const applyBrokenChordSubPatterns = (notes: MidiNotePlaybackItem[], hand: HandTy
         const i2 = sortedPitches[2] - root;
 
         let pat: Finger[] = [];
-        if (hand === 'right') {
+        if (i2 === 12) {
+          if (hand === 'right') {
+            pat = i1 <= 4 ? [1, 2, 5] : [1, 3, 5];
+          } else {
+            pat = i1 >= 6 ? [5, 2, 1] : [5, 3, 1];
+          }
+        } else if (i2 <= 4) {
+          // Small span (e.g. 3 adjacent white keys D-E-F in Image 1 and Image 3) -> stable 3-finger position!
+          if (hand === 'right') {
+            pat = isBlack(root) ? [2, 3, 4] : [1, 2, 3];
+          } else {
+            pat = isBlack(sortedPitches[2]) ? [4, 3, 2] : [3, 2, 1];
+          }
+        } else if (i2 >= 14) {
+          pat = hand === 'right' ? [1, 2, 5] : [5, 2, 1];
+        } else if (hand === 'right') {
           if (i1 <= 4 && (i2 - i1) >= 5) pat = [1, 2, 5];
           else if (i1 >= 5) pat = [1, 3, 5];
           else pat = (i2 - i1 >= 5) ? [1, 2, 5] : [1, 3, 5];
@@ -700,22 +979,39 @@ const applyBrokenChordSubPatterns = (notes: MidiNotePlaybackItem[], hand: HandTy
         }
         sortedPitches.forEach((p, idx) => pitchToFinger.set(p, pat[idx]));
       } else if (numPitches === 4) {
-        // 4-note accompaniment (lowest=1, mid-low=2, mid-high=3, highest=4)
-        // Order: lowest(1) -> mid-low(2) -> highest(4) -> mid-high(3) -> 1 - 2 - 4 - 3 - 1 - 2 - 4 - 3
+        const root = sortedPitches[0];
+        const span = sortedPitches[3] - root;
+        const gap01 = sortedPitches[1] - sortedPitches[0];
+        const gap12 = sortedPitches[2] - sortedPitches[1];
+        const gap23 = sortedPitches[3] - sortedPitches[2];
+
         let pat: Finger[] = [];
-        if (hand === 'right') {
-          pat = [1, 2, 3, 4];
+        if (span <= 5) {
+          // Narrow 4-finger hand frame
+          if (hand === 'right') {
+            pat = isBlack(root) ? [2, 3, 4, 5] : [1, 2, 3, 4];
+          } else {
+            pat = isBlack(sortedPitches[3]) ? [5, 4, 3, 2] : [4, 3, 2, 1];
+          }
+        } else if (hand === 'right') {
+          if (span >= 12) {
+            pat = (gap01 <= 3 && gap12 >= 4) ? [1, 2, 4, 5] : [1, 2, 3, 5];
+          } else {
+            pat = (gap23 <= 2 || gap01 <= 2) ? [1, 2, 4, 5] : [1, 2, 3, 5];
+          }
         } else {
-          pat = [4, 3, 2, 1];
+          if (span >= 12) {
+            pat = (gap23 <= 3 && gap12 >= 4) ? [5, 4, 2, 1] : [5, 3, 2, 1];
+          } else {
+            pat = (gap01 <= 2 || gap23 <= 2) ? [5, 4, 2, 1] : [5, 3, 2, 1];
+          }
         }
         sortedPitches.forEach((p, idx) => pitchToFinger.set(p, pat[idx]));
       }
 
       for (let k = i; k < j; k++) {
-        if (!notes[k].finger) {
-          const f = pitchToFinger.get(notes[k].midi);
-          if (f) notes[k].finger = f;
-        }
+        const f = pitchToFinger.get(notes[k].midi);
+        if (f) notes[k].finger = f;
       }
       i = j;
     } else {
@@ -756,14 +1052,14 @@ const applyChromaticSubRuns = (notes: MidiNotePlaybackItem[], hand: HandType) =>
           if (hand === 'right') {
             if (isAsc) {
               if ((pc === 5 && k > i && notes[k - 1].midi % 12 === 4) ||
-                  (pc === 0 && k > i && notes[k - 1].midi % 12 === 11)) {
+                (pc === 0 && k > i && notes[k - 1].midi % 12 === 11)) {
                 notes[k].finger = 2;
               } else {
                 notes[k].finger = 1;
               }
             } else {
               if ((pc === 4 && k < j && notes[k + 1].midi % 12 === 5) ||
-                  (pc === 11 && k < j && notes[k + 1].midi % 12 === 0)) {
+                (pc === 11 && k < j && notes[k + 1].midi % 12 === 0)) {
                 notes[k].finger = 1;
               } else if (pc === 5 || pc === 0) {
                 notes[k].finger = 2;
@@ -774,14 +1070,14 @@ const applyChromaticSubRuns = (notes: MidiNotePlaybackItem[], hand: HandType) =>
           } else {
             if (isAsc) {
               if ((pc === 11 && k < j && notes[k + 1].midi % 12 === 0) ||
-                  (pc === 4 && k < j && notes[k + 1].midi % 12 === 5)) {
+                (pc === 4 && k < j && notes[k + 1].midi % 12 === 5)) {
                 notes[k].finger = 2;
               } else {
                 notes[k].finger = 1;
               }
             } else {
               if ((pc === 11 && k > i && notes[k - 1].midi % 12 === 0) ||
-                  (pc === 4 && k > i && notes[k - 1].midi % 12 === 5)) {
+                (pc === 4 && k > i && notes[k - 1].midi % 12 === 5)) {
                 notes[k].finger = 2;
               } else {
                 notes[k].finger = 1;
@@ -798,8 +1094,107 @@ const applyChromaticSubRuns = (notes: MidiNotePlaybackItem[], hand: HandType) =>
 };
 
 /**
+ * Computes standard classical piano fingering for a monotonic diatonic scale run of length n.
+ * Follows the universal 3-4 alternating thumb-tuck / finger-cross rule:
+ * RH Ascending / LH Descending: 1, 2, 3 -> tuck 1 -> 1, 2, 3, 4 -> tuck 1 -> 1, 2, 3 ... (peak ends on 5)
+ * RH Descending / LH Ascending: 5, 4, 3, 2, 1 -> cross 3 -> 3, 2, 1 -> cross 4 -> 4, 3, 2, 1 ...
+ */
+export const getClassicalScaleRunFingers = (
+  midis: number[],
+  hand: HandType,
+  isAscending: boolean
+): Finger[] => {
+  const n = midis.length;
+  if (n === 0) return [];
+  if (n === 1) return [hand === 'right' ? 1 : 5];
+
+  if (hand === 'right') {
+    if (isAscending) {
+      const fingers: Finger[] = new Array(n);
+      const startOnBlack = isBlack(midis[0]) && (n > 1 && isWhite(midis[1]));
+
+      let cluster = 0; // 0 = group of 3 (1,2,3), 1 = group of 4 (1,2,3,4)
+      let posInCluster = startOnBlack ? 1 : 0;
+      let curFinger = (posInCluster + 1) as Finger;
+
+      for (let k = 0; k < n; k++) {
+        const isLastNote = (k === n - 1);
+        if (isLastNote) {
+          if (curFinger === 1 && k > 0) {
+            fingers[k] = 5; // Reached the top octave / terminal note: use finger 5!
+          } else if (curFinger === 4) {
+            fingers[k] = 5;
+          } else {
+            fingers[k] = curFinger;
+          }
+          break;
+        }
+
+        fingers[k] = curFinger;
+
+        const maxPos = cluster === 0 ? 2 : 3;
+        if (posInCluster >= maxPos) {
+          cluster = 1 - cluster;
+          posInCluster = 0;
+          curFinger = 1;
+        } else {
+          posInCluster++;
+          curFinger = (curFinger + 1) as Finger;
+        }
+      }
+      return fingers;
+    } else {
+      const reversedMidis = [...midis].reverse();
+      const ascFingers = getClassicalScaleRunFingers(reversedMidis, 'right', true);
+      return ascFingers.reverse();
+    }
+  } else {
+    // Left Hand
+    if (isAscending) {
+      const reversedMidis = [...midis].reverse();
+      const descFingers = getClassicalScaleRunFingers(reversedMidis, 'left', false);
+      return descFingers.reverse();
+    } else {
+      const fingers: Finger[] = new Array(n);
+      const startOnBlack = isBlack(midis[0]) && (n > 1 && isWhite(midis[1]));
+
+      let cluster = 0;
+      let posInCluster = startOnBlack ? 1 : 0;
+      let curFinger = (posInCluster + 1) as Finger;
+
+      for (let k = 0; k < n; k++) {
+        const isLastNote = (k === n - 1);
+        if (isLastNote) {
+          if (curFinger === 1 && k > 0) {
+            fingers[k] = 5; // Bottom terminal note reaches pinky 5!
+          } else if (curFinger === 4) {
+            fingers[k] = 5;
+          } else {
+            fingers[k] = curFinger;
+          }
+          break;
+        }
+
+        fingers[k] = curFinger;
+
+        const maxPos = cluster === 0 ? 2 : 3;
+        if (posInCluster >= maxPos) {
+          cluster = 1 - cluster;
+          posInCluster = 0;
+          curFinger = 1;
+        } else {
+          posInCluster++;
+          curFinger = (curFinger + 1) as Finger;
+        }
+      }
+      return fingers;
+    }
+  }
+};
+
+/**
  * Detects contiguous monotonic scale runs (ascending or descending) and applies
- * classical scale fingering with proper thumb-tuck and finger crossing (never 1-2-1-2 loop).
+ * standard classical 3-4 scale fingering (identical to drill scale formulas).
  */
 const applyScaleSubRuns = (notes: MidiNotePlaybackItem[], hand: HandType) => {
   const n = notes.length;
@@ -826,82 +1221,7 @@ const applyScaleSubRuns = (notes: MidiNotePlaybackItem[], hand: HandType) => {
     const runLength = j - i + 1;
     if (runLength >= 4) {
       const subNotes = notes.slice(i, j + 1);
-      const fingers: Finger[] = new Array(runLength);
-
-      if (hand === 'right') {
-        if (isAscending) {
-          const startIsBlack = isBlack(subNotes[0].midi);
-          let f = startIsBlack ? 2 : 1;
-          for (let k = 0; k < runLength; k++) {
-            fingers[k] = f as Finger;
-            if (k === runLength - 1) break;
-            if (f === 3) {
-              const nextIsBlack = isBlack(subNotes[k + 1].midi);
-              f = nextIsBlack ? 4 : 1;
-            } else if (f === 4 || f === 5) {
-              f = 1;
-            } else {
-              f = f + 1;
-            }
-          }
-        } else {
-          // Right Hand Descending (e.g. 5, 4, 3, 2, 1 -> cross 3 or 4 -> 3, 2, 1)
-          const topIsBlack = isBlack(subNotes[0].midi);
-          let f = topIsBlack ? 4 : 5;
-          if (runLength === 4 && !topIsBlack) f = 4;
-          if (runLength === 3 && !topIsBlack) f = 3;
-
-          for (let k = 0; k < runLength; k++) {
-            fingers[k] = f as Finger;
-            if (k === runLength - 1) break;
-            if (f === 1) {
-              const remaining = runLength - (k + 1);
-              if (remaining <= 3) {
-                f = 3;
-              } else {
-                const noteAfter3 = (k + 3 < runLength) ? subNotes[k + 3].midi : null;
-                f = (noteAfter3 !== null && isBlack(noteAfter3)) ? 4 : 3;
-              }
-            } else {
-              f = f - 1;
-            }
-          }
-        }
-      } else {
-        // Left hand
-        if (isAscending) {
-          const bottomIsBlack = isBlack(subNotes[0].midi);
-          let f = bottomIsBlack ? 4 : 5;
-          if (runLength === 4 && !bottomIsBlack) f = 4;
-          if (runLength === 3 && !bottomIsBlack) f = 3;
-
-          for (let k = 0; k < runLength; k++) {
-            fingers[k] = f as Finger;
-            if (k === runLength - 1) break;
-            if (f === 1) {
-              const remaining = runLength - (k + 1);
-              f = remaining <= 3 ? 3 : 4;
-            } else {
-              f = f - 1;
-            }
-          }
-        } else {
-          const topIsBlack = isBlack(subNotes[0].midi);
-          let f = topIsBlack ? 2 : 1;
-          for (let k = 0; k < runLength; k++) {
-            fingers[k] = f as Finger;
-            if (k === runLength - 1) break;
-            if (f === 3) {
-              const nextIsBlack = isBlack(subNotes[k + 1].midi);
-              f = nextIsBlack ? 4 : 1;
-            } else if (f >= 4) {
-              f = 1;
-            } else {
-              f = f + 1;
-            }
-          }
-        }
-      }
+      const fingers = getClassicalScaleRunFingers(subNotes.map(n => n.midi), hand, isAscending);
 
       for (let k = 0; k < runLength; k++) {
         if (!subNotes[k].finger) {
@@ -971,25 +1291,54 @@ interface ViterbiState {
   prevFinger: Finger | null;
 }
 
-const computeViterbiMelodicV22 = (notes: MidiNotePlaybackItem[], hand: HandType) => {
+const computeViterbiMelodicV22 = (
+  notes: MidiNotePlaybackItem[],
+  hand: HandType,
+  prevAnchorNote?: MidiNotePlaybackItem | null
+) => {
   const n = notes.length;
   if (n === 0) return;
   if (n === 1) {
-    if (!notes[0].finger) notes[0].finger = hand === 'right' ? 1 : 5;
+    if (!notes[0].finger) {
+      if (prevAnchorNote && prevAnchorNote.finger) {
+        const diff = notes[0].midi - prevAnchorNote.midi;
+        const prevF = prevAnchorNote.finger;
+        if (hand === 'right') {
+          if (diff > 0 && diff <= 3) notes[0].finger = Math.min(5, prevF + 1) as Finger;
+          else if (diff < 0 && diff >= -3) notes[0].finger = Math.max(1, prevF - 1) as Finger;
+          else if (diff > 3) notes[0].finger = 5;
+          else notes[0].finger = 1;
+        } else {
+          if (diff > 0 && diff <= 3) notes[0].finger = Math.max(1, prevF - 1) as Finger;
+          else if (diff < 0 && diff >= -3) {
+            // In LH, if jumping down to a lower note from an anchor note (especially if prev was finger 1 or 2):
+            // It should NOT step into finger 2 or 3! A descent in LH moves towards bass finger 5.
+            notes[0].finger = (notes[0].midi < 60 || prevF <= 2) ? 5 : (Math.min(5, prevF + 1) as Finger);
+          }
+          else if (diff > 3) notes[0].finger = 1;
+          else notes[0].finger = 5;
+        }
+      } else {
+        notes[0].finger = hand === 'right' ? 1 : 5;
+      }
+    }
     return;
   }
 
-  // 1. Pre-detect and lock in Trills (strictly 2 - 3 - 2 - 3 - 2 - 3)
+  // 1. Pre-detect and lock in Broken Octaves
+  applyBrokenOctaveSubPatterns(notes, hand);
+
+  // 2. Pre-detect and lock in Trills (strictly 2 - 3 - 2 - 3 - 2 - 3)
   applyTrillSubPatterns(notes, hand);
 
-  // 2. Pre-detect and lock in Broken Chords / Accompaniment ostinatos (1 - 2 - 4 - 3 - 1 - 2 - 4 - 3)
-  applyBrokenChordSubPatterns(notes, hand);
+  // 3. Pre-detect and lock in Scale runs (classical 1-2-3-1-2-3-4-5 / 5-4-3-2-1-3-2-1)
+  applyScaleSubRuns(notes, hand);
 
-  // 3. Pre-detect and lock in Chromatic runs
+  // 4. Pre-detect and lock in Chromatic runs
   applyChromaticSubRuns(notes, hand);
 
-  // 4. Pre-detect and lock in Scale runs
-  applyScaleSubRuns(notes, hand);
+  // 5. Pre-detect and lock in Broken Chords / Accompaniment ostinatos
+  applyBrokenChordSubPatterns(notes, hand);
 
   // If every note has already been deterministically assigned by pattern rules, return immediately!
   if (notes.every(n => n.finger && n.finger >= 1 && n.finger <= 5)) return;
@@ -1002,7 +1351,7 @@ const computeViterbiMelodicV22 = (notes: MidiNotePlaybackItem[], hand: HandType)
     for (let start = 0; start < n; start += MAX_VITERBI_CHUNK_SIZE) {
       const end = Math.min(n, start + MAX_VITERBI_CHUNK_SIZE);
       const subNotes = notes.slice(start, end);
-      computeViterbiMelodicV22(subNotes, hand);
+      computeViterbiMelodicV22(subNotes, hand, start > 0 ? notes[start - 1] : prevAnchorNote);
     }
     return;
   }
@@ -1024,6 +1373,12 @@ const computeViterbiMelodicV22 = (notes: MidiNotePlaybackItem[], hand: HandType)
   for (let f = 1; f <= 5; f++) {
     if (notes[0].finger && f !== notes[0].finger) continue;
     let startCost = 0;
+
+    if (prevAnchorNote && prevAnchorNote.finger) {
+      if (notes[0].midi !== prevAnchorNote.midi && f === prevAnchorNote.finger) {
+        startCost += 750; // Prevent repeating previous segment's finger on a different note!
+      }
+    }
 
     if (hand === 'right') {
       if (initialTrend > 0) {
@@ -1163,9 +1518,6 @@ const computeViterbiMelodicV22 = (notes: MidiNotePlaybackItem[], hand: HandType)
 const processHandEventsV22 = (rawHandNotes: MidiNotePlaybackItem[], hand: HandType) => {
   if (rawHandNotes.length === 0) return;
 
-  // Pre-detect all trills in the hand to lock in 2-3-2-3-2-3
-  applyTrillSubPatterns(rawHandNotes, hand);
-
   const uniqueNotes: MidiNotePlaybackItem[] = [];
   const activePitchMap = new Map<number, number>();
 
@@ -1230,6 +1582,80 @@ const processHandEventsV22 = (rawHandNotes: MidiNotePlaybackItem[], hand: HandTy
     }
   };
 
+  // Pre-pass: Detect Left-Hand Bass + Chord Accompaniment Patterns (Waltz, Stride, Oom-Pah, Pop Ballad)
+  // Low single bass note anchored on beat 1 -> Pinky (finger 5)
+  // Upper accompaniment chord dyad -> [3, 1] (or [4, 1] / [5, 1] depending on interval)
+  if (hand === 'left') {
+    for (let eIdx = 0; eIdx < events.length; eIdx++) {
+      const evt = events[eIdx];
+      if (evt.length === 1) {
+        const bassNote = evt[0];
+        const bassBeat = getNoteBeatPosition(bassNote);
+
+        let hasAssociatedChord = false;
+        // Look ahead for upcoming chords within typical accompaniment bar (<= 4.5 beats)
+        for (let nextIdx = eIdx + 1; nextIdx < Math.min(events.length, eIdx + 5); nextIdx++) {
+          const nextEvt = events[nextIdx];
+          if (nextEvt.length === 1) break; // Next single note is the next bass note or melody
+          const nextBeat = getNoteBeatPosition(nextEvt[0]);
+          if (nextBeat.startBeat - bassBeat.startBeat > 4.5) break;
+          if (nextEvt[0].midi > bassNote.midi) {
+            hasAssociatedChord = true;
+            if (nextEvt.length === 2 && !nextEvt[0].finger && !nextEvt[1].finger) {
+              const dyadSpan = nextEvt[1].midi - nextEvt[0].midi;
+              if (dyadSpan <= 4) {
+                nextEvt[0].finger = 3;
+                nextEvt[1].finger = 1;
+              } else if (dyadSpan <= 6) {
+                nextEvt[0].finger = 4;
+                nextEvt[1].finger = 1;
+              } else if (dyadSpan <= 9) {
+                nextEvt[0].finger = 4;
+                nextEvt[1].finger = 1;
+              } else {
+                nextEvt[0].finger = 5;
+                nextEvt[1].finger = 1;
+              }
+            }
+          }
+        }
+
+        // Also check looking behind if this bass note follows a preceding chord
+        if (eIdx > 0) {
+          for (let prevIdx = eIdx - 1; prevIdx >= Math.max(0, eIdx - 4); prevIdx--) {
+            const prevEvt = events[prevIdx];
+            if (prevEvt.length === 1) break;
+            const prevBeat = getNoteBeatPosition(prevEvt[0]);
+            if (bassBeat.startBeat - prevBeat.startBeat > 4.5) break;
+            if (prevEvt[0].midi > bassNote.midi) {
+              hasAssociatedChord = true;
+              if (prevEvt.length === 2 && !prevEvt[0].finger && !prevEvt[1].finger) {
+                const dyadSpan = prevEvt[1].midi - prevEvt[0].midi;
+                if (dyadSpan <= 4) {
+                  prevEvt[0].finger = 3;
+                  prevEvt[1].finger = 1;
+                } else if (dyadSpan <= 6) {
+                  prevEvt[0].finger = 4;
+                  prevEvt[1].finger = 1;
+                } else if (dyadSpan <= 9) {
+                  prevEvt[0].finger = 4;
+                  prevEvt[1].finger = 1;
+                } else {
+                  prevEvt[0].finger = 5;
+                  prevEvt[1].finger = 1;
+                }
+              }
+            }
+          }
+        }
+
+        if (hasAssociatedChord && !bassNote.finger) {
+          bassNote.finger = 5;
+        }
+      }
+    }
+  }
+
   const melodicSegments: MidiNotePlaybackItem[][] = [];
   let currentMelodicSegment: MidiNotePlaybackItem[] = [];
   let lastAssignedChord: MidiNotePlaybackItem[] | null = null;
@@ -1293,7 +1719,12 @@ const processHandEventsV22 = (rawHandNotes: MidiNotePlaybackItem[], hand: HandTy
       if (segment.every(n => n.finger && n.finger >= 1 && n.finger <= 5)) {
         continue;
       }
-      computeViterbiMelodicV22(segment, hand);
+      const firstSegNoteTime = segment[0].timeMs;
+      const prevAnchor = rawHandNotes
+        .filter(n => n.timeMs < firstSegNoteTime && n.finger)
+        .sort((a, b) => b.timeMs - a.timeMs)[0] || null;
+
+      computeViterbiMelodicV22(segment, hand, prevAnchor);
     }
   }
 };
@@ -1401,11 +1832,175 @@ export const sanitizeHandChordClusters = (notes: MidiNotePlaybackItem[], hand: H
   }
 };
 
+/**
+ * Sanitizes consecutive melodic (non-chord) transitions within a single hand.
+ * In classical piano playing, playing two consecutive DIFFERENT notes with the exact same finger
+ * without a rest/pause (hopping/poking) is an error.
+ * This sanitizer scans for sequential different notes where prev.finger === curr.finger and
+ * resolves them into anatomically natural alternating fingering based on pitch direction and hand anatomy.
+ */
+export const sanitizeMelodicTransitions = (notes: MidiNotePlaybackItem[], hand: HandType) => {
+  if (notes.length < 2) return;
+  const sorted = [...notes].sort((a, b) => a.timeMs - b.timeMs || a.midi - b.midi);
+  const n = sorted.length;
+
+  for (let k = 1; k < n; k++) {
+    const curr = sorted[k];
+
+    // 1. If curr is part of a simultaneous or rolled chord/dyad (<= 120ms), skip it!
+    // Chords are governed strictly by chord voicing and sanitizeHandChordClusters.
+    const isCurrInChord =
+      (k > 0 && Math.abs(curr.timeMs - sorted[k - 1].timeMs) <= 120) ||
+      (k < n - 1 && Math.abs(sorted[k + 1].timeMs - curr.timeMs) <= 120);
+    if (isCurrInChord) continue;
+
+    // 2. If curr is part of an octave (interval 12 within 250ms), skip it!
+    // Octave runs naturally repeat thumb 1 on lower notes and pinky 5 on upper notes.
+    let isOctave = false;
+    for (let back = 1; back <= Math.min(8, k); back++) {
+      const cand = sorted[k - back];
+      if (curr.timeMs - cand.timeMs > 250) break;
+      if (Math.abs(curr.midi - cand.midi) === 12) { isOctave = true; break; }
+    }
+    if (!isOctave) {
+      for (let fwd = 1; fwd <= Math.min(8, n - 1 - k); fwd++) {
+        const cand = sorted[k + fwd];
+        if (cand.timeMs - curr.timeMs > 250) break;
+        if (Math.abs(cand.midi - curr.midi) === 12) { isOctave = true; break; }
+      }
+    }
+    if (isOctave) continue;
+
+    // Find previous note in the same voice stream (polyphony-aware lookback):
+    // If the immediate predecessor sorted[k - 1] is separated by a wide jump (>= 10 semitones)
+    // while a recent note within 4 steps is in the same register (<= 8 semitones), match that voice note.
+    let prev: MidiNotePlaybackItem | null = null;
+    for (let back = 1; back <= Math.min(4, k); back++) {
+      const cand = sorted[k - back];
+      const timeDiff = curr.timeMs - cand.timeMs;
+      if (timeDiff > 1200) break;
+
+      const pitchDist = Math.abs(curr.midi - cand.midi);
+      if (back === 1) {
+        prev = cand;
+        if (pitchDist <= 9) break;
+      } else {
+        if (pitchDist <= 8) {
+          prev = cand;
+          break;
+        }
+      }
+    }
+    if (!prev) continue;
+
+    // Check if notes are simultaneous (chord)
+    const timeDiff = curr.timeMs - prev.timeMs;
+    const prevBeat = getNoteBeatPosition(prev);
+    const currBeat = getNoteBeatPosition(curr);
+    const beatDelta = Math.abs(currBeat.startBeat - prevBeat.startBeat);
+    const isSimultaneous = (prev.ticks !== undefined && curr.ticks !== undefined)
+      ? beatDelta <= CHORD_MAX_BEAT
+      : timeDiff < 60;
+
+    if (isSimultaneous) continue;
+
+    // Same pitch (e.g. C4 -> C4) repeating same finger is valid
+    if (curr.midi === prev.midi) continue;
+
+    // If there is an explicit pause or rest (phrase breath), repeated finger is permissible
+    const restGapBeat = currBeat.startBeat - (prevBeat.startBeat + prevBeat.durationBeat);
+    if (restGapBeat >= 0.75 || timeDiff >= 1000) continue;
+
+    // If different notes in the same stream have identical finger -> Resolve collision!
+    if (curr.finger && prev.finger && curr.finger === prev.finger) {
+      const interval = curr.midi - prev.midi;
+      const next = (k + 1 < n) ? sorted[k + 1] : null;
+      const nextTimeDiff = next ? next.timeMs - curr.timeMs : 9999;
+      const nextMidi = next ? next.midi : null;
+      const nextFinger = (next && nextTimeDiff >= 60 && nextMidi !== curr.midi) ? next.finger : null;
+
+      let bestFinger: Finger | null = null;
+      let minPenalty = Infinity;
+
+      for (let cand = 1; cand <= 5; cand++) {
+        const cFinger = cand as Finger;
+        if (cFinger === prev.finger) continue; // Must NOT repeat prev finger!
+        if (nextFinger && cFinger === nextFinger) continue; // Prefer not repeating next finger!
+
+        let penalty = 0;
+
+        if (hand === 'right') {
+          if (interval > 0) {
+            // Ascending: prefer moving up to next finger or wrapping thumb (1)
+            if (cFinger > prev.finger) {
+              penalty += (cFinger - prev.finger);
+            } else if (cFinger === 1) {
+              penalty += 2; // Thumb tuck
+            } else {
+              penalty += 15;
+            }
+          } else {
+            // Descending: prefer moving down to lower finger or crossing 3 or 4
+            if (cFinger < prev.finger) {
+              penalty += (prev.finger - cFinger);
+            } else if (cFinger === 3 || cFinger === 4) {
+              penalty += 3; // Finger crossing
+            } else {
+              penalty += 15;
+            }
+          }
+        } else {
+          // Left Hand
+          if (interval > 0) {
+            // Ascending: pitch up -> lower finger (e.g. 5 -> 4 -> 3 -> 2 -> 1)
+            if (cFinger < prev.finger) {
+              penalty += (prev.finger - cFinger);
+            } else if (cFinger === 1) {
+              penalty += 2;
+            } else {
+              penalty += 15;
+            }
+          } else {
+            // Descending: pitch down -> higher finger (e.g. 1 -> 2 -> 3 -> 4 -> 5)
+            if (cFinger > prev.finger) {
+              penalty += (cFinger - prev.finger);
+            } else if (cFinger === 3 || cFinger === 4) {
+              penalty += 3;
+            } else {
+              penalty += 15;
+            }
+          }
+        }
+
+        // Avoid thumb 1 on black key
+        if (cFinger === 1 && isBlack(curr.midi)) penalty += 8;
+
+        if (penalty < minPenalty) {
+          minPenalty = penalty;
+          bestFinger = cFinger;
+        }
+      }
+
+      if (bestFinger) {
+        curr.finger = bestFinger;
+      } else {
+        // Fallback: pick adjacent finger
+        if (hand === 'right') {
+          curr.finger = interval > 0
+            ? (prev.finger < 5 ? ((prev.finger + 1) as Finger) : 1)
+            : (prev.finger > 1 ? ((prev.finger - 1) as Finger) : 3);
+        } else {
+          curr.finger = interval > 0
+            ? (prev.finger > 1 ? ((prev.finger - 1) as Finger) : 3)
+            : (prev.finger < 5 ? ((prev.finger + 1) as Finger) : 1);
+        }
+      }
+    }
+  }
+};
+
 export const assignFingering = (notes: MidiNotePlaybackItem[]): MidiNotePlaybackItem[] => {
   if (notes.length === 0) return notes;
-  if (notes.every(n => n.finger && n.finger >= 1 && n.finger <= 5)) {
-    return notes.map(n => ({ ...n }));
-  }
 
   const processedNotes = notes.map(n => ({ ...n }));
 
@@ -1433,11 +2028,22 @@ export const assignFingering = (notes: MidiNotePlaybackItem[]): MidiNotePlayback
     leftHandNotes.sort((a, b) => a.timeMs - b.timeMs || a.midi - b.midi);
   }
 
+  // 1. Initial octave detection (lock 1-5 for RH, 5-1 for LH on all octave pairs)
+  lockOctavePairs(rightHandNotes, 'right');
+  lockOctavePairs(leftHandNotes, 'left');
+
   processHandEventsV22(rightHandNotes, 'right');
   processHandEventsV22(leftHandNotes, 'left');
 
+  sanitizeMelodicTransitions(rightHandNotes, 'right');
+  sanitizeMelodicTransitions(leftHandNotes, 'left');
+
   sanitizeHandChordClusters(rightHandNotes, 'right');
   sanitizeHandChordClusters(leftHandNotes, 'left');
+
+  // 2. Ultimate guard: re-enforce octave lock so chords/melodies never break octaves
+  lockOctavePairs(rightHandNotes, 'right');
+  lockOctavePairs(leftHandNotes, 'left');
 
   for (const note of processedNotes) {
     if (!note.finger) {

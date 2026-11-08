@@ -2,13 +2,15 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../AuthContext';
-import { LeaderboardEntry, Profile, FriendWithProfile } from '../types';
+import { LeaderboardEntry, Profile, FriendWithProfile, AppLanguage } from '../types';
+import { translations } from '../translations';
 import ViewProfileModal from './ViewProfileModal';
 
 interface LeaderboardProps {
   onBack: () => void;
   onGoToOnlineSong: (songId: string) => void;
   instrumentMode: 'piano' | 'drum';
+  appLanguage?: AppLanguage;
 }
 
 const PlaceholderAvatar: React.FC = () => (
@@ -19,9 +21,10 @@ const PlaceholderAvatar: React.FC = () => (
     </div>
 );
 
-const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong, instrumentMode: initialInstrumentMode }) => {
+const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong, instrumentMode: initialInstrumentMode, appLanguage = 'en' }) => {
+    const t = translations[appLanguage] || translations.en;
     const { user } = useAuth();
-    const [activeTab, setActiveTab] = useState<'leaderboard' | 'search' | 'friends' | 'requests' | 'community'>('leaderboard');
+    const [activeTab, setActiveTab] = useState<'leaderboard' | 'search' | 'friends' | 'requests'>('leaderboard');
     const [instrumentMode, setInstrumentMode] = useState<'piano' | 'drum'>(initialInstrumentMode);
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState<{ type: 'error' | 'success', text: string } | null>(null);
@@ -304,22 +307,21 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong, ins
     return (
         <div className={`fixed inset-0 bg-slate-900/60 flex flex-col items-center justify-center z-40 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'opacity-100' : 'opacity-0'}`}>
             <div className="absolute top-4 left-4" style={{ zIndex: 9999 }}>
-                <button onClick={onBack} className={`${tertiaryButtonStyle} py-2 px-4 text-base shadow-md`}>&larr; Back to Menu</button>
+                <button onClick={onBack} className={`${tertiaryButtonStyle} py-2 px-4 text-base shadow-md`}>{appLanguage === 'id' ? '← Kembali ke Menu' : appLanguage === 'es' ? '← Volver al Menú' : '← Back to Menu'}</button>
             </div>
             <div className={`bg-slate-800/50 backdrop-blur-sm p-0 rounded-xl shadow-2xl text-center max-w-4xl w-full ring-1 ring-slate-700 max-h-[90vh] flex flex-col overflow-hidden transform transition-transform duration-300 ease-in-out ${isRendered ? 'scale-100' : 'scale-95'}`}>
                 <div className="flex border-b border-slate-700 bg-slate-800/80">
-                    <div className={`${tabStyle} ${activeTab === 'leaderboard' ? activeTabStyle : inactiveTabStyle}`} onClick={() => setActiveTab('leaderboard')}>Leaderboard</div>
-                    <div className={`${tabStyle} ${activeTab === 'search' ? activeTabStyle : inactiveTabStyle}`} onClick={() => setActiveTab('search')}>Search</div>
-                    <div className={`${tabStyle} ${activeTab === 'friends' ? activeTabStyle : inactiveTabStyle}`} onClick={() => setActiveTab('friends')}>My Friends</div>
+                    <div className={`${tabStyle} ${activeTab === 'leaderboard' ? activeTabStyle : inactiveTabStyle}`} onClick={() => setActiveTab('leaderboard')}>{t.leaderboardTitle}</div>
+                    <div className={`${tabStyle} ${activeTab === 'search' ? activeTabStyle : inactiveTabStyle}`} onClick={() => setActiveTab('search')}>{appLanguage === 'id' ? 'Cari' : appLanguage === 'es' ? 'Buscar' : 'Search'}</div>
+                    <div className={`${tabStyle} ${activeTab === 'friends' ? activeTabStyle : inactiveTabStyle}`} onClick={() => setActiveTab('friends')}>{t.myFriendsTab}</div>
                     <div className={`${tabStyle} ${activeTab === 'requests' ? activeTabStyle : inactiveTabStyle}`} onClick={() => setActiveTab('requests')}>
-                        Requests
+                        {appLanguage === 'id' ? 'Permintaan' : appLanguage === 'es' ? 'Solicitudes' : 'Requests'}
                         {friendRequests.length > 0 && (
                             <span className="absolute top-2 right-2 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs font-bold text-white">
                                 {friendRequests.length}
                             </span>
                         )}
                     </div>
-                    <div className={`${tabStyle} ${activeTab === 'community' ? activeTabStyle : inactiveTabStyle}`} onClick={() => setActiveTab('community')}>Community</div>
                 </div>
 
                 <div className="p-8 md:p-12 overflow-y-auto custom-scrollbar flex-grow flex flex-col">
@@ -330,7 +332,7 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong, ins
                             <div className="flex justify-between items-center mb-6 flex-shrink-0">
                                 <div className="text-left">
                                     <h2 className="text-3xl font-bold text-cyan-400 mb-1">{instrumentMode === 'drum' ? 'Drum' : 'Piano'} Global Leaderboard</h2>
-                                    <p className="text-sm text-slate-400">Top performers across the globe</p>
+                                    <p className="text-sm text-slate-400">{t.topPerformersSubtitle}</p>
                                 </div>
                                 <div className="flex bg-slate-700 rounded-lg p-1">
                                     <button 
@@ -351,9 +353,9 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong, ins
                                 <table className="w-full text-left table-fixed">
                                     <thead>
                                         <tr className="sticky top-0 bg-slate-900/80 backdrop-blur-sm">
-                                            <th className="p-3 text-sm font-semibold text-slate-400 w-16 text-center">Rank</th>
-                                            <th className="p-3 text-sm font-semibold text-slate-400">Player</th>
-                                            <th className="p-3 text-sm font-semibold text-slate-400 text-right">Total Score</th>
+                                            <th className="p-3 text-sm font-semibold text-slate-400 w-16 text-center">{t.rankHeader}</th>
+                                            <th className="p-3 text-sm font-semibold text-slate-400">{t.playerHeader}</th>
+                                            <th className="p-3 text-sm font-semibold text-slate-400 text-right">{t.totalScore}</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -377,14 +379,14 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong, ins
                         <div className="flex flex-col h-full">
                             <input
                                 type="text"
-                                placeholder="Search by nickname..."
+                                placeholder={t.searchByNickname}
                                 value={searchQuery}
                                 onChange={e => { setSearchQuery(e.target.value); debouncedSearch(e.target.value); }}
                                 className="w-full p-3 mb-4 rounded-lg bg-slate-700 text-white border border-slate-600 focus:ring-violet-500 focus:border-violet-500"
                             />
                             {renderList(
-                                isSearching ? <div className="text-center p-8 text-slate-300 animate-pulse">Searching...</div> :
-                                searchResults.length === 0 && searchQuery ? <div className="text-center p-8 text-slate-400">No users found.</div> :
+                                isSearching ? <div className="text-center p-8 text-slate-300 animate-pulse">{t.searchingText}</div> :
+                                searchResults.length === 0 && searchQuery ? <div className="text-center p-8 text-slate-400">{t.noPlayersFound}</div> :
                                 <div className="space-y-2">
                                     {searchResults.map(profile => (
                                         <div key={profile.id} className="flex items-center justify-between p-3 bg-slate-800 rounded-lg">
@@ -436,35 +438,6 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong, ins
                             ))}
                         </div>
                     )}
-
-                    {activeTab === 'community' && (
-                        <div className="p-8 text-center flex-grow flex flex-col items-center justify-center">
-                            <h3 className="text-2xl font-bold text-white mb-6">Join the Community</h3>
-                            <div className="space-y-4 max-w-sm w-full">
-                                <a 
-                                    href="https://discord.gg/Ms8d6guHf2" 
-                                    target="_blank" 
-                                    rel="noopener noreferrer"
-                                    className="w-full font-bold py-3 px-6 rounded-lg text-xl transition-all duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-opacity-50 shadow-lg bg-indigo-500 hover:bg-indigo-600 text-white focus:ring-indigo-400 flex items-center justify-center gap-3"
-                                >
-                                    <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.36981C18.879 3.65681 17.311 3.11181 15.654 2.76481C15.604 2.88081 15.541 3.00881 15.479 3.13681C13.896 2.84281 12.234 2.84281 10.513 3.13681C10.459 3.00881 10.395 2.88081 10.345 2.76481C8.688 3.11181 7.12 3.65681 5.683 4.36981C2.515 8.64781 1.766 12.6178 2.214 16.5518C4.004 17.7438 5.683 18.3978 7.332 18.8578C7.479 18.5908 7.614 18.3098 7.737 18.0288C7.12 17.8468 6.531 17.6258 5.964 17.3688C6.037 17.2958 6.11 17.2228 6.183 17.1488C10.159 19.0148 13.831 19.0148 17.817 17.1488C17.881 17.2228 17.953 17.2958 18.026 17.3688C17.459 17.6258 16.87 17.8468 16.263 18.0288C16.386 18.3098 16.521 18.5908 16.668 18.8578C18.317 18.3978 19.996 17.7438 21.786 16.5518C22.284 12.2988 21.365 8.42781 20.317 4.36981ZM8.021 13.9188C7.307 13.9188 6.727 13.2798 6.727 12.4998C6.727 11.7198 7.295 11.0808 8.021 11.0808C8.747 11.0808 9.327 11.7198 9.315 12.4998C9.315 13.2798 8.747 13.9188 8.021 13.9188ZM15.979 13.9188C15.265 13.9188 14.685 13.2798 14.685 12.4998C14.685 11.7198 15.253 11.0808 15.979 11.0808C16.705 11.0808 17.285 11.7198 17.273 12.4998C17.273 13.2798 16.705 13.9188 15.979 13.9188Z"></path></svg>
-                                    Join our Discord
-                                </a>
-                                <a 
-                                    href="https://sociabuzz.com/kemalavicennafaza/tribe" 
-                                    target="_blank" 
-                                    rel="noopener noreferrer"
-                                    className="w-full font-bold py-3 px-6 rounded-lg text-xl transition-all duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-opacity-50 shadow-lg bg-pink-500 hover:bg-pink-600 text-white focus:ring-pink-400 flex items-center justify-center gap-3"
-                                >
-                                    <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor"><path d="M18.5 3H6c-1.1 0-2 .9-2 2v5.71c0 3.83 2.95 7.18 6.78 7.29 3.96.12 7.22-3.06 7.22-7v-1h.5c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-1.5 6h-11V5h11v4z"></path></svg>
-                                    Donate Link
-                                </a>
-                            </div>
-                             <p className="text-slate-400 mt-8 text-sm">
-                                Your support helps keep Octavia running and evolving. Thank you!
-                            </p>
-                        </div>
-                    )}
                 </div>
             </div>
             {selectedProfileData && (
@@ -474,6 +447,7 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ onBack, onGoToOnlineSong, ins
                     globalRank={selectedProfileData.rank > 0 ? selectedProfileData.rank : undefined}
                     onClose={() => setSelectedProfileData(null)} 
                     onGoToOnlineSong={onGoToOnlineSong} 
+                    appLanguage={appLanguage}
                 />
             )}
         </div>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, memo } from 'react';
-import { ExtendedResult, WaitMode, GameSettings, PracticeHand, AppLanguage } from '../types';
+import { ExtendedResult, WaitMode, GameSettings, PracticeHand, AppLanguage, ViewMode, NoteLabelType } from '../types';
 import DifficultyAnalysis from './DifficultyAnalysis';
 import { normalizeYoutubeUrl } from '../utils';
 import { translations } from '../translations';
@@ -10,7 +10,7 @@ type BackingType = 'none' | 'mp3' | 'online';
 interface ModeSelectionProps {
     onStartGame: (settings: GameSettings) => void;
     onBack: () => void;
-    onOpenSettings?: () => void;
+    onOpenSettings?: (targetSection?: string) => void;
     analysisResult: ExtendedResult | null;
     analysisResultForPreview: ExtendedResult | null;
     fileName: string | null;
@@ -31,6 +31,13 @@ interface ModeSelectionProps {
     userAudioSyncOffset: number;
     onUserAudioSyncOffsetChange: (offset: number) => void;
     appLanguage?: AppLanguage;
+    showHand3D?: boolean;
+    onShowHand3DChange?: (show: boolean) => void;
+    viewMode?: ViewMode;
+    onViewModeChange?: (mode: ViewMode) => void;
+    noteLabelType?: NoteLabelType;
+    onNoteLabelTypeChange?: (type: NoteLabelType) => void;
+    gameplayStyle?: 'piano' | 'computer';
 }
 
 const ModeSelection: React.FC<ModeSelectionProps> = memo(({
@@ -57,6 +64,13 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
     userAudioSyncOffset,
     onUserAudioSyncOffsetChange,
     appLanguage = 'en',
+    showHand3D = false,
+    onShowHand3DChange,
+    viewMode = 'falling',
+    onViewModeChange,
+    noteLabelType = 'noteName',
+    onNoteLabelTypeChange,
+    gameplayStyle = 'piano',
 }) => {
     const t = translations[appLanguage] || translations.en;
     const [selectedMode, setSelectedMode] = useState<Mode>('practice_lenient');
@@ -92,6 +106,37 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
     const minTempoPercentage = selectedMode === 'retical' ? 75 : 10;
     const maxTempoPercentage = selectedMode === 'retical' ? 150 : 400;
 
+    const getViewModeTitle = (mode: ViewMode, inst: 'piano' | 'drum') => {
+        if (inst === 'drum') {
+            switch (mode) {
+                case 'falling':
+                    return t.viewModeDrumTyper || 'Drum Typer';
+                case 'drum_mania':
+                    return t.viewModeDrumMania || 'Drum Mania';
+                case 'sheet':
+                    return t.viewModeSheetMusic || 'Sheet Music';
+                case 'sheet-roll':
+                    return t.viewModeRollSheet || 'Sheet Music Roll';
+                default:
+                    return t.viewModeDrumTyper || 'Drum Typer';
+            }
+        }
+        switch (mode) {
+            case 'falling':
+                return t.viewModeFallingNotes || 'Falling Notes';
+            case 'sheet':
+                return t.viewModeSheetMusic || 'Sheet Music';
+            case 'sheet-roll':
+                return t.viewModeRollSheet || 'Sheet Music Roll';
+            case 'sheet-qwerty':
+                return t.viewModeSheetQwerty || 'Sheet Music QWERTY';
+            case 'qwerty_mania':
+                return t.viewModeQwertyTyper || 'Qwerty Typer';
+            default:
+                return mode.replace('_', ' ');
+        }
+    };
+
     useEffect(() => {
         if (selectedMode === 'retical') {
             const currentMultiplier = initialPlaybackTempoMultiplier;
@@ -111,7 +156,11 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
         if (mode === 'retical' || mode === 'autoplay') {
             setAccuracyLevel(currentSongAccuracyLevel || 5);
             setIsNonStop(true);
-        } else if (mode === 'practice_lenient' || mode === 'practice_strict') {
+        } else if (mode === 'practice_strict') {
+            setAccuracyLevel(3);
+            setIsNonStop(false);
+        } else if (mode === 'practice_lenient') {
+            setAccuracyLevel(currentSongAccuracyLevel || 5);
             setIsNonStop(false);
         }
     };
@@ -129,7 +178,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
         let noteToleranceMs: number;
 
         const isEffectivelyNonStop = selectedMode === 'retical' || selectedMode === 'autoplay' || (selectedMode === 'practice_lenient' && isNonStop);
-        const finalAccuracyLevel = 5;
+        const finalAccuracyLevel = selectedMode === 'practice_strict' ? 3 : (currentSongAccuracyLevel || 5);
 
         const perfectWindow = 100 + (5 - finalAccuracyLevel) * 20;
         const goodWindow = perfectWindow * 2;
@@ -218,11 +267,25 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
                     </div>
                 </div>
 
-                {analysisResultForPreview && (
-                    <div className="flex items-center">
-                        <DifficultyAnalysis analysisResult={analysisResultForPreview} />
-                    </div>
-                )}
+                <div className="flex items-center gap-2.5">
+                    {onOpenSettings && (
+                        <button 
+                            type="button"
+                            onClick={() => onOpenSettings()}
+                            className="flex items-center gap-2 text-slate-300 hover:text-white transition-all px-3 py-2 rounded-xl border border-white/10 bg-slate-900/90 hover:bg-slate-800 shadow-md active:scale-95 text-xs font-bold"
+                            title={t.settingsTitle}
+                        >
+                            <svg className="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                            <span>{t.openFullSettingsBtn}</span>
+                        </button>
+                    )}
+                    {analysisResultForPreview && (
+                        <DifficultyAnalysis analysisResult={analysisResultForPreview} appLanguage={appLanguage} />
+                    )}
+                </div>
             </header>
 
             {/* Main Scrollable Configuration Area */}
@@ -296,9 +359,14 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
                                         </svg>
                                     </div>
                                     {selectedMode === 'practice_strict' && (
-                                        <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                                            {t.activeBadge}
-                                        </span>
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                                Acc Lvl 3
+                                            </span>
+                                            <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                                {t.activeBadge}
+                                            </span>
+                                        </div>
                                     )}
                                 </div>
                                 <h4 className="font-black text-lg text-rose-300 mb-1">
@@ -410,7 +478,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         
-                        {/* Panel A: Tempo & Hand Selection */}
+                        {/* Panel A: Tempo, Display Settings & Practice Assists */}
                         <div className="bg-slate-900/70 p-6 rounded-3xl border border-white/10 space-y-6">
                             
                             {/* Tempo Control */}
@@ -490,6 +558,70 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
                                             className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
                                         />
                                     </div>
+                                )}
+                            </div>
+
+                            {/* Display & Game View (directly under tempo) */}
+                            <div className="pt-5 border-t border-white/5 space-y-4">
+                                <div className="flex items-center gap-2 text-cyan-400">
+                                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                                        <line x1="8" y1="21" x2="16" y2="21"/>
+                                        <line x1="12" y1="17" x2="12" y2="21"/>
+                                    </svg>
+                                    <label className="text-sm font-bold text-white">
+                                        {t.displayAndLabelsHeader}
+                                    </label>
+                                </div>
+
+                                {/* Active Configuration Summary Badges */}
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="p-3 rounded-2xl bg-slate-800/60 border border-slate-700/60 space-y-1">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                                            {t.gameViewLabel}
+                                        </span>
+                                        <span className="text-xs md:text-sm font-black text-cyan-300 block capitalize truncate">
+                                            {getViewModeTitle(viewMode, instrumentMode)}
+                                        </span>
+                                    </div>
+                                    <div className="p-3 rounded-2xl bg-slate-800/60 border border-slate-700/60 space-y-1">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                                            {t.noteLabelsLabel}
+                                        </span>
+                                        <span className="text-xs md:text-sm font-black text-cyan-300 block capitalize truncate">
+                                            {noteLabelType === 'noteName' ? t.noteLabelNameDisplay : noteLabelType === 'fingering' ? t.noteLabelFingeringDisplay : noteLabelType === 'qwerty' ? t.noteLabelQwertyDisplay : t.noteLabelNoneDisplay}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {/* Concise Explanatory Callout */}
+                                <div className="p-3.5 rounded-2xl bg-cyan-950/20 border border-cyan-500/20 text-xs text-slate-300 leading-relaxed space-y-1.5">
+                                    <div className="flex items-center gap-2 font-bold text-cyan-300 text-xs">
+                                        <svg className="w-4 h-4 shrink-0 text-cyan-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <circle cx="12" cy="12" r="10"/>
+                                            <line x1="12" y1="16" x2="12" y2="12"/>
+                                            <line x1="12" y1="8" x2="12.01" y2="8"/>
+                                        </svg>
+                                        <span>{t.visualSettingsHeader}</span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-400 leading-normal">
+                                        {instrumentMode === 'drum' ? t.displayPanelDescDrum : t.displayPanelDesc}
+                                    </p>
+                                </div>
+
+                                {/* Direct Action Button to Settings */}
+                                {onOpenSettings && (
+                                    <button
+                                        type="button"
+                                        onClick={() => onOpenSettings("view-mode")}
+                                        className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-black text-xs md:text-sm shadow-md shadow-cyan-500/20 transition-all hover:scale-[1.01] active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
+                                    >
+                                        <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                        </svg>
+                                        <span>{t.openDisplaySettingsBtn}</span>
+                                    </button>
                                 )}
                             </div>
 
@@ -643,7 +775,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
 
                                 {backingType === 'online' && midiLink && (
                                     <div className="p-3 rounded-xl bg-slate-800/60 border border-slate-700/60 text-xs">
-                                        <span className="font-semibold text-cyan-400 block mb-1">Streaming Link:</span>
+                                        <span className="font-semibold text-cyan-400 block mb-1">{t.streamingLink}</span>
                                         <span className="text-slate-400 truncate block text-[11px]">{normalizeYoutubeUrl(midiLink)}</span>
                                     </div>
                                 )}
@@ -653,22 +785,22 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
                             <div className="bg-amber-500/10 border border-amber-500/30 p-3.5 rounded-2xl text-xs text-amber-200 leading-relaxed space-y-2">
                                 <div className="font-bold flex items-center gap-1.5 text-amber-400">
                                     <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-                                    <span>IMPORTANT:</span>
+                                    <span>{t.importantNotice}</span>
                                 </div>
                                 <p>
-                                    If your MIDI controller feels delayed, consider adjusting the note offset in settings. Click the icon to go directly to the note offset settings, where you can calibrate it automatically by playing the calibration song. {onOpenSettings && (
+                                    {t.midiControllerDelayNotice} {onOpenSettings && (
                                         <button 
                                             type="button"
-                                            onClick={onOpenSettings} 
+                                            onClick={() => onOpenSettings?.("note-offset-section")} 
                                             className="inline-flex items-center justify-center ml-1 p-1 rounded-md bg-amber-500/20 hover:bg-amber-500/40 text-cyan-300 hover:text-white transition-colors align-middle" 
-                                            title="Open Settings"
+                                            title={t.settingsTitle}
                                         >
                                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
                                         </button>
                                     )}
                                 </p>
                                 <p>
-                                    If the MP3 is still out of sync, try adjusting the USER MS (Audio Sync) by ±10 ms from the original offset; the goal is to match the backing track with the metronome.{" "}
+                                    {t.backingSyncNotice}{" "}
                                     <button 
                                         type="button"
                                         onClick={() => {
@@ -768,13 +900,13 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
                                     <div className="mt-3 p-3 rounded-xl bg-black/40 border border-white/5 text-xs text-slate-400 space-y-1">
                                         {midiLink && (
                                             <div className="flex items-start gap-2">
-                                                <span className="font-bold text-slate-300 whitespace-nowrap">Default Source:</span>
+                                                <span className="font-bold text-slate-300 whitespace-nowrap">{t.defaultSource}</span>
                                                 <a href={midiLink} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline break-all">{normalizeYoutubeUrl(midiLink)}</a>
                                             </div>
                                         )}
                                         {midiOffset != null && (
                                             <div className="flex items-center gap-2">
-                                                <span className="font-bold text-slate-300">Default Offset:</span>
+                                                <span className="font-bold text-slate-300">{t.defaultOffset}</span>
                                                 <span className="text-cyan-300 font-mono">{midiOffset > 0 ? `+${midiOffset}` : midiOffset}ms</span>
                                             </div>
                                         )}
@@ -817,6 +949,13 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
                                             ? t.reticalModeTitle 
                                             : t.autoplayTitle}
                                 <span className="text-xs text-cyan-400 ml-2 font-mono">({displayedPlaybackPercentage}%)</span>
+                                <span className="hidden md:inline-flex items-center gap-1.5 ml-3 text-xs font-semibold text-slate-400 border-l border-white/10 pl-3">
+                                    <span className="text-slate-500">View:</span>
+                                    <span className="text-cyan-300 font-bold capitalize">{getViewModeTitle(viewMode, instrumentMode)}</span>
+                                    <span className="text-slate-500">•</span>
+                                    <span className="text-slate-500">Label:</span>
+                                    <span className="text-cyan-300 font-bold capitalize">{noteLabelType}</span>
+                                </span>
                             </div>
                         </div>
                     </div>

@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
-import { Profile, Score, OnlineSong, PerformanceSummary, LeaderboardEntry } from '../types'; // Import PerformanceSummary type
+import { Profile, Score, OnlineSong, PerformanceSummary, LeaderboardEntry, AppLanguage } from '../types'; // Import PerformanceSummary type
 import PerformanceSummaryModal from './PerformanceSummaryModal'; // Import PerformanceSummaryModal
 import { convertScoreToPerformanceSummary, getRankColorClass } from '../utils'; // Import utility for score conversion
+import { translations } from '../translations';
 
 
 interface ViewProfileModalProps {
@@ -12,9 +13,11 @@ interface ViewProfileModalProps {
   onClose: () => void;
   onGoToOnlineSong: (songId: string) => void; 
   globalRank?: number;
+  appLanguage?: AppLanguage;
 }
 
-const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onClose, onGoToOnlineSong, globalRank }) => {
+const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onClose, onGoToOnlineSong, globalRank, appLanguage = 'en' }) => {
+  const t = translations[appLanguage] || translations.en;
   const [profile, setProfile] = useState<Profile | null>(null);
   const [userTopScores, setUserTopScores] = useState<Score[]>([]);
   const [loading, setLoading] = useState(true);
@@ -237,7 +240,7 @@ const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onC
               </div>
               <div className="text-center sm:text-left">
                 <p className="text-white text-3xl font-bold">{profile.username}</p>
-                <p className="text-slate-400 text-sm mt-1">Member since: {formatDate(profile.created_at)}</p>
+                <p className="text-slate-400 text-sm mt-1">{appLanguage === 'id' ? 'Bergabung sejak: ' : appLanguage === 'es' ? 'Miembro desde: ' : 'Member since: '}{formatDate(profile.created_at)}</p>
                 {profile.bio && (
                     <p className="text-slate-300 text-sm mt-2 italic border-l-2 border-slate-600 pl-3">
                         {profile.bio}
@@ -246,11 +249,11 @@ const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onC
                 {profile?.total_playtime_ms !== undefined && (
                     <div className="flex items-baseline gap-4 mt-2 text-slate-300 flex-wrap justify-center sm:justify-start">
                         <div>
-                            <span className="text-sm">Total Playtime</span>
+                            <span className="text-sm">{t.totalPlaytime}</span>
                             <p className="text-2xl font-bold text-white">{formatPlaytime(profile?.total_playtime_ms || 0)}</p>
                         </div>
                         <div>
-                            <span className="text-sm">Total Notes Hit</span>
+                            <span className="text-sm">{t.totalNotesHit}</span>
                             <p className="text-2xl font-bold text-white">{(profile?.total_notes_hit || 0).toLocaleString('en-US')}</p>
                         </div>
                     </div>
@@ -261,14 +264,14 @@ const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onC
               <div className="flex-grow flex flex-col min-h-0 mt-4 overflow-y-auto">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4 flex-shrink-0">
                     <div>
-                        <h3 className="text-xl font-semibold text-violet-400">Ranked Performances</h3>
+                        <h3 className="text-xl font-semibold text-violet-400">{t.rankedPerformances}</h3>
                         <div className="flex items-baseline gap-4 mt-1">
                             <div>
-                                <span className="text-[10px] uppercase tracking-wider text-slate-500">Global Rank</span>
+                                <span className="text-[10px] uppercase tracking-wider text-slate-500">{t.globalRank}</span>
                                 <p className="text-lg font-bold text-white">#{profileRank ? profileRank.toLocaleString('en-US') : 'N/A'}</p>
                             </div>
                             <div>
-                                <span className="text-[10px] uppercase tracking-wider text-slate-500">Total Score</span>
+                                <span className="text-[10px] uppercase tracking-wider text-slate-500">{t.totalScore}</span>
                                 <p className="text-lg font-bold text-white">{profileTotalScore !== null ? Math.round(profileTotalScore).toLocaleString('en-US') : '...'}</p>
                             </div>
                         </div>
@@ -278,30 +281,30 @@ const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onC
                             onClick={() => setInstrumentTab('piano')}
                             className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${instrumentTab === 'piano' ? 'bg-cyan-500 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
                         >
-                            Piano
+                            {t.instrumentPiano}
                         </button>
                         <button 
                             onClick={() => setInstrumentTab('drum')}
                             className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${instrumentTab === 'drum' ? 'bg-violet-500 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
                         >
-                            Drum
+                            {t.instrumentDrum}
                         </button>
                     </div>
                 </div>
 
                 {loading ? (
                     <div className="flex-grow flex items-center justify-center p-8 text-slate-400 animate-pulse bg-slate-900/30 rounded-lg border border-dashed border-slate-700">
-                        Loading performances...
+                        {t.loadingScores}
                     </div>
                 ) : userTopScores.length > 0 ? (
                     <div className="flex-grow overflow-y-auto custom-scrollbar bg-slate-900/50 rounded-lg p-2 ring-1 ring-slate-700/50">
                         <table className="w-full text-left table-auto">
                             <thead className="sticky top-0 bg-slate-900/80 backdrop-blur-sm">
                                 <tr>
-                                    <th className="p-2 text-xs font-semibold text-slate-400">Song</th>
-                                    <th className="p-2 text-xs font-semibold text-slate-400">Date</th>
-                                    <th className="p-2 text-xs font-semibold text-slate-400 text-right">Score</th>
-                                    <th className="p-2 text-xs font-semibold text-slate-400 text-center">Rank</th>
+                                    <th className="p-2 text-xs font-semibold text-slate-400">{t.songHeader}</th>
+                                    <th className="p-2 text-xs font-semibold text-slate-400">{t.dateHeader}</th>
+                                    <th className="p-2 text-xs font-semibold text-slate-400 text-right">{t.scoreHeader}</th>
+                                    <th className="p-2 text-xs font-semibold text-slate-400 text-center">{t.rankHeader}</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -346,17 +349,17 @@ const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onC
                     </div>
                 ) : (
                     <div className="flex-grow flex items-center justify-center p-8 text-slate-400 text-center bg-slate-900/30 rounded-lg border border-dashed border-slate-700">
-                        No ranked scores for this instrument yet.
+                        {appLanguage === 'id' ? 'Belum ada skor ranked untuk instrumen ini.' : appLanguage === 'es' ? 'Aún no hay puntuaciones clasificatorias para este instrumento.' : 'No ranked scores for this instrument yet.'}
                     </div>
                 )}
               </div>
           </>
         ) : (
-          <div className="text-center p-8 text-slate-400">Profile not found.</div>
+          <div className="text-center p-8 text-slate-400">{t.profileNotFound}</div>
         )}
         
         <div className="mt-6 flex-shrink-0">
-          <button onClick={onClose} className="w-full bg-slate-600 hover:bg-slate-700 text-white font-bold py-2 px-6 rounded-lg text-base transition-colors">Close</button>
+          <button onClick={onClose} className="w-full bg-slate-600 hover:bg-slate-700 text-white font-bold py-2 px-6 rounded-lg text-base transition-colors">{t.close}</button>
         </div>
       </div>
 
@@ -366,6 +369,7 @@ const ViewProfileModal: React.FC<ViewProfileModalProps> = ({ isOpen, userId, onC
             isVisible={!!selectedPerformanceSummary} 
             summary={selectedPerformanceSummary} 
             onClose={handleClosePerformanceSummary}
+            appLanguage={appLanguage}
         />
       )}
     </div>

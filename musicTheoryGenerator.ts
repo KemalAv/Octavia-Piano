@@ -2,7 +2,34 @@
 import { MidiNotePlaybackItem, TimeSignatureInfo, TempoEvent, PianoKeyDefinition } from './types';
 import { PIANO_KEYS_CONFIG, HAND_SPLIT_MIDI_NOTE } from './constants';
 import { INITIAL_PLAYBACK_DELAY_MS } from './midiParser'; // Import from midiParser
-import { Finger } from './fingering';
+import {
+  Finger,
+  getScaleFingers,
+  getArpeggioFingers,
+  getChordFingers,
+  getChromaticScaleFingers,
+  getWholeToneScaleFingers,
+  getPentatonicScaleFingers,
+  getDiatonicScaleFingers,
+  MAJOR_SCALE_FINGERING,
+  MINOR_SCALE_FINGERING,
+  isBlackKey,
+  isWhiteKey,
+} from './fingering';
+
+export {
+  getScaleFingers,
+  getArpeggioFingers,
+  getChordFingers,
+  getChromaticScaleFingers,
+  getWholeToneScaleFingers,
+  getPentatonicScaleFingers,
+  getDiatonicScaleFingers,
+  MAJOR_SCALE_FINGERING,
+  MINOR_SCALE_FINGERING,
+  isBlackKey,
+  isWhiteKey,
+};
 
 export type ExerciseType = string;
 
@@ -136,276 +163,9 @@ const getRelativeMajorSignature = (rootMidi: number, typeId: string): string => 
 };
 
 
-const BLACK_KEY_SET = new Set([1, 3, 6, 8, 10]);
-export const isBlackKey = (midi: number): boolean => BLACK_KEY_SET.has(midi % 12);
-export const isWhiteKey = (midi: number): boolean => !isBlackKey(midi);
 
-interface ScaleFingeringConfig {
-  rhUp: Finger[];
-  rhTop: Finger;
-  lhUp: Finger[];
-  lhTop: Finger;
-}
 
-const MAJOR_SCALE_FINGERING: Record<number, ScaleFingeringConfig> = {
-  0: { rhUp: [1, 2, 3, 1, 2, 3, 4], rhTop: 5, lhUp: [5, 4, 3, 2, 1, 3, 2], lhTop: 1 },
-  7: { rhUp: [1, 2, 3, 1, 2, 3, 4], rhTop: 5, lhUp: [5, 4, 3, 2, 1, 3, 2], lhTop: 1 },
-  2: { rhUp: [1, 2, 3, 1, 2, 3, 4], rhTop: 5, lhUp: [5, 4, 3, 2, 1, 3, 2], lhTop: 1 },
-  9: { rhUp: [1, 2, 3, 1, 2, 3, 4], rhTop: 5, lhUp: [5, 4, 3, 2, 1, 3, 2], lhTop: 1 },
-  4: { rhUp: [1, 2, 3, 1, 2, 3, 4], rhTop: 5, lhUp: [5, 4, 3, 2, 1, 3, 2], lhTop: 1 },
-  11: { rhUp: [1, 2, 3, 1, 2, 3, 4], rhTop: 5, lhUp: [4, 3, 2, 1, 4, 3, 2], lhTop: 1 },
-  6: { rhUp: [2, 3, 4, 1, 2, 3, 1], rhTop: 2, lhUp: [4, 3, 2, 1, 3, 2, 1], lhTop: 1 },
-  1: { rhUp: [2, 3, 1, 2, 3, 4, 1], rhTop: 2, lhUp: [3, 2, 1, 4, 3, 2, 1], lhTop: 1 },
-  8: { rhUp: [3, 4, 1, 2, 3, 1, 2], rhTop: 3, lhUp: [3, 2, 1, 4, 3, 2, 1], lhTop: 1 },
-  3: { rhUp: [3, 1, 2, 3, 4, 1, 2], rhTop: 3, lhUp: [3, 2, 1, 4, 3, 2, 1], lhTop: 1 },
-  10: { rhUp: [4, 1, 2, 3, 1, 2, 3], rhTop: 4, lhUp: [3, 2, 1, 4, 3, 2, 1], lhTop: 1 },
-  5: { rhUp: [1, 2, 3, 4, 1, 2, 3], rhTop: 4, lhUp: [5, 4, 3, 2, 1, 3, 2], lhTop: 1 },
-};
 
-const MINOR_SCALE_FINGERING: Record<number, ScaleFingeringConfig> = {
-  9: { rhUp: [1, 2, 3, 1, 2, 3, 4], rhTop: 5, lhUp: [5, 4, 3, 2, 1, 3, 2], lhTop: 1 },
-  4: { rhUp: [1, 2, 3, 1, 2, 3, 4], rhTop: 5, lhUp: [5, 4, 3, 2, 1, 3, 2], lhTop: 1 },
-  11: { rhUp: [1, 2, 3, 1, 2, 3, 4], rhTop: 5, lhUp: [4, 3, 2, 1, 4, 3, 2], lhTop: 1 },
-  6: { rhUp: [2, 3, 1, 2, 3, 1, 2], rhTop: 3, lhUp: [4, 3, 2, 1, 3, 2, 1], lhTop: 1 },
-  1: { rhUp: [2, 3, 1, 2, 3, 4, 1], rhTop: 2, lhUp: [3, 2, 1, 4, 3, 2, 1], lhTop: 1 },
-  8: { rhUp: [2, 3, 1, 2, 3, 1, 2], rhTop: 3, lhUp: [3, 2, 1, 3, 2, 1, 4], lhTop: 3 },
-  3: { rhUp: [2, 1, 2, 3, 4, 1, 2], rhTop: 3, lhUp: [2, 1, 4, 3, 2, 1, 3], lhTop: 2 },
-  10: { rhUp: [4, 1, 2, 3, 1, 2, 3], rhTop: 4, lhUp: [2, 1, 3, 2, 1, 4, 3], lhTop: 2 },
-  5: { rhUp: [1, 2, 3, 4, 1, 2, 3], rhTop: 4, lhUp: [5, 4, 3, 2, 1, 3, 2], lhTop: 1 },
-  0: { rhUp: [1, 2, 3, 1, 2, 3, 4], rhTop: 5, lhUp: [5, 4, 3, 2, 1, 3, 2], lhTop: 1 },
-  7: { rhUp: [1, 2, 3, 1, 2, 3, 4], rhTop: 5, lhUp: [5, 4, 3, 2, 1, 3, 2], lhTop: 1 },
-  2: { rhUp: [1, 2, 3, 1, 2, 3, 4], rhTop: 5, lhUp: [5, 4, 3, 2, 1, 3, 2], lhTop: 1 },
-};
-
-const getChromaticScaleFingers = (midis: number[], hand: 'left' | 'right'): Finger[] => {
-  const n = midis.length;
-  const fingers: Finger[] = new Array(n);
-  const half = Math.floor(n / 2);
-
-  for (let i = 0; i < n; i++) {
-    const midi = midis[i];
-    const isAsc = i < half;
-    const pc = midi % 12;
-    if (isBlackKey(midi)) {
-      fingers[i] = 3;
-    } else {
-      if (hand === 'right') {
-        if (isAsc) {
-          if ((pc === 5 && i > 0 && midis[i - 1] % 12 === 4) || (pc === 0 && i > 0 && midis[i - 1] % 12 === 11)) {
-            fingers[i] = 2;
-          } else {
-            fingers[i] = 1;
-          }
-        } else {
-          if ((pc === 5 && i < n - 1 && midis[i + 1] % 12 === 4) || (pc === 0 && i < n - 1 && midis[i + 1] % 12 === 11)) {
-            fingers[i] = 2;
-          } else {
-            fingers[i] = 1;
-          }
-        }
-      } else {
-        if (isAsc) {
-          if ((pc === 11 && i < n - 1 && midis[i + 1] % 12 === 0) || (pc === 4 && i < n - 1 && midis[i + 1] % 12 === 5)) {
-            fingers[i] = 2;
-          } else {
-            fingers[i] = 1;
-          }
-        } else {
-          if ((pc === 11 && i > 0 && midis[i - 1] % 12 === 0) || (pc === 4 && i > 0 && midis[i - 1] % 12 === 5)) {
-            fingers[i] = 2;
-          } else {
-            fingers[i] = 1;
-          }
-        }
-      }
-    }
-  }
-  return fingers;
-};
-
-const getWholeToneScaleFingers = (midis: number[], hand: 'left' | 'right'): Finger[] => {
-  const n = midis.length;
-  if (hand === 'right') {
-    const up: Finger[] = [1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3, 5];
-    const down = [...up.slice(0, 12)].reverse();
-    return [...up, ...down].slice(0, n);
-  } else {
-    const up: Finger[] = [5, 4, 3, 2, 1, 3, 2, 1, 3, 2, 1, 2, 1];
-    const down = [...up.slice(0, 12)].reverse();
-    return [...up, ...down].slice(0, n);
-  }
-};
-
-const getPentatonicScaleFingers = (midis: number[], hand: 'left' | 'right'): Finger[] => {
-  const n = midis.length;
-  if (hand === 'right') {
-    const up: Finger[] = [1, 2, 3, 1, 2, 1, 2, 3, 1, 2, 5];
-    const down = [...up.slice(0, 10)].reverse();
-    return [...up, ...down].slice(0, n);
-  } else {
-    const up: Finger[] = [5, 4, 3, 2, 1, 4, 3, 2, 1, 2, 1];
-    const down = [...up.slice(0, 10)].reverse();
-    return [...up, ...down].slice(0, n);
-  }
-};
-
-const getDiatonicScaleFingers = (
-  tonicMidi: number,
-  scaleType: string,
-  seqLength: number,
-  hand: 'left' | 'right'
-): Finger[] => {
-  const tonicPc = tonicMidi % 12;
-  const isMinor = scaleType.includes('minor') || scaleType === 'dorian' || scaleType === 'phrygian' || scaleType === 'aeolian' || scaleType === 'locrian';
-  const table = isMinor ? MINOR_SCALE_FINGERING : MAJOR_SCALE_FINGERING;
-  const config = table[tonicPc] || table[0];
-
-  const pat = hand === 'right' ? config.rhUp : config.lhUp;
-  const top = hand === 'right' ? config.rhTop : config.lhTop;
-
-  const up: Finger[] = [...pat, ...pat, top];
-  const down: Finger[] = [...up.slice(0, up.length - 1)].reverse();
-  const full = [...up, ...down];
-  if (full.length === seqLength) return full;
-  if (full.length > seqLength) return full.slice(0, seqLength);
-  while (full.length < seqLength) full.push(hand === 'right' ? 1 : 5);
-  return full;
-};
-
-export const getScaleFingers = (
-  tonicMidi: number,
-  scaleType: string,
-  typeId: string,
-  midis: number[],
-  hand: 'left' | 'right'
-): Finger[] => {
-  if (scaleType === 'chromatic') {
-    return getChromaticScaleFingers(midis, hand);
-  }
-  if (scaleType === 'whole_tone') {
-    return getWholeToneScaleFingers(midis, hand);
-  }
-  if (scaleType === 'major_pentatonic') {
-    return getPentatonicScaleFingers(midis, hand);
-  }
-  return getDiatonicScaleFingers(tonicMidi, scaleType, midis.length, hand);
-};
-
-export const getArpeggioFingers = (
-  midis: number[],
-  hand: 'left' | 'right'
-): Finger[] => {
-  const n = midis.length;
-  if (n === 13) {
-    const m0 = midis[0];
-    const m1 = midis[1];
-    const m2 = midis[2];
-    const gap01 = m1 - m0;
-    const gap12 = m2 - m1;
-    const firstWhite = isWhiteKey(m0);
-    const whiteCount = (isWhiteKey(m0) ? 1 : 0) + (isWhiteKey(m1) ? 1 : 0) + (isWhiteKey(m2) ? 1 : 0);
-
-    if (hand === 'right') {
-      if (firstWhite || whiteCount === 0) {
-        const use4 = (gap12 >= 5 || gap01 >= 5);
-        const pat: Finger[] = [1, 2, use4 ? 4 : 3];
-        const top: Finger = 5;
-        const up = [pat[0], pat[1], pat[2], pat[0], pat[1], pat[2], top];
-        const down = [pat[2], pat[1], pat[0], pat[2], pat[1], pat[0]];
-        return [...up, ...down];
-      } else {
-        if (isWhiteKey(m1)) {
-          const f3: Finger = gap12 >= 4 ? 4 : 2;
-          const up: Finger[] = [2, 1, f3, 2, 1, f3, 4];
-          const down: Finger[] = [f3, 1, 2, f3, 1, 2];
-          return [...up, ...down];
-        } else {
-          const up: Finger[] = [2, 3, 1, 2, 3, 1, 4];
-          const down: Finger[] = [1, 3, 2, 1, 3, 2];
-          return [...up, ...down];
-        }
-      }
-    } else {
-      if (firstWhite || whiteCount === 0) {
-        const use3 = (gap01 >= 5 || (gap01 === 3 && gap12 === 4));
-        const fMid: Finger = use3 ? 3 : 4;
-        const up: Finger[] = [5, fMid, 2, 1, fMid, 2, 1];
-        const down: Finger[] = [2, fMid, 1, 2, fMid, 5];
-        return [...up, ...down];
-      } else {
-        if (isWhiteKey(m1)) {
-          const up: Finger[] = [2, 1, 4, 2, 1, 4, 2];
-          const down: Finger[] = [4, 1, 2, 4, 1, 2];
-          return [...up, ...down];
-        } else {
-          const up: Finger[] = [3, 2, 1, 3, 2, 1, 3];
-          const down: Finger[] = [1, 2, 3, 1, 2, 3];
-          return [...up, ...down];
-        }
-      }
-    }
-  } else if (n === 17) {
-    const m0 = midis[0];
-    const firstWhite = isWhiteKey(m0);
-    if (hand === 'right') {
-      if (firstWhite) {
-        const up: Finger[] = [1, 2, 3, 4, 1, 2, 3, 4, 5];
-        const down: Finger[] = [4, 3, 2, 1, 4, 3, 2, 1];
-        return [...up, ...down];
-      } else {
-        const up: Finger[] = [2, 1, 2, 3, 1, 2, 3, 4, 5];
-        const down: Finger[] = [4, 3, 2, 1, 3, 2, 1, 2];
-        return [...up, ...down];
-      }
-    } else {
-      if (firstWhite) {
-        const up: Finger[] = [5, 4, 3, 2, 1, 4, 3, 2, 1];
-        const down: Finger[] = [2, 3, 4, 1, 2, 3, 4, 5];
-        return [...up, ...down];
-      } else {
-        const up: Finger[] = [3, 2, 1, 4, 3, 2, 1, 4, 2];
-        const down: Finger[] = [4, 1, 2, 3, 4, 1, 2, 3];
-        return [...up, ...down];
-      }
-    }
-  }
-  return midis.map((_, i) => (hand === 'right' ? (Math.min(5, (i % 5) + 1) as Finger) : (Math.max(1, 5 - (i % 5)) as Finger)));
-};
-
-export const getChordFingers = (
-  chordMidis: number[],
-  hand: 'left' | 'right'
-): Finger[] => {
-  const n = chordMidis.length;
-  const sorted = [...chordMidis].sort((a, b) => a - b);
-  const root = sorted[0];
-
-  if (n === 3) {
-    const i1 = sorted[1] - root;
-    const i2 = sorted[2] - root;
-    if ((i2 - i1) >= 5) {
-      return hand === 'right' ? [1, 2, 5] : [5, 3, 1];
-    } else if (i1 >= 5) {
-      return hand === 'right' ? [1, 3, 5] : [5, 2, 1];
-    } else {
-      return hand === 'right' ? [1, 3, 5] : [5, 3, 1];
-    }
-  } else if (n === 4) {
-    const gap01 = sorted[1] - sorted[0];
-    const gap12 = sorted[2] - sorted[1];
-    const gap23 = sorted[3] - sorted[2];
-    if (gap01 <= 2) {
-      return hand === 'right' ? [1, 2, 4, 5] : [5, 4, 2, 1];
-    } else if (gap12 <= 2) {
-      return hand === 'right' ? [1, 2, 3, 5] : [5, 3, 2, 1];
-    } else if (gap23 <= 2) {
-      return hand === 'right' ? [1, 2, 4, 5] : [5, 4, 2, 1];
-    } else {
-      return hand === 'right' ? [1, 2, 3, 5] : [5, 3, 2, 1];
-    }
-  }
-  return hand === 'right' ? ([1, 2, 3, 4, 5].slice(0, n) as Finger[]) : ([5, 4, 3, 2, 1].slice(0, n) as Finger[]);
-};
 
 export const generateExercise = (rootNoteName: string, typeId: ExerciseType): {
   notes: MidiNotePlaybackItem[];
