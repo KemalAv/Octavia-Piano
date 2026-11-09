@@ -1,0 +1,28 @@
+{
+  "name": "Octavia - Piano Rhythm Game",
+  "short_name": "Octavia",
+  "description": "Interactive Piano Rhythm Game and Learning Platform with real-time feedback and leaderboard.",
+  "start_url": "/",
+  "id": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#050505",
+  "theme_color": "#050505",
+  "categories": ["games", "music", "education"],
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/octavia.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
+

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ActiveMidiNoteInfo, MidiNotePlaybackItem, ThemeSettings, FreePlayLiveNote, QwertyLayout } from '../types';
-import { FULL_KEYBOARD_LAYOUT, FULL_KEYBOARD_MAPPING, QWERTY_MINI_KEYBOARD_MAPPING, MIRP_KEYBOARD_MAPPING, KEY_CODES_TO_DISPLAY, VISUAL_NOTE_CAP_MS } from '../constants';
+import { FULL_KEYBOARD_LAYOUT, FULL_KEYBOARD_MAPPING, QWERTY_MINI_KEYBOARD_MAPPING, MIRP_KEYBOARD_MAPPING, KEY_CODES_TO_DISPLAY, VISUAL_NOTE_CAP_MS, DRUM_KEYBOARD_MAP, DRUM_PADS } from '../constants';
 import { formatKeySignatureForDisplay, getVelocityOutlineColor, getOptimalKeyTranspose } from '../utils';
 
 interface QwertyManiaViewProps {
@@ -27,6 +27,11 @@ interface QwertyManiaViewProps {
     resolutionScale?: number;
     waitMode?: string;
     showDynamics?: boolean;
+    instrumentMode?: "piano" | "drum";
+    onPadDown?: (padId: string) => void;
+    onPadUp?: (padId: string) => void;
+    onKeyPress?: (keyName: string, midiNote: number) => void;
+    onKeyRelease?: (keyName: string, midiNote: number) => void;
 }
 
 // Helper for drawing rounded rectangle shapes matching keyboard keys
@@ -99,6 +104,11 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
     resolutionScale = 1.0,
     waitMode = 'strict',
     showDynamics = false,
+    instrumentMode = 'piano',
+    onPadDown,
+    onPadUp,
+    onKeyPress,
+    onKeyRelease,
 }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
@@ -300,14 +310,72 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
     }, []);
 
     const dragRef = useRef<{ isDragging: boolean; startX: number; startTime: number } | null>(null);
+    const activePointersRef = useRef<Map<number, { padId?: string; keyName?: string; midiNote?: number }>>(new Map());
+
+    const getKeyAtCoordinates = (x: number, y: number) => {
+        const layout = getKeyboardLayout();
+        let bestKey: typeof layout[0] | null = null;
+        let minDistSq = Infinity;
+
+        for (const item of layout) {
+            const halfW = item.width / 2 + 6;
+            const halfH = item.height / 2 + 6;
+            if (
+                x >= item.cx - halfW &&
+                x <= item.cx + halfW &&
+                y >= item.cy - halfH &&
+                y <= item.cy + halfH
+            ) {
+                const dx = x - item.cx;
+                const dy = y - item.cy;
+                const dSq = dx * dx + dy * dy;
+                if (dSq < minDistSq) {
+                    minDistSq = dSq;
+                    bestKey = item;
+                }
+            }
+        }
+        return bestKey;
+    };
 
     const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
         if (isPaused) {
             dragRef.current = {
                 isDragging: true,
                 startX: e.clientX,
                 startTime: currentTimeMs
             };
+            return;
+        }
+
+        const rect = canvas.getBoundingClientRect();
+        const x = ((e.clientX - rect.left) / rect.width) * dimensions.width;
+        const y = ((e.clientY - rect.top) / rect.height) * dimensions.height;
+
+        const keyItem = getKeyAtCoordinates(x, y);
+        if (keyItem) {
+            const char = keyItem.code.toLowerCase().replace('key', '').replace('digit', '');
+            if (instrumentMode === 'drum') {
+                const drumMidi = DRUM_KEYBOARD_MAP[char];
+                if (drumMidi !== undefined) {
+                    const pad = DRUM_PADS.find(p => p.midiNotes.includes(drumMidi));
+                    if (pad && onPadDown) {
+                        activePointersRef.current.set(e.pointerId, { padId: pad.id });
+                        onPadDown(pad.id);
+                        return;
+                    } else if (onKeyPress) {
+                        activePointersRef.current.set(e.pointerId, { keyName: keyItem.displayLabel, midiNote: drumMidi });
+                        onKeyPress(keyItem.displayLabel, drumMidi);
+                        return;
+                    }
+                }
+            } else if (keyItem.midis.length > 0 && onKeyPress) {
+                activePointersRef.current.set(e.pointerId, { keyName: keyItem.displayLabel, midiNote: keyItem.midis[0] });
+                onKeyPress(keyItem.displayLabel, keyItem.midis[0]);
+            }
         }
     };
 
@@ -326,8 +394,26 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
         }
     };
 
-    const handlePointerUp = () => {
+    const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+        const active = activePointersRef.current.get(e.pointerId);
+        if (active) {
+            if (active.padId && onPadUp) {
+                onPadUp(active.padId);
+            } else if (active.keyName && active.midiNote !== undefined && onKeyRelease) {
+                onKeyRelease(active.keyName, active.midiNote);
+            }
+            activePointersRef.current.delete(e.pointerId);
+        }
         if (dragRef.current) dragRef.current.isDragging = false;
+    };
+
+    const handlePointerLeave = (e: React.PointerEvent<HTMLCanvasElement>) => {
+        if (e.pointerType === 'touch') return;
+        handlePointerUp(e);
+    };
+
+    const handlePointerCancel = (e: React.PointerEvent<HTMLCanvasElement>) => {
+        handlePointerUp(e);
     };
 
     const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
@@ -625,7 +711,8 @@ export const QwertyManiaView: React.FC<QwertyManiaViewProps> = ({
                 onPointerDown={handlePointerDown}
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
-                onPointerLeave={handlePointerUp}
+                onPointerLeave={handlePointerLeave}
+                onPointerCancel={handlePointerCancel}
                 onWheel={handleWheel}
                 style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none' }}
             />

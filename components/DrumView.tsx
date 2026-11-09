@@ -170,8 +170,8 @@ export const DrumView: React.FC<DrumViewProps> = React.memo(({
                 : r;
 
             // Generous touch hitbox: covers circle and extends slightly downward to include label/keys
-            const touchRadiusX = padR * 1.25 + 8;
-            const touchRadiusY = padR * 1.4 + 14;
+            const touchRadiusX = padR * 1.35 + 12;
+            const touchRadiusY = padR * 1.45 + 16;
             const touchCenterY = cy + Math.min(10, padR * 0.18);
 
             const dx = x - cx;
@@ -215,8 +215,8 @@ export const DrumView: React.FC<DrumViewProps> = React.memo(({
             return;
         }
 
-        // Support sliding / dragging across pads on touch screen
-        if (e.buttons > 0 && !isPaused && onPadDown && onPadUp) {
+        // Support sliding / dragging across pads on touch screen with hysteresis
+        if (!isPaused && onPadDown && onPadUp) {
             const canvas = canvasRef.current;
             if (!canvas) return;
             const rect = canvas.getBoundingClientRect();
@@ -239,8 +239,8 @@ export const DrumView: React.FC<DrumViewProps> = React.memo(({
                 const cy = centerY + (pad.y * dimensions.height - centerY) * layoutScale;
                 const padR = pad.id === 'bass' ? r * 1.25 : r;
 
-                const touchRadiusX = padR * 1.25 + 8;
-                const touchRadiusY = padR * 1.4 + 14;
+                const touchRadiusX = padR * 1.35 + 12;
+                const touchRadiusY = padR * 1.45 + 16;
                 const touchCenterY = cy + Math.min(10, padR * 0.18);
 
                 const dx = x - cx;
@@ -254,15 +254,34 @@ export const DrumView: React.FC<DrumViewProps> = React.memo(({
             }
 
             const currentActivePadId = activePointersRef.current.get(e.pointerId);
-            if (bestPadId && bestPadId !== currentActivePadId) {
-                if (currentActivePadId) {
-                    onPadUp(currentActivePadId);
+
+            // If pointer is already active on a pad, keep it held with generous hysteresis
+            if (currentActivePadId) {
+                const currentPad = currentPads.find(p => p.id === currentActivePadId);
+                let isStillOnCurrent = false;
+                if (currentPad) {
+                    const cx = centerX + (currentPad.x * dimensions.width - centerX) * layoutScale;
+                    const cy = centerY + (currentPad.y * dimensions.height - centerY) * layoutScale;
+                    const padR = currentPad.id === 'bass' ? r * 1.25 : r;
+                    const touchRadiusX = padR * 1.55 + 18;
+                    const touchRadiusY = padR * 1.65 + 22;
+                    const touchCenterY = cy + Math.min(10, padR * 0.18);
+                    const dx = x - cx;
+                    const dy = y - touchCenterY;
+                    const curDistSq = (dx * dx) / (touchRadiusX * touchRadiusX) + (dy * dy) / (touchRadiusY * touchRadiusY);
+                    if (curDistSq <= 1.0) {
+                        isStillOnCurrent = true;
+                    }
                 }
+
+                if (!isStillOnCurrent && bestPadId && bestPadId !== currentActivePadId) {
+                    onPadUp(currentActivePadId);
+                    activePointersRef.current.set(e.pointerId, bestPadId);
+                    onPadDown(bestPadId);
+                }
+            } else if (bestPadId) {
                 activePointersRef.current.set(e.pointerId, bestPadId);
                 onPadDown(bestPadId);
-            } else if (!bestPadId && currentActivePadId) {
-                onPadUp(currentActivePadId);
-                activePointersRef.current.delete(e.pointerId);
             }
         }
     };
@@ -279,6 +298,20 @@ export const DrumView: React.FC<DrumViewProps> = React.memo(({
     };
 
     const handlePointerLeave = (e: React.PointerEvent<HTMLCanvasElement>) => {
+        // Do not prematurely cancel on touch boundary crossing
+        if (e.pointerType === 'touch') return;
+
+        const padId = activePointersRef.current.get(e.pointerId);
+        if (padId && onPadUp) {
+            onPadUp(padId);
+            activePointersRef.current.delete(e.pointerId);
+        }
+        if (dragRef.current) {
+            dragRef.current.isDragging = false;
+        }
+    };
+
+    const handlePointerCancel = (e: React.PointerEvent<HTMLCanvasElement>) => {
         const padId = activePointersRef.current.get(e.pointerId);
         if (padId && onPadUp) {
             onPadUp(padId);
@@ -691,7 +724,7 @@ export const DrumView: React.FC<DrumViewProps> = React.memo(({
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
                 onPointerLeave={handlePointerLeave}
-                onPointerCancel={handlePointerLeave}
+                onPointerCancel={handlePointerCancel}
                 onWheel={handleWheel}
                 className="relative z-10"
                 style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none' }}

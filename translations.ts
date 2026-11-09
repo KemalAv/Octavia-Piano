@@ -453,6 +453,19 @@ export interface TranslationDictionary {
   noFriendsYet: string;
   detailedAnalysisTitle: string;
   metaStatsTitle: string;
+  installAppTitle: string;
+  installAppDesc: string;
+  installAppBtn: string;
+  installAppLater: string;
+  installAppIosGuide: string;
+  installAppIosTitle: string;
+  installAppIosStep1: string;
+  installAppIosStep2: string;
+  installAppBrowserGuide: string;
+  errorBoundaryTitle: string;
+  errorBoundaryDesc: string;
+  errorBoundaryQuote: string;
+  errorBoundaryReturnBtn: string;
 }
 
 export const translations: Record<AppLanguage, TranslationDictionary> = {
@@ -535,11 +548,11 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     backingTrackVolume: "Backing Track Volume",
     latencyOffsetTitle: "MIDI & Audio Latency Offset",
     latencyOffsetDesc: "Compensate for MIDI input delay and audio timing differences between devices",
-    midiHitTimingOffset: "MIDI Hit Timing Offset (Hitbox Shift)",
+    midiHitTimingOffset: "Hitbox Offset",
     calibrateBtn: "Calibrate",
     quickStep: "Quick:",
     midiHitTimingDesc: "Adjust keyboard or MIDI input timing relative to the notes. Use negative (-) if hits are late, positive (+) if early.",
-    mp3AudioOffset: "MP3 Audio Offset (Backing Track Sync)",
+    mp3AudioOffset: "Backing Track Offset",
     mp3AudioOffsetDesc: "Align MP3 or YouTube playback with the falling notes on screen.",
     metronomeOffset: "Metronome Offset",
     metronomeOffsetDesc: "Adjust the metronome if its clicks sound earlier or later than the visual hitline.",
@@ -892,6 +905,19 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     noFriendsYet: "No friends added yet",
     detailedAnalysisTitle: "Detailed Performance Analysis",
     metaStatsTitle: "Meta Statistics",
+    installAppTitle: "Install Octavia App",
+    installAppDesc: "Install Octavia on your device for true full-screen gameplay without browser address bar clutter and faster access!",
+    installAppBtn: "Install App",
+    installAppLater: "Later",
+    installAppIosGuide: "Tap the Share button ⎋ at the bottom of Safari, then choose 'Add to Home Screen'.",
+    installAppIosTitle: "How to Install on iPhone/iPad:",
+    installAppIosStep1: "Tap the Share button in Safari",
+    installAppIosStep2: "Scroll down and select 'Add to Home Screen'",
+    installAppBrowserGuide: "Tap the browser menu (⋮) and choose 'Install App' or 'Add to Home Screen'.",
+    errorBoundaryTitle: "Oops!",
+    errorBoundaryDesc: "An unexpected error occurred in the application.",
+    errorBoundaryQuote: "An unexpected glitch occurred. Please return to the main menu or reload the page.",
+    errorBoundaryReturnBtn: "Return to Main Menu",
   },
 
   id: {
@@ -973,11 +999,11 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     backingTrackVolume: "Volume Musik Pengiring (Backing Track)",
     latencyOffsetTitle: "Kompensasi Latensi MIDI & Audio",
     latencyOffsetDesc: "Kompensasi jeda input MIDI dan perbedaan timing audio antar perangkat Anda.",
-    midiHitTimingOffset: "Offset Timing Ketukan MIDI (Pergeseran Hitbox)",
+    midiHitTimingOffset: "Hitbox Offset",
     calibrateBtn: "Kalibrasi",
     quickStep: "Cepat:",
     midiHitTimingDesc: "Atur timing input keyboard/MIDI terhadap nada. Gunakan negatif (-) jika ketukan terlambat, positif (+) jika terlalu cepat.",
-    mp3AudioOffset: "Offset Audio MP3 (Sinkronisasi Backing Track)",
+    mp3AudioOffset: "Backing Track Offset",
     mp3AudioOffsetDesc: "Luruskan timing audio MP3 atau YouTube dengan nada yang jatuh di layar.",
     metronomeOffset: "Offset Metronom",
     metronomeOffsetDesc: "Atur jika suara detak metronom terdengar lebih cepat atau lebih lambat dari garis ketukan visual.",
@@ -1330,6 +1356,19 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     noFriendsYet: "Belum ada teman ditambahkan",
     detailedAnalysisTitle: "Analisis Performa Rinci",
     metaStatsTitle: "Statistik Meta",
+    installAppTitle: "Pasang Aplikasi Octavia",
+    installAppDesc: "Pasang Octavia di layar utama HP Anda agar bermain otomatis layar penuh tanpa gangguan address bar browser dan lebih lancar!",
+    installAppBtn: "Pasang Sekarang",
+    installAppLater: "Nanti Saja",
+    installAppIosGuide: "Ketuk tombol Bagikan (Share) ⎋ di browser Safari, lalu pilih 'Tambah ke Layar Utama'.",
+    installAppIosTitle: "Cara Pasang di iPhone/iPad:",
+    installAppIosStep1: "Ketuk tombol Bagikan (Share) di Safari",
+    installAppIosStep2: "Gulir ke bawah dan pilih 'Tambah ke Layar Utama' (Add to Home Screen)",
+    installAppBrowserGuide: "Ketuk menu titik tiga (⋮) di browser lalu pilih 'Pasang aplikasi' atau 'Tambahkan ke Layar Utama'.",
+    errorBoundaryTitle: "Ups!",
+    errorBoundaryDesc: "Terjadi kesalahan sistem yang tidak terduga pada aplikasi.",
+    errorBoundaryQuote: "Ups, terjadi bug pada aplikasi. Silakan kembali ke menu utama atau muat ulang.",
+    errorBoundaryReturnBtn: "Kembali ke Menu Utama",
   },
 
   es: {
@@ -1411,11 +1450,11 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     backingTrackVolume: "Volumen de Pista de Acompañamiento",
     latencyOffsetTitle: "Compensación de Latencia MIDI y Audio",
     latencyOffsetDesc: "Compensa el retraso de entrada MIDI y diferencias de tiempo de audio entre dispositivos",
-    midiHitTimingOffset: "Desplazamiento de Golpe MIDI (Hitbox Shift)",
+    midiHitTimingOffset: "Hitbox Offset",
     calibrateBtn: "Calibrar",
     quickStep: "Rápido:",
     midiHitTimingDesc: "Ajusta la sincronización del teclado o MIDI respecto a las notas. Usa negativo (-) si tus golpes van tarde, positivo (+) si van pronto.",
-    mp3AudioOffset: "Desplazamiento de Audio MP3 (Sincronización)",
+    mp3AudioOffset: "Backing Track Offset",
     mp3AudioOffsetDesc: "Alinea la reproducción de MP3 o YouTube con las notas cayendo en pantalla.",
     metronomeOffset: "Desplazamiento del Metrónomo",
     metronomeOffsetDesc: "Ajusta el metrónomo si sus clics suenan antes o después de la línea de golpe.",
@@ -1768,5 +1807,18 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     noFriendsYet: "Aún no tienes amigos agregados",
     detailedAnalysisTitle: "Análisis Detallado de Rendimiento",
     metaStatsTitle: "Estadísticas Meta",
+    installAppTitle: "Instalar App Octavia",
+    installAppDesc: "¡Instala Octavia en tu dispositivo para jugar en pantalla completa sin barras del navegador y con mejor rendimiento!",
+    installAppBtn: "Instalar Ahora",
+    installAppLater: "Más tarde",
+    installAppIosGuide: "Toca el botón Compartir ⎋ en Safari y selecciona 'Agregar a inicio'.",
+    installAppIosTitle: "Cómo instalar en iPhone/iPad:",
+    installAppIosStep1: "Toca el botón Compartir en Safari",
+    installAppIosStep2: "Desplázate hacia abajo y elige 'Agregar a inicio' (Add to Home Screen)",
+    installAppBrowserGuide: "Toca el menú del navegador (⋮) y selecciona 'Instalar aplicación' o 'Agregar a la pantalla principal'.",
+    errorBoundaryTitle: "¡Ups!",
+    errorBoundaryDesc: "Ocurrió un error inesperado en la aplicación.",
+    errorBoundaryQuote: "Ups, ocurrió un error en la aplicación. Vuelve al menú principal o recarga la página.",
+    errorBoundaryReturnBtn: "Volver al Menú Principal",
   }
 };

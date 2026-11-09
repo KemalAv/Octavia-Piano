@@ -4,6 +4,7 @@ import { Zap } from "lucide-react";
 export interface OffsetIndicatorProps {
   // 1. MIDI Hit Timing (Real-time player tap timing vs notes)
   midiHitTiming: number;
+  userAverageOffset?: number;
   midiHitTimingOffset?: number; // Hitbox calibration shift (noteOffsetMs)
   onMidiHitTimingOffsetChange?: (offset: number) => void;
 
@@ -25,6 +26,7 @@ export interface OffsetIndicatorProps {
 
 export const OffsetIndicator: React.FC<OffsetIndicatorProps> = ({
   midiHitTiming,
+  userAverageOffset,
   perfectWindow,
   greatWindow,
   goodWindow,

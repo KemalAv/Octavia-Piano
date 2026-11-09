@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, memo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, memo } from 'react';
 import { ExtendedResult, WaitMode, GameSettings, PracticeHand, AppLanguage, ViewMode, NoteLabelType } from '../types';
 import DifficultyAnalysis from './DifficultyAnalysis';
 import { normalizeYoutubeUrl } from '../utils';
@@ -75,17 +75,28 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
     const t = translations[appLanguage] || translations.en;
     const [selectedMode, setSelectedMode] = useState<Mode>('practice_lenient');
     const [practiceHand, setPracticeHand] = useState<PracticeHand>('both');
-    const [accuracyLevel, setAccuracyLevel] = useState<number>(currentSongAccuracyLevel || 5);
+    const [accuracyLevel, setAccuracyLevel] = useState<number>(5);
     const [isRendered, setIsRendered] = useState(false);
 
     useEffect(() => {
-        setAccuracyLevel(currentSongAccuracyLevel || 5);
+        setAccuracyLevel(5);
     }, [currentSongAccuracyLevel]);
 
     const [isNonStop, setIsNonStop] = useState(false);
     const [isHpEnabled, setIsHpEnabled] = useState(true);
     const [backingType, setBackingType] = useState<BackingType>('none');
     const mp3InputRef = useRef<HTMLInputElement>(null);
+    const backingTrackBlobUrl = useMemo(() => {
+        if (!backingTrackFile) return null;
+        return URL.createObjectURL(backingTrackFile);
+    }, [backingTrackFile]);
+    useEffect(() => {
+        return () => {
+            if (backingTrackBlobUrl) {
+                URL.revokeObjectURL(backingTrackBlobUrl);
+            }
+        };
+    }, [backingTrackBlobUrl]);
 
     useEffect(() => {
         if (backingTrackFile) {
@@ -154,13 +165,13 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
         if (mode === 'retical' && isAudioInputEnabled) return;
         setSelectedMode(mode);
         if (mode === 'retical' || mode === 'autoplay') {
-            setAccuracyLevel(currentSongAccuracyLevel || 5);
+            setAccuracyLevel(5);
             setIsNonStop(true);
         } else if (mode === 'practice_strict') {
             setAccuracyLevel(3);
             setIsNonStop(false);
         } else if (mode === 'practice_lenient') {
-            setAccuracyLevel(currentSongAccuracyLevel || 5);
+            setAccuracyLevel(5);
             setIsNonStop(false);
         }
     };
@@ -178,7 +189,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
         let noteToleranceMs: number;
 
         const isEffectivelyNonStop = selectedMode === 'retical' || selectedMode === 'autoplay' || (selectedMode === 'practice_lenient' && isNonStop);
-        const finalAccuracyLevel = selectedMode === 'practice_strict' ? 3 : (currentSongAccuracyLevel || 5);
+        const finalAccuracyLevel = selectedMode === 'practice_strict' ? 3 : 5;
 
         const perfectWindow = 100 + (5 - finalAccuracyLevel) * 20;
         const goodWindow = perfectWindow * 2;
@@ -209,7 +220,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
         if (backingType === 'mp3' && backingTrackFile) {
             backingConfig = {
                 type: 'mp3' as const,
-                url: URL.createObjectURL(backingTrackFile),
+                url: backingTrackBlobUrl || URL.createObjectURL(backingTrackFile),
                 offsetMs: backingTrackOffset
             };
         } else if (backingType === 'online' && midiLink) {
@@ -781,26 +792,51 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
                                 )}
                             </div>
 
-                            {/* IMPORTANT Notice Box */}
-                            <div className="bg-amber-500/10 border border-amber-500/30 p-3.5 rounded-2xl text-xs text-amber-200 leading-relaxed space-y-2">
-                                <div className="font-bold flex items-center gap-1.5 text-amber-400">
-                                    <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-                                    <span>{t.importantNotice}</span>
+                            {/* MIDI & Audio Latency Offset */}
+                            <div className="pt-4 border-t border-white/5 space-y-4">
+                                <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2 text-cyan-400">
+                                        <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <circle cx="12" cy="12" r="10"/>
+                                            <polyline points="12 6 12 12 16 14"/>
+                                        </svg>
+                                        <div>
+                                            <label className="text-sm font-bold text-white block">
+                                                MIDI &amp; Audio Latency Offset
+                                            </label>
+                                            <span className="text-[11px] text-slate-400 block">
+                                                {t.latencyOffsetDesc}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div className="flex flex-col items-end shrink-0 bg-slate-800/80 border border-cyan-500/20 px-2.5 py-1 rounded-xl">
+                                        <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wider">
+                                            Avg Input
+                                        </span>
+                                        <span className="font-mono text-cyan-400 font-black text-xs tabular-nums">
+                                            {Math.abs(userAverageOffset) < 1000 && userAverageOffset !== 0
+                                                ? `${userAverageOffset > 0 ? `+${Math.round(userAverageOffset)}` : Math.round(userAverageOffset)}ms`
+                                                : "0ms"}
+                                        </span>
+                                    </div>
                                 </div>
-                                <p>
-                                    {t.midiControllerDelayNotice} {onOpenSettings && (
+
+                                {/* Direct Action Buttons: Open Settings & Launch Sync Tuner */}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    {onOpenSettings && (
                                         <button 
                                             type="button"
-                                            onClick={() => onOpenSettings?.("note-offset-section")} 
-                                            className="inline-flex items-center justify-center ml-1 p-1 rounded-md bg-amber-500/20 hover:bg-amber-500/40 text-cyan-300 hover:text-white transition-colors align-middle" 
+                                            onClick={() => onOpenSettings("note-offset-section")} 
+                                            className="py-2.5 px-3 rounded-xl bg-slate-800/90 hover:bg-slate-700 border border-slate-700/80 hover:border-cyan-500/50 text-slate-200 hover:text-white text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95 shadow-sm"
                                             title={t.settingsTitle}
                                         >
-                                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                                            <svg className="w-4 h-4 text-cyan-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                            </svg>
+                                            <span>{t.settingsTitle}</span>
                                         </button>
                                     )}
-                                </p>
-                                <p>
-                                    {t.backingSyncNotice}{" "}
                                     <button 
                                         type="button"
                                         onClick={() => {
@@ -808,7 +844,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
                                             if (backingType === 'mp3' && backingTrackFile) {
                                                 backingConfig = {
                                                     type: 'mp3' as const,
-                                                    url: URL.createObjectURL(backingTrackFile),
+                                                    url: backingTrackBlobUrl || URL.createObjectURL(backingTrackFile),
                                                     offsetMs: backingTrackOffset
                                                 };
                                             } else if (backingType === 'online' && midiLink) {
@@ -823,81 +859,89 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
                                                 waitMode: 'off',
                                                 playbackTempoMultiplier: initialPlaybackTempoMultiplier,
                                                 practiceHand: 'both',
-                                                noteToleranceMs: 200,
-                                                accuracyLevel: 5,
+                                                noteToleranceMs: 280,
+                                                accuracyLevel: 3,
                                                 isNonStop: true,
                                                 backingTrack: backingConfig,
                                                 instrumentMode,
                                                 isCalibrationMode: true
                                             });
                                         }}
-                                        className="text-cyan-400 hover:text-white underline font-bold cursor-pointer inline transition-colors"
+                                        className="py-2.5 px-3 rounded-xl bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/40 hover:border-cyan-400 text-cyan-300 hover:text-white text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95 shadow-sm"
                                     >
-                                        Sync Tuner (STU)
-                                    </button>
-                                </p>
-                            </div>
-
-                            {/* Audio Sync Tuner */}
-                            <div className="pt-4 border-t border-white/5">
-                                <div className="flex items-center justify-between mb-2">
-                                    <div className="flex items-center gap-2 text-cyan-400">
-                                        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                            <circle cx="12" cy="12" r="10"/>
-                                            <polyline points="12 6 12 12 16 14"/>
+                                        <svg className="w-4 h-4 text-cyan-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <polygon points="5 3 19 12 5 21 5 3"/>
                                         </svg>
-                                        <label className="text-sm font-bold text-white">
-                                            USER MS (Audio Sync)
-                                        </label>
+                                        <span>BT Offset</span>
+                                    </button>
+                                </div>
+
+                                {/* 3 Latency Offsets Overview / Keterangan */}
+                                <div className="p-3.5 bg-slate-800/40 border border-slate-700/60 rounded-2xl space-y-2.5 text-xs">
+                                    <div className="text-slate-300 font-semibold text-[11px] leading-relaxed">
+                                        {appLanguage === 'id' 
+                                            ? "Tersedia 3 jenis penyesuaian latensi untuk menyelaraskan audio dan ketukan Anda:"
+                                            : appLanguage === 'es'
+                                                ? "Hay 3 tipos de ajuste de latencia para sincronizar audio y notas:"
+                                                : "There are 3 types of latency offsets to synchronize audio and note inputs:"}
                                     </div>
-                                    <div className="flex flex-col items-end">
-                                        <span className="font-mono text-cyan-400 font-black text-base tabular-nums">
-                                            {userAudioSyncOffset > 0 ? `+${userAudioSyncOffset}` : userAudioSyncOffset}ms
-                                        </span>
-                                        <span className="text-[10px] text-slate-400 uppercase font-bold tracking-tighter">
-                                            Avg Input: {-userAverageOffset > 0 ? `+${Math.round(-userAverageOffset)}` : Math.round(-userAverageOffset)}ms
+                                    <div className="space-y-1.5 text-[11px] text-slate-300/90">
+                                        <div className="flex items-start gap-2">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 mt-1.5 shrink-0" />
+                                            <div>
+                                                <strong className="text-cyan-300">1. {t.midiHitTimingOffset || "Hitbox Offset"}:</strong>{" "}
+                                                <span className="text-slate-400">
+                                                    {appLanguage === 'id'
+                                                        ? "Kompensasi delay respons ketukan keyboard / controller MIDI terhadap garis hitline."
+                                                        : appLanguage === 'es'
+                                                            ? "Compensa el retraso de entrada de tu teclado o controlador MIDI."
+                                                            : "Compensates for hardware input delay from your MIDI keyboard/controller."}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-start gap-2">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-blue-400 mt-1.5 shrink-0" />
+                                            <div>
+                                                <strong className="text-blue-300">2. {t.metronomeOffset || "Metronome Offset"}:</strong>{" "}
+                                                <span className="text-slate-400">
+                                                    {appLanguage === 'id'
+                                                        ? "Kalibrasi keselarasan klik suara metronom dengan garis nada falling notes."
+                                                        : appLanguage === 'es'
+                                                            ? "Calibra los clics del metrónomo con la línea de impacto de notas."
+                                                            : "Aligns the metronome audio clicks with visual falling notes."}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-start gap-2">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mt-1.5 shrink-0" />
+                                            <div>
+                                                <strong className="text-emerald-300">3. {t.mp3AudioOffset || "Backing Track Offset"}:</strong>{" "}
+                                                <span className="text-slate-400">
+                                                    {appLanguage === 'id'
+                                                        ? "Sinkronisasi ketukan lagu backing track MP3 atau streaming YouTube."
+                                                        : appLanguage === 'es'
+                                                            ? "Sincroniza la pista de fondo MP3 o audio de YouTube con las notas."
+                                                            : "Aligns external MP3 backing tracks or YouTube audio streams."}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="pt-2 border-t border-white/5 text-[11px] text-slate-400 flex items-center gap-1.5">
+                                        <svg className="w-3.5 h-3.5 text-cyan-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                        <span>
+                                            {appLanguage === 'id'
+                                                ? "Untuk mengatur nilai milidetik (ms) masing-masing offset, silakan ke menu Pengaturan atau gunakan BT Offset."
+                                                : appLanguage === 'es'
+                                                    ? "Para configurar los valores en milisegundos (ms), ve a Ajustes o usa BT Offset."
+                                                    : "To adjust millisecond (ms) values for each offset, open Settings or calibrate via BT Offset."}
                                         </span>
                                     </div>
                                 </div>
-
-                                <div className="flex gap-2 mb-2">
-                                    <button 
-                                        type="button"
-                                        onClick={() => onUserAudioSyncOffsetChange(userAudioSyncOffset - 10)} 
-                                        className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors"
-                                    >
-                                        -10ms
-                                    </button>
-                                    <button 
-                                        type="button"
-                                        onClick={() => onUserAudioSyncOffsetChange(userAudioSyncOffset + 10)} 
-                                        className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors"
-                                    >
-                                        +10ms
-                                    </button>
-                                    {Math.abs(userAverageOffset) < 1000 && (
-                                        <button 
-                                            type="button"
-                                            onClick={() => onUserAudioSyncOffsetChange(Math.round(userAudioSyncOffset - userAverageOffset))} 
-                                            className="bg-cyan-600/30 hover:bg-cyan-600/50 text-cyan-200 text-xs px-3 py-1.5 rounded-lg font-semibold ml-auto border border-cyan-500/30 transition-colors"
-                                        >
-                                            Apply Avg
-                                        </button>
-                                    )}
-                                </div>
-
-                                <input
-                                    type="range"
-                                    min="-500"
-                                    max="500"
-                                    step="5"
-                                    value={Math.max(-500, Math.min(500, userAudioSyncOffset))}
-                                    onChange={(e) => onUserAudioSyncOffsetChange(parseInt(e.target.value, 10))}
-                                    className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
-                                />
 
                                 {(midiLink || midiOffset != null) && (
-                                    <div className="mt-3 p-3 rounded-xl bg-black/40 border border-white/5 text-xs text-slate-400 space-y-1">
+                                    <div className="p-3 rounded-xl bg-black/40 border border-white/5 text-xs text-slate-400 space-y-1">
                                         {midiLink && (
                                             <div className="flex items-start gap-2">
                                                 <span className="font-bold text-slate-300 whitespace-nowrap">{t.defaultSource}</span>

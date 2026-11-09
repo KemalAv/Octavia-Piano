@@ -510,23 +510,6 @@ export const HowToConnect: React.FC<InfoPageProps> = ({ onBack, onNavigate, appL
             ? "¿Quieres tocar con un piano acústico real sin cables MIDI? Puedes activar la entrada de micrófono directamente en Ajustes -> MIDI y Entrada -> 'Activar Entrada de Micrófono'."
             : "Want to play using a real acoustic piano without MIDI cables? You can directly enable microphone input in Settings -> MIDI & Inputs -> 'Enable Microphone Input'."}
         </p>
-
-        <div className="bg-slate-900/90 p-5 rounded-2xl border border-cyan-500/30 mb-6 space-y-3">
-          <h4 className="text-sm font-bold text-cyan-400">
-            {isId
-              ? "DeepPiano AI + Hybrid NMF (TensorFlow.js WebGL + ONNX • Polyphonic • <20ms)"
-              : isEs
-              ? "DeepPiano AI + Hybrid NMF (TensorFlow.js WebGL + ONNX • Polifónico • <20ms)"
-              : "DeepPiano AI + Hybrid NMF (TensorFlow.js WebGL + ONNX • Polyphonic • <20ms)"}
-          </h4>
-          <p className="text-xs text-slate-300 leading-relaxed">
-            {isId
-              ? "Octavia memadukan arsitektur Web Audio API + AudioWorklet dengan akselerasi GPU (tf.setBackend('webgl') + Model ONNX Piano Onsets & Frames) serta dekomposisi chord NMF CQT 30-iterasi. Dengan mematikan echoCancellation, noiseSuppression, dan autoGainControl pada mikrofon browser, suara gema dan chord piano asli (banyak nada ditekan bersamaan) masuk 100% utuh ke AI dan terdeteksi akurat di bawah 20ms tanpa lag!"
-              : isEs
-              ? "Octavia combina Web Audio API + AudioWorklet con aceleración GPU (tf.setBackend('webgl') + Modelo ONNX Piano Onsets & Frames) y descomposición de acordes NMF CQT. Desactiva echoCancellation y noiseSuppression para detectar acordes polifónicos y velocidad en <20ms sin retrasos."
-              : "Octavia combines Web Audio API + AudioWorklet streaming with GPU hardware acceleration (tf.setBackend('webgl') + ONNX Piano Onsets & Frames model) and 30-iteration NMF CQT chord decomposition. By bypassing browser echoCancellation, noiseSuppression, and autoGainControl, full polyphonic piano chords and note velocities are transcribed accurately in under 20ms!"}
-          </p>
-        </div>
       </section>
     </InfoLayout>
   );

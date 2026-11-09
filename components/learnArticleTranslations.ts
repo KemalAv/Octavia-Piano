@@ -258,7 +258,7 @@ export const getLearnTranslations = (lang: AppLanguage = 'en') => {
     // Theory & Guide sections
     chPPTheorySec1Title: isId ? '1. Sains di Balik Perfect Pitch vs. Relative Pitch' : isEs ? '1. La Ciencia del Oído Absoluto vs. Oído Relativo' : '1. The Science of Perfect Pitch vs. Relative Pitch',
     chPPTheorySec2Title: isId ? '2. Spektrum Warna & Asosiasi Karakter 12 Nada' : isEs ? '2. El Espectro de Color y Timbre de las 12 Notas' : '2. Color Spectrum & Timbral Character of the 12 Notes',
-    chPPTheorySec3Title: isId ? '3. Tabel Jembatan Keledai Interval & Lagu Populer' : isEs ? '3. Mnemotecnias de Intervalos y Canciones Célebres' : '3. Interval Mnemonics & Song Reference Matrix',
+    chPPTheorySec3Title: isId ? '3. Tabel Karakter Rasa & Rasio Frekuensi Interval' : isEs ? '3. Tabla de Carácter Tonal y Razón de Intervalos' : '3. Interval Character & Frequency Ratio Matrix',
     chPPTheorySec4Title: isId ? '4. Protokol Latihan Harian 10 Menit' : isEs ? '4. Protocolo Diario de 10 Minutos para el Oído' : '4. 10-Minute Daily Ear Workout Protocol',
 
     // Chapter 8 • MIDI Editor & Sequencer

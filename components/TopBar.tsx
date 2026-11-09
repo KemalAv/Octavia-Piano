@@ -316,7 +316,7 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
           </button>
           <div className="h-8 w-px bg-white/10 mx-1"></div>
           <div className="text-xl font-black text-cyan-400 italic tracking-tighter uppercase ml-2 select-none">
-            Sync Tuner
+            BT Offset
           </div>
         </div>
 
@@ -383,16 +383,6 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
         </div>
 
         <div className="flex items-center gap-3">
-          {isPlaying && (
-            <button 
-              onClick={(e) => { e.stopPropagation(); onPlay(); }} // Triggering play again forces a re-sync in App.tsx
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-cyan-600/20 hover:bg-cyan-600/40 border border-cyan-500/50 text-cyan-300 rounded-lg text-xs font-bold uppercase tracking-wider transition-all"
-              title="Force audio to match game clock immediately"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-              {t.fixSync}
-            </button>
-          )}
           <div className="flex items-center gap-2 mr-4">
                {!isPlaying ? (
                   <button onClick={onPlay} disabled={!isFileLoaded} className={`${iconButtonStyles} ${primaryButtonStyles} w-12 h-12 rounded-xl`} aria-label="Play" title="Start Calibration Song">
@@ -434,10 +424,15 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
                 </button>
             </div>
             
-            <div className="text-sm font-bold text-cyan-400 tracking-wider uppercase">{t.freePlayTab}</div>
-
-            <button onClick={onToggleVisibility} className="text-slate-400 hover:text-white transition-colors" title={t.showFullMenu}>
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+            <button
+              onClick={onToggleVisibility}
+              className="flex items-center gap-1.5 text-sm font-bold text-cyan-400 hover:text-cyan-300 tracking-wider uppercase transition-colors pointer-events-auto"
+              title="Expand Controls"
+            >
+              <span>{t.freePlayTab}</span>
+              <svg className="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+              </svg>
             </button>
           </div>
         </div>
@@ -515,10 +510,6 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
                           <option value="6/8">6/8</option>
                       </select>
                   </div>
-                  
-                  <button onClick={onToggleVisibility} className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-slate-500 hover:text-white transition-colors" title={t.hideFullMenu}>
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 15l7-7 7 7"></path></svg>
-                  </button>
               </div>
 
               <div className="flex items-center gap-2 bg-black/40 px-3 py-2 rounded-xl border border-white/5">
@@ -554,6 +545,16 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
                   <button onClick={() => adjustZoom(true, true)} className={`${iconButtonStyles} w-7 h-7 bg-transparent hover:bg-slate-700 text-slate-400 hover:text-white`}>+</button>
               </div>
 
+              <button
+                onClick={onToggleVisibility}
+                className={`${iconButtonStyles} ${secondaryButtonStyles} w-8 h-8 ml-1`}
+                aria-label="Collapse Controls"
+                title="Collapse Controls"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 15l7-7 7 7" />
+                </svg>
+              </button>
           </div>
         </div>
       </div>
@@ -593,11 +594,10 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
             <button onClick={onStop} disabled={!isFileLoaded} className={`${iconButtonStyles} ${secondaryButtonStyles} w-8 h-8`} aria-label="Stop" title="Stop">
               <svg className="w-4 h-4 fill-current" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clipRule="evenodd"></path></svg>
             </button>
+            <button onClick={onToggleVisibility} className={`${iconButtonStyles} ${secondaryButtonStyles} w-8 h-8 ml-1`} aria-label="Expand Top Bar" title="Expand Top Bar">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+            </button>
           </div>
-
-          <button onClick={onToggleVisibility} className="text-slate-400 hover:text-white transition-colors" title={t.showFullMenu}>
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
-          </button>
         </div>
       </div>
 
@@ -659,9 +659,6 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
               </>
               )}
           </div>
-          <button onClick={onToggleVisibility} className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-slate-500 hover:text-white transition-colors" title={t.hideFullMenu}>
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 15l7-7 7 7"></path></svg>
-          </button>
           <div className="md:hidden text-center">
                {fileName && <p className="text-xs font-bold text-slate-300 truncate max-w-[150px]">{fileName}</p>}
                {isFileLoaded && <p className="text-xs font-mono text-cyan-500">{formatTime(currentTimeMs)}</p>}
@@ -700,6 +697,9 @@ const TopBar: React.FC<TopBarProps> = memo((props) => {
               )}
               <button onClick={onStop} disabled={!isFileLoaded} className={`${iconButtonStyles} ${secondaryButtonStyles}`} aria-label={t.stopPlaybackAndReset} title="Stop">
                   <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M5 5a1 1 0 00-1 1v8a1 1 0 001 1h8a1 1 0 001-1V6a1 1 0 00-1-1H5z"></path></svg>
+              </button>
+              <button onClick={onToggleVisibility} className={`${iconButtonStyles} ${secondaryButtonStyles}`} aria-label="Collapse Top Bar" title="Collapse Top Bar">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 15l7-7 7 7"></path></svg>
               </button>
           </div>
         </div>

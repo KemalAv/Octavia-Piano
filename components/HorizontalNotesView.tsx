@@ -166,12 +166,12 @@ const SidebarSignaturePanel: React.FC<SidebarSignaturePanelProps> = React.memo((
     let activeClefLH = currentMeasure?.effectiveClefLH || 'bass';
     if (currentMeasure) {
       for (const n of currentMeasure.rightHand) {
-        if (n.timeMs <= currentTimeMs && n.vexNote?.clef) {
+        if (n.timeMs !== undefined && n.timeMs <= currentTimeMs && n.vexNote?.clef) {
           activeClefRH = n.vexNote.clef;
         }
       }
       for (const n of currentMeasure.leftHand) {
-        if (n.timeMs <= currentTimeMs && n.vexNote?.clef) {
+        if (n.timeMs !== undefined && n.timeMs <= currentTimeMs && n.vexNote?.clef) {
           activeClefLH = n.vexNote.clef;
         }
       }
@@ -190,23 +190,13 @@ const SidebarSignaturePanel: React.FC<SidebarSignaturePanelProps> = React.memo((
     }
     lastDrawnStateRef.current = stateKey;
 
-    const targetW = Math.floor(SIDEBAR_WIDTH * dpr);
-    const targetH = Math.floor(height * dpr);
-    if (canvas.width !== targetW || canvas.height !== targetH) {
-      canvas.width = targetW;
-      canvas.height = targetH;
-      canvas.style.width = `${SIDEBAR_WIDTH}px`;
-      canvas.style.height = `${height}px`;
-    }
-
-    const canvasCtx = canvas.getContext('2d');
-    if (canvasCtx) canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
-
     const renderer = new Renderer(canvas, Renderer.Backends.CANVAS);
-    renderer.resize(SIDEBAR_WIDTH * dpr, height * dpr);
+    renderer.resize(SIDEBAR_WIDTH * resolutionScale, height * resolutionScale);
+    canvas.style.width = `${SIDEBAR_WIDTH}px`;
+    canvas.style.height = `${height}px`;
 
     const vexCtx = renderer.getContext();
-    vexCtx.scale(dpr, dpr);
+    vexCtx.scale(resolutionScale, resolutionScale);
     (vexCtx as any).setFillStyle = function(style: string) { this.fillStyle = style; };
 
     if (isDrum || isQwertyView || isMixedHandView) {
@@ -736,7 +726,7 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
 
           if (hasChangeRH) {
             const firstRhTime = measure.rightHand.length > 0 
-              ? measure.rightHand[0].timeMs 
+              ? measure.rightHand[0].timeMs ?? measure.startTimeMs
               : measure.startTimeMs;
             const firstRhX = (((firstRhTime - firstMeasureStartTime) * pixelsPerMillisecond) + HORIZONTAL_PADDING) | 0;
             const blockWidth = getSignatureBlockWidth(
@@ -762,7 +752,7 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
 
           if (hasChangeLH) {
             const firstLhTime = measure.leftHand.length > 0 
-              ? measure.leftHand[0].timeMs 
+              ? measure.leftHand[0].timeMs ?? measure.startTimeMs
               : measure.startTimeMs;
             const firstLhX = (((firstLhTime - firstMeasureStartTime) * pixelsPerMillisecond) + HORIZONTAL_PADDING) | 0;
             const blockWidth = getSignatureBlockWidth(
@@ -793,6 +783,7 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
           let curClefRH = measure.effectiveClefRH || 'treble';
           const drawnMidClefRH = new Set<number>();
           measure.rightHand.forEach(info => {
+            if (info.timeMs === undefined) return;
             const noteClef = info.vexNote?.clef;
             if (noteClef && noteClef !== curClefRH) {
               if (!drawnMidClefRH.has(info.timeMs)) {
@@ -823,6 +814,7 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
             let curClefLH = measure.effectiveClefLH || 'bass';
             const drawnMidClefLH = new Set<number>();
             measure.leftHand.forEach(info => {
+              if (info.timeMs === undefined) return;
               const noteClef = info.vexNote?.clef;
               if (noteClef && noteClef !== curClefLH) {
                 if (!drawnMidClefLH.has(info.timeMs)) {
@@ -1388,4 +1380,3 @@ function vexNoteInfoAccidentalCheck(vn: VexFlowNoteInfo, fragmentId: string): bo
 }
 
 export default HorizontalNotesView;
-

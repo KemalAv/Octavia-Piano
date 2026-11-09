@@ -272,25 +272,25 @@ export const TUTORIAL_VIDEOS: TutorialVideoItem[] = [
     chapterTarget: 'perfectpitch',
     url: 'https://youtu.be/yltCkCy1DeM',
     ytId: 'yltCkCy1DeM',
-    description: 'Master the methods behind identifying musical pitches without reference, memorizing interval jumps with famous songs, and daily ear drills.',
-    descriptionId: 'Kuasai metode mengenali frekuensi nada tanpa alat bantu, menghafal lompatan interval dengan lagu populer, dan latihan telinga harian.',
-    descriptionEs: 'Aprende a reconocer notas musicales sin referencias, memorizar intervalos con canciones célebres y estructurar tu rutina auditiva.',
+    description: 'Master the methods behind identifying musical pitches without reference, recognizing interval ratios, and daily ear drills.',
+    descriptionId: 'Kuasai metode mengenali frekuensi nada tanpa alat bantu, memahami rasio interval, dan latihan telinga harian.',
+    descriptionEs: 'Aprende a reconocer notas musicales sin referencias, dominar la relación de intervalos y estructurar tu rutina auditiva.',
     keyTakeaways: [
       'Understand the science of Absolute Pitch and adult Anchor Pitch methods',
       'Learn the 12 chromatic frequencies (A4 = 440 Hz, C4 = 261.63 Hz)',
-      'Use the 12 interval song mnemonics for instant melodic transcription',
+      'Master the 12 interval frequency ratios and tonal characteristics',
       'Practice 10 minutes daily with the Octavia Interactive Pitch Trainer'
     ],
     keyTakeawaysId: [
       'Pahami sains Pitch Absolut dan metode jangkar nada untuk musisi dewasa',
       'Kuasai 12 frekuensi kromatik (A4 = 440 Hz, C4 = 261.63 Hz)',
-      'Gunakan jembatan keledai 12 lagu interval untuk transkripsi melodi kilat',
+      'Kuasai 12 rasio frekuensi interval dan karakter kesan rasa melodinya',
       'Latih 10 menit sehari dengan Konsol Latihan Pitch Interaktif Octavia'
     ],
     keyTakeawaysEs: [
       'Comprende la neurobiología del tono absoluto y el método de anclas tonales',
       'Domina las 12 frecuencias cromáticas (La4 = 440 Hz, Do4 = 261.63 Hz)',
-      'Utiliza mnemotecnias de canciones para transcribir intervalos de inmediato',
+      'Domina las razones de frecuencia y características tonales de los 12 intervalos',
       'Entrena 10 minutos al día con la Consola Interactiva de Octavia'
     ],
     tag: 'CH.07 Ear Training',
@@ -2655,11 +2655,11 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                 </div>
               </div>
 
-              {/* FIG 1.4 & 1.5: Accidentals, Score Roadmap & Classical Ornaments Execution SVG */}
+              {/* FIG 1.4: Accidentals, Score Roadmap & Classical Ornaments Execution Cards */}
               <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-6 md:p-8 space-y-6 shadow-2xl backdrop-blur-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
                   <div>
-                    <span className="text-xs font-mono font-medium font-bold text-cyan-400 uppercase tracking-widest block">
+                    <span className="text-xs font-bold text-cyan-400 uppercase tracking-widest block">
                       FIG 1.4 — ACCIDENTALS, SCORE NAVIGATION ROADMAP &amp; ORNAMENT EXECUTION
                     </span>
                     <h3 className="text-base md:text-lg font-bold text-white mt-1">
@@ -2668,161 +2668,231 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                         : 'Chromatic Accidentals, Score Repeat Roadmaps & Classical Ornament Real-Time Execution'}
                     </h3>
                   </div>
-                  <span className="text-xs font-mono text-slate-300 bg-slate-800/80 px-3 py-1 rounded-lg border border-slate-700">
+                  <span className="text-xs font-semibold text-slate-300 bg-slate-800/80 px-3 py-1 rounded-lg border border-slate-700">
                     CLASSICAL ORNAMENT GUIDE
                   </span>
                 </div>
 
-                <div className="w-full overflow-x-auto custom-scrollbar pb-1">
-                  <svg viewBox="0 0 860 280" className="w-full min-w-[760px] h-auto select-none font-sans">
-                    <defs>
-                      <linearGradient id="strikeBeam" x1="0" y1="0" x2="1" y2="0">
-                        <stop offset="0%" stopColor="#f59e0b" stopOpacity="0" />
-                        <stop offset="15%" stopColor="#fbbf24" stopOpacity="0.8" />
-                        <stop offset="50%" stopColor="#ffffff" stopOpacity="1" />
-                        <stop offset="85%" stopColor="#fbbf24" stopOpacity="0.8" />
-                        <stop offset="100%" stopColor="#f59e0b" stopOpacity="0" />
-                      </linearGradient>
-                      <filter id="neonBeam" x="-10%" y="-40%" width="120%" height="180%">
-                        <feGaussianBlur stdDeviation="3" result="blur" />
-                        <feComposite in="SourceGraphic" in2="blur" operator="over" />
-                      </filter>
-                    </defs>
-                    <rect width="860" height="280" rx="8" fill="#080c16" stroke="#1e293b" />
+                <div className="space-y-6">
+                  {/* Part A: The 5 Chromatic Accidentals & Barline Cancellation Rule */}
+                  <div className="bg-slate-950/70 border border-slate-800/90 rounded-2xl p-5 md:p-6 space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/70 pb-3">
+                      <div>
+                        <h4 className="text-sm md:text-base font-bold text-slate-100 tracking-wide">
+                          {isId
+                            ? 'A. 5 TANDA KROMATIK (ACCIDENTALS) & ATURAN PEMBATALAN GARIS BIRAMA'
+                            : isEs
+                            ? 'A. LAS 5 ALTERACIONES CROMÁTICAS Y REGLA DE CANCELACIÓN POR COMPÁS'
+                            : 'A. THE 5 CHROMATIC ACCIDENTALS & BARLINE CANCELLATION RULE'}
+                        </h4>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          {isId
+                            ? 'Modifikasi tinggi nada (pitch) di luar tangga nada diatonis standar.'
+                            : isEs
+                            ? 'Modificación de tono fuera de la escala diatónica estándar.'
+                            : 'Pitch modifications outside the standard diatonic key.'}
+                        </p>
+                      </div>
+                      <span className="text-xs font-semibold text-cyan-400 bg-cyan-950/40 border border-cyan-800/50 px-2.5 py-1 rounded-lg">
+                        {isId ? '5 Tanda Kromatik' : isEs ? '5 Alteraciones' : '5 Chromatic Signs'}
+                      </span>
+                    </div>
 
-                    {/* Top Band: 5 Accidentals & Barline Cancellation Rule */}
-                    <g transform="translate(20, 16)">
-                      <rect width="820" height="86" rx="6" fill="#0a0f1a" stroke="#1e293b" />
-                      <text x="16" y="20" fill="#94a3b8" fontSize="13.5" fontFamily="monospace" fontWeight="bold">
-                        {isId
-                          ? 'A. 5 TANDA KROMATIK (ACCIDENTALS) & ATURAN PEMBATALAN GARIS BIRAMA'
-                          : isEs
-                          ? 'A. LAS 5 ALTERACIONES CROMÁTICAS Y REGLA DE CANCELACIÓN POR COMPÁS'
-                          : 'A. THE 5 CHROMATIC ACCIDENTALS & BARLINE CANCELLATION RULE'}
-                      </text>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5">
                       {[
                         {
                           sym: '♯',
-                          name: isId ? 'Kres (Sharp)' : isEs ? 'Sostenido' : 'Sharp (Kruis)',
-                          shift: isId ? '+1 Semitone' : isEs ? '+1 Semitono' : '+1 Semitone',
-                          desc: isId ? 'Naik 1/2 nada' : isEs ? 'Sube 1/2 tono' : 'Raises pitch 1 half-step',
-                          col: '#f59e0b'
+                          name: isId ? 'Kres (Sharp)' : isEs ? 'Sostenido (Sharp)' : 'Sharp (Kruis)',
+                          shift: '+1 Semitone',
+                          desc: isId ? 'Menaikkan nada sebesar 1/2 langkah (1 semitone).' : isEs ? 'Sube el tono 1/2 paso (1 semitono).' : 'Raises pitch by 1 half-step (1 semitone).',
+                          col: 'text-amber-400',
+                          badgeBg: 'bg-amber-500/10 text-amber-300 border-amber-500/30',
+                          border: 'hover:border-amber-500/50',
                         },
                         {
                           sym: '♭',
-                          name: isId ? 'Mol (Flat)' : isEs ? 'Bemol' : 'Flat (Mol)',
-                          shift: isId ? '-1 Semitone' : isEs ? '-1 Semitono' : '-1 Semitone',
-                          desc: isId ? 'Turun 1/2 nada' : isEs ? 'Baja 1/2 tono' : 'Lowers pitch 1 half-step',
-                          col: '#38bdf8'
+                          name: isId ? 'Mol (Flat)' : isEs ? 'Bemol (Flat)' : 'Flat (Mol)',
+                          shift: '-1 Semitone',
+                          desc: isId ? 'Menurunkan nada sebesar 1/2 langkah (1 semitone).' : isEs ? 'Baja el tono 1/2 paso (1 semitono).' : 'Lowers pitch by 1 half-step (1 semitone).',
+                          col: 'text-sky-400',
+                          badgeBg: 'bg-sky-500/10 text-sky-300 border-sky-500/30',
+                          border: 'hover:border-sky-500/50',
                         },
                         {
                           sym: '♮',
-                          name: isId ? 'Pugar (Natural)' : isEs ? 'Becuadro' : 'Natural (Pugar)',
-                          shift: isId ? '0 (Reset)' : isEs ? '0 (Reset)' : '0 (Reset)',
-                          desc: isId ? 'Mereset ♯ / ♭' : isEs ? 'Cancela ♯ / ♭' : 'Cancels prior ♯/♭',
-                          col: '#10b981'
+                          name: isId ? 'Pugar (Natural)' : isEs ? 'Becuadro (Natural)' : 'Natural (Pugar)',
+                          shift: '0 (Reset)',
+                          desc: isId ? 'Membatalkan tanda kres/mol sebelumnya dan kembali ke nada alami.' : isEs ? 'Cancela alteraciones previas y restaura el sonido natural.' : 'Cancels prior sharp or flat, returning to natural pitch.',
+                          col: 'text-emerald-400',
+                          badgeBg: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30',
+                          border: 'hover:border-emerald-500/50',
                         },
                         {
                           sym: '𝄪',
-                          name: isId ? 'Kres Ganda' : isEs ? 'Doble Sostenido' : 'Double Sharp',
-                          shift: isId ? '+2 Semitone' : isEs ? '+2 Semitonos' : '+2 Semitones',
-                          desc: isId ? 'Naik 1 nada utuh' : isEs ? 'Sube 1 tono' : 'Raises 1 whole-step',
-                          col: '#f43f5e'
+                          name: isId ? 'Kres Ganda (Double Sharp)' : isEs ? 'Doble Sostenido' : 'Double Sharp',
+                          shift: '+2 Semitones',
+                          desc: isId ? 'Menaikkan nada sebesar 1 nada utuh (2 semitone).' : isEs ? 'Sube el tono 1 paso completo (2 semitonos).' : 'Raises pitch by 1 whole-step (2 semitones).',
+                          col: 'text-rose-400',
+                          badgeBg: 'bg-rose-500/10 text-rose-300 border-rose-500/30',
+                          border: 'hover:border-rose-500/50',
                         },
                         {
                           sym: '𝄫',
-                          name: isId ? 'Mol Ganda' : isEs ? 'Doble Bemol' : 'Double Flat',
-                          shift: isId ? '-2 Semitone' : isEs ? '-2 Semitonos' : '-2 Semitones',
-                          desc: isId ? 'Turun 1 nada utuh' : isEs ? 'Baja 1 tono' : 'Lowers 1 whole-step',
-                          col: '#a855f7'
+                          name: isId ? 'Mol Ganda (Double Flat)' : isEs ? 'Doble Bemol' : 'Double Flat',
+                          shift: '-2 Semitones',
+                          desc: isId ? 'Menurunkan nada sebesar 1 nada utuh (2 semitone).' : isEs ? 'Baja el tono 1 paso completo (2 semitonos).' : 'Lowers pitch by 1 whole-step (2 semitones).',
+                          col: 'text-purple-400',
+                          badgeBg: 'bg-purple-500/10 text-purple-300 border-purple-500/30',
+                          border: 'hover:border-purple-500/50',
                         },
                       ].map((acc, i) => (
-                        <g key={i} transform={`translate(${16 + i * 160}, 30)`}>
-                          <rect width="150" height="46" rx="4" fill="#0f172a" stroke="#1e293b" />
-                          <text x="20" y="30" textAnchor="middle" fill={acc.col} fontSize="20" fontFamily="serif" fontWeight="bold">{acc.sym}</text>
-                          <text x="42" y="18" fill="#f8fafc" fontSize="13" fontWeight="bold">{acc.name}</text>
-                          <text x="42" y="30" fill={acc.col} fontSize="12" fontFamily="monospace" fontWeight="bold">{acc.shift}</text>
-                          <text x="42" y="41" fill="#64748b" fontSize="11">{acc.desc}</text>
-                        </g>
+                        <div
+                          key={i}
+                          className={`bg-slate-900/80 border border-slate-800 rounded-xl p-3.5 flex flex-col justify-between transition-all ${acc.border} shadow-sm space-y-3`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className={`text-2xl font-bold ${acc.col} leading-none`}>
+                              {acc.sym}
+                            </span>
+                            <span className={`px-2 py-0.5 rounded text-[11px] font-semibold border ${acc.badgeBg}`}>
+                              {acc.shift}
+                            </span>
+                          </div>
+                          <div>
+                            <div className="text-sm font-bold text-white tracking-tight">
+                              {acc.name}
+                            </div>
+                            <p className="mt-1 text-xs text-slate-300 leading-relaxed">
+                              {acc.desc}
+                            </p>
+                          </div>
+                        </div>
                       ))}
-                    </g>
+                    </div>
 
-                    {/* Bottom Band: 4 Ornaments Written vs. Played */}
-                    <g transform="translate(20, 114)">
-                      <rect width="820" height="150" rx="6" fill="#0a0f1a" stroke="#1e293b" />
-                      <text x="16" y="22" fill="#94a3b8" fontSize="13.5" fontFamily="monospace" fontWeight="bold">
+                    {/* Barline Cancellation Rule Callout */}
+                    <div className="p-3.5 bg-slate-900/90 border border-slate-800 rounded-xl flex items-start gap-3">
+                      <div className="w-6 h-6 rounded-lg bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 flex items-center justify-center flex-shrink-0 text-xs font-bold mt-0.5">
+                        i
+                      </div>
+                      <div className="text-xs text-slate-300 leading-relaxed">
+                        <strong className="text-cyan-300 font-semibold mr-1">
+                          {isId ? 'Aturan Pembatalan Garis Birama:' : isEs ? 'Regla de Cancelación por Compás:' : 'Barline Cancellation Rule:'}
+                        </strong>
                         {isId
-                          ? 'B. ORNAMEN KLASIK — SIMBOL NOTASI VS. EKSEKUSI WAKTU NYATA'
+                          ? 'Tanda kromatik hanya berlaku untuk nada bersangkutan hingga akhir birama tersebut. Saat melintasi garis birama, status nada otomatis kembali normal sesuai tangga nada dasar (kecuali dihubungkan oleh lengkung busur tie).'
                           : isEs
-                          ? 'B. ORNAMENTOS CLÁSICOS — SÍMBOLO ESCRITO VS. EJECUCIÓN EN TIEMPO REAL'
-                          : 'B. CLASSICAL ORNAMENTS — WRITTEN SYMBOL vs. REAL-TIME PITCH EXECUTION'}
-                      </text>
+                          ? 'Las alteraciones accidentales solo aplican a la nota correspondiente dentro del compás actual. Al cruzar la barra de compás, su efecto se cancela automáticamente, salvo que esté unida por ligadura (tie).'
+                          : 'An accidental note applies only within its current measure. Crossing a barline cancels the alteration immediately, reverting to the original key signature unless tied across bars.'}
+                      </div>
+                    </div>
+                  </div>
 
+                  {/* Part B: Classical Ornaments — Written Symbol vs. Real-Time Pitch Execution */}
+                  <div className="bg-slate-950/70 border border-slate-800/90 rounded-2xl p-5 md:p-6 space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/70 pb-3">
+                      <div>
+                        <h4 className="text-sm md:text-base font-bold text-slate-100 tracking-wide">
+                          {isId
+                            ? 'B. ORNAMEN KLASIK — SIMBOL NOTASI VS. EKSEKUSI WAKTU NYATA'
+                            : isEs
+                            ? 'B. ORNAMENTOS CLÁSICOS — SÍMBOLO ESCRITO VS. EJECUCIÓN EN TIEMPO REAL'
+                            : 'B. CLASSICAL ORNAMENTS — WRITTEN SYMBOL vs. REAL-TIME PITCH EXECUTION'}
+                        </h4>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          {isId
+                            ? 'Hiasan melodi cepat dan cara memainkannya secara nyata pada tuts keyboard.'
+                            : isEs
+                            ? 'Adornos melódicos rápidos y cómo se ejecutan exactamente en el teclado.'
+                            : 'Melodic embellishments and their exact physical pitch sequences on keys.'}
+                        </p>
+                      </div>
+                      <span className="text-xs font-semibold text-emerald-400 bg-emerald-950/40 border border-emerald-800/50 px-2.5 py-1 rounded-lg">
+                        {isId ? '4 Ornamen Klasik' : isEs ? '4 Ornamentos' : '4 Core Ornaments'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                       {[
                         {
                           title: isId ? '1. TRILL (tr~~~)' : isEs ? '1. TRINO (tr~~~)' : '1. TRILL (tr~~~)',
-                          written: isId ? 'Not dengan simbol "tr"' : isEs ? 'Nota con símbolo "tr"' : 'C5 with "tr"',
+                          written: isId ? 'Not dengan simbol "tr"' : isEs ? 'Nota con símbolo "tr"' : 'Principal note with "tr"',
                           played: 'C5 – D5 – C5 – D5 – C5 – D5',
-                          desc: isId ? 'Bergantian sangat cepat antara nada pokok dan nada tetangga atas diatonik.' : isEs ? 'Alterna rápidamente entre la nota principal y su vecina superior.' : 'Rapidly alternate between the principal note and the diatonic upper neighbor.',
-                          col: '#38bdf8'
+                          desc: isId ? 'Bergantian sangat cepat dan berulang-ulang antara nada pokok dan nada tetangga atas diatonik.' : isEs ? 'Alterna rápida y continuamente entre la nota principal y la nota vecina superior.' : 'Rapidly and continuously alternates between the principal note and its upper diatonic neighbor.',
+                          accentBorder: 'border-t-sky-400',
+                          titleColor: 'text-sky-300',
                         },
                         {
-                          title: isId ? '2. MORDENT ATAS / BAWAH' : isEs ? '2. MORDENTE SUP. / INF.' : '2. UPPER / LOWER MORDENT',
-                          written: isId ? 'Not dengan simbol zigzag' : isEs ? 'Nota con zigzag' : 'C5 with zigzag (dc / dd)',
-                          played: isId ? 'Atas: C–D–C | Bawah: C–B–C' : isEs ? 'Sup: Do–Re–Do | Inf: Do–Si–Do' : 'Upper: C–D–C  |  Lower: C–B–C',
-                          desc: isId ? 'Hentakan cepat 3-nada pada ketukan lalu langsung kembali ke nada utama.' : isEs ? 'Ataque rápido de 3 notas que vuelve de inmediato a la nota principal.' : 'Single crisp 3-note snap on the beat returning immediately to the main note.',
-                          col: '#10b981'
+                          title: isId ? '2. UPPER / LOWER MORDENT' : isEs ? '2. MORDENTE SUP. / INF.' : '2. UPPER / LOWER MORDENT',
+                          written: isId ? 'Not dengan zigzag (dc / dd)' : isEs ? 'Nota con zigzag (dc / dd)' : 'Note with zigzag (dc / slashed dd)',
+                          played: isId ? 'Atas: C–D–C  |  Bawah: C–B–C' : isEs ? 'Sup: C–D–C  |  Inf: C–B–C' : 'Upper: C–D–C  |  Lower: C–B–C',
+                          desc: isId ? 'Hentakan cepat 3-nada tepat pada ketukan, kemudian langsung kembali dan bertahan pada nada utama.' : isEs ? 'Ataque rápido de 3 notas sobre el tiempo, volviendo de inmediato a la nota principal.' : 'Single crisp 3-note snap directly on the beat, returning immediately to sustain the main note.',
+                          accentBorder: 'border-t-emerald-400',
+                          titleColor: 'text-emerald-300',
                         },
                         {
-                          title: isId ? '3. TURN (Gruppetto)' : isEs ? '3. GRUPETO (Turn)' : '3. TURN (Gruppetto de)',
-                          written: isId ? 'Not dengan kurva S (∽)' : isEs ? 'Nota con curva S (∽)' : 'C5 with S-curve (∽)',
+                          title: isId ? '3. TURN (Gruppetto)' : isEs ? '3. GRUPETO (Turn)' : '3. TURN (Gruppetto)',
+                          written: isId ? 'Not dengan kurva S (∽)' : isEs ? 'Nota con curva S (∽)' : 'Note with S-curve (∽)',
                           played: 'D5 → C5 → B4 → C5',
-                          desc: isId ? 'Mengitari nada utama: Tetangga Atas → Pokok → Tetangga Bawah → Pokok.' : isEs ? 'Rodea la nota: Vecina Sup. → Principal → Vecina Inf. → Principal.' : 'Coils around the main note: Upper Neighbor → Main → Lower Neighbor → Main.',
-                          col: '#f59e0b'
+                          desc: isId ? 'Mengitari nada utama dengan urutan: Tetangga Atas → Nada Pokok → Tetangga Bawah → Nada Pokok.' : isEs ? 'Gira alrededor de la nota principal: Vecina Superior → Principal → Vecina Inferior → Principal.' : 'Turns around the main note: Upper Neighbor → Principal → Lower Neighbor → Principal.',
+                          accentBorder: 'border-t-amber-400',
+                          titleColor: 'text-amber-300',
                         },
                         {
                           title: isId ? '4. GRACE NOTE & ARPEGGIO' : isEs ? '4. APOYATURA Y ARPEGIADO' : '4. GRACE NOTE & ARPEGGIANDO',
-                          written: isId ? 'Not coret miring | Akor ombak' : isEs ? 'Nota tachada | Acorde ondulado' : 'Slashed 𝅘𝅥𝅮 | Wavy Chord 𝆃',
-                          played: isId ? 'Petik kilat | Arpeggio bawah ke atas' : isEs ? 'Golpe instantáneo | Arpegio abajo-arriba' : 'Instant pre-beat flick | Bottom→Top roll',
-                          desc: isId ? 'Acciaccatura dipetik kilat sebelum ketukan; garis ombak memainkan akor dari bawah ke atas.' : isEs ? 'Apoyatura se toca rápida antes del pulso; línea ondulada arpegia de grave a agudo.' : 'Acciaccatura is played rapidly just before/on the beat; wavy vertical line rolls chord bottom-to-top.',
-                          col: '#a855f7'
+                          written: isId ? 'Not coret miring 𝅘𝅥𝅮 | Akor ombak 𝆃' : isEs ? 'Nota tachada 𝅘𝅥𝅮 | Acorde ondulado 𝆃' : 'Slashed 𝅘𝅥𝅮 | Wavy Chord 𝆃',
+                          played: isId ? 'Petik kilat | Arpeggio bawah ke atas' : isEs ? 'Golpe instantáneo | Arpegio abajo a arriba' : 'Instant flick | Bottom-to-top roll',
+                          desc: isId ? 'Acciaccatura dipetik kilat sesaat sebelum ketukan; garis vertikal bergelombang memainkan akor satu per satu dari bawah ke atas.' : isEs ? 'La apoyatura se toca rápida antes del pulso; la línea ondulada arpegia el acorde sucesivamente de grave a agudo.' : 'Acciaccatura is played rapidly right before the beat; the wavy vertical line rolls the chord bottom-to-top.',
+                          accentBorder: 'border-t-purple-400',
+                          titleColor: 'text-purple-300',
                         },
                       ].map((orn, i) => (
-                        <g key={i} transform={`translate(${16 + i * 200}, 34)`}>
-                          <rect width="190" height="104" rx="5" fill="#0f172a" stroke="#1e293b" />
-                          <line x1="0" y1="0" x2="190" y2="0" stroke={orn.col} strokeWidth="2.5" />
-                          <text x="10" y="18" fill={orn.col} fontSize="13" fontFamily="monospace" fontWeight="bold">{orn.title}</text>
-                          <text x="10" y="34" fill="#94a3b8" fontSize="12" fontFamily="monospace">{isId ? 'Tercatat:' : isEs ? 'Escrito:' : 'Written:'} <tspan fill="#e2e8f0">{orn.written}</tspan></text>
-                          <rect x="10" y="42" width="170" height="20" rx="3" fill="#0a0f1d" stroke="#334155" />
-                          <text x="95" y="55" textAnchor="middle" fill="#fde68a" fontSize="12" fontFamily="monospace" fontWeight="bold">{orn.played}</text>
-                          <text x="10" y="76" fill="#cbd5e1" fontSize="11.5">{orn.desc.slice(0, 44)}</text>
-                          <text x="10" y="88" fill="#cbd5e1" fontSize="11.5">{orn.desc.slice(44, 90)}</text>
-                          <text x="10" y="99" fill="#cbd5e1" fontSize="11.5">{orn.desc.slice(90)}</text>
-                        </g>
+                        <div
+                          key={i}
+                          className={`bg-slate-900/80 border border-slate-800 border-t-2 ${orn.accentBorder} rounded-xl p-4 flex flex-col justify-between space-y-3 shadow-sm hover:border-slate-700 transition-all`}
+                        >
+                          <div className="space-y-1.5">
+                            <h5 className={`text-sm font-bold tracking-tight ${orn.titleColor}`}>
+                              {orn.title}
+                            </h5>
+                            <div className="text-xs text-slate-400">
+                              <span className="text-slate-500 mr-1.5">{isId ? 'Tercatat:' : isEs ? 'Escrito:' : 'Written:'}</span>
+                              <span className="text-slate-200 font-medium">{orn.written}</span>
+                            </div>
+                          </div>
+
+                          <div className="bg-slate-950/90 border border-slate-800/90 rounded-lg py-2 px-3 text-center text-xs font-semibold text-amber-300 tracking-wide shadow-inner">
+                            {orn.played}
+                          </div>
+
+                          <p className="text-xs text-slate-300 leading-relaxed">
+                            {orn.desc}
+                          </p>
+                        </div>
                       ))}
-                    </g>
-                  </svg>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Score Navigation & Dynamics Reference Table */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs pt-1">
                   <div className="p-4 bg-slate-900/70 rounded-lg border border-slate-800 space-y-2">
-                    <div className="font-mono font-bold text-cyan-400 uppercase">
+                    <div className="font-bold text-cyan-400 uppercase tracking-wide">
                       {isId ? 'PETA NAVIGASI & PENANDA PARTITUR' : isEs ? 'SIGNOS DE NAVEGACIÓN Y REPETICIÓN' : 'SCORE NAVIGATION ROADMAP MARKS'}
                     </div>
                     <ul className="space-y-1.5 text-slate-300">
-                      <li>• <b>{isId ? 'Titik Ulang' : isEs ? 'Barras de Repetición' : 'Repeat Dots'} (<code className="text-cyan-300 font-mono">|:  :|</code>):</b> {isId ? 'Ulangi bagian di antara dua tanda titik dua; jika hanya ada :|, ulangi dari awal lagu.' : isEs ? 'Repite la sección encerrada entre las barras con dos puntos; si solo hay :|, repite desde el inicio.' : 'Loop the section enclosed between the double-dotted barlines.'}</li>
-                      <li>• <b>{isId ? 'Rumah 1 & 2' : isEs ? 'Casillas 1ª y 2ª' : '1st & 2nd Endings'} (<code className="text-cyan-300 font-mono">1. / 2. Volta</code>):</b> {isId ? 'Mainkan kurung [1.] pada putaran pertama, lalu lompati [1.] langsung ke [2.] pada putaran kedua.' : isEs ? 'Toca la casilla [1.] en la primera vuelta; en la repetición, salta directamente a la casilla [2.].' : 'Play bracket [1.] on the first pass; on repeat, skip [1.] and jump directly into bracket [2.].'}</li>
+                      <li>• <b>{isId ? 'Titik Ulang' : isEs ? 'Barras de Repetición' : 'Repeat Dots'} (<code className="text-cyan-300 font-semibold">|:  :|</code>):</b> {isId ? 'Ulangi bagian di antara dua tanda titik dua; jika hanya ada :|, ulangi dari awal lagu.' : isEs ? 'Repite la sección encerrada entre las barras con dos puntos; si solo hay :|, repite desde el inicio.' : 'Loop the section enclosed between the double-dotted barlines.'}</li>
+                      <li>• <b>{isId ? 'Rumah 1 & 2' : isEs ? 'Casillas 1ª y 2ª' : '1st & 2nd Endings'} (<code className="text-cyan-300 font-semibold">1. / 2. Volta</code>):</b> {isId ? 'Mainkan kurung [1.] pada putaran pertama, lalu lompati [1.] langsung ke [2.] pada putaran kedua.' : isEs ? 'Toca la casilla [1.] en la primera vuelta; en la repetición, salta directamente a la casilla [2.].' : 'Play bracket [1.] on the first pass; on repeat, skip [1.] and jump directly into bracket [2.].'}</li>
                       <li>• <b>D.C. al Fine / D.S. al Coda:</b> {isId ? 'Da Capo = kembali ke bar 1 sampai kata Fine; Dal Segno = kembali ke simbol 𝄋 lalu lompat ke Coda 𝄌.' : isEs ? 'Da Capo = vuelve al compás 1 hasta Fine; Dal Segno = vuelve al símbolo 𝄋 y salta a la Coda 𝄌.' : 'Da Capo = return to Measure 1 until Fine; Dal Segno = jump back to symbol 𝄋 then leap to Coda 𝄌.'}</li>
                       <li>• <b>8va / 8vb / Loco:</b> {isId ? 'Mainkan 1 oktaf lebih tinggi (8va) atau 1 oktaf lebih rendah (8vb) agar terhindar dari tumpukan garis bantu ekstrem.' : isEs ? 'Toca 1 octava más alta (8va) o más baja (8vb); loco restaura el registro normal.' : 'Play 1 octave higher (8va) or lower (8vb) than written; loco restores normal register.'}</li>
                     </ul>
                   </div>
 
                   <div className="p-4 bg-slate-900/70 rounded-lg border border-slate-800 space-y-2">
-                    <div className="font-mono font-bold text-cyan-400 uppercase">
+                    <div className="font-bold text-cyan-400 uppercase tracking-wide">
                       {isId ? 'GRADASI DINAMIKA & PEMETAAN VELOCITY MIDI' : isEs ? 'GRADIENTE DINÁMICO Y VELOCIDAD MIDI' : 'Dynamic Gradient & MIDI Velocity Mapping'}
                     </div>
-                    <div className="grid grid-cols-3 gap-2 font-mono text-xs md:text-sm text-center">
+                    <div className="grid grid-cols-3 gap-2 text-xs md:text-sm text-center">
                       <div className="p-2 bg-slate-950 rounded border border-slate-800">
                         <span className="text-cyan-400 font-bold block">pp / p</span>
                         <span className="text-slate-400 text-xs">Vel: 25–55</span>
@@ -3413,7 +3483,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                       {/* Dual Offset Explanation Cards */}
                       <rect x="0" y="122" width="372" height="58" rx="5" fill="#0f172a" stroke="#1e293b" />
                       <text x="12" y="140" fill="#38bdf8" fontSize="13" fontFamily="monospace" fontWeight="bold">
-                        {isId ? '1. OFFSET HIT MIDI (Hitbox Shift)' : isEs ? '1. AJUSTE DE IMPACTO MIDI (Hitbox)' : '1. MIDI HIT TIMING OFFSET (Hitbox Shift)'}
+                        {isId ? '1. HITBOX OFFSET' : isEs ? '1. HITBOX OFFSET' : '1. HITBOX OFFSET'}
                       </text>
                       <text x="12" y="156" fill="#cbd5e1" fontSize="11.5">
                         {isId ? 'Kompensasi latensi driver audio/USB-MIDI. Jika dinilai LATE' : isEs ? 'Compensa la latencia USB-MIDI/audio. Si marca LATE (+ms),' : 'Compensates for USB-MIDI / audio driver buffer delay. If your hits register'}
@@ -3424,13 +3494,13 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
 
                       <rect x="388" y="122" width="372" height="58" rx="5" fill="#0f172a" stroke="#1e293b" />
                       <text x="400" y="140" fill="#a855f7" fontSize="13" fontFamily="monospace" fontWeight="bold">
-                        {isId ? '2. SINKRONISASI AUDIO (Offset Backing MP3/YouTube)' : isEs ? '2. SINCRONIZACIÓN DE AUDIO (Pista de Fondo / YouTube)' : '2. USER MS AUDIO SYNC (Backing Track / YouTube Offset)'}
+                        {isId ? '2. BACKING TRACK OFFSET (MP3/YouTube)' : isEs ? '2. BACKING TRACK OFFSET (Pista de Fondo / YouTube)' : '2. BACKING TRACK OFFSET (MP3 / YouTube Offset)'}
                       </text>
                       <text x="400" y="156" fill="#cbd5e1" fontSize="11.5">
                         {isId ? 'Menyelaraskan lagu MP3/YouTube dengan jam MIDI internal' : isEs ? 'Alinea pistas externas MP3/YouTube con el reloj MIDI interno' : 'Aligns external MP3 or YouTube backing audio with the internal MIDI clock'}
                       </text>
                       <text x="400" y="169" fill="#cbd5e1" fontSize="11.5">
-                        {isId ? 'dan metronom. Atur langsung di TopBar atau Sync Tuner.' : isEs ? 'y el metrónomo. Ajusta en tiempo real desde la TopBar.' : 'and metronome click. Adjust in real-time via TopBar or Sync Tuner (STU).'}
+                        {isId ? 'dan metronom. Atur langsung di TopBar atau BT Offset.' : isEs ? 'y el metrónomo. Ajusta en tiempo real desde la TopBar o BT Offset.' : 'and metronome click. Adjust in real-time via TopBar or BT Offset.'}
                       </text>
                     </g>
                   </svg>
@@ -3441,7 +3511,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
               <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-6 md:p-8 space-y-6 shadow-2xl backdrop-blur-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
                   <div>
-                    <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest block">
+                    <span className="text-xs font-bold text-cyan-400 uppercase tracking-widest block">
                       {isId
                         ? 'FIG 2.3 — ISOLASI LOOP MIKRO & TANGGA TEMPO 4 TAHAP'
                         : isEs
@@ -3456,64 +3526,71 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                         : 'Conservatory Practice Protocol: 2–4 Bar Loop Isolation & Progressive Tempo Ramp (50% → 100%)'}
                     </h3>
                   </div>
-                  <span className="text-xs font-mono text-slate-300 bg-slate-800/80 px-3 py-1 rounded-lg border border-slate-700">
+                  <span className="text-xs font-semibold text-slate-300 bg-slate-800/80 px-3 py-1 rounded-lg border border-slate-700">
                     {isId ? 'METODOLOGI LATIHAN' : isEs ? 'METODOLOGÍA DE PRÁCTICA' : 'PRACTICE METHODOLOGY'}
                   </span>
                 </div>
 
-                <div className="w-full overflow-x-auto custom-scrollbar pb-1">
-                  <svg viewBox="0 0 860 190" className="w-full min-w-[760px] h-auto select-none font-sans">
-                    <rect width="860" height="190" rx="8" fill="#0a0f1d" stroke="#334155" />
-                    {[
-                      {
-                        step: isId ? 'TAHAP 01 • 50% TEMPO' : isEs ? 'ETAPA 01 • 50% TEMPO' : 'STAGE 01 • 50% TEMPO',
-                        title: isId ? 'Tangan Terpisah + Mode Tunggu' : isEs ? 'Manos Separadas + Espera' : 'Hands Separate (HS) + Strict Wait',
-                        desc1: isId ? 'Isolasi 2–4 birama (Loop A → B).' : isEs ? 'Aísla 2–4 compases (Bucle A → B).' : 'Isolate 2–4 bars (Set Loop A → B).',
-                        desc2: isId ? 'Pastikan nomor jari (1–5) tepat' : isEs ? 'Asigna los dedos exactos (1–5)' : 'Map exact finger numbers (1–5)',
-                        desc3: isId ? 'tanpa ada keraguan sedikit pun.' : isEs ? 'sin titubeos ni tropiezos.' : 'with zero hesitation glitches.',
-                        col: '#38bdf8'
-                      },
-                      {
-                        step: isId ? 'TAHAP 02 • 65% TEMPO' : isEs ? 'ETAPA 02 • 65% TEMPO' : 'STAGE 02 • 65% TEMPO',
-                        title: isId ? 'Kedua Tangan + Mode Tunggu' : isEs ? 'Ambas Manos + Espera' : 'Hands Together (HT) + Wait Mode',
-                        desc1: isId ? 'Gabungkan tangan kiri & kanan.' : isEs ? 'Combina ambas manos verticalmente.' : 'Combine LH + RH vertically.',
-                        desc2: isId ? 'Pastikan akor sejajar vertikal' : isEs ? 'Verifica la alineación de acordes' : 'Verify vertical chord alignment',
-                        desc3: isId ? 'sebelum menaikkan kecepatan.' : isEs ? 'antes de introducir velocidad.' : 'before speed is introduced.',
-                        col: '#818cf8'
-                      },
-                      {
-                        step: isId ? 'TAHAP 03 • 80% TEMPO' : isEs ? 'ETAPA 03 • 80% TEMPO' : 'STAGE 03 • 80% TEMPO',
-                        title: isId ? 'Ketukan Metronom + Non-Stop' : isEs ? 'Metrónomo + Continuo' : 'Metronome Beat + Non-Stop',
-                        desc1: isId ? 'Matikan Mode Tunggu; nyalakan' : isEs ? 'Desactiva Modo Espera; activa' : 'Disable Wait Mode; turn Metronome',
-                        desc2: isId ? 'metronom. Mainkan 3x beruntun' : isEs ? 'metrónomo. Toca 3x seguidas' : 'ON. Play 3x in a row with >=95%',
-                        desc3: isId ? 'dengan akurasi >=95%.' : isEs ? 'con >=95% de precisión.' : 'accuracy before advancing.',
-                        col: '#10b981'
-                      },
-                      {
-                        step: isId ? 'TAHAP 04 • 100% TEMPO' : isEs ? 'ETAPA 04 • 100% TEMPO' : 'STAGE 04 • 100% TEMPO',
-                        title: isId ? 'Performa Penuh + Dinamika' : isEs ? 'Interpretación + Dinámica' : 'Full Performance + Dynamics',
-                        desc1: isId ? 'Tambahkan backing track, napas' : isEs ? 'Añade pista de fondo, respiración' : 'Add backing track, phrasing breath,',
-                        desc2: isId ? 'frasering, dan pedal sustain' : isEs ? 'de fraseo y pedal de resonancia' : 'and damper pedaling at target',
-                        desc3: isId ? 'pada kecepatan konser penuh.' : isEs ? 'al tempo final de concierto.' : 'concert tempo.',
-                        col: '#f59e0b'
-                      },
-                    ].map((st, i) => (
-                      <g key={i} transform={`translate(${18 + i * 208}, 18)`}>
-                        <rect width="196" height="154" rx="6" fill="#0a0f1a" stroke="#1e293b" />
-                        <line x1="0" y1="0" x2="196" y2="0" stroke={st.col} strokeWidth="3" />
-                        <text x="12" y="24" fill={st.col} fontSize="12" fontFamily="monospace" fontWeight="bold">{st.step}</text>
-                        <text x="12" y="44" fill="#f8fafc" fontSize="13" fontWeight="bold">{st.title}</text>
-                        <line x1="12" y1="54" x2="184" y2="54" stroke="#1e293b" />
-                        <text x="12" y="74" fill="#cbd5e1" fontSize="11.5">{st.desc1}</text>
-                        <text x="12" y="90" fill="#cbd5e1" fontSize="11.5">{st.desc2}</text>
-                        <text x="12" y="106" fill="#cbd5e1" fontSize="11.5">{st.desc3}</text>
-                        <rect x="12" y="122" width="172" height="20" rx="3" fill="#0f172a" />
-                        <text x="98" y="135" textAnchor="middle" fill={st.col} fontSize="11.5" fontFamily="monospace" fontWeight="bold">
-                          {isId ? 'SYARAT: 3× Repetisi Bersih' : isEs ? 'REGLA: 3× Repeticiones Limpias' : 'PASS RULE: 3× Clean Repetitions'}
-                        </text>
-                      </g>
-                    ))}
-                  </svg>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {[
+                    {
+                      step: isId ? 'TAHAP 01 • 50% TEMPO' : isEs ? 'ETAPA 01 • 50% TEMPO' : 'STAGE 01 • 50% TEMPO',
+                      title: isId ? 'Tangan Terpisah + Mode Tunggu' : isEs ? 'Manos Separadas + Espera' : 'Hands Separate (HS) + Strict Wait',
+                      desc: isId ? 'Isolasi 2–4 birama (Loop A → B). Pastikan nomor jari (1–5) tepat tanpa ada keraguan sedikit pun.' : isEs ? 'Aísla 2–4 compases (Bucle A → B). Asigna los dedos exactos (1–5) sin titubeos ni tropiezos.' : 'Isolate 2–4 bars (Set Loop A → B). Map exact finger numbers (1–5) with zero hesitation glitches.',
+                      rule: isId ? 'SYARAT: 3× Repetisi Bersih' : isEs ? 'REGLA: 3× Repeticiones Limpias' : 'PASS RULE: 3× Clean Repetitions',
+                      accentBorder: 'border-t-sky-400',
+                      badgeBg: 'bg-sky-500/10 text-sky-300 border-sky-500/30',
+                      titleColor: 'text-sky-300',
+                    },
+                    {
+                      step: isId ? 'TAHAP 02 • 65% TEMPO' : isEs ? 'ETAPA 02 • 65% TEMPO' : 'STAGE 02 • 65% TEMPO',
+                      title: isId ? 'Kedua Tangan + Mode Tunggu' : isEs ? 'Ambas Manos + Espera' : 'Hands Together (HT) + Wait Mode',
+                      desc: isId ? 'Gabungkan tangan kiri & kanan. Pastikan akor sejajar vertikal sebelum menaikkan kecepatan.' : isEs ? 'Combina ambas manos verticalmente. Verifica la alineación de acordes antes de introducir velocidad.' : 'Combine LH + RH vertically. Verify vertical chord alignment before speed is introduced.',
+                      rule: isId ? 'SYARAT: 3× Repetisi Bersih' : isEs ? 'REGLA: 3× Repeticiones Limpias' : 'PASS RULE: 3× Clean Repetitions',
+                      accentBorder: 'border-t-indigo-400',
+                      badgeBg: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30',
+                      titleColor: 'text-indigo-300',
+                    },
+                    {
+                      step: isId ? 'TAHAP 03 • 80% TEMPO' : isEs ? 'ETAPA 03 • 80% TEMPO' : 'STAGE 03 • 80% TEMPO',
+                      title: isId ? 'Ketukan Metronom + Non-Stop' : isEs ? 'Metrónomo + Continuo' : 'Metronome Beat + Non-Stop',
+                      desc: isId ? 'Matikan Mode Tunggu; nyalakan metronom. Mainkan 3x beruntun dengan akurasi >=95%.' : isEs ? 'Desactiva Modo Espera; activa metrónomo. Toca 3x seguidas con >=95% de precisión.' : 'Disable Wait Mode; turn Metronome ON. Play 3x in a row with >=95% accuracy before advancing.',
+                      rule: isId ? 'SYARAT: 3× Repetisi Bersih' : isEs ? 'REGLA: 3× Repeticiones Limpias' : 'PASS RULE: 3× Clean Repetitions',
+                      accentBorder: 'border-t-emerald-400',
+                      badgeBg: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30',
+                      titleColor: 'text-emerald-300',
+                    },
+                    {
+                      step: isId ? 'TAHAP 04 • 100% TEMPO' : isEs ? 'ETAPA 04 • 100% TEMPO' : 'STAGE 04 • 100% TEMPO',
+                      title: isId ? 'Performa Penuh + Dinamika' : isEs ? 'Interpretación + Dinámica' : 'Full Performance + Dynamics',
+                      desc: isId ? 'Tambahkan backing track, napas frasering, dan pedal sustain pada kecepatan konser penuh.' : isEs ? 'Añade pista de fondo, respiración de fraseo y pedal de resonancia al tempo final de concierto.' : 'Add backing track, phrasing breath, and damper pedaling at target concert tempo.',
+                      rule: isId ? 'SYARAT: 3× Repetisi Bersih' : isEs ? 'REGLA: 3× Repeticiones Limpias' : 'PASS RULE: 3× Clean Repetitions',
+                      accentBorder: 'border-t-amber-400',
+                      badgeBg: 'bg-amber-500/10 text-amber-300 border-amber-500/30',
+                      titleColor: 'text-amber-300',
+                    },
+                  ].map((st, i) => (
+                    <div
+                      key={i}
+                      className={`bg-slate-900/80 border border-slate-800 border-t-2 ${st.accentBorder} rounded-xl p-4 flex flex-col justify-between space-y-3 shadow-sm hover:border-slate-700 transition-all`}
+                    >
+                      <div className="space-y-2">
+                        <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold border ${st.badgeBg}`}>
+                          {st.step}
+                        </span>
+                        <h5 className="text-sm font-bold text-white tracking-tight">
+                          {st.title}
+                        </h5>
+                        <p className="text-xs text-slate-300 leading-relaxed">
+                          {st.desc}
+                        </p>
+                      </div>
+
+                      <div className="p-2 bg-slate-950/80 rounded-lg border border-slate-800 text-center text-xs font-semibold text-slate-300">
+                        {st.rule}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
 
@@ -5719,7 +5796,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
               <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-6 md:p-8 space-y-6 shadow-2xl backdrop-blur-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
                   <div>
-                    <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest block">
+                    <span className="text-xs font-bold text-cyan-400 uppercase tracking-widest block">
                       FIG 5.3 — LEFT-HAND ACCOMPANIMENT PATTERNS, CADENCES &amp; THE 7 DIATONIC MODES
                     </span>
                     <h3 className="text-base md:text-lg font-bold text-white mt-1">
@@ -5728,63 +5805,75 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                         : '4 Left-Hand Accompaniment Patterns, 4 Harmonic Cadences & The 7 Diatonic Modes'}
                     </h3>
                   </div>
-                  <span className="text-xs font-mono text-slate-300 bg-slate-800/80 px-3 py-1 rounded-lg border border-slate-700">
+                  <span className="text-xs font-semibold text-slate-300 bg-slate-800/80 px-3 py-1 rounded-lg border border-slate-700">
                     ARRANGEMENT TOOLKIT
                   </span>
                 </div>
 
-                {/* 4 Left-Hand Accompaniment SVG Cards */}
-                <div className="w-full overflow-x-auto custom-scrollbar pb-1">
-                  <svg viewBox="0 0 860 175" className="w-full min-w-[760px] h-auto select-none font-sans">
-                    <rect width="860" height="175" rx="8" fill="#0a0f1d" stroke="#334155" />
-                    {[
-                      {
-                        title: '1. ALBERTI BASS (Classical)',
-                        pattern: 'Bottom – Top – Middle – Top',
-                        notes: 'C3 (5) → G3 (1) → E3 (3) → G3 (1)',
-                        desc: 'Mozart & Beethoven staple; uses smooth forearm rotation.',
-                        col: '#38bdf8'
-                      },
-                      {
-                        title: '2. POP ARPEGGIO (1–5–8)',
-                        pattern: 'Root – Fifth – Octave – Fifth',
-                        notes: 'C3 (5) → G3 (2) → C4 (1) → G3 (2)',
-                        desc: 'Open, consonant foundation for modern ballads & anime OSTs.',
-                        col: '#10b981'
-                      },
-                      {
-                        title: '3. OPEN 10th VOICING (1–5–10)',
-                        pattern: 'Root – Fifth – Octave – Major 10th',
-                        notes: 'C3 (5) → G3 (2) → C4 (1) → E4 (3)',
-                        desc: 'Spreads the 3rd above the octave for lush cinematic warmth.',
-                        col: '#f59e0b'
-                      },
-                      {
-                        title: '4. WALTZ / RAGTIME STRIDE',
-                        pattern: 'Low Bass Root → Upper Chord Hit',
-                        notes: 'Beat 1: C2 (5)  |  Beats 2–3: [E3+G3+C4]',
-                        desc: 'Alternates deep bass downbeats with rhythmic upper-register chords.',
-                        col: '#a855f7'
-                      },
-                    ].map((pat, i) => (
-                      <g key={i} transform={`translate(${16 + i * 209}, 16)`}>
-                        <rect width="199" height="143" rx="6" fill="#0a0f1a" stroke="#1e293b" />
-                        <line x1="0" y1="0" x2="199" y2="0" stroke={pat.col} strokeWidth="2.5" />
-                        <text x="12" y="20" fill={pat.col} fontSize="13" fontFamily="monospace" fontWeight="bold">{pat.title}</text>
-                        <text x="12" y="38" fill="#e2e8f0" fontSize="12" fontWeight="bold">{pat.pattern}</text>
-                        <rect x="10" y="48" width="179" height="22" rx="3" fill="#0f172a" stroke="#1e293b" />
-                        <text x="99.5" y="62" textAnchor="middle" fill="#fde68a" fontSize="12" fontFamily="monospace" fontWeight="bold">{pat.notes}</text>
-                        <text x="12" y="90" fill="#94a3b8" fontSize="11.5">{pat.desc.slice(0, 34)}</text>
-                        <text x="12" y="104" fill="#94a3b8" fontSize="11.5">{pat.desc.slice(34)}</text>
-                      </g>
-                    ))}
-                  </svg>
+                {/* 4 Left-Hand Accompaniment Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {[
+                    {
+                      title: isId ? '1. ALBERTI BASS (Klasik)' : isEs ? '1. BAJO ALBERTI (Clásico)' : '1. ALBERTI BASS (Classical)',
+                      pattern: isId ? 'Bawah – Atas – Tengah – Atas' : isEs ? 'Grave – Agudo – Medio – Agudo' : 'Bottom – Top – Middle – Top',
+                      notes: 'C3 (5) → G3 (1) → E3 (3) → G3 (1)',
+                      desc: isId ? 'Khas Mozart & Beethoven; mengandalkan rotasi lengan bawah yang mulus.' : isEs ? 'Clásico en Mozart y Beethoven; utiliza una rotación fluida del antebrazo.' : 'Mozart & Beethoven staple; uses smooth forearm rotation.',
+                      accentBorder: 'border-t-sky-400',
+                      titleColor: 'text-sky-300',
+                    },
+                    {
+                      title: isId ? '2. POP ARPEGGIO (1–5–8)' : isEs ? '2. ARPEGIO POP (1–5–8)' : '2. POP ARPEGGIO (1–5–8)',
+                      pattern: isId ? 'Akar – Kuint – Oktaf – Kuint' : isEs ? 'Fundamental – Quinta – Octava – Quinta' : 'Root – Fifth – Octave – Fifth',
+                      notes: 'C3 (5) → G3 (2) → C4 (1) → G3 (2)',
+                      desc: isId ? 'Fondasi terbuka dan konsonan untuk balada modern serta soundtrack anime.' : isEs ? 'Base abierta y consonante para baladas modernas y bandas sonoras.' : 'Open, consonant foundation for modern ballads & anime OSTs.',
+                      accentBorder: 'border-t-emerald-400',
+                      titleColor: 'text-emerald-300',
+                    },
+                    {
+                      title: isId ? '3. OPEN 10th VOICING (1–5–10)' : isEs ? '3. VOICING DE 10ª ABIERTA (1–5–10)' : '3. OPEN 10th VOICING (1–5–10)',
+                      pattern: isId ? 'Akar – Kuint – Oktaf – Terts Mayor ke-10' : isEs ? 'Fundamental – 5ª – 8ª – 10ª Mayor' : 'Root – Fifth – Octave – Major 10th',
+                      notes: 'C3 (5) → G3 (2) → C4 (1) → E4 (3)',
+                      desc: isId ? 'Menempatkan terts di atas oktaf untuk kehangatan harmoni sinematik yang megah.' : isEs ? 'Desplaza la 3ª sobre la octava logrando una calidez cinematográfica rica.' : 'Spreads the 3rd above the octave for lush cinematic warmth.',
+                      accentBorder: 'border-t-amber-400',
+                      titleColor: 'text-amber-300',
+                    },
+                    {
+                      title: isId ? '4. WALTZ / RAGTIME STRIDE' : isEs ? '4. VALS / STRIDE RAGTIME' : '4. WALTZ / RAGTIME STRIDE',
+                      pattern: isId ? 'Akar Bas Rendah → Hentakan Akor Atas' : isEs ? 'Bajo Grave → Golpe de Acorde Superior' : 'Low Bass Root → Upper Chord Hit',
+                      notes: 'Ketuk 1: C2 (5) | Ketuk 2–3: [E3+G3+C4]',
+                      desc: isId ? 'Bergantian antara ketukan bas rendah dan akor register atas yang ritmis.' : isEs ? 'Alterna golpes de bajo profundo con acordes rítmicos en registro medio/agudo.' : 'Alternates deep bass downbeats with rhythmic upper-register chords.',
+                      accentBorder: 'border-t-purple-400',
+                      titleColor: 'text-purple-300',
+                    },
+                  ].map((pat, i) => (
+                    <div
+                      key={i}
+                      className={`bg-slate-900/80 border border-slate-800 border-t-2 ${pat.accentBorder} rounded-xl p-4 flex flex-col justify-between space-y-3 shadow-sm hover:border-slate-700 transition-all`}
+                    >
+                      <div className="space-y-1.5">
+                        <h5 className={`text-sm font-bold tracking-tight ${pat.titleColor}`}>
+                          {pat.title}
+                        </h5>
+                        <div className="text-xs text-slate-200 font-semibold">
+                          {pat.pattern}
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-950/90 border border-slate-800/90 rounded-lg py-2 px-3 text-center text-xs font-semibold text-amber-300 tracking-wide shadow-inner">
+                        {pat.notes}
+                      </div>
+
+                      <p className="text-xs text-slate-300 leading-relaxed">
+                        {pat.desc}
+                      </p>
+                    </div>
+                  ))}
                 </div>
 
                 {/* The 7 Modes & Harmonic Cadences Table */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs pt-1">
                   <div className="p-4 bg-slate-900/70 rounded-lg border border-slate-800 space-y-2">
-                    <div className="font-mono font-bold text-cyan-400 uppercase">{isId ? '7 Modus Diatonis (Rotasi Tuts Putih)' : isEs ? 'Los 7 Modos Diatónicos (Rotaciones de Teclas Blancas)' : 'The 7 Diatonic Modes (White-Key Rotations)'}</div>
+                    <div className="font-bold text-cyan-400 uppercase tracking-wide">{isId ? '7 Modus Diatonis (Rotasi Tuts Putih)' : isEs ? 'Los 7 Modos Diatónicos (Rotaciones de Teclas Blancas)' : 'The 7 Diatonic Modes (White-Key Rotations)'}</div>
                     <table className="w-full text-left font-mono text-xs md:text-sm">
                       <thead>
                         <tr className="text-slate-400 border-b border-slate-800">
@@ -7417,14 +7506,14 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
               <div data-no-ui-sound="true" className="p-6 md:p-8 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-6">
                 <div className="border-b border-slate-800 pb-4 flex flex-col sm:flex-row sm:items-end justify-between gap-2">
                   <div>
-                    <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest">
-                      {isId ? 'BAGIAN 7.3 • JEMBATAN KELEDAI INTERVAL' : isEs ? 'SECCIÓN 7.3 • MNEMOTECNIAS DE INTERVALOS' : 'SECTION 7.3 • INTERVAL MNEMONICS'}
+                    <span className="text-xs font-bold text-cyan-400 uppercase tracking-widest">
+                      {isId ? 'BAGIAN 7.3 • KARAKTER INTERVAL & RASIO' : isEs ? 'SECCIÓN 7.3 • INTERVALOS Y RELACIÓN' : 'SECTION 7.3 • INTERVAL RATIOS & FEELING'}
                     </span>
                     <h3 className="text-lg md:text-xl font-black text-white mt-1">
                       {t.chPPTheorySec3Title}
                     </h3>
                   </div>
-                  <span className="text-xs font-mono text-slate-400">
+                  <span className="text-xs font-semibold text-slate-400">
                     {isId ? 'Klik tombol Putar (Play) untuk mendengarkan' : isEs ? 'Haz clic en Reproducir para escuchar' : 'Click Play button to audition'}
                   </span>
                 </div>
@@ -7432,11 +7521,10 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs text-left border-collapse border border-slate-800">
                     <thead>
-                      <tr className="bg-slate-950 text-slate-300 font-mono uppercase tracking-wider">
+                      <tr className="bg-slate-950 text-slate-300 font-bold uppercase tracking-wider text-[11px]">
                         <th className="p-2.5 border border-slate-800">{isId ? 'Interval' : isEs ? 'Intervalo' : 'Interval'}</th>
                         <th className="p-2.5 border border-slate-800">Semitones</th>
                         <th className="p-2.5 border border-slate-800">Ratio</th>
-                        <th className="p-2.5 border border-slate-800">{isId ? 'Lagu Referensi Populer' : isEs ? 'Canción de Referencia' : 'Famous Song Anchor'}</th>
                         <th className="p-2.5 border border-slate-800">{isId ? 'Kesan Rasa' : isEs ? 'Sensación Tonal' : 'Emotional Feeling'}</th>
                         <th className="p-2.5 border border-slate-800 text-center">Audio</th>
                       </tr>
@@ -7444,19 +7532,11 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                     <tbody className="divide-y divide-slate-800/80">
                       {EAR_INTERVALS.map((inv) => (
                         <tr key={inv.semitones} className="hover:bg-slate-800/40 transition-colors">
-                          <td className="p-2.5 font-bold font-mono text-white">
+                          <td className="p-2.5 font-bold text-white">
                             {isId ? inv.name.id : isEs ? inv.name.es : inv.name.en} ({inv.shortCode})
                           </td>
-                          <td className="p-2.5 font-mono text-slate-400">{inv.semitones}</td>
-                          <td className="p-2.5 font-mono text-cyan-400">{inv.ratio}</td>
-                          <td className="p-2.5 text-slate-300 font-medium">
-                            <span className="inline-flex items-center gap-1.5">
-                              <svg className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12 0c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z" />
-                              </svg>
-                              <span>{isId ? inv.song.id : isEs ? inv.song.es : inv.song.en}</span>
-                            </span>
-                          </td>
+                          <td className="p-2.5 text-slate-400">{inv.semitones}</td>
+                          <td className="p-2.5 font-semibold text-cyan-400">{inv.ratio}</td>
                           <td className="p-2.5 text-slate-300">{isId ? inv.feeling.id : isEs ? inv.feeling.es : inv.feeling.en}</td>
                           <td className="p-2.5 text-center">
                             <button
@@ -7529,10 +7609,10 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                     </div>
                     <p className="text-xs text-slate-300 leading-relaxed">
                       {isId
-                        ? 'Dengarkan lagu favorit Anda di radio atau streaming, dan gunakan tabel lagu referensi interval untuk menebak lompatan 2 nada pertama melodi vokalnya.'
+                        ? 'Dengarkan lagu favorit Anda di radio atau streaming, dan gunakan tabel interval di atas untuk menebak lompatan 2 nada pertama melodi vokalnya.'
                         : isEs
-                        ? 'Escucha tu canción favorita e intenta identificar los dos primeros tonos de la melodía usando las canciones mnemotécnicas de la tabla de intervalos.'
-                        : 'Listen to any vocal melody on the radio and identify the opening 2-note interval leap using your mental song reference catalog.'}
+                        ? 'Escucha tu canción favorita e intenta identificar los dos primeros tonos de la melodía usando la tabla de intervalos anterior.'
+                        : 'Listen to any vocal melody on the radio and identify the opening 2-note interval leap using the interval table above.'}
                     </p>
                   </div>
                 </div>

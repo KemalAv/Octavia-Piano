@@ -711,7 +711,20 @@ export const preloadAudioUrl = async (url: string): Promise<string> => {
     return URL.createObjectURL(cachedBlob);
   }
 
-  // If not cached, we return the original URL.
+  const isYoutube = url.includes("youtube.com") || url.includes("youtu.be");
+  if (!isYoutube) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) {
+        const blob = await response.blob();
+        await saveToAudioCache(url, blob);
+        return URL.createObjectURL(blob);
+      }
+    } catch (e) {
+      console.warn("Direct audio preload fallback to streaming URL:", e);
+    }
+  }
+
   return url;
 };
 

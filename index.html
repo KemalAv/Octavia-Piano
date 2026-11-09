@@ -2,10 +2,18 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 
   <title>Octavia - Piano Rhythm Game</title>
   <meta name="description" content="When you combine a rhythm game with a real piano, this cool rhythm game is born. A piano learning app experience that is free and includes a leaderboard so you can flex.">
+
+  <!-- PWA & Mobile Web App Capabilities -->
+  <link rel="manifest" href="/manifest.json">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Octavia">
+  <meta name="theme-color" content="#050505">
 
   <link rel="icon" type="image/png" href="/logo.png">
   <link rel="apple-touch-icon" href="/logo.png">
@@ -25,6 +33,18 @@
       padding: 0;
       overflow: hidden; /* Prevent scrollbars at the highest level */
       background-color: #050505; /* Deep black */
+      -webkit-tap-highlight-color: transparent;
+    }
+    :fullscreen, ::backdrop {
+      background-color: #050505;
+    }
+    html:fullscreen, body:fullscreen, #root:fullscreen,
+    html:-webkit-full-screen, body:-webkit-full-screen, #root:-webkit-full-screen {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      margin: 0;
+      padding: 0;
     }
     body {
       font-family: 'Exo 2', sans-serif; /* Applied new font */
@@ -238,5 +258,12 @@
   <noscript>You need to enable JavaScript to run this app.</noscript>
   <div id="root"></div>
 <script type="module" src="/index.tsx"></script>
+<script>
+  if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+    });
+  }
+</script>
 </body>
 </html>

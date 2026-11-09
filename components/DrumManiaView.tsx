@@ -167,37 +167,43 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = React.memo(({
         });
     };
 
+    const getPadFromCoordinates = (x: number, y: number): string | null => {
+        const padCount = MANIA_PAD_ORDER.length;
+        if (padCount === 0 || dimensions.width <= 0) return null;
+        const padWidth = dimensions.width / padCount;
+        const centerY = hasBottomDrumKit
+            ? dimensions.height - 62
+            : dimensions.height - 125;
+        const r = Math.min(padWidth * 0.45, 46);
+
+        // Click zone only around the drum icon (icon circle and label area)
+        // Leaving the lane area above free for scrolling/seeking
+        const topBound = centerY - r * 1.35;
+        const bottomBound = Math.min(dimensions.height, centerY + r * 1.45 + 18);
+
+        if (y >= topBound && y <= bottomBound) {
+            const colIndex = Math.floor(x / padWidth);
+            if (colIndex >= 0 && colIndex < padCount) {
+                return MANIA_PAD_ORDER[colIndex];
+            }
+        }
+        return null;
+    };
+
     const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
         const canvas = canvasRef.current;
         if (!canvas) return;
 
         const rect = canvas.getBoundingClientRect();
-
-        // Exact logical coordinates
         const x = ((e.clientX - rect.left) / rect.width) * dimensions.width;
         const y = ((e.clientY - rect.top) / rect.height) * dimensions.height;
 
-        const pads = getPadLayout();
-        let closestPad: { id: string; distRatio: number } | null = null;
+        const padId = getPadFromCoordinates(x, y);
 
-        for (const pad of pads) {
-            const dx = Math.abs(x - pad.cx);
-            const dy = Math.abs(y - pad.cy);
-            const touchRadiusX = pad.r * 1.3 + 8;
-            const touchRadiusY = pad.r * 1.5 + 16;
-
-            if (dx <= touchRadiusX && dy <= touchRadiusY) {
-                const distRatio = (dx * dx) / (touchRadiusX * touchRadiusX) + (dy * dy) / (touchRadiusY * touchRadiusY);
-                if (distRatio <= 1.0 && (!closestPad || distRatio < closestPad.distRatio)) {
-                    closestPad = { id: pad.id, distRatio };
-                }
-            }
-        }
-
-        if (closestPad) {
+        if (padId) {
             if (onPadDown) {
-                activePointersRef.current.set(e.pointerId, closestPad.id);
-                onPadDown(closestPad.id);
+                activePointersRef.current.set(e.pointerId, padId);
+                onPadDown(padId);
             }
         } else if (isPaused) {
             dragRef.current = {
@@ -222,43 +228,43 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = React.memo(({
             return;
         }
 
-        // Support sliding / dragging across mania lanes
-        if (e.buttons > 0 && !isPaused && onPadDown && onPadUp) {
+        // Support sliding / dragging across mania lanes with lane hysteresis
+        if (!isPaused && onPadDown && onPadUp) {
             const canvas = canvasRef.current;
             if (!canvas) return;
             const rect = canvas.getBoundingClientRect();
             const x = ((e.clientX - rect.left) / rect.width) * dimensions.width;
             const y = ((e.clientY - rect.top) / rect.height) * dimensions.height;
 
-            const pads = getPadLayout();
-            let closestPadId: string | null = null;
-            let minDistRatio = Infinity;
-
-            for (const pad of pads) {
-                const dx = Math.abs(x - pad.cx);
-                const dy = Math.abs(y - pad.cy);
-                const touchRadiusX = pad.r * 1.3 + 8;
-                const touchRadiusY = pad.r * 1.5 + 16;
-
-                if (dx <= touchRadiusX && dy <= touchRadiusY) {
-                    const distRatio = (dx * dx) / (touchRadiusX * touchRadiusX) + (dy * dy) / (touchRadiusY * touchRadiusY);
-                    if (distRatio <= 1.0 && distRatio < minDistRatio) {
-                        minDistRatio = distRatio;
-                        closestPadId = pad.id;
-                    }
-                }
-            }
-
+            const padId = getPadFromCoordinates(x, y);
             const currentActivePadId = activePointersRef.current.get(e.pointerId);
-            if (closestPadId && closestPadId !== currentActivePadId) {
-                if (currentActivePadId) {
+
+            if (currentActivePadId) {
+                const padCount = MANIA_PAD_ORDER.length;
+                const padWidth = dimensions.width / padCount;
+                const centerY = hasBottomDrumKit
+                    ? dimensions.height - 62
+                    : dimensions.height - 125;
+                const r = Math.min(padWidth * 0.45, 46);
+                const topBound = centerY - r * 1.45;
+                const bottomBound = Math.min(dimensions.height, centerY + r * 1.55 + 20);
+
+                const currentColIndex = MANIA_PAD_ORDER.indexOf(currentActivePadId);
+                const minLaneX = currentColIndex * padWidth - padWidth * 0.20;
+                const maxLaneX = (currentColIndex + 1) * padWidth + padWidth * 0.20;
+                const isStillInLane = x >= minLaneX && x <= maxLaneX && y >= topBound && y <= bottomBound;
+
+                if (!isStillInLane && padId && padId !== currentActivePadId) {
                     onPadUp(currentActivePadId);
+                    activePointersRef.current.set(e.pointerId, padId);
+                    onPadDown(padId);
+                } else if (!isStillInLane && !padId) {
+                    onPadUp(currentActivePadId);
+                    activePointersRef.current.delete(e.pointerId);
                 }
-                activePointersRef.current.set(e.pointerId, closestPadId);
-                onPadDown(closestPadId);
-            } else if (!closestPadId && currentActivePadId) {
-                onPadUp(currentActivePadId);
-                activePointersRef.current.delete(e.pointerId);
+            } else if (padId) {
+                activePointersRef.current.set(e.pointerId, padId);
+                onPadDown(padId);
             }
         }
     };
@@ -275,6 +281,20 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = React.memo(({
     };
 
     const handlePointerLeave = (e: React.PointerEvent<HTMLCanvasElement>) => {
+        // Do not prematurely cancel on touch boundary crossing
+        if (e.pointerType === 'touch') return;
+
+        const padId = activePointersRef.current.get(e.pointerId);
+        if (padId && onPadUp) {
+            onPadUp(padId);
+            activePointersRef.current.delete(e.pointerId);
+        }
+        if (dragRef.current) {
+            dragRef.current.isDragging = false;
+        }
+    };
+
+    const handlePointerCancel = (e: React.PointerEvent<HTMLCanvasElement>) => {
         const padId = activePointersRef.current.get(e.pointerId);
         if (padId && onPadUp) {
             onPadUp(padId);
@@ -646,7 +666,7 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = React.memo(({
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
                 onPointerLeave={handlePointerLeave}
-                onPointerCancel={handlePointerLeave}
+                onPointerCancel={handlePointerCancel}
                 onWheel={handleWheel}
                 className="relative z-10"
                 style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none' }}

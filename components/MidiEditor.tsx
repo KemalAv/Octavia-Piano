@@ -3,6 +3,7 @@ import { Midi } from '@tonejs/midi';
 import { PIANO_KEYS_CONFIG, DRUM_KEYS_CONFIG, DRUM_SOUND_MAP, DRUM_PRIMARY_MIDI_MAP } from '../constants';
 import { TempoEvent, TimeSignatureInfo } from '../types';
 import { guessKeySignature } from '../midiParser';
+import { WebAudioBackingPlayer, ensureAudioContextWarm } from '../playbackSync';
 import { preloadAudioUrl, isAudioCached, downloadAndCacheAudio, getFromAudioCache, getDynamicFromVelocity, getDynamicTextColor } from '../utils';
 
 // Constants for editing
@@ -231,6 +232,9 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
 
     const audioContextRef = useRef<AudioContext | null>(null);
     const masterGainRef = useRef<GainNode | null>(null);
+    const backingGainRef = useRef<GainNode | null>(null);
+    const backingAudioBufferRef = useRef<AudioBuffer | null>(null);
+    const webAudioBackingPlayerRef = useRef<WebAudioBackingPlayer>(new WebAudioBackingPlayer());
     const bufferCacheRef = useRef<Map<number, AudioBuffer>>(new Map());
     const activeAudioSources = useRef<Map<string, { source: AudioBufferSourceNode, gain: GainNode }>>(new Map());
 
@@ -489,6 +493,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
     }, [getAudioBuffer]);
 
     const safePauseBackingTrack = useCallback(async () => {
+        webAudioBackingPlayerRef.current.stop();
         if (backingTrackRef.current) {
             if (audioPlayPromiseRef.current) {
                 try { await audioPlayPromiseRef.current; } catch (e) { }
@@ -573,6 +578,11 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                 metronomeGainRef.current = audioContextRef.current.createGain();
                 metronomeGainRef.current.connect(audioContextRef.current.destination);
                 metronomeGainRef.current.gain.value = metronomeVolume;
+
+                backingGainRef.current = audioContextRef.current.createGain();
+                backingGainRef.current.connect(audioContextRef.current.destination);
+                backingGainRef.current.gain.value = backingTrackVolume;
+                ensureAudioContextWarm(audioContextRef.current);
             }
         };
         initAudio();
@@ -646,18 +656,51 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
         loadMidi();
 
         return () => {
-            stopPlayback();
-            if (backingTrackUrl && backingTrackUrl.startsWith('blob:')) URL.revokeObjectURL(backingTrackUrl);
+            webAudioBackingPlayerRef.current.stop();
             if (audioContextRef.current) {
                 audioContextRef.current.close().catch(() => {});
                 audioContextRef.current = null;
                 masterGainRef.current = null;
                 metronomeGainRef.current = null;
+                backingGainRef.current = null;
             }
         };
-    }, [initialMidiFile, setEditorState, getAudioBuffer, instrumentMode, backingTrackUrl, stopPlayback]);
+    }, [initialMidiFile, setEditorState, getAudioBuffer, instrumentMode]);
+
+    // Decode local/cached MP3 backing track into AudioBuffer for zero-latency WebAudio playback in MidiEditor
+    useEffect(() => {
+        let cancelled = false;
+        const decodeEditorBacking = async () => {
+            if (!backingTrackUrl || backingType === 'none' || getYoutubeId(backingTrackUrl)) {
+                backingAudioBufferRef.current = null;
+                webAudioBackingPlayerRef.current.stop();
+                return;
+            }
+            if (!audioContextRef.current) return;
+            try {
+                const resp = await fetch(backingTrackUrl);
+                if (!resp.ok) throw new Error("fetch failed");
+                const ab = await resp.arrayBuffer();
+                const decoded = await audioContextRef.current.decodeAudioData(ab);
+                if (!cancelled) {
+                    backingAudioBufferRef.current = decoded;
+                }
+            } catch {
+                if (!cancelled) {
+                    backingAudioBufferRef.current = null;
+                }
+            }
+        };
+        void decodeEditorBacking();
+        return () => {
+            cancelled = true;
+        };
+    }, [backingTrackUrl, backingType]);
 
     useEffect(() => {
+        if (backingGainRef.current) {
+            backingGainRef.current.gain.value = backingTrackVolume;
+        }
         if (backingTrackRef.current) {
             backingTrackRef.current.volume = backingTrackVolume;
         }
@@ -947,7 +990,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                 break;
             }
         }
-        const playbackStartAudioTime = audioCtx.currentTime;
+        ensureAudioContextWarm(audioCtx);
         const playbackStartMs = ticksToMs(cursorTick);
 
         lastVisualBeatTimeRef.current = -1;
@@ -963,8 +1006,6 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
             }
         }
 
-        // Sync the last processed state to prevent immediate re-sync in the animation loop
-        // which could cause the first few milliseconds of notes to be skipped due to frame delay.
         if (editorState) {
             lastProcessedEditorStateRef.current = editorState;
         }
@@ -975,30 +1016,44 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
         }
 
         const isReady = backingType === 'online' || isTrackDownloaded;
+        let usedWebAudioBacking = false;
         if (backingTrackUrl && isReady && (backingType === 'mp3' || backingType === 'online')) {
             const defaultOffsetMs = backingTrackOffset - 0;
             const userOffsetMs = userAudioSyncOffset;
-            const totalOffsetMs = defaultOffsetMs + userOffsetMs;
-            const midiStartMs = ticksToMs(cursorTick);
+            // Physical user offset is wall-clock ms and scales by playbackSpeed in track time
+            const effectiveAudioMs = playbackStartMs + defaultOffsetMs + (userOffsetMs * playbackSpeed);
 
             let audioStartTime = 0;
             let startDelayMs = 0;
 
-            if (totalOffsetMs < 0) {
-                const absDelayMs = Math.abs(totalOffsetMs);
-                if (midiStartMs < absDelayMs) {
-                    audioStartTime = 0;
-                    startDelayMs = (absDelayMs - midiStartMs);
-                } else {
-                    audioStartTime = (midiStartMs - absDelayMs) / 1000;
-                    startDelayMs = 0;
-                }
+            if (effectiveAudioMs < 0) {
+                audioStartTime = 0;
+                startDelayMs = -effectiveAudioMs;
             } else {
-                audioStartTime = (midiStartMs + totalOffsetMs) / 1000;
+                audioStartTime = effectiveAudioMs / 1000;
                 startDelayMs = 0;
             }
+            const effectiveDelayWallSec = (startDelayMs / playbackSpeed) / 1000;
 
-            if (backingType === 'mp3' && backingTrackRef.current) {
+            const videoId = backingType === 'online' ? getYoutubeId(backingTrackUrl) : null;
+            const isYoutube = !!videoId;
+
+            if (!isYoutube && backingAudioBufferRef.current && backingGainRef.current) {
+                if (backingTrackRef.current && !backingTrackRef.current.paused) {
+                    try { backingTrackRef.current.pause(); } catch {}
+                }
+                backingGainRef.current.gain.value = backingTrackVolume;
+                webAudioBackingPlayerRef.current.play(
+                    audioCtx,
+                    backingGainRef.current,
+                    backingAudioBufferRef.current,
+                    audioStartTime,
+                    effectiveDelayWallSec,
+                    playbackSpeed,
+                    userOffsetMs / 1000,
+                );
+                usedWebAudioBacking = true;
+            } else if (backingType === 'mp3' && backingTrackRef.current) {
                 const audio = backingTrackRef.current;
                 await safePauseBackingTrack();
                 audio.volume = backingTrackVolume;
@@ -1023,41 +1078,38 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                     }, startDelayMs / playbackSpeed);
                 }
             } else if (backingType === 'online') {
-                const videoId = getYoutubeId(backingTrackUrl);
-                const isYoutube = !!videoId;
                 if (isYoutube) {
                     if (!youtubePlayerRef.current || typeof youtubePlayerRef.current.playVideo !== 'function') {
                         setBackingTrackError("Failed to load YouTube MP3 audio.");
                     } else {
-                    if (startDelayMs === 0) {
-                        if (typeof youtubePlayerRef.current.seekTo === 'function') {
-                            try {
-                                const curYt = typeof youtubePlayerRef.current.getCurrentTime === 'function' ? youtubePlayerRef.current.getCurrentTime() : -1;
-                                if (Math.abs(curYt - audioStartTime) > 0.25) {
-                                    youtubePlayerRef.current.seekTo(audioStartTime, true);
-                                }
-                            } catch (e) { console.warn("YouTube seek failed", e); }
-                        }
-                        safePlayYoutube();
-                    } else {
-                        safePauseYoutube();
-                        try {
-                            youtubePlayerRef.current.seekTo(0, true);
-                        } catch (e) {}
-                        midiAudioStartTimeoutRef.current = setTimeout(() => {
-                            if (isPlayingRef.current) {
-                                if (typeof youtubePlayerRef.current.seekTo === 'function') {
-                                    try {
-                                        youtubePlayerRef.current.seekTo(0, true);
-                                    } catch (e) { console.warn("YouTube seek failed", e); }
-                                }
-                                safePlayYoutube();
+                        if (startDelayMs === 0) {
+                            if (typeof youtubePlayerRef.current.seekTo === 'function') {
+                                try {
+                                    const curYt = typeof youtubePlayerRef.current.getCurrentTime === 'function' ? youtubePlayerRef.current.getCurrentTime() : -1;
+                                    if (Math.abs(curYt - audioStartTime) > 0.05) {
+                                        youtubePlayerRef.current.seekTo(audioStartTime, true);
+                                    }
+                                } catch (e) { console.warn("YouTube seek failed", e); }
                             }
-                        }, startDelayMs / playbackSpeed);
-                    }
+                            safePlayYoutube();
+                        } else {
+                            safePauseYoutube();
+                            try {
+                                youtubePlayerRef.current.seekTo(0, true);
+                            } catch (e) {}
+                            midiAudioStartTimeoutRef.current = setTimeout(() => {
+                                if (isPlayingRef.current) {
+                                    if (typeof youtubePlayerRef.current.seekTo === 'function') {
+                                        try {
+                                            youtubePlayerRef.current.seekTo(0, true);
+                                        } catch (e) { console.warn("YouTube seek failed", e); }
+                                    }
+                                    safePlayYoutube();
+                                }
+                            }, startDelayMs / playbackSpeed);
+                        }
                     }
                 } else {
-                    // Fallback for non-youtube online links (using audio element)
                     const audio = backingTrackRef.current;
                     if (audio) {
                         await safePauseBackingTrack();
@@ -1088,7 +1140,11 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
             }
         }
 
+        // Capture playbackStartAudioTime and animationStartTime together AFTER any async audio setup
+        // so opening notes at 0:00 and middle-of-MIDI notes share the exact same anchor timeline.
+        const playbackStartAudioTime = audioCtx.currentTime;
         const animationStartTime = performance.now();
+        void usedWebAudioBacking;
         const totalDurationTicks = Math.max(...editorState.notes.map(n => n.ticks + n.durationTicks), 0);
 
         const animate = () => {
@@ -2802,6 +2858,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                                                 key={speed} 
                                                 onClick={() => {
                                                     setPlaybackSpeed(speed);
+                                                    webAudioBackingPlayerRef.current.setRate(speed);
                                                     if (backingTrackRef.current) backingTrackRef.current.playbackRate = speed;
                                                     if (youtubePlayerRef.current && typeof youtubePlayerRef.current.setPlaybackRate === 'function') {
                                                         youtubePlayerRef.current.setPlaybackRate(speed);
