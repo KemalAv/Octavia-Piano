@@ -4913,35 +4913,6 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                 </div>
               </div>
 
-              {/* SECTION 3.9: Core Fingering Principles */}
-              <div className="bg-slate-900/90 border border-slate-800/80 shadow-xl rounded-xl p-6 space-y-5">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
-                  <div>
-                    <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest block">
-                      {L('SECTION 3.9 — CORE FINGERING PRINCIPLES', 'BAGIAN 3.9 — PRINSIP DASAR FINGERING', 'SECCIÓN 3.9 — PRINCIPIOS BÁSICOS DE DIGITACIÓN')}
-                    </span>
-                    <h3 className="text-base font-bold text-white mt-0.5">
-                      {L('Six Rules That Apply to Any Passage', 'Enam Aturan yang Berlaku untuk Setiap Pasase', 'Seis reglas que se aplican a cualquier pasaje')}
-                    </h3>
-                  </div>
-                </div>
-
-                <ol className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs md:text-sm">
-                  {[
-                    { en: 'Start from the pattern (scale or arpeggio), then adjust it to the phrase.', id: 'Mulai dari pola (tangga nada atau arpeggio), lalu sesuaikan dengan frasa.', es: 'Parte del patrón (escala o arpegio) y ajústalo después a la frase.' },
-                    { en: 'Strong fingers (1, 2, 3) on strong beats; the weaker 4 and 5 on softer notes.', id: 'Jari kuat (1, 2, 3) untuk ketukan kuat; jari lemah 4 dan 5 untuk nada yang lebih lembut.', es: 'Dedos fuertes (1, 2, 3) en tiempos fuertes; los débiles 4 y 5 en notas más suaves.' },
-                    { en: 'Black keys: use fingers 2, 3, or 4. In scales, keep the thumb off the black keys.', id: 'Tuts hitam: gunakan jari 2, 3, atau 4. Dalam tangga nada, jauhkan jempol dari tuts hitam.', es: 'Teclas negras: usa los dedos 2, 3 o 4. En escalas, mantén el pulgar fuera de las teclas negras.' },
-                    { en: 'Finger substitution: when a key must be held while the hand moves, change finger on that key without a gap.', id: 'Pergantian jari (substitusi): saat satu tuts harus ditahan selagi tangan bergerak, ganti jari di tuts itu tanpa jeda.', es: 'Sustitución de dedos: si una tecla debe mantenerse mientras la mano se mueve, cambia el dedo sobre ella sin hueco.' },
-                    { en: 'Pivot: finger 3 (or 4) is the pivot for thumb-under and for crossing over the thumb.', id: 'Poros: jari 3 (atau 4) menjadi poros saat jempol masuk di bawah (thumb-under) dan saat jari melintas di atas jempol.', es: 'Pivote: el dedo 3 (o el 4) es el pivote del paso de pulgar y del cruce por encima del pulgar.' },
-                    { en: 'Write the fingering into the score from the first reading and keep it the same on repeats.', id: 'Tulis fingering di partitur sejak pembacaan pertama dan pertahankan saat pengulangan.', es: 'Escribe la digitación en la partitura desde la primera lectura y mantenla igual en las repeticiones.' },
-                  ].map((item, i) => (
-                    <li key={i} className="flex gap-3 p-4 bg-slate-900/70 rounded-lg border border-slate-800">
-                      <span className="font-mono font-bold text-cyan-400 flex-shrink-0">{String(i + 1).padStart(2, '0')}</span>
-                      <span className="text-slate-200 leading-relaxed">{L(item.en, item.id, item.es)}</span>
-                    </li>
-                  ))}
-                </ol>
-              </div>
             </article>
           )}
 

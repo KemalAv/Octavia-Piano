@@ -418,19 +418,19 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
 
   return (
     <div
-      className={`fixed inset-0 bg-slate-950 flex items-center justify-center z-50 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'bg-opacity-80' : 'bg-opacity-0'}`}
+      className={`fixed inset-0 bg-slate-950 flex items-center justify-center z-50 p-3 sm:p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'bg-opacity-80' : 'bg-opacity-0'}`}
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-labelledby="account-modal-title"
     >
       <div
-        className={`bg-slate-800/80 backdrop-blur-sm p-8 md:p-10 rounded-xl shadow-2xl max-w-2xl w-full ring-1 ring-slate-700 flex flex-col max-h-[90vh] transform transition-all duration-300 ease-in-out ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
+        className={`bg-slate-800/80 backdrop-blur-sm p-5 sm:p-8 md:p-10 rounded-xl shadow-2xl max-w-2xl w-full min-w-0 ring-1 ring-slate-700 flex flex-col max-h-[90vh] overflow-y-auto transform transition-all duration-300 ease-in-out ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
         onClick={(e) => e.stopPropagation()}
         role="document"
       >
         <div className="flex justify-between items-center mb-6 flex-shrink-0">
-            <h2 id="account-modal-title" className="text-3xl font-bold text-cyan-400">{t.myAccount}</h2>
+            <h2 id="account-modal-title" className="text-2xl sm:text-3xl font-bold text-cyan-400 min-w-0 pr-2">{t.myAccount}</h2>
             <button onClick={onClose} className="text-slate-400 hover:text-white text-3xl leading-none">&times;</button>
         </div>
         
@@ -442,8 +442,8 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
 
         {user && (
             <div className="flex-grow flex flex-col min-h-0">
-                <div className="flex flex-col sm:flex-row items-center gap-6 mb-6 flex-shrink-0">
-                    <div className="relative w-32 h-32 flex-shrink-0">
+                <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6 mb-6 flex-shrink-0 w-full min-w-0">
+                    <div className="relative w-24 h-24 sm:w-32 sm:h-32 flex-shrink-0">
                         {avatarUrl ? (
                             <img src={avatarUrl} alt="User avatar" className="w-full h-full rounded-full object-cover ring-2 ring-slate-600" />
                         ) : (
@@ -455,7 +455,7 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
                         </label>
                     </div>
 
-                    <div className="text-center sm:text-left">
+                    <div className="text-center sm:text-left min-w-0 w-full">
                         {isEditingUsername ? (
                             <div className="flex flex-col gap-1">
                                 <div className="flex items-center gap-2">
@@ -476,11 +476,11 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
                             </div>
                         ) : (
                             <div className="flex items-center gap-3">
-                                <p className="text-white text-3xl font-bold">{username}</p>
+                                <p className="text-white text-2xl sm:text-3xl font-bold break-all min-w-0">{username}</p>
                                 <button onClick={() => setIsEditingUsername(true)} className="text-slate-400 hover:text-white"><svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z"></path><path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd"></path></svg></button>
                             </div>
                         )}
-                        <p className="text-slate-400 text-sm mt-1">{user.email}</p>
+                        <p className="text-slate-400 text-sm mt-1 break-all">{user.email}</p>
                         
                         <div className="mt-2 text-slate-300 text-sm">
                           {isEditingBio ? (
@@ -517,11 +517,11 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
                             <div className="flex items-baseline gap-4 mt-2 text-slate-300 flex-wrap justify-center sm:justify-start">
                                 <div>
                                     <span className="text-sm">{t.totalPlaytime}</span>
-                                    <p className="text-2xl font-bold text-white">{formatPlaytime(profile?.total_playtime_ms || 0)}</p>
+                                    <p className="text-xl sm:text-2xl font-bold text-white">{formatPlaytime(profile?.total_playtime_ms || 0)}</p>
                                 </div>
                                 <div>
                                     <span className="text-sm">{t.totalNotesHit}</span>
-                                    <p className="text-2xl font-bold text-white">{(profile?.total_notes_hit || 0).toLocaleString('en-US')}</p>
+                                    <p className="text-xl sm:text-2xl font-bold text-white">{(profile?.total_notes_hit || 0).toLocaleString('en-US')}</p>
                                 </div>
                             </div>
                         )}
@@ -564,12 +564,12 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
                             {t.loadingScores}
                         </div>
                     ) : topScores.length > 0 ? (
-                        <div className="flex-grow overflow-y-auto custom-scrollbar bg-slate-900/50 rounded-lg p-2 ring-1 ring-slate-700/50">
-                            <table className="w-full text-left table-auto">
+                        <div className="flex-grow overflow-x-auto overflow-y-auto custom-scrollbar bg-slate-900/50 rounded-lg p-2 ring-1 ring-slate-700/50">
+                            <table className="w-full min-w-[280px] text-left table-auto">
                                 <thead className="sticky top-0 bg-slate-900/80 backdrop-blur-sm">
                                     <tr>
                                         <th className="p-2 text-xs font-semibold text-slate-400">{t.songHeader}</th>
-                                        <th className="p-2 text-xs font-semibold text-slate-400">{t.dateHeader}</th>
+                                        <th className="hidden sm:table-cell p-2 text-xs font-semibold text-slate-400">{t.dateHeader}</th>
                                         <th className="p-2 text-xs font-semibold text-slate-400 text-right">{t.scoreHeader}</th>
                                         <th className="p-2 text-xs font-semibold text-slate-400 text-center">{t.rankHeader}</th>
                                     </tr>
@@ -582,10 +582,11 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
                                             title={`Play MIDI: ${score.songs?.title}`}
                                             onClick={() => handleGoToSongClick(score.song_id)}
                                         >
-                                            <div className="font-medium truncate max-w-[120px] sm:max-w-[200px]">{score.songs?.title || 'Unknown MIDI'}</div>
+                                            <div className="font-medium truncate max-w-[140px] sm:max-w-[240px]">{score.songs?.title || 'Unknown MIDI'}</div>
                                             <div className="text-[10px] text-slate-500 uppercase tracking-wider">{score.gameplay_style}</div>
+                                            <div className="sm:hidden text-[10px] text-slate-500">{formatScoreDate(score.created_at)}</div>
                                         </td>
-                                        <td className="p-2 text-xs text-slate-400 whitespace-nowrap">{formatScoreDate(score.created_at)}</td>
+                                        <td className="hidden sm:table-cell p-2 text-xs text-slate-400 whitespace-nowrap">{formatScoreDate(score.created_at)}</td>
                                         <td 
                                             className="p-2 font-mono text-cyan-300 text-right cursor-pointer hover:underline"
                                             onClick={() => handleOpenPerformanceSummary(score)}
@@ -618,7 +619,7 @@ const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose, onGoToOnli
                 </div>
 
 
-                <div className="mt-6 flex items-center gap-4 flex-shrink-0">
+                <div className="mt-6 flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4 flex-shrink-0">
                     <button onClick={handleSignOut} className="flex-grow bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg text-base transition-colors">{t.signOut}</button>
                     {user?.id === ADMIN_UUID && onOpenAdminModal && (
                         <button onClick={onOpenAdminModal} className="flex-shrink-0 bg-violet-600 hover:bg-violet-700 text-white font-bold py-2 px-6 rounded-lg text-base transition-colors">
