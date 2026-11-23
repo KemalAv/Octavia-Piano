@@ -455,6 +455,7 @@ export interface VexFlowNoteInfo {
   vexNoteYPositions?: number[];
   vexNoteKeyProps?: { line: number }[];
   isTriplet?: boolean; // NEW: Flag for triplet notes
+  tupletGroupId?: string; // Set for notes inside a 4..10-tuplet found by the rhythm analysis
   stem_direction?: number; // NEW: Explicit stem direction (1 = down, -1 = up)
   fingering?: (number | undefined)[];
   dynamics?: string;
@@ -465,6 +466,8 @@ export interface VexFlowNoteInfo {
 export interface VexFlowTupletGroup {
   hand: 'left' | 'right';
   indices: number[]; // Indices into the measure's hand array (rightHand/leftHand)
+  numNotes?: number; // n in "n notes in the time of m" (default 3)
+  notesOccupied?: number; // m (default 2)
 }
 
 export interface VexFlowMeasureData {
@@ -679,4 +682,10 @@ export interface ExtendedResult extends AnalysisResult {
     peakSpeedNps?: number;
     avgVirtuosityIndex?: number;
   };
+}
+
+/** Sustain pedal (CC64) change: down = pedal pressed, up = released. */
+export interface PedalEvent {
+  timeMs: number;
+  down: boolean;
 }

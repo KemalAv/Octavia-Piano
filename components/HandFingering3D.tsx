@@ -28,6 +28,8 @@ interface HandState {
   rel: number[];
   tipY: number[];
   down: boolean[];
+  /** 0..1: how close each finger is to striking its next key (it travels there ahead of time). */
+  near: number[];
   lift: number;
 }
 
@@ -55,6 +57,25 @@ const HAND_HOVER = 1.95; // elevated dorsal arch
 const LEFT_HAND_EXTRA_LIFT = 0.35;
 const BASE_WIDTH_SCALE = 1.26; // wider open hand span (tangan lebih besar dan renggang)
 const HAND_SCALE = 0.94; // full adult hand size (besar panjang)
+
+// Relaxed five-finger position: where each fingertip rests relative to the palm centre,
+// in white-key widths (thumb .. little finger). One key per finger, like C-D-E-F-G.
+const NATURAL_OFFSET = [-2.15, -1, 0, 1, 2];
+const FINGER_LOOKAHEAD_MS = 320; // a finger starts travelling to its next key this early
+const CHORD_WINDOW_MS = 35;
+
+/** Index of the first note that starts after `t`. */
+function firstAfter(list: MidiNotePlaybackItem[], t: number): number {
+  let a = 0;
+  let b = list.length;
+  while (a < b) {
+    const m = (a + b) >> 1;
+    if (list[m].timeMs <= t) a = m + 1;
+    else b = m;
+  }
+  return a;
+}
+const smoothstep = (u: number) => (u <= 0 ? 0 : u >= 1 ? 1 : u * u * (3 - 2 * u));
 
 // // Skin and shadow textures
 // ---------------------------------------------------------------------------------------------
@@ -320,17 +341,19 @@ export function HandFingering3D({
 
   const score = useMemo(() => {
     const sorted = [...notes].sort((a, b) => a.timeMs - b.timeMs);
-    const reach = sorted.map((n) => n.timeMs + n.durationMs);
-    for (let i = 1; i < reach.length; i++) reach[i] = Math.max(reach[i], reach[i - 1]);
     const lo = notes.reduce((v, n) => Math.min(v, n.midi), 48);
     const hi = notes.reduce((v, n) => Math.max(v, n.midi), 84);
+    const byHand = {
+      left: sorted.filter((n) => n.hand === 'left'),
+      right: sorted.filter((n) => n.hand === 'right'),
+    } as Record<Side, MidiNotePlaybackItem[]>;
+    const perFinger = (list: MidiNotePlaybackItem[]) =>
+      [1, 2, 3, 4, 5].map((f) => list.filter((n) => n.finger === f));
     return {
-      sorted,
-      reach,
-      byHand: {
-        left: sorted.filter((n) => n.hand === 'left'),
-        right: sorted.filter((n) => n.hand === 'right'),
-      } as Record<Side, MidiNotePlaybackItem[]>,
+      byHand,
+      // One time-sorted list per finger, so each finger can look up "my current key" and
+      // "my next key" directly.
+      byFinger: { left: perFinger(byHand.left), right: perFinger(byHand.right) } as Record<Side, MidiNotePlaybackItem[][]>,
       lo: Math.max(21, Math.floor((lo - 4) / 12) * 12),
       hi: Math.min(108, Math.ceil((hi + 4) / 12) * 12),
     };
@@ -453,27 +476,16 @@ export function HandFingering3D({
         for (let m = score.lo; m <= score.hi; m++) if (isBlackKey(m)) bctx.fillRect(px(m) - kw * 0.28, top, kw * 0.56, kh * 0.62);
       }
 
-      // notes currently sounding
-      const sounding: MidiNotePlaybackItem[] = [];
-      {
-        let a = 0;
-        let b = score.sorted.length;
-        while (a < b) {
-          const m = (a + b) >> 1;
-          if (score.reach[m] <= t) a = m + 1;
-          else b = m;
-        }
-        for (let i = a; i < score.sorted.length && score.sorted[i].timeMs <= t; i++) {
-          const n = score.sorted[i];
-          if (n.timeMs + n.durationMs > t) sounding.push(n);
-        }
-      }
-
-      // ---- finger targets (same playing logic as before, in screen space) ----------------
+      // ---- finger targets (screen space) --------------------------------------------------
+      // The hand is driven by the fingering itself:
+      //   * the palm sits where the fingers that are down put it (finger n over its key in
+      //     a relaxed five-finger shape) and glides to the next position before it is due;
+      //   * every finger knows its next key and travels there ahead of time, so a thumb
+      //     passing under or a hand shift is visible before the note sounds;
+      //   * fingers that are down stay exactly on their keys while the palm moves.
       const restTip = H * 0.18; // reach deep into keys
       const restLen = [0, -0.08, 0, 0.08, 0.32].map((v) => v * kw);
-      const knuckleOffsets = [-2.40, KNUCKLE_X[0] - 0.2, KNUCKLE_X[1], KNUCKLE_X[2] + 0.1, KNUCKLE_X[3] + 0.3];
-      const spread = knuckleOffsets.map((x) => x * HAND_SCALE * BASE_WIDTH_SCALE * kw);
+      const natural = NATURAL_OFFSET.map((v) => v * kw);
       const demo = 1 + (Math.floor((now - t0) / 750) % 5);
       const breathe = Math.sin((now - t0) / 500);
 
@@ -481,77 +493,119 @@ export function HandFingering3D({
         const right = side === 'right';
         const dir = right ? 1 : -1;
         const homeMidi = right ? 67 : 52;
-        const mine = sounding.filter((n) => n.hand === side);
-        const palmFor = (midi: number, finger: number) => px(midi) - dir * spread[Math.min(4, Math.max(0, finger - 1))];
+        const palmFor = (midi: number, finger: number) => px(midi) - dir * natural[Math.min(4, Math.max(0, finger - 1))];
+        const pressedY = (midi: number) => restTip - kw * (isBlackKey(midi) ? 0.4 : 0.22);
 
         const down = [false, false, false, false, false];
-        const rel = [...spread];
+        const near = [0, 0, 0, 0, 0];
+        const rel = [...natural];
         const tipY = restLen.map((o) => restTip + o + breathe);
-        let palm = palmFor(homeMidi, 3);
 
-        const picks: { midi: number; finger: number }[] = [];
-        for (let f = 1; f <= 5; f++) {
-          if (preview && f === demo) picks.push({ midi: right ? 65 + f * 2 : 55 - (6 - f) * 2, finger: f });
-          else {
-            const n = mine.find((x) => x.finger === f);
-            if (n) picks.push({ midi: n.midi, finger: f });
+        // What each finger is holding now and where it goes next.
+        const held: ({ midi: number } | null)[] = [null, null, null, null, null];
+        const upcoming: (MidiNotePlaybackItem | null)[] = [null, null, null, null, null];
+        const fingers = score.byFinger[side];
+        for (let f = 0; f < 5; f++) {
+          if (preview) {
+            if (f + 1 === demo) held[f] = { midi: right ? 65 + (f + 1) * 2 : 55 - (5 - f) * 2 };
+            continue;
+          }
+          const list = fingers[f];
+          const idx = firstAfter(list, t);
+          const last = idx > 0 ? list[idx - 1] : null;
+          if (last && last.timeMs + last.durationMs > t) held[f] = last;
+          upcoming[f] = list[idx] || null;
+        }
+
+        // Palm: current position, blended into the next one shortly before it is needed.
+        const list = score.byHand[side];
+        const a = preview ? 0 : firstAfter(list, t);
+        let sum = 0;
+        let count = 0;
+        for (let f = 0; f < 5; f++) {
+          if (held[f]) {
+            sum += palmFor(held[f]!.midi, f + 1);
+            count++;
+          }
+        }
+        if (!count && a > 0) {
+          // Nothing down: stay where the last notes left the hand.
+          const lastT = list[a - 1].timeMs;
+          for (let i = a - 1; i >= 0 && list[i].timeMs >= lastT - CHORD_WINDOW_MS; i--) {
+            if (!list[i].finger) continue;
+            sum += palmFor(list[i].midi, list[i].finger!);
+            count++;
+          }
+        }
+        let palm = count ? sum / count : palmFor(homeMidi, 3);
+        if (!preview && a < list.length) {
+          const nextT = list[a].timeMs;
+          let nextSum = 0;
+          let nextCount = 0;
+          for (let i = a; i < list.length && list[i].timeMs <= nextT + CHORD_WINDOW_MS; i++) {
+            if (!list[i].finger) continue;
+            nextSum += palmFor(list[i].midi, list[i].finger!);
+            nextCount++;
+          }
+          if (nextCount) {
+            const nextPalm = nextSum / nextCount;
+            if (!count) palm = a > 0 ? palm : nextPalm;
+            const since = a > 0 ? nextT - list[a - 1].timeMs : 1000;
+            const lead = Math.min(340, Math.max(110, since * 0.6));
+            palm += (nextPalm - palm) * smoothstep((t - (nextT - lead)) / lead);
+          }
+        }
+        // The palm never drifts so far that a finger that is down would have to let go.
+        for (let f = 0; f < 5; f++) {
+          if (!held[f]) continue;
+          const centre = palmFor(held[f]!.midi, f + 1);
+          palm = Math.min(centre + 1.4 * kw, Math.max(centre - 1.4 * kw, palm));
+        }
+
+        // Fingers.
+        for (let f = 0; f < 5; f++) {
+          if (held[f]) {
+            down[f] = true;
+            near[f] = 1;
+            rel[f] = dir * (px(held[f]!.midi) - palm);
+            tipY[f] = pressedY(held[f]!.midi);
+            continue;
+          }
+          const next = upcoming[f];
+          if (!next) continue;
+          const wait = next.timeMs - t;
+          if (wait > FINGER_LOOKAHEAD_MS) continue;
+          const k = smoothstep(1 - wait / FINGER_LOOKAHEAD_MS);
+          near[f] = k;
+          rel[f] += (dir * (px(next.midi) - palm) - rel[f]) * k;
+          tipY[f] += (pressedY(next.midi) - tipY[f]) * k * 0.7;
+        }
+
+        // Idle fingers keep a natural shape between / beside the fingers that are placed.
+        const placed = [0, 1, 2, 3, 4].filter((i) => near[i] > 0.6);
+        if (placed.length) {
+          for (let i = 0; i < 5; i++) {
+            if (near[i] > 0.6) continue;
+            const lower = [...placed].reverse().find((k) => k < i);
+            const upper = placed.find((k) => k > i);
+            let shaped = rel[i];
+            if (lower !== undefined && upper !== undefined) {
+              shaped = rel[lower] + ((rel[upper] - rel[lower]) * (i - lower)) / (upper - lower);
+            } else if (upper !== undefined) {
+              shaped = rel[upper] - (natural[upper] - natural[i]);
+            } else if (lower !== undefined) {
+              shaped = rel[lower] + (natural[i] - natural[lower]);
+            }
+            rel[i] += (shaped - rel[i]) * (1 - near[i]);
           }
         }
 
-        if (picks.length) {
-          const anchor = px(picks[picks.length - 1].midi);
-          const usable = picks.filter((p) => Math.abs(px(p.midi) - anchor) <= kw * 11);
-          if (usable.length) {
-            palm = usable.reduce((s, p) => s + palmFor(p.midi, p.finger), 0) / usable.length;
-            for (const p of usable) {
-              const i = p.finger - 1;
-              down[i] = true;
-              rel[i] = dir * (px(p.midi) - palm);
-              tipY[i] = restTip - kw * (isBlackKey(p.midi) ? 0.4 : 0.22);
-            }
-            const idx = [0, 1, 2, 3, 4].filter((i) => down[i]);
-            for (let i = 0; i < 5; i++) {
-              if (down[i]) continue;
-              const a = [...idx].reverse().find((k) => k < i);
-              const b = idx.find((k) => k > i);
-              if (a !== undefined && b !== undefined) {
-                rel[i] = rel[a] + ((rel[b] - rel[a]) * (i - a)) / (b - a);
-              } else if (b !== undefined) {
-                // Keep fingers spread out to the left of the active finger
-                rel[i] = rel[b] - (spread[b] - spread[i]);
-              } else if (a !== undefined) {
-                // Keep fingers spread out to the right of the active finger
-                rel[i] = rel[a] + (spread[i] - spread[a]);
-              }
-            }
-          }
-        } else {
-          const list = score.byHand[side];
-          let a = 0;
-          let b = list.length;
-          while (a < b) {
-            const m = (a + b) >> 1;
-            if (list[m].timeMs <= t) a = m + 1;
-            else b = m;
-          }
-          const last = a > 0 ? list[a - 1] : undefined;
-          const next = list[a];
-          const lastPalm = last ? palmFor(last.midi, last.finger || 3) : palm;
-          palm = lastPalm;
-          if (next) {
-            const wait = next.timeMs - t;
-            if (wait >= 0 && wait <= 380) {
-              const k = 0.5 - 0.5 * Math.cos((1 - wait / 380) * Math.PI);
-              palm = lastPalm + (palmFor(next.midi, next.finger || (right ? 1 : 5)) - lastPalm) * k;
-            }
-          }
-        }
-
-        // Keep fingers relaxed and apart, but never move a pressed finger off its key:
-        // only idle fingers are pushed away from their neighbours.
-        const minGap = kw * 1.15; // fingers stay cleanly separated without clumping
+        // Fingers 2-5 never overlap each other. The thumb is left alone while it is placed:
+        // it is the one finger that passes underneath the others.
+        const minGap = kw * 0.78;
         for (let pass = 0; pass < 6; pass++) {
           for (let i = 1; i < 5; i++) {
+            if (i === 1 && near[0] > 0.3) continue;
             const d = rel[i] - rel[i - 1];
             if (d >= minGap) continue;
             const need = minGap - d;
@@ -564,7 +618,7 @@ export function HandFingering3D({
             }
           }
         }
-        return { palm, rel, tipY, down, lift: 0 };
+        return { palm, rel, tipY, down, near, lift: 0 };
       };
 
       const sides: Side[] = ['left', 'right'];
@@ -581,6 +635,7 @@ export function HandFingering3D({
           s.rel[i] += (target.rel[i] - s.rel[i]) * k;
           s.tipY[i] += (target.tipY[i] - s.tipY[i]) * (k * 1.2);
           s.down[i] = target.down[i];
+          s.near[i] = target.near[i];
         }
         return s;
       });
@@ -620,13 +675,14 @@ export function HandFingering3D({
 
           let targetX = 0;
           if (i === 0) {
-            // Thumb: reaches note when active; natural open C-curve outside index finger when inactive
-            if (isAct) {
-              targetX = s.rel[0] / (kw * HAND_SCALE * dynamicWidth);
-            } else {
-              const targetX1 = s.rel[1] / (kw * HAND_SCALE * dynamicWidth);
-              targetX = Math.min(-2.2, targetX1 - 1.4);
-            }
+            // Thumb: on its key when playing; relaxed open C-curve outside the index finger
+            // when idle; and it slides between the two as its next key comes up (this is
+            // what makes a thumb-under visible before the note).
+            const onKey = s.rel[0] / (kw * HAND_SCALE * dynamicWidth);
+            const targetX1 = s.rel[1] / (kw * HAND_SCALE * dynamicWidth);
+            const idle = Math.min(-2.2, targetX1 - 1.4);
+            const k = isAct ? 1 : s.near[0];
+            targetX = idle + (onKey - idle) * k;
           } else {
             // Fingers 2..5 (index..pinky):
             // Inactive fingers also follow interpolated s.rel[i] so the whole hand opens/mekar naturally!
@@ -707,10 +763,12 @@ export function HandFingering3D({
           const by = ((1 - tmpV.y) / 2) * H + kw * 0.25;
           hctx.beginPath();
           hctx.arc(bx, by, r, 0, Math.PI * 2);
+          // Pressed: filled in the hand colour. About to play: coloured ring that closes in.
+          const soon = !s.down[i] && s.near[i] > 0.12;
           hctx.fillStyle = s.down[i] ? tint : 'rgba(15,23,42,0.82)';
           hctx.fill();
-          hctx.lineWidth = 1.1;
-          hctx.strokeStyle = s.down[i] ? '#fff' : 'rgba(255,255,255,0.45)';
+          hctx.lineWidth = soon ? 1.1 + 1.6 * s.near[i] : 1.1;
+          hctx.strokeStyle = s.down[i] ? '#fff' : soon ? tint : 'rgba(255,255,255,0.45)';
           hctx.stroke();
           hctx.fillStyle = '#fff';
           hctx.font = `bold ${Math.round(r * 1.35)}px system-ui, sans-serif`;

@@ -501,8 +501,8 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = React.memo(({
 
             barLines.forEach((barTime, index) => {
                 if (barTime < minBarTime || barTime > maxBarTime) return;
-                // Bar line is drawn shifted so note head sits exactly after the bar line while hitting at pad center
-                const y = hitLineY - (barTime - currentMs) * pixelsPerMillisecond + defaultNoteRadius;
+                // Bar line sits on the leading (bottom) edge of a note that starts on this beat
+                const y = hitLineY - (barTime - currentMs) * pixelsPerMillisecond;
                 if (y >= 0 && y <= dimensions.height) {
                     ctx.beginPath();
                     ctx.moveTo(0, y);
@@ -617,7 +617,7 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = React.memo(({
                 const footPad = pads.find(p => p.id === 'hihat_foot');
 
                 if (hihatPad && footPad) {
-                    const y = hitLineY - (timeUntilHit * pixelsPerMillisecond);
+                    const y = hitLineY - (timeUntilHit * pixelsPerMillisecond) - hihatPad.r * 0.6;
 
                     if (y >= -50 && y <= dimensions.height + 50) {
                         ctx.beginPath();
@@ -637,8 +637,8 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = React.memo(({
 
                 const timeUntilHit = note.timeMs - currentMs;
                 const noteRadius = pad.r * 0.6;
-                // Note hits exactly at pad center (hitLineY)
-                const y = hitLineY - (timeUntilHit * pixelsPerMillisecond);
+                // The note's leading (bottom) edge reaches the hitbox line exactly when the note is hit
+                const y = hitLineY - (timeUntilHit * pixelsPerMillisecond) - noteRadius;
 
                 if (y >= -50 && y <= dimensions.height + 50) {
                     ctx.beginPath();

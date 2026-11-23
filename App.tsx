@@ -1,6 +1,6 @@
 import { backingPlayheadMs, noteInputOffsetMs, measuredOutputLatencyMs, routeLocalBackingAudio, WebAudioBackingPlayer, ensureAudioContextWarm } from './playbackSync';
 import { parsePlaybackFile } from './songLoading';
-import { getDifficultyNoteDurationMs, getMajorNoteVisualDurationMs, getMajorVisualDurationsByNoteId, getPianoPlaybackDurationMs, getTapNoteDurationMs } from './noteInteraction';
+import { createNoteSpeedScaler, getDifficultyNoteDurationMs, getFixedHitboxMs, getMajorNoteVisualDurationMs, getMajorVisualDurationsByNoteId, getPianoPlaybackDurationMs, getTapNoteDurationMs } from './noteInteraction';
 import React, {
   useState,
   useCallback,
@@ -31,6 +31,7 @@ import {
   ThemeSettings,
   PerformanceSummary,
   TempoEvent,
+  PedalEvent,
   DevicePreset,
   LayoutDimensions,
   QwertyLayout,
@@ -497,6 +498,10 @@ const AppContent: React.FC = () => {
   const isFreePlayModeRef = useRef(false);
   const [isLearnModeActive, setIsLearnModeActive] = useState(false);
   const isLearnModeActiveRef = useRef(false);
+  // True while a Learn Mode warm-up / exercise (not a lesson) is being played.
+  const learnExerciseActiveRef = useRef(false);
+  // When true, Learn Mode opens on the Warm Up chapter (set when leaving a warm-up).
+  const [learnReturnToExercises, setLearnReturnToExercises] = useState(false);
   const [learnSubMode, setLearnSubMode] = useState<'sheet' | 'falling' | 'fingering' | 'roblox' | 'theory'>('falling');
   const [currentLearnLessonId, setCurrentLearnLessonId] = useState<string>('scale_c');
   const [theoryRoot, setTheoryRoot] = useState<number>(60);
@@ -1264,6 +1269,7 @@ const AppContent: React.FC = () => {
   );
   const [currentTempoBpm, setCurrentTempoBpm] = useState<number | null>(null);
   const [tempoEvents, setTempoEvents] = useState<TempoEvent[]>([]);
+  const [pedalEvents, setPedalEvents] = useState<PedalEvent[]>([]);
   const [barLines, setBarLines] = useState<number[]>([]);
   const [signatureEvents, setSignatureEvents] = useState<SignatureEvent[]>([]);
 
@@ -1400,6 +1406,8 @@ const AppContent: React.FC = () => {
   ]);
 
   const audioContextRef = useRef<AudioContext | null>(null);
+  // Hears everything the app plays, so the microphone detector can ignore it (metronome, backing track, ...).
+  const appOutputTapRef = useRef<AnalyserNode | null>(null);
   const masterGainRef = useRef<GainNode | null>(null);
   const metronomeGainRef = useRef<GainNode | null>(null);
   const activeKeyTimeoutsRef = useRef<Map<string, number>>(new Map());
@@ -1914,24 +1922,29 @@ const AppContent: React.FC = () => {
   const isMajorNotesForced = instrumentMode === "drum" || gameplayStyle === "computer";
   const effectiveShowOnlyMajorNotes = isMajorNotesForced ? true : showOnlyMajorNotes;
   const tapOnlyMode = isMajorNotesForced || showOnlyMajorNotes;
-  // The cap belongs to the note's onset BPM, never the current playhead BPM.
-  const majorVisualDurationByNoteId = useMemo(
-    () => {
-      const isSheetQwerty = viewMode === "sheet-qwerty";
-      return new Map(notesForGame.map(note => {
-        const bpm = getActiveTempoBpmAtOriginalTime(
-          note.timeMs,
-          tempoEvents,
-          currentTempoBpm ?? DEFAULT_MUSICXML_TEMPO_BPM,
-        );
-        const cap = isSheetQwerty
-          ? getTapNoteDurationMs(bpm)
-          : getMajorNoteVisualDurationMs(bpm);
-        return [note.noteId, Math.min(note.durationMs, cap)];
-      }));
-    },
-    [currentTempoBpm, notesForGame, tempoEvents, viewMode],
-  );
+  // Hitbox length of tap / major notes: fixed in ms by the accuracy level (see getFixedHitboxMs),
+  // not by the BPM, so the hitbox is the same size in a slow song and in a fast one.
+  const fixedHitboxMs = getFixedHitboxMs(gameSettings?.accuracyLevel);
+  const fixedHitboxMsRef = useRef(fixedHitboxMs);
+  fixedHitboxMsRef.current = fixedHitboxMs;
+  // Window / hitbox scale by note density (see createNoteSpeedScaler). Cached per note list.
+  const speedScalerCacheRef = useRef<{ src: unknown; fn: (t: number, rate?: number) => number } | null>(null);
+  const speedScaleAt = useCallback((src: ReadonlyArray<{ timeMs: number }>, timeMs: number, rate = 1): number => {
+    let c = speedScalerCacheRef.current;
+    if (!c || c.src !== src) {
+      c = { src, fn: createNoteSpeedScaler(src) };
+      speedScalerCacheRef.current = c;
+    }
+    return c.fn(timeMs, rate);
+  }, []);
+  const majorVisualDurationByNoteId = useMemo(() => {
+    const scaler = createNoteSpeedScaler(notesForGame);
+    const flat = instrumentMode === "drum";
+    return new Map(notesForGame.map(note => [
+      note.noteId,
+      Math.min(note.durationMs, fixedHitboxMs * (flat ? 1 : scaler(note.timeMs, playbackTempoMultiplier))),
+    ]));
+  }, [fixedHitboxMs, notesForGame, playbackTempoMultiplier, instrumentMode]);
   const majorVisualNotesForGame = useMemo(
     () =>
       tapOnlyMode
@@ -1998,26 +2011,7 @@ const AppContent: React.FC = () => {
       })),
     [currentTempoBpm, playbackNotes, tempoEvents],
   );
-  const activeMajorNoteVisualDurationMs = useMemo(() => {
-    const sourceBpm = isFreePlayMode
-      ? freePlayBpm
-      : getActiveTempoBpmAtOriginalTime(
-        musicalCurrentTimeMs,
-        tempoEvents,
-        currentTempoBpm ?? DEFAULT_MUSICXML_TEMPO_BPM,
-      );
-    if (viewMode === "sheet-qwerty") {
-      return getTapNoteDurationMs(sourceBpm);
-    }
-    return getMajorNoteVisualDurationMs(sourceBpm);
-  }, [
-    currentTempoBpm,
-    freePlayBpm,
-    isFreePlayMode,
-    musicalCurrentTimeMs,
-    tempoEvents,
-    viewMode,
-  ]);
+  const activeMajorNoteVisualDurationMs = useMemo(() => fixedHitboxMs, [fixedHitboxMs]);
   const [showQwertyShortcuts, setShowQwertyShortcuts] = useState<boolean>(
     DEFAULT_SHOW_QWERTY_SHORTCUTS,
   );
@@ -2623,6 +2617,15 @@ const AppContent: React.FC = () => {
           backingGainRef.current = context.createGain();
           backingGainRef.current.gain.value = mp3VolumeRef.current;
           backingGainRef.current.connect(context.destination);
+          try {
+            const tap = context.createAnalyser();
+            masterGainRef.current.connect(tap);
+            metronomeGainRef.current.connect(tap);
+            backingGainRef.current.connect(tap);
+            appOutputTapRef.current = tap;
+          } catch (e) {
+            appOutputTapRef.current = null;
+          }
           updateLatency();
           context.onstatechange = () => {
             updateLatency();
@@ -2901,6 +2904,10 @@ const AppContent: React.FC = () => {
   };
 
   const safePlayYoutube = async (isDirect: boolean = false) => {
+    // Only a YouTube backing track may play the YouTube player. A player left over from an
+    // earlier online song (or created for the mode-selection preview) must stay silent in
+    // mp3 and none games.
+    if (gameSettingsRef.current?.backingTrack?.type !== "youtube") return;
     if (
       youtubePlayerRef.current &&
       typeof youtubePlayerRef.current.playVideo === "function"
@@ -3768,7 +3775,7 @@ const AppContent: React.FC = () => {
             }
           },
           Math.min(
-            tapOnlyMode ? getMajorNoteVisualDurationMs(getActiveTempoBpmAtOriginalTime(noteDef.timeMs, tempoEvents, currentTempoBpm ?? DEFAULT_MUSICXML_TEMPO_BPM)) : noteDef.durationMs,
+            tapOnlyMode ? fixedHitboxMsRef.current : noteDef.durationMs,
             VISUAL_NOTE_CAP_MS,
           ) /
           playbackTempoMultiplier,
@@ -4639,13 +4646,7 @@ const AppContent: React.FC = () => {
                 sequentialVisualDurationByNoteId.get(noteId) ??
                 Math.min(
                   tapOnlyMode
-                    ? getMajorNoteVisualDurationMs(
-                        getActiveTempoBpmAtOriginalTime(
-                          note.timeMs,
-                          tempoEvents,
-                          currentTempoBpm ?? DEFAULT_MUSICXML_TEMPO_BPM,
-                        ),
-                      )
+                    ? fixedHitboxMsRef.current * speedScaleAt(notes, note.timeMs, currentPlaybackTempoMultiplier)
                     : note.durationMs,
                   VISUAL_NOTE_CAP_MS,
                 );
@@ -4735,7 +4736,7 @@ const AppContent: React.FC = () => {
           while (mi < notes.length) {
             const note = notes[mi];
             const compensatedNoteTime = note.timeMs - (noteOffsetMsRef.current * currentPlaybackTempoMultiplier);
-            const noteToleranceMusical = goodWindow * currentPlaybackTempoMultiplier;
+            const noteToleranceMusical = goodWindow * speedScaleAt(notes, note.timeMs, currentPlaybackTempoMultiplier) * currentPlaybackTempoMultiplier;
             if (currentTimeRef.current > compensatedNoteTime + noteToleranceMusical) {
               if (!hitNoteIdsRef.current.has(note.noteId)) {
                 setMissCount((p) => p + 1);
@@ -4796,7 +4797,7 @@ const AppContent: React.FC = () => {
       ) {
         if (isSettingsPreviewActiveRef.current) {
           handleSeek(0);
-        } else if (isLearnModeActiveRef.current) {
+        } else if (isLearnModeActiveRef.current && !learnExerciseActiveRef.current) {
           handleSeek(0);
         } else if (isCalibratingRef.current) {
           if (playtimeStartRef.current !== null) {
@@ -4867,7 +4868,7 @@ const AppContent: React.FC = () => {
               performance.now() - playtimeStartRef.current;
             playtimeStartRef.current = null;
           }
-          if (!isAutoplay) {
+          if (!isAutoplay && !learnExerciseActiveRef.current) {
             savePendingStats(sessionPlaytimeMs.current, hitCountRef.current);
           }
           sessionPlaytimeMs.current = 0;
@@ -5192,8 +5193,8 @@ const AppContent: React.FC = () => {
     } else if (finalSettings.waitMode === 'strict') {
       finalSettings.accuracyLevel = 3;
     } else {
-      // Non-stop mode (lenient, retical, autoplay, dsb): accuracy level = 5
-      finalSettings.accuracyLevel = 5;
+      // Non-stop mode (lenient, retical, autoplay, dsb): accuracy level = 5 (piano), 6 (drum)
+      finalSettings.accuracyLevel = finalSettings.instrumentMode === 'drum' ? 6 : 5;
     }
 
     setBackingTrackError(null);
@@ -5250,12 +5251,13 @@ const AppContent: React.FC = () => {
       }
     }
 
-    // Metronome default: ON ('beat') when Non-Stop is enabled (or Autoplay/Retical), OFF ('off') in Wait Mode (Non-Stop disabled)
-    const isNonStopEnabled =
-      (finalSettings.isNonStop ?? false) ||
-      finalSettings.waitMode === "retical" ||
-      finalSettings.waitMode === "off";
-    setMetronomeMode(isNonStopEnabled ? "beat" : "off");
+    // Metronome default:
+    //  - BT Offset (calibration): always ON, beat mode
+    //  - a backing track is playing (mp3 / link / YouTube): OFF by default
+    //  - no backing track ("none"): ON, beat mode
+    const hasBackingTrack = !!finalSettings.backingTrack && finalSettings.backingTrack.type !== "none";
+    const isBtOffsetRun = !!(finalSettings.isCalibrationMode || isCalibratingRef.current);
+    setMetronomeMode(isBtOffsetRun ? "beat" : hasBackingTrack ? "off" : "beat");
 
     setGameSettings(finalSettings);
     gameSettingsRef.current = finalSettings;
@@ -5681,9 +5683,18 @@ const AppContent: React.FC = () => {
   ]);
 
   const accuracyLevel = gameSettings?.accuracyLevel ?? 5;
-  const perfectWindow = 100 + (5 - accuracyLevel) * 20;
-  const greatWindow = perfectWindow * 1.5;
-  const goodWindow = perfectWindow * 2;
+  // Base windows (ms) of the accuracy level. Each note's real window = base x its NPS scale.
+  const basePerfectWindow = 100 + (5 - accuracyLevel) * 20;
+  const baseGreatWindow = basePerfectWindow * 1.5;
+  const baseGoodWindow = basePerfectWindow * 2;
+  const perfectWindow = basePerfectWindow;
+  const greatWindow = baseGreatWindow;
+  const goodWindow = baseGoodWindow;
+  // Windows shown in the meters: the base windows scaled by the note speed at the playhead.
+  const displayScale = speedScaleAt(notesForGame, musicalCurrentTimeMs, playbackTempoMultiplier);
+  const displayPerfectWindow = basePerfectWindow * displayScale;
+  const displayGreatWindow = baseGreatWindow * displayScale;
+  const displayGoodWindow = baseGoodWindow * displayScale;
 
   // Helper to get precise musical time for sub-frame accuracy (e.g. MIDI/Input events)
   const getPreciseMusicalTime = useCallback(() => {
@@ -5904,8 +5915,12 @@ const AppContent: React.FC = () => {
           }
         }
 
-        // Use the calculated windows for judgment
+        // Use the calculated windows for judgment, scaled by the density of the song around this note
         if (best) {
+          const npsScale = speedScaleAt(notes, best.timeMs, playbackTempoMultiplierRef.current);
+          const perfectWindow = basePerfectWindow * npsScale;
+          const greatWindow = baseGreatWindow * npsScale;
+          const goodWindow = baseGoodWindow * npsScale;
           const isNonStopActive =
             (gameSettingsRef.current?.isNonStop ?? false) ||
             (gameSettingsRef.current?.waitMode || "strict") === "retical" ||
@@ -6166,9 +6181,9 @@ const AppContent: React.FC = () => {
   );
 
   const handleUiKeyPress = useCallback(
-    (k: string, m: number) => {
+    (k: string, m: number, silent: boolean = false) => {
       setUserSustainedKeys((p) => new Set(p).add(k));
-      startSustainedSound(k, m);
+      if (!silent) startSustainedSound(k, m);
 
       // Add to gameLiveNotes if in game mode and it's a drum hit
       if (
@@ -6241,6 +6256,7 @@ const AppContent: React.FC = () => {
       isFreePlayModeRef.current = false;
       setIsLearnModeActive(true);
       isLearnModeActiveRef.current = true;
+      learnExerciseActiveRef.current = false;
       setInstrumentMode("piano");
 
       const lesson = LEARN_LESSONS[lessonId] || LEARN_LESSONS.scale_c;
@@ -6361,6 +6377,7 @@ const AppContent: React.FC = () => {
       isFreePlayModeRef.current = false;
       setIsLearnModeActive(true);
       isLearnModeActiveRef.current = true;
+      learnExerciseActiveRef.current = true;
       setInstrumentMode("piano");
 
       const exercise = generateExercise(key, typeId as ExerciseType);
@@ -6521,6 +6538,11 @@ const AppContent: React.FC = () => {
     }
   }, [currentScreen]);
 
+  // The "return to warm-up" flag only applies to the Learn Mode render right after leaving a warm-up.
+  useEffect(() => {
+    if (currentScreen === "learnMode" && learnReturnToExercises) setLearnReturnToExercises(false);
+  }, [currentScreen, learnReturnToExercises]);
+
   const handleDrumPadDown = useCallback(
     (padId: string) => {
       const pad = DRUM_PADS.find((p) => p.id === padId);
@@ -6621,7 +6643,7 @@ const AppContent: React.FC = () => {
           setCurrentFileType(FileType.UNKNOWN);
         } else {
           res = await parsePlaybackFile(f, midiNoteToNameMap);
-          notesWithF = assignFingering(res.notes);
+          notesWithF = assignFingering(res.notes, { handSize: fingeringPreferences.handSize });
         }
         if (controller.signal.aborted) return;
         setFingeringLoadingMessage("Preparing audio...");
@@ -6631,6 +6653,7 @@ const AppContent: React.FC = () => {
         setInitialKeySignature(res.keySignature);
         setCurrentTempoBpm(res.initialTempoBpm);
         setTempoEvents(res.tempoEvents);
+        setPedalEvents(res.pedalEvents || []);
         setSignatureEvents(res.signatureEvents || []);
         if (ext === "mid" || ext === "midi") setCurrentFileType(FileType.MIDI);
         else if (ext === "xml" || ext === "musicxml" || ext === "mxl")
@@ -6697,6 +6720,7 @@ const AppContent: React.FC = () => {
       setInitialKeySignature(parsed.keySignature);
       setCurrentTempoBpm(parsed.initialTempoBpm);
       setTempoEvents(parsed.tempoEvents);
+      setPedalEvents(parsed.pedalEvents || []);
       setSignatureEvents(parsed.signatureEvents || []);
       setBarLines(parsed.barLinesMs || []);
       await preloadSamplesForSong(parsed.notes);
@@ -7645,6 +7669,7 @@ const AppContent: React.FC = () => {
     initialKeySignature: string;
     currentTempoBpm: number | null;
     tempoEvents: TempoEvent[];
+    pedalEvents: PedalEvent[];
     signatureEvents: SignatureEvent[];
     currentFileType: FileType;
     barLines: number[];
@@ -7676,6 +7701,7 @@ const AppContent: React.FC = () => {
     setInitialKeySignature(session.initialKeySignature);
     setCurrentTempoBpm(session.currentTempoBpm);
     setTempoEvents(session.tempoEvents);
+    setPedalEvents(session.pedalEvents);
     setSignatureEvents(session.signatureEvents);
     setCurrentFileType(session.currentFileType);
     setBarLines(session.barLines);
@@ -7700,6 +7726,7 @@ const AppContent: React.FC = () => {
         initialKeySignature,
         currentTempoBpm,
         tempoEvents,
+        pedalEvents,
         signatureEvents,
         currentFileType,
         barLines,
@@ -7733,6 +7760,7 @@ const AppContent: React.FC = () => {
       setInitialKeySignature(res.keySignature);
       setCurrentTempoBpm(res.initialTempoBpm);
       setTempoEvents(res.tempoEvents);
+      setPedalEvents((res as any).pedalEvents || []);
       setSignatureEvents(res.signatureEvents);
       setCurrentFileType(FileType.MIDI);
       setBarLines(res.barLinesMs);
@@ -7740,7 +7768,7 @@ const AppContent: React.FC = () => {
       await preloadSamplesForSong(res.notes);
       if (controller.signal.aborted) return;
       setSettingsPreviewReady(true);
-      let notes = assignFingering(res.notes);
+      let notes = assignFingering(res.notes, { handSize: fingeringPreferences.handSize });
       let poses: HandPose[] = [];
       if (controller.signal.aborted) return;
       setPlaybackNotes(notes);
@@ -7858,6 +7886,12 @@ const AppContent: React.FC = () => {
     }
 
     if (isLearnModeActiveRef.current) {
+      // Leaving a warm-up goes to its mode selection first (its Back returns to the Learn Mode warm-up chapter).
+      if (learnExerciseActiveRef.current) {
+        setCurrentScreen("modeSelection");
+        return;
+      }
+      // Leaving a lesson returns to the main menu.
       setIsLearnModeActive(false);
       isLearnModeActiveRef.current = false;
       setPlaybackNotes([]);
@@ -8055,23 +8089,48 @@ const AppContent: React.FC = () => {
         const source = context.createMediaStreamSource(stream);
         audioSourceRef.current = source;
 
-        // Pure Pitch Detection setup: 1 single lightweight AnalyserNode (2048 buffer)
+        // Polyphonic note detection: one AnalyserNode supplies the raw audio, the
+        // service sizes it and does the analysis (see pianoNoteDetector.ts).
         const analyser = context.createAnalyser();
-        analyser.fftSize = 2048;
         source.connect(analyser);
 
         analyserRef.current = analyser;
         acousticPianoServiceRef.current = new AcousticPianoService(
           analyser,
           context,
+          appOutputTapRef.current,
         );
 
         const processPitch = () => {
           if (!acousticPianoServiceRef.current) return;
 
           const service = acousticPianoServiceRef.current;
-          const detectedNotes = service.detectPitch(micThresholdsRef.current);
-          const { on, off } = service.updateNotes(detectedNotes);
+
+          // Tell the detector which notes the song is asking for around now, so it can
+          // confirm those quickly and be strict about everything else.
+          const songNotes = notesForGameRef.current;
+          if (isFreePlayModeRef.current || songNotes.length === 0) {
+            service.setExpectedNotes(null);
+          } else {
+            const expected: number[] = [];
+            notesCurrentlyWaitingForRef.current.forEach((midi) => expected.push(midi));
+            if (isPlayingRef.current) {
+              const t = getPreciseMusicalTime();
+              let lo = 0;
+              let hi = songNotes.length;
+              while (lo < hi) {
+                const mid = (lo + hi) >> 1;
+                if (songNotes[mid].timeMs < t - 350) lo = mid + 1;
+                else hi = mid;
+              }
+              for (let i = lo; i < songNotes.length && songNotes[i].timeMs <= t + 250; i++) {
+                expected.push(songNotes[i].midi);
+              }
+            }
+            service.setExpectedNotes(expected);
+          }
+
+          const { on, off } = service.process(micThresholdsRef.current);
 
           // Process releases first so rapid re-strikes end up pressed
           off.forEach((midi) => {
@@ -8084,8 +8143,10 @@ const AppContent: React.FC = () => {
           on.forEach((midi) => {
             micActiveNotesRef.current.add(midi);
             const keyDef = midiNoteToKeyDefMap.get(midi);
+            // `true`: the player already hears the real piano, so the app stays silent
+            // (its own sound would also feed straight back into the microphone).
             if (keyDef)
-              handleUiKeyPressRef.current(keyDef.name, keyDef.midiNote);
+              handleUiKeyPressRef.current(keyDef.name, keyDef.midiNote, true);
           });
 
           pitchDetectionRequestRef.current =
@@ -8096,7 +8157,7 @@ const AppContent: React.FC = () => {
         setIsAudioInputEnabled(false);
       }
     },
-    [stopAudioProcessing, midiNoteToKeyDefMap],
+    [stopAudioProcessing, midiNoteToKeyDefMap, getPreciseMusicalTime],
   );
 
   useEffect(() => {
@@ -8182,6 +8243,8 @@ const AppContent: React.FC = () => {
       className="text-white w-full h-full flex flex-col font-sans overflow-hidden"
       style={{
         zoom: zoomScale,
+        // Lets full-height panels fill the real screen: vh units are scaled by `zoom` too.
+        ["--ui-zoom" as any]: zoomScale,
       }}
     >
       <div className="absolute inset-0 z-0 pointer-events-none">
@@ -8292,9 +8355,9 @@ const AppContent: React.FC = () => {
                 <div className="w-full pointer-events-none">
                   {(() => {
                     const accuracyLevel = gameSettings?.accuracyLevel ?? 5;
-                    const perfectWindow = 100 + (5 - accuracyLevel) * 20;
-                    const greatWindow = perfectWindow * 1.5;
-                    const goodWindow = perfectWindow * 2;
+                    const perfectWindow = displayPerfectWindow;
+                    const greatWindow = displayGreatWindow;
+                    const goodWindow = displayGoodWindow;
 
                     return (
                       <TopBar
@@ -8494,6 +8557,7 @@ const AppContent: React.FC = () => {
                     ) : viewMode === "falling" ? (
                       <FallingNotesArea
                         key={`falling-${viewMode}`}
+                        pedalEvents={pedalEvents}
                         notes={notesForFallingView}
                         visualDurationByNoteId={majorVisualDurationByNoteId}
                         currentTimeMs={musicalCurrentTimeMs}
@@ -8533,6 +8597,7 @@ const AppContent: React.FC = () => {
                       viewMode === "sheet-qwerty") &&
                       vexFlowData ? (
                       <HorizontalNotesView
+                        pedalEvents={pedalEvents}
                         currentTimeMs={musicalCurrentTimeMs}
                         visualDurationByNoteId={majorVisualDurationByNoteId}
                         width={baseCalculatedPianoWidth}
@@ -8600,6 +8665,7 @@ const AppContent: React.FC = () => {
                         resolutionScale={resolutionScale}
                         noteLabelType={noteLabelType}
                         showDynamics={showDynamics}
+                        pedalEvents={pedalEvents}
                         showOnlyMajorNotes={effectiveShowOnlyMajorNotes}
                       />
                     ) : (
@@ -8654,9 +8720,9 @@ const AppContent: React.FC = () => {
                             onMp3OffsetChange={setUserAudioSyncOffset}
                             metronomePianoOffset={metronomePianoOffsetMs}
                             onMetronomePianoOffsetChange={setMetronomePianoOffsetMs}
-                            perfectWindow={100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20}
-                            greatWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 1.5}
-                            goodWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 2}
+                            perfectWindow={displayPerfectWindow}
+                            greatWindow={displayGreatWindow}
+                            goodWindow={displayGoodWindow}
                           />
                         </div>
                       )}
@@ -8711,9 +8777,9 @@ const AppContent: React.FC = () => {
                             onMp3OffsetChange={setUserAudioSyncOffset}
                             metronomePianoOffset={metronomePianoOffsetMs}
                             onMetronomePianoOffsetChange={setMetronomePianoOffsetMs}
-                            perfectWindow={100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20}
-                            greatWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 1.5}
-                            goodWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 2}
+                            perfectWindow={displayPerfectWindow}
+                            greatWindow={displayGreatWindow}
+                            goodWindow={displayGoodWindow}
                           />
                         </div>
                       )}
@@ -8731,9 +8797,9 @@ const AppContent: React.FC = () => {
                             onMp3OffsetChange={setUserAudioSyncOffset}
                             metronomePianoOffset={metronomePianoOffsetMs}
                             onMetronomePianoOffsetChange={setMetronomePianoOffsetMs}
-                            perfectWindow={100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20}
-                            greatWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 1.5}
-                            goodWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 2}
+                            perfectWindow={displayPerfectWindow}
+                            greatWindow={displayGreatWindow}
+                            goodWindow={displayGoodWindow}
                           />
                         </div>
                       </div>
@@ -8836,7 +8902,13 @@ const AppContent: React.FC = () => {
       {currentScreen === "modeSelection" && (
         <ModeSelection
           onStartGame={handleStartGame}
-          onBack={() => setCurrentScreen(isLearnModeActiveRef.current ? "learnMode" : "songSelection")}
+          onBack={() => {
+            if (learnExerciseActiveRef.current) {
+              learnExerciseActiveRef.current = false;
+              setLearnReturnToExercises(true);
+            }
+            setCurrentScreen(isLearnModeActiveRef.current ? "learnMode" : "songSelection");
+          }}
           onOpenSettings={(targetSection?: any) => {
             setSettingsReturnScreen("modeSelection");
             setSettingsScrollTarget(typeof targetSection === 'string' ? targetSection : undefined);
@@ -9051,6 +9123,7 @@ const AppContent: React.FC = () => {
       {currentScreen === "learnMode" && (
         <div className="flex-grow w-full h-full relative z-10 flex flex-col overflow-hidden min-h-0">
           <LearnArticleView
+            initialChapter={learnReturnToExercises ? 'exercises' : 'sheet'}
             onBackToMainMenu={() => {
               setIsLearnModeActive(false);
               isLearnModeActiveRef.current = false;
@@ -9182,9 +9255,9 @@ const AppContent: React.FC = () => {
             <div className="w-full pointer-events-auto">
               {(() => {
                 const accuracyLevel = gameSettings?.accuracyLevel ?? 5;
-                const perfectWindow = 100 + (5 - accuracyLevel) * 20;
-                const greatWindow = perfectWindow * 1.5;
-                const goodWindow = perfectWindow * 2;
+                const perfectWindow = displayPerfectWindow;
+                const greatWindow = displayGreatWindow;
+                const goodWindow = displayGoodWindow;
 
                 return (
                   <TopBar
@@ -9548,6 +9621,7 @@ const AppContent: React.FC = () => {
                   ) : viewMode === "falling" ? (
                     <FallingNotesArea
                       key={`falling-freeplay-${viewMode}`}
+                      pedalEvents={pedalEvents}
                       notes={notesForFallingView}
                       visualDurationByNoteId={majorVisualDurationByNoteId}
                       currentTimeMs={musicalCurrentTimeMs}
@@ -9588,6 +9662,7 @@ const AppContent: React.FC = () => {
                     viewMode === "sheet-qwerty") &&
                     vexFlowData ? (
                     <HorizontalNotesView
+                      pedalEvents={pedalEvents}
                       currentTimeMs={musicalCurrentTimeMs}
                       visualDurationByNoteId={majorVisualDurationByNoteId}
                       width={baseCalculatedPianoWidth}
@@ -9653,6 +9728,7 @@ const AppContent: React.FC = () => {
                       resolutionScale={resolutionScale}
                       noteLabelType={noteLabelType}
                       showDynamics={showDynamics}
+                      pedalEvents={pedalEvents}
                       showOnlyMajorNotes={effectiveShowOnlyMajorNotes}
                     />
                   ) : (
@@ -9707,9 +9783,9 @@ const AppContent: React.FC = () => {
                           onMp3OffsetChange={setUserAudioSyncOffset}
                           metronomePianoOffset={metronomePianoOffsetMs}
                           onMetronomePianoOffsetChange={setMetronomePianoOffsetMs}
-                          perfectWindow={100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20}
-                          greatWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 1.5}
-                          goodWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 2}
+                          perfectWindow={displayPerfectWindow}
+                          greatWindow={displayGreatWindow}
+                          goodWindow={displayGoodWindow}
                         />
                       </div>
                     )}
@@ -9765,9 +9841,9 @@ const AppContent: React.FC = () => {
                           onMp3OffsetChange={setUserAudioSyncOffset}
                           metronomePianoOffset={metronomePianoOffsetMs}
                           onMetronomePianoOffsetChange={setMetronomePianoOffsetMs}
-                          perfectWindow={100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20}
-                          greatWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 1.5}
-                          goodWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 2}
+                          perfectWindow={displayPerfectWindow}
+                          greatWindow={displayGreatWindow}
+                          goodWindow={displayGoodWindow}
                         />
                       </div>
                     )}
@@ -9785,9 +9861,9 @@ const AppContent: React.FC = () => {
                           onMp3OffsetChange={setUserAudioSyncOffset}
                           metronomePianoOffset={metronomePianoOffsetMs}
                           onMetronomePianoOffsetChange={setMetronomePianoOffsetMs}
-                          perfectWindow={100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20}
-                          greatWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 1.5}
-                          goodWindow={(100 + (5 - (gameSettings?.accuracyLevel ?? 5)) * 20) * 2}
+                          perfectWindow={displayPerfectWindow}
+                          greatWindow={displayGreatWindow}
+                          goodWindow={displayGoodWindow}
                         />
                       </div>
                     </div>

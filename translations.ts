@@ -288,7 +288,6 @@ export interface TranslationDictionary {
   noteLabelQwertyDisplay: string;
   autoSetupTitle: string;
   autoSetupDesc: string;
-  openFullSettingsBtn: string;
   quickPresets: string;
   presetStandard: string;
   presetFingering: string;
@@ -323,12 +322,17 @@ export interface TranslationDictionary {
   filterLiked: string;
   filterDifficultyLabel: string;
   difficultyAll: string;
+  difficultyStarter: string;
   difficultyNovice: string;
   difficultyBeginner: string;
+  difficultyElementary: string;
   difficultyIntermediate: string;
+  difficultyExperienced: string;
   difficultyAdvanced: string;
   difficultyVirtuoso: string;
-  difficultyLegendary: string;
+  difficultyExpert: string;
+  difficultyMaster: string;
+  difficultyLevelAbbr: string;
   noSongsFoundTitle: string;
   noSongsFoundDesc: string;
   loadMoreSongs: string;
@@ -514,7 +518,7 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     enableMicInput: "Enable Microphone Input",
     micInputDevice: "Input Device",
     detectionSensitivity: "Detection Sensitivity",
-    adjustDbThresholds: "Adjust dB thresholds per range (Lower = More Sensitive)",
+    adjustDbThresholds: "Left = more sensitive (picks up quiet notes). Right = stricter (ignores room noise).",
     micBetaNoticeTitle: "Beta Feature Notice",
     micBetaNoticeDesc: "Real-time acoustic pitch detection via microphone is currently in Beta. Accuracy depends on your microphone hardware, ambient noise, and room acoustics. For optimal accuracy, place the microphone close to the piano or use a direct MIDI cable connection.",
 
@@ -741,7 +745,6 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     noteLabelQwertyDisplay: "QWERTY Keys",
     autoSetupTitle: "Auto Setup",
     autoSetupDesc: "Apply recommended view & note labels for this mode",
-    openFullSettingsBtn: "Full Settings",
     quickPresets: "Quick Presets",
     presetStandard: "Standard",
     presetFingering: "Fingering (BETA)",
@@ -776,12 +779,17 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     filterLiked: "Liked",
     filterDifficultyLabel: "Difficulty:",
     difficultyAll: "All Difficulties",
-    difficultyNovice: "Novice (Lv. 1-2)",
-    difficultyBeginner: "Beginner (Lv. 3)",
-    difficultyIntermediate: "Intermediate (Lv. 4-5)",
-    difficultyAdvanced: "Advanced (Lv. 6-7)",
-    difficultyVirtuoso: "Virtuoso (Lv. 8-9)",
-    difficultyLegendary: "Legendary (Lv. 10+)",
+    difficultyStarter: "Starter",
+    difficultyNovice: "Novice",
+    difficultyBeginner: "Beginner",
+    difficultyElementary: "Elementary",
+    difficultyIntermediate: "Intermediate",
+    difficultyExperienced: "Experienced",
+    difficultyAdvanced: "Advanced",
+    difficultyVirtuoso: "Virtuoso",
+    difficultyExpert: "Expert",
+    difficultyMaster: "Master",
+    difficultyLevelAbbr: "Lv.",
     noSongsFoundTitle: "No songs found",
     noSongsFoundDesc: "Try different keywords or clear the filter above.",
     loadMoreSongs: "Load More Songs",
@@ -816,7 +824,7 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     audioToMidiDirectTitle: "Direct Acoustic Piano (Microphone Pitch Detection)",
     activeInBrowser: "Active (Pitch Tuner)",
     disabledStatus: "Disabled",
-    audioToMidiDesc: "Real-time acoustic piano note detection powered by high-precision Autocorrelation / YIN Pitch Detection. Zero latency, instant response directly in your browser without external models.",
+    audioToMidiDesc: "Real-time acoustic piano note detection that also hears chords. It listens for the notes the song asks for and double-checks the rest with a small on-device AI model (about 1 MB, downloaded once and kept in your browser; skipped automatically on slow devices). Nothing leaves your device. The app's own sounds (metronome, MP3 backing track) are removed from the microphone automatically; headphones are still the safest, and a YouTube backing track cannot be removed.",
     micListeningActive: "Microphone actively listening",
     allowMicrophoneBtn: "Allow Microphone",
     noMicrophonesFound: "No microphones found",
@@ -965,7 +973,7 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     enableMicInput: "Aktifkan Input Mikrofon",
     micInputDevice: "Perangkat Mikrofon",
     detectionSensitivity: "Sensitivitas Deteksi",
-    adjustDbThresholds: "Atur ambang batas dB per rentang nada (Makin Rendah = Makin Sensitif)",
+    adjustDbThresholds: "Ke kiri = lebih sensitif (menangkap nada pelan). Ke kanan = lebih ketat (mengabaikan noise ruangan).",
     micBetaNoticeTitle: "Keterangan Fitur Beta",
     micBetaNoticeDesc: "Deteksi nada piano akustik via mikrofon saat ini masih dalam tahap Beta (eksperimental). Akurasi deteksi dipengaruhi oleh kualitas mikrofon, kebisingan sekitar (noise), dan akustik ruangan. Untuk pengalaman terbaik, letakkan mikrofon sedekat mungkin ke piano atau gunakan koneksi kabel MIDI langsung.",
 
@@ -1192,7 +1200,6 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     noteLabelQwertyDisplay: "Tombol Keyboard",
     autoSetupTitle: "Atur Otomatis",
     autoSetupDesc: "Terapkan tampilan & label rekomendasi untuk mode ini",
-    openFullSettingsBtn: "Pengaturan Lengkap",
     quickPresets: "Preset Cepat",
     presetStandard: "Standar",
     presetFingering: "Fingering (BETA)",
@@ -1227,12 +1234,17 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     filterLiked: "Disukai",
     filterDifficultyLabel: "Tingkat:",
     difficultyAll: "Semua Kesulitan",
-    difficultyNovice: "Novice (Lv. 1-2)",
-    difficultyBeginner: "Beginner (Lv. 3)",
-    difficultyIntermediate: "Intermediate (Lv. 4-5)",
-    difficultyAdvanced: "Advanced (Lv. 6-7)",
-    difficultyVirtuoso: "Virtuoso (Lv. 8-9)",
-    difficultyLegendary: "Legendary (Lv. 10+)",
+    difficultyStarter: "Perintis",
+    difficultyNovice: "Awam",
+    difficultyBeginner: "Pemula",
+    difficultyElementary: "Dasar",
+    difficultyIntermediate: "Menengah",
+    difficultyExperienced: "Berpengalaman",
+    difficultyAdvanced: "Lanjutan",
+    difficultyVirtuoso: "Virtuoso",
+    difficultyExpert: "Ahli",
+    difficultyMaster: "Master",
+    difficultyLevelAbbr: "Lv.",
     noSongsFoundTitle: "Tidak ada lagu yang ditemukan",
     noSongsFoundDesc: "Coba gunakan kata kunci pencarian yang berbeda atau reset filter di atas.",
     loadMoreSongs: "Muat Lebih Banyak Lagu",
@@ -1267,7 +1279,7 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     audioToMidiDirectTitle: "Direct Acoustic Piano (Microphone Pitch Detection)",
     activeInBrowser: "Aktif (Pitch Detector)",
     disabledStatus: "Nonaktif",
-    audioToMidiDesc: "Deteksi nada piano akustik real-time berbasis Pitch Detection (Autocorrelation / YIN) berpresisi tinggi. Zero latency, instan langsung di peramban tanpa model eksternal yang membebani.",
+    audioToMidiDesc: "Deteksi nada piano akustik real-time yang juga mengenali akor. Ia mendengarkan nada yang diminta lagu dan memeriksa ulang sisanya dengan model AI kecil di perangkat (sekitar 1 MB, diunduh sekali dan disimpan di peramban; dilewati otomatis di perangkat yang lambat). Tidak ada data yang keluar dari perangkat Anda. Suara dari aplikasi sendiri (metronom, musik pengiring MP3) otomatis dibuang dari mikrofon; headphone tetap paling aman, dan musik pengiring YouTube tidak bisa dibuang.",
     micListeningActive: "Mikrofon siap mendengar aktif",
     allowMicrophoneBtn: "Beri Izin Mikrofon",
     noMicrophonesFound: "Tidak ada mikrofon terdeteksi",
@@ -1416,7 +1428,7 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     enableMicInput: "Activar Entrada de Micrófono",
     micInputDevice: "Dispositivo de Micrófono",
     detectionSensitivity: "Sensibilidad de Detección",
-    adjustDbThresholds: "Ajustar umbrales dB por rango (Menor = Más Sensible)",
+    adjustDbThresholds: "Izquierda = más sensible (capta notas suaves). Derecha = más estricto (ignora el ruido de la sala).",
     micBetaNoticeTitle: "Aviso de Función Beta",
     micBetaNoticeDesc: "La detección acústica de notas mediante micrófono está actualmente en fase Beta (experimental). La precisión depende de la calidad del micrófono, el ruido ambiental y la acústica. Para obtener mejores resultados, coloque el micrófono cerca del piano o utilice una conexión directa por cable MIDI.",
 
@@ -1643,7 +1655,6 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     noteLabelQwertyDisplay: "Teclas QWERTY",
     autoSetupTitle: "Ajuste Automático",
     autoSetupDesc: "Aplica vista y etiquetas recomendadas para este modo",
-    openFullSettingsBtn: "Ajustes Completos",
     quickPresets: "Ajustes Rápidos",
     presetStandard: "Estándar",
     presetFingering: "Digitación (BETA)",
@@ -1678,12 +1689,17 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     filterLiked: "Favoritos",
     filterDifficultyLabel: "Dificultad:",
     difficultyAll: "Todas las Dificultades",
-    difficultyNovice: "Novato (Niv. 1-2)",
-    difficultyBeginner: "Principiante (Niv. 3)",
-    difficultyIntermediate: "Intermedio (Niv. 4-5)",
-    difficultyAdvanced: "Avanzado (Niv. 6-7)",
-    difficultyVirtuoso: "Virtuoso (Niv. 8-9)",
-    difficultyLegendary: "Legendario (Niv. 10+)",
+    difficultyStarter: "Iniciante",
+    difficultyNovice: "Novato",
+    difficultyBeginner: "Principiante",
+    difficultyElementary: "Elemental",
+    difficultyIntermediate: "Intermedio",
+    difficultyExperienced: "Experimentado",
+    difficultyAdvanced: "Avanzado",
+    difficultyVirtuoso: "Virtuoso",
+    difficultyExpert: "Experto",
+    difficultyMaster: "Maestro",
+    difficultyLevelAbbr: "Niv.",
     noSongsFoundTitle: "No se encontraron canciones",
     noSongsFoundDesc: "Prueba con palabras clave diferentes o limpia el filtro.",
     loadMoreSongs: "Cargar Más Canciones",
@@ -1718,7 +1734,7 @@ export const translations: Record<AppLanguage, TranslationDictionary> = {
     audioToMidiDirectTitle: "Direct Acoustic Piano (Microphone Pitch Detection)",
     activeInBrowser: "Activo (Detector de Tono)",
     disabledStatus: "Inactivo",
-    audioToMidiDesc: "Detección de notas de piano acústico en tiempo real impulsada por detección de tono de alta precisión (Autocorrelación / YIN). Latencia cero, respuesta instantánea en el navegador.",
+    audioToMidiDesc: "Detección de notas de piano acústico en tiempo real que también reconoce acordes. Escucha las notas que pide la canción y comprueba el resto con un pequeño modelo de IA en el dispositivo (unos 1 MB, se descarga una vez y se guarda en el navegador; se omite automáticamente en dispositivos lentos). Nada sale de tu dispositivo. Los sonidos de la propia app (metrónomo, acompañamiento MP3) se eliminan del micrófono automáticamente; los auriculares siguen siendo lo más seguro y un acompañamiento de YouTube no se puede eliminar.",
     micListeningActive: "Micrófono escuchando activamente",
     allowMicrophoneBtn: "Permitir Micrófono",
     noMicrophonesFound: "No se encontraron micrófonos",

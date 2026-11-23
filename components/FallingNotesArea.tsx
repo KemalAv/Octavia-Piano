@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import { MidiNotePlaybackItem, KeyPosition, ActiveMidiNoteInfo, NoteLabelType, QwertyLayout, FreePlayLiveNote } from '../types';
+import { MidiNotePlaybackItem, KeyPosition, ActiveMidiNoteInfo, NoteLabelType, QwertyLayout, FreePlayLiveNote, PedalEvent } from '../types';
 import { PLAY_LINE_THICKNESS_PX, USER_PLAY_COLOR, VISUAL_NOTE_CAP_MS, QWERTY_MINI_KEYBOARD_MAPPING, MIRP_KEYBOARD_MAPPING, KEY_CODES_TO_DISPLAY } from '../constants';
 import { darkenHex, formatKeySignatureForDisplay, SHARP_KEYS, FLAT_KEYS, NEUTRAL_KEYS, ENHARMONIC_MAP_TO_SHARP, ENHARMONIC_MAP_TO_FLAT, getDynamicFromVelocity, getVelocityOutlineColor } from '../utils';
 
@@ -36,6 +36,7 @@ interface FallingNotesAreaProps {
   lowDetailMode?: boolean;
   resolutionScale?: number;
   showDynamics?: boolean;
+  pedalEvents?: PedalEvent[];
 }
 
 // Binary search helper to find starting note index in O(log N) time
@@ -93,6 +94,7 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
   lowDetailMode = false,
   resolutionScale = 1.0,
   showDynamics = false,
+  pedalEvents,
 }) => {
   const [statsVisible, setStatsVisible] = useState(true);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -425,6 +427,43 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
       }
     }
 
+    // 5b. Sustain pedal (piano only, with the dynamics option): an amber band while the pedal is down,
+    // labelled "Ped." where it goes down and "*" where it is released.
+    if (showDynamics && instrumentMode !== 'drum' && !isRising && pedalEvents && pedalEvents.length > 0 && pixelsPerMillisecond > 0) {
+      const yAt = (t: number) => actualHeight - (t - currentTimeMs) * pixelsPerMillisecond;
+      const sorted = pedalEvents;
+      let open: number | null = null;
+      const spans: { startMs: number; endMs: number }[] = [];
+      for (const e of sorted) {
+        if (e.down && open === null) open = e.timeMs;
+        else if (!e.down && open !== null) { spans.push({ startMs: open, endMs: e.timeMs }); open = null; }
+      }
+      if (open !== null) spans.push({ startMs: open, endMs: Infinity });
+      const viewTop = -50, viewBottom = actualHeight + 50;
+      ctx.save();
+      spans.forEach(sp => {
+        const yBottom = Math.min(viewBottom, yAt(sp.startMs));
+        const yTop = Math.max(viewTop, sp.endMs === Infinity ? viewTop : yAt(sp.endMs));
+        if (yBottom < viewTop || yTop > viewBottom || yBottom <= yTop) return;
+        ctx.fillStyle = 'rgba(245, 158, 11, 0.10)';
+        ctx.fillRect(0, yTop, width | 0, (yBottom - yTop) | 0);
+        ctx.fillStyle = 'rgba(245, 158, 11, 0.85)';
+        ctx.fillRect(0, yTop, 4, (yBottom - yTop) | 0);
+        if (!lowDetailMode) {
+          ctx.font = 'bold 12px sans-serif';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'bottom';
+          ctx.fillStyle = 'rgba(253, 230, 138, 0.95)';
+          if (sp.startMs >= currentTimeMs - 1 && yBottom < viewBottom) ctx.fillText('Ped.', 8, yBottom - 2);
+          if (sp.endMs !== Infinity && yTop > viewTop) {
+            ctx.textBaseline = 'top';
+            ctx.fillText('*', 8, yTop + 2);
+          }
+        }
+      });
+      ctx.restore();
+    }
+
     // 6. Play Line
     const playLineHeight = PLAY_LINE_THICKNESS_PX;
     const playLineY = (actualHeight - playLineHeight) | 0;
@@ -466,7 +505,10 @@ export const FallingNotesArea: React.FC<FallingNotesAreaProps> = React.memo(({
     lowDetailMode,
     isLightBackground,
     alphaMultiplier,
-    VIEWABLE_DURATION_MS
+    VIEWABLE_DURATION_MS,
+    pedalEvents,
+    showDynamics,
+    instrumentMode
   ]);
 
   const getScale = () => {

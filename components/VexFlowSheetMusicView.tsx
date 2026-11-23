@@ -37,6 +37,7 @@ import {
   VexFlowTupletGroup,
   NoteLabelType,
 } from '../types';
+import type { PedalEvent } from '../types';
 import { getVexFlowRenderData } from '../vexflow-helper';
 import { getDynamicFromVelocity } from '../utils';
 
@@ -55,6 +56,9 @@ const VIRTUAL_DRUM_SYSTEM_HEIGHT = 190;
 const SYSTEM_SPACING = 16;
 const DRUM_SYSTEM_SPACING = 38;
 const SYSTEM_PADDING_X = 20;
+// VexFlow's own minimum spacing is generous; real engraving packs fast runs tighter than this.
+const NOTE_SQUEEZE = 0.72;
+const PEDAL_LINE_Y = TOP_STAVE_Y + VERTICAL_STAFF_SPACING + 92; // under the bass staff
 const SHEET_TOP_PADDING_PX = 72; // Clearance to prevent sheet music bars from being covered by top HUD bar
 
 const NATURAL_PITCH_CLASS: Record<string, number> = {
@@ -180,6 +184,7 @@ interface Props {
   noteLabelType?: NoteLabelType;
   showDynamics?: boolean;
   showOnlyMajorNotes?: boolean;
+  pedalEvents?: PedalEvent[];
 }
 
 interface NotePosInfo {
@@ -248,6 +253,10 @@ function getSystemLeadWidth(
 
 const EMPTY_HIGHLIGHTS_ARRAY: Array<{ key: string; cx: number; cy: number; color: string; isWaiting: boolean }> = [];
 const EMPTY_OVERLAY_ITEMS: any[] = [];
+const EMPTY_PEDAL_EVENTS: PedalEvent[] = [];
+const EMPTY_PEDAL_MARKS: PedalMark[] = [];
+
+interface PedalMark { key: string; x1: number; x2: number; y: number; closed: boolean }
 
 interface SheetMusicSystemRowProps {
   system: SystemLayout;
@@ -255,6 +264,7 @@ interface SheetMusicSystemRowProps {
   isDrum: boolean;
   notationColor: string;
   showDynamics?: boolean;
+  pedals: PedalMark[];
   octaves: any[];
   tempos: any[];
   dynamics: any[];
@@ -271,6 +281,7 @@ const SheetMusicSystemRow: React.FC<SheetMusicSystemRowProps> = memo(({
   isDrum,
   notationColor,
   showDynamics,
+  pedals,
   octaves,
   tempos,
   dynamics,
@@ -384,6 +395,21 @@ const SheetMusicSystemRow: React.FC<SheetMusicSystemRowProps> = memo(({
           </g>
         ))}
 
+        {/* Sustain pedal markings: "Ped." at pedal down, "*" at pedal up */}
+        {showDynamics && pedals.map(p => (
+          <g key={p.key}>
+            <line x1={p.x1} x2={p.x2} y1={p.y} y2={p.y} stroke={notationColor} strokeWidth={1.2} />
+            <line x1={p.x1} x2={p.x1} y1={p.y - 4} y2={p.y + 2} stroke={notationColor} strokeWidth={1.2} />
+            <text x={p.x1 + 3} y={p.y - 4} fontFamily="'Times New Roman', Cambria, Georgia, serif" fontSize="14" fontStyle="italic" fontWeight="700" fill={notationColor}>Ped.</text>
+            {p.closed && (
+              <>
+                <line x1={p.x2} x2={p.x2} y1={p.y - 4} y2={p.y + 2} stroke={notationColor} strokeWidth={1.2} />
+                <text x={p.x2 - 4} y={p.y - 4} textAnchor="middle" fontFamily="'Times New Roman', Cambria, Georgia, serif" fontSize="16" fontWeight="700" fill={notationColor}>*</text>
+              </>
+            )}
+          </g>
+        ))}
+
         {/* Sleek Playhead Indicator Line */}
         {playhead && (
           <g key={`playhead-${sysIdx}`}>
@@ -480,6 +506,7 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
   noteLabelType = 'none',
   showDynamics = false,
   showOnlyMajorNotes = false,
+  pedalEvents = EMPTY_PEDAL_EVENTS,
   notationColor: foregroundColor,
 }) => {
   const isDrum = instrumentMode === 'drum';
@@ -490,6 +517,11 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
   const systemDivRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   const [renderedLayoutId, setRenderedLayoutId] = useState(0);
+  // Real minimum widths VexFlow reports for crowded measures (dense 16th/32nd runs, tuplets), fed back
+  // into the layout so such a measure gets enough room instead of running past the end of the staff.
+  const measuredMinWidthRef = useRef<WeakMap<VexFlowMeasureData, number>>(new WeakMap());
+  const needsRelayoutRef = useRef(false);
+  const [relayoutTick, setRelayoutTick] = useState(0);
   const [notePositions, setNotePositions] = useState<Map<string, NotePosInfo>>(new Map());
   const [notePositionsByNoteId, setNotePositionsByNoteId] = useState<Map<string, NotePosInfo[]>>(new Map());
   const lastActiveSystemRef = useRef<number>(-1);
@@ -553,7 +585,11 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
     // Helper to calculate required width strictly based on note count, accidentals, and zoom,
     // ensuring measures with dense notes/accidentals get adequate room and don't crowd/cross barlines!
     const getItemRequiredWidth = (item: { measure: VexFlowMeasureData }) => {
-      const nCount = Math.max(item.measure.rightHand.length, item.measure.leftHand.length, 1);
+      // Fast notes need less room each: a 32nd needs about half of a quarter's space, so a run of
+      // them packs tightly instead of stretching the bar across the whole line.
+      const speedWeight = (d: string) => (d === '128' || d === '64' ? 0.45 : d === '32' ? 0.55 : d === '16' ? 0.75 : 1);
+      const handWeight = (arr: VexFlowNoteInfo[]) => arr.reduce((sum, n) => sum + speedWeight(n.vexNote?.duration || '4'), 0);
+      const nCount = Math.max(handWeight(item.measure.rightHand), handWeight(item.measure.leftHand), 1);
 
       let totalAccidentals = 0;
       let maxChordNotes = 1;
@@ -583,7 +619,8 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
       const accidentalExtra = (item.measure.isClefChangeRH || item.measure.isClefChangeLH ? 35 : 0) +
         (item.measure.isKeySigChange ? 30 : 0) +
         (item.measure.isTimeSigChange ? 30 : 0);
-      return Math.max(80, nCount * perNoteWidth + accidentalExtra + 24);
+      const measured = measuredMinWidthRef.current.get(item.measure) || 0;
+      return Math.max(80, nCount * perNoteWidth + accidentalExtra + 24, measured);
     };
 
     for (let i = 0; i < allMeasures.length; i++) {
@@ -656,7 +693,7 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
           height: systemDisplayHeight,
           virtualWidth: virtualSystemWidth,
           virtualHeight: virtualSystemHeight,
-          startY: 32 + currentSystemIndex * (systemDisplayHeight + effectiveSpacing),
+          startY: SHEET_TOP_PADDING_PX + currentSystemIndex * (systemDisplayHeight + effectiveSpacing),
           firstMeasureIndex: firstIdx,
           lastMeasureIndex: lastIdx,
           scale: effectiveScale,
@@ -731,7 +768,7 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
     }
 
     return result;
-  }, [vexFlowData, width, instrumentMode, sheetMusicZoom]);
+  }, [vexFlowData, width, instrumentMode, sheetMusicZoom, relayoutTick]);
 
   // Notify parent of layout render
   useEffect(() => {
@@ -936,20 +973,7 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
 
             n.setStemDirection(direction);
           }
-          if (noteLabelType === 'fingering' && info.fingering && info.fingering.length > 0) {
-            info.fingering.forEach((f, idx) => {
-              if (f !== undefined && f !== null && f > 0) {
-                const finger = new FretHandFinger(String(f));
-                // Match the bold, visible style of the reference image
-                finger.setFont({ family: 'Arial, sans-serif', size: 11, weight: 'bold' });
-                // Always place fingering ABOVE the notes/beams for both hands
-                finger.setPosition(Modifier.Position.ABOVE);
-                // Increased shift to move them significantly higher as requested
-                finger.setYShift(-30);
-                n.addModifier(finger, idx);
-              }
-            });
-          }
+          // Fingering numbers are drawn after the notes, from the real stem / beam positions (see drawFingering).
 
           // Add Note Names as Annotations above the note
           if (noteLabelType === 'noteName' && info.vexNote.keys && info.vexNote.keys.length > 0) {
@@ -1199,8 +1223,16 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
                 (ts.denominator === 8);
               const maxBeamNotes = is6NoteMeter ? 6 : 4;
               if (b.notes.length > maxBeamNotes) {
-                for (let i = 0; i < b.notes.length; i += maxBeamNotes) {
-                  const chunk = b.notes.slice(i, i + maxBeamNotes);
+                // Even chunks (5 -> 3+2, never 4+1): a lone leftover note would lose its beam
+                const nChunks = Math.ceil(b.notes.length / maxBeamNotes);
+                const baseSize = Math.floor(b.notes.length / nChunks);
+                let extra = b.notes.length - baseSize * nChunks;
+                let start = 0;
+                for (let c = 0; c < nChunks; c++) {
+                  const size = baseSize + (extra > 0 ? 1 : 0);
+                  if (extra > 0) extra--;
+                  const chunk = b.notes.slice(start, start + size);
+                  start += size;
                   if (chunk.length > 1) {
                     try {
                       const splitB = new Beam(chunk, true);
@@ -1308,6 +1340,17 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
             }
           });
 
+          // A note can still carry a beam that was discarded (the constructor attaches it at once). Such a note
+          // would draw neither a beam nor a stem/flag, so hand it back to normal stem and flag drawing.
+          const finalBeamed = new Set<StaveNote>();
+          beams.forEach(b => b.notes.forEach(n => finalBeamed.add(n as StaveNote)));
+          notesArr.forEach(n => {
+            if (!n.isRest() && !finalBeamed.has(n) && n.hasBeam()) {
+              (n as any).beam = undefined;
+              try { n.setStemDirection(n.getStemDirection()); } catch { /* keep default */ }
+            }
+          });
+
           // Harmonize and unify stem direction for ALL notes across each beam:
           // In standard music engraving (Gould, "Behind Bars"), all notes connected by a beam
           // MUST share the exact same stem direction.
@@ -1375,6 +1418,9 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
               location: location,
               bracketed: !isBeamed,
               y_offset: yOffset,
+              ratioed: false, // engraving convention: just the number (6, 7, 10), not 6:4
+              // 5 in the time of 4, 7 in 4, ...: the default (3 in 2) is only right for triplets
+              ...(g.numNotes ? { num_notes: g.numNotes, notes_occupied: g.notesOccupied ?? 2 } : {}),
             });
 
             tuplet.setTupletLocation(location);
@@ -1403,6 +1449,18 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
           // and end barline without leaving huge gaps or ever poking through the barline
           const availableVoiceWidth = Math.max(25, curW - (noteStartX - curX) - 14);
           const formatter = new Formatter().joinVoices(voices);
+          try {
+            const minW = formatter.preCalculateMinTotalWidth(voices);
+            const squeezedMin = minW * NOTE_SQUEEZE;
+            if (Number.isFinite(minW) && squeezedMin > availableVoiceWidth + 1) {
+              const need = squeezedMin + 14 + 10;
+              const prev = measuredMinWidthRef.current.get(measure) || 0;
+              if (need > prev + 2) {
+                measuredMinWidthRef.current.set(measure, need);
+                needsRelayoutRef.current = true;
+              }
+            }
+          } catch { /* measuring is best effort */ }
           formatter.format(voices, availableVoiceWidth);
 
           try {
@@ -1424,6 +1482,54 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
             lhTupletObjs.forEach(t => t.setContext(vexCtx).draw());
           } catch (err) {
             console.warn('Error drawing beams/tuplets in measure', globalIndex, err);
+          }
+
+          // Fingering numbers. Placed from where the stems and beams really are, so they never sit on a
+          // beam: above the stem tip (stem up) or above the highest notehead (stem down). In a chord the
+          // numbers are stacked in pitch order, never on top of each other.
+          if (noteLabelType === 'fingering' && !isDrum) {
+            const FINGER_FONT_PX = 11;
+            const FINGER_LINE_PX = 13;
+            const tupletNoteIds = new Set<string>();
+            [...(measure.rightHandTuplets || []).map(g => ({ g, arr: rightStaveNotes })), ...(measure.leftHandTuplets || []).map(g => ({ g, arr: leftStaveNotes }))]
+              .forEach(({ g, arr }) => g.indices.forEach(idx => { const sn = arr[idx]; if (sn) tupletNoteIds.add(sn.getAttribute('id')); }));
+            const drawFingering = (notesArr: StaveNote[], infoMap: Map<string, VexFlowNoteInfo>) => {
+              notesArr.forEach(sn => {
+                if (sn.isRest()) return;
+                const info = infoMap.get(sn.getAttribute('id'));
+                if (!info || !info.fingering || info.fingering.length === 0) return;
+                const ys = sn.getYs();
+                if (!ys || ys.length === 0) return;
+                const glyphW = typeof (sn as any).getGlyphWidth === 'function' ? (sn as any).getGlyphWidth() : 11;
+                const cx = (typeof sn.getNoteHeadBeginX === 'function' ? sn.getNoteHeadBeginX() : sn.getAbsoluteX()) + glyphW / 2;
+                let baseY = Math.min(...ys) - 9; // just above the highest notehead
+                if (sn.hasStem && sn.hasStem() && sn.getStemDirection() === StaveNote.STEM_UP) {
+                  const ext = sn.getStem().getExtents();
+                  baseY = Math.min(baseY, Math.min(ext.topY, ext.baseY) - 5); // above the stem tip (and the beam that sits on it)
+                }
+                if (tupletNoteIds.has(sn.getAttribute('id'))) baseY -= 12; // keep clear of the tuplet number
+                // Lowest pitch nearest the note, then upwards.
+                const order = ys.map((y, i) => ({ y, f: info.fingering![i] })).sort((a, b) => b.y - a.y);
+                let y = baseY;
+                order.forEach(({ f }) => {
+                  if (f === undefined || f === null || f <= 0) return;
+                  const label = String(f);
+                  vexCtx.save();
+                  vexCtx.setFont('Arial', FINGER_FONT_PX, 'bold');
+                  vexCtx.setFillStyle(notationColor);
+                  const w = vexCtx.measureText(label).width;
+                  vexCtx.fillText(label, cx - w / 2, y);
+                  vexCtx.restore();
+                  y -= FINGER_LINE_PX;
+                });
+              });
+            };
+            try {
+              drawFingering(rightStaveNotes, rightInfoMap);
+              drawFingering(leftStaveNotes, leftInfoMap);
+            } catch (err) {
+              console.warn('Error drawing fingering in measure', globalIndex, err);
+            }
           }
         }
 
@@ -1684,6 +1790,10 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
     setNotePositions(newPositions);
     setNotePositionsByNoteId(newPositionsByNoteId);
     setRenderedLayoutId(prev => prev + 1);
+    if (needsRelayoutRef.current) {
+      needsRelayoutRef.current = false;
+      setRelayoutTick(t => t + 1);
+    }
   }, [vexFlowData, systems, width, height, instrumentMode, resolutionScale, noteLabelType, notationColor, sheetMusicZoom]);
 
   // Precompute O(1) mapping from measureIndex to system & systemMeasure layout
@@ -1807,9 +1917,22 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
 
   // Precompute tempo markings and dynamic markings per system layout ONCE
   // so rendering frames at 60-120fps does zero linear searches over notePositions!
+  // Pedal-down spans: from each "down" to the next "up" (or to the end of the piece).
+  const pedalSegments = useMemo(() => {
+    const segs: { startMs: number; endMs: number }[] = [];
+    let open: number | null = null;
+    [...pedalEvents].sort((a, b) => a.timeMs - b.timeMs).forEach(e => {
+      if (e.down && open === null) open = e.timeMs;
+      else if (!e.down && open !== null) { segs.push({ startMs: open, endMs: e.timeMs }); open = null; }
+    });
+    if (open !== null) segs.push({ startMs: open, endMs: Infinity });
+    return segs;
+  }, [pedalEvents]);
+
   const systemOverlayData = useMemo(() => {
     const tempoBySystem = new Map<number, Array<{ key: string; textX: number; bpm: number }>>();
     const dynamicsBySystem = new Map<number, Array<{ key: string; textX: number; textY: number; mark: string }>>();
+    const pedalsBySystem = new Map<number, PedalMark[]>();
     const octavesBySystem = new Map<number, Array<{
       key: string;
       type: '8va' | '15ma' | '8vb' | '15mb';
@@ -1890,6 +2013,32 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
       }
       dynamicsBySystem.set(sysIdx, dItems);
 
+      // Sustain pedal (piano only, shown together with the dynamics): a bracket from pedal-down to pedal-up.
+      const pItems: PedalMark[] = [];
+      if (showDynamics && !isDrum && pedalSegments.length > 0) {
+        const sysFirst = system.measures[0];
+        const sysLast = system.measures[system.measures.length - 1];
+        const xAtTime = (t: number): number => {
+          const m = system.measures.find(ml => t >= ml.measure.startTimeMs && t < ml.measure.endTimeMs)
+            || (t < (sysFirst?.measure.startTimeMs ?? 0) ? sysFirst : sysLast);
+          if (!m) return 4;
+          const startX = m.x + (m.isFirstInSystem ? m.noteStartX : 0);
+          const width = Math.max(10, m.width - (m.isFirstInSystem ? m.noteStartX : 0) - 12);
+          const dur = Math.max(1, m.measure.endTimeMs - m.measure.startTimeMs);
+          const progress = Math.max(0, Math.min(1, (t - m.measure.startTimeMs) / dur));
+          return startX + progress * width;
+        };
+        pedalSegments.forEach((seg, idx) => {
+          if (seg.endMs <= systemStartTime || seg.startMs >= systemEndTime) return;
+          const from = Math.max(seg.startMs, systemStartTime);
+          const to = Math.min(seg.endMs, systemEndTime);
+          const x1 = xAtTime(from);
+          const x2 = Math.max(x1 + 12, xAtTime(to));
+          pItems.push({ key: `pedal-${sysIdx}-${idx}-${seg.startMs}`, x1, x2, y: PEDAL_LINE_Y, closed: seg.endMs <= systemEndTime });
+        });
+      }
+      pedalsBySystem.set(sysIdx, pItems);
+
       // Octaves per Bar (Measure)
       const octItems: Array<{
         key: string;
@@ -1967,8 +2116,8 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
       octavesBySystem.set(sysIdx, octItems);
     });
 
-    return { tempoBySystem, dynamicsBySystem, octavesBySystem };
-  }, [systems, effectiveTempoEvents, dynamicEvents, notePositions, showDynamics, instrumentMode]);
+    return { tempoBySystem, dynamicsBySystem, octavesBySystem, pedalsBySystem };
+  }, [systems, effectiveTempoEvents, dynamicEvents, notePositions, showDynamics, instrumentMode, pedalSegments]);
 
   // Precompute measure anchors for smooth O(1) playhead interpolation without runtime note filtering
   const measureAnchorsByMeasure = useMemo(() => {
@@ -2147,9 +2296,11 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
         const desiredTopOffset = SHEET_TOP_PADDING_PX;
         const targetTop = Math.max(0, Math.round(elementAbsoluteTop - desiredTopOffset));
 
+        // Scrolling down animates like a normal scroll; jumping back up (loop / seek) stays instant.
+        const scrollingDown = targetTop > container.scrollTop;
         container.scrollTo({
           top: targetTop,
-          behavior: 'auto',
+          behavior: scrollingDown ? 'smooth' : 'auto',
         });
       }
     }
@@ -2228,6 +2379,7 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
             const octaves = systemOverlayData.octavesBySystem?.get(sysIdx) || EMPTY_OVERLAY_ITEMS;
             const tempos = systemOverlayData.tempoBySystem.get(sysIdx) || EMPTY_OVERLAY_ITEMS;
             const dynamics = systemOverlayData.dynamicsBySystem.get(sysIdx) || EMPTY_OVERLAY_ITEMS;
+            const pedals = systemOverlayData.pedalsBySystem.get(sysIdx) || EMPTY_PEDAL_MARKS;
             const highlights = activeHighlightsBySystem.get(sysIdx) || EMPTY_HIGHLIGHTS_ARRAY;
 
             return (
@@ -2241,6 +2393,7 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
                 octaves={octaves}
                 tempos={tempos}
                 dynamics={dynamics}
+                pedals={pedals}
                 playhead={playhead}
                 activeHighlights={highlights}
                 onMeasureClick={handleMeasureClick}

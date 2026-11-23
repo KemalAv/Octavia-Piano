@@ -190,7 +190,7 @@ export const getLearnTranslations = (lang: AppLanguage = 'en') => {
 
     // Chapter 6
     ch6Badge: isId ? 'Latihan Teknis Akademi' : isEs ? 'Ejercicios Técnicos de la Academia' : 'Technical Academy Drills',
-    ch6Title: isId ? 'Latihan Jari & Pola Drill Teknis' : isEs ? 'Ejercicios de Práctica y Destreza Técnica' : 'Practice Drills & Technical Exercises',
+    ch6Title: isId ? 'Piano Warm Up: Kelincahan Jari, Tangga Nada & Progresi di 12 Kunci' : isEs ? 'Piano Warm Up: Destreza, Escalas y Progresiones en 12 Tonalidades' : 'Piano Warm Up: Finger Dexterity, Scales & Progressions in 12 Keys',
     ch6Desc: isId
       ? 'Bangun ketangkasan jari yang lincah, kuasai tangga nada modal, kembangkan kecepatan membaca not balok, dan latih progresi harmoni di seluruh 12 nada dasar.'
       : isEs
@@ -203,7 +203,7 @@ export const getLearnTranslations = (lang: AppLanguage = 'en') => {
     // Chapter 7 • Perfect Pitch Training & Ear Academy
     chPPBadge: isId ? 'Bab 7 • Pelatihan Perfect Pitch' : isEs ? 'Capítulo 7 • Entrenamiento de Oído Absoluto' : 'Chapter 7 • Perfect Pitch Training',
     chPPMasterclass: isId ? 'Masterclass Pengenalan Pitch Absolut & Relatif' : isEs ? 'Clase Magistral de Oído Absoluto y Relativo' : 'Absolute & Relative Pitch Masterclass',
-    chPPTitle: isId ? 'Pelatihan Perfect Pitch & Ketajaman Pendengaran Musik' : isEs ? 'Entrenamiento de Oído Absoluto y Agudeza Auditiva' : 'Perfect Pitch Training & Active Ear Mastery',
+    chPPTitle: isId ? 'Pelatihan Perfect Pitch & Telinga: Ketajaman Pendengaran Musik' : isEs ? 'Entrenamiento de Oído Absoluto y Agudeza Auditiva' : 'Perfect Pitch & Ear Training: Active Ear Mastery',
     chPPDesc: isId
       ? 'Kembangkan kemampuan mengenali dan mereproduksi nada piano secara instan tanpa alat bantu. Latih memori pendengaran absolut, pemetaan frekuensi Hertz, asosiasi warna timbre, dan pengenalan interval dengan kuis interaktif.'
       : isEs
@@ -266,7 +266,7 @@ export const getLearnTranslations = (lang: AppLanguage = 'en') => {
 
     // Chapter 9 • Curated YouTube Masterclasses
     ch7Badge: isId ? 'Bab 9 • Masterclass Video YouTube Terpilih' : isEs ? 'Capítulo 9 • Clases Magistrales Seleccionadas de YouTube' : 'Chapter 9 • Curated YouTube Masterclasses',
-    ch7Title: isId ? 'Masterclass Tutorial Video Visual' : isEs ? 'Clases Magistrales en Video' : 'Visual Video Masterclasses',
+    ch7Title: isId ? 'Referensi Video & Studi Kasus: Kurasi Masterclass & Intisari Materi' : isEs ? 'Videoteca y Guía de Estudio: Clases Magistrales y Puntos Clave' : 'Video Reference Library: Curated Masterclasses & Study Notes',
     ch7Desc: isId
       ? 'Tonton panduan visual berkualitas tinggi yang membahas membaca notasi balok, tanda kunci, pembentukan akor, biomekanika pergelangan tangan, dan kontrol piano Roblox PC.'
       : isEs
@@ -355,7 +355,7 @@ export const getLearnTranslations = (lang: AppLanguage = 'en') => {
     prevChapter: isId ? 'Bab Sebelumnya' : isEs ? 'Capítulo Anterior' : 'Previous Chapter',
     nextChapter: isId ? 'Bab Selanjutnya' : isEs ? 'Capítulo Siguiente' : 'Next Chapter',
     finishCurriculum: isId ? 'Selesai Kurikulum • Kembali ke Menu' : isEs ? 'Finalizar Curso • Volver al Menú' : 'Finish Curriculum • Return to Menu',
-    jumpToDrills: isId ? 'Buka Drill Generator (Bab 06)' : isEs ? 'Ir al Generador de Drills (Cap. 06)' : 'Open Drill Generator (Ch. 06)',
+    jumpToDrills: isId ? 'Buka Piano Warm Up (Bab 06)' : isEs ? 'Ir a Piano Warm Up (Cap. 06)' : 'Open Piano Warm Up (Ch. 06)',
     activeStep: isId ? 'Sedang Dipelajari' : isEs ? 'En Curso' : 'Current Step',
     stepShort: isId ? 'Langkah' : isEs ? 'Paso' : 'Step',
     roadmapTitle: isId ? 'Jalur Kurikulum Beruntun' : isEs ? 'Ruta Secuencial del Curso' : 'Sequential Curriculum Roadmap',

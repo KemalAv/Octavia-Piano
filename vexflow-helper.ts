@@ -312,6 +312,155 @@ function decomposeDuration(durationInQuarters: number): { type: string, dots: nu
     return results;
 }
 
+// ----------------------------------------------------------------------------------
+// TUPLETS (4 .. 10 notes) - detected from the rhythm itself
+//
+// Triplets are handled by the duration table above. Every other tuplet is found here, per
+// group: a stretch of the measure (one beat, two beats, half a beat) is a tuplet when the
+// note starts inside it sit on an n-part grid that a normal (binary) grid cannot explain.
+//   5 in the time of 4, 6 in 4, 7 in 4, 9 in 8, 10 in 8  (one beat of 16ths / 32nds ...)
+//   4 in the time of 3, 8 in 6                          (a dotted quarter, equal notes only)
+// ----------------------------------------------------------------------------------
+interface TupletAssign {
+    groupId: string;
+    n: number;          // notes played
+    m: number;          // in the time of m notated notes
+    notatedQuarters: number; // how this event is written (in quarter notes)
+}
+
+const TUPLET_TIME_OCCUPIED: { [n: number]: number } = { 4: 3, 5: 4, 6: 4, 7: 4, 8: 6, 9: 8, 10: 8 };
+const TUPLET_POSITION_TOLERANCE = 0.022; // quarter notes (~10 ticks): exact grids only, so loose playing is not mistaken for a tuplet
+
+function gcd(a: number, b: number): number { return b === 0 ? a : gcd(b, a % b); }
+
+function planTuplets(
+    events: TimelineEvent[],
+    measureStartTime: number,
+    getBpmAtTime: (timeMs: number) => number
+): Map<number, TupletAssign> {
+    const plan = new Map<number, TupletAssign>();
+    const count = events.length;
+    if (count < 3) return plan;
+
+    const pos: number[] = [];
+    const end: number[] = [];
+    for (const ev of events) {
+        const msPerQuarter = 60000 / getBpmAtTime(ev.timeMs);
+        pos.push((ev.timeMs - measureStartTime) / msPerQuarter);
+        end.push((ev.timeMs + ev.durationMs - measureStartTime) / msPerQuarter);
+    }
+    const near = (a: number, b: number, tol = TUPLET_POSITION_TOLERANCE) => Math.abs(a - b) <= tol;
+    const aligned = (p: number, step: number) => near(p, Math.round(p / step) * step);
+
+    // Every onset of the window sits on a normal grid (down to 32nds) or a triplet grid.
+    const isPlainWindow = (first: number, last: number, span: number): boolean => {
+        const p0 = pos[first];
+        return events.slice(first, last + 1).every((_, idx) => {
+            const rel = pos[first + idx] - p0;
+            const onGrid = (division: number) => near(rel, Math.round(rel / (span / division)) * (span / division));
+            return onGrid(8) || onGrid(3); // sixths are NOT plain: six notes in a beat is a sextuplet
+        });
+    };
+
+    let groupCounter = 0;
+    let i = 0;
+    while (i < count) {
+        let accepted: { last: number; assigns: TupletAssign[] } | null = null;
+        let plainUntil = -1;
+        const p0 = pos[i];
+
+        for (const span of [1, 2, 0.5, 1.5]) {
+            if (!aligned(p0, span === 2 ? 1 : span === 1.5 ? 0.5 : span)) continue;
+            // The group must tile the span exactly: some event ends where the span ends.
+            let last = -1;
+            for (let j = i; j < count && end[j] <= p0 + span + TUPLET_POSITION_TOLERANCE; j++) {
+                if (near(end[j], p0 + span)) { last = j; break; }
+                if (j + 1 < count && !near(pos[j + 1], end[j], 0.05)) break; // a hole in the timeline
+            }
+            if (last < 0) continue;
+            const c = last - i + 1;
+            if (c < 3) continue;
+
+            // A whole beat that a normal or triplet rhythm explains is not part of a bigger tuplet:
+            // otherwise the neighbouring quarter note would be swallowed (3 triplet 8ths + a quarter).
+            if (span === 1 && isPlainWindow(i, last, span)) {
+                plainUntil = last;
+                break;
+            }
+
+            if (span === 1.5) {
+                // 4 in the time of 3, or 8 in the time of 6: equal notes filling a dotted quarter.
+                for (const n of [4, 8]) {
+                    if (c !== n) continue;
+                    const each = span / n;
+                    let equal = true;
+                    for (let j = i; j <= last; j++) {
+                        if (!near(pos[j] - p0, (j - i) * each) || !near(end[j] - pos[j], each)) { equal = false; break; }
+                    }
+                    const notes = events.slice(i, last + 1).filter(e => e.type === 'note').length;
+                    if (!equal || notes < 3) continue;
+                    const m = TUPLET_TIME_OCCUPIED[n];
+                    const gid = `tup-${groupCounter++}`;
+                    accepted = { last, assigns: Array.from({ length: c }, () => ({ groupId: gid, n, m, notatedQuarters: span / m })) };
+                    break;
+                }
+                if (accepted) break;
+                continue;
+            }
+
+            for (const n of [5, 6, 7, 9, 10]) {
+                if (c < Math.min(n, Math.max(3, Math.ceil(n * 0.5)))) continue;
+                const ks: number[] = [];
+                let fits = true;
+                let binaryDeviation = 0;
+                for (let j = i; j <= last && fits; j++) {
+                    const x = ((pos[j] - p0) / span) * n;
+                    const k = Math.round(x);
+                    if (k < 0 || k >= n || Math.abs(x - k) * (span / n) > TUPLET_POSITION_TOLERANCE) { fits = false; break; }
+                    if (ks.length > 0 && k <= ks[ks.length - 1]) { fits = false; break; }
+                    ks.push(k);
+                    const grid = span / 8;
+                    binaryDeviation = Math.max(binaryDeviation, Math.abs((pos[j] - p0) - Math.round((pos[j] - p0) / grid) * grid));
+                }
+                if (!fits || ks[0] !== 0) continue;
+                if (binaryDeviation < 0.03 * span) continue; // a normal grid explains it
+                let g = n;
+                for (const k of ks) g = gcd(g, k);
+                if (n / g <= 4) continue; // that is a triplet or a normal rhythm, handled elsewhere
+                // No single note may last more than half the group: that is a tuplet plus a note that
+                // belongs next to it, not one group.
+                const maxUnits = Math.ceil(n / 2) - 1;
+                let tooLong = false;
+                for (let q = 0; q < ks.length; q++) {
+                    if ((q + 1 < ks.length ? ks[q + 1] : n) - ks[q] > maxUnits) { tooLong = true; break; }
+                }
+                if (tooLong) continue;
+                const m = TUPLET_TIME_OCCUPIED[n];
+                const unit = span / m;
+                const gid = `tup-${groupCounter++}`;
+                const assigns: TupletAssign[] = [];
+                for (let q = 0; q < ks.length; q++) {
+                    const units = (q + 1 < ks.length ? ks[q + 1] : n) - ks[q];
+                    assigns.push({ groupId: gid, n, m, notatedQuarters: units * unit });
+                }
+                accepted = { last, assigns };
+                break;
+            }
+            if (accepted) break;
+        }
+
+        if (accepted) {
+            accepted.assigns.forEach((a, idx) => plan.set(i + idx, a));
+            i = accepted.last + 1;
+        } else if (plainUntil >= i) {
+            i = plainUntil + 1;
+        } else {
+            i++;
+        }
+    }
+    return plan;
+}
+
 function processHandAndAccidentals(
     allFragmentsInMeasure: NoteFragment[],
     hand: 'left' | 'right',
@@ -426,7 +575,10 @@ function processHandAndAccidentals(
     let currentClef: 'treble' | 'bass' | 'percussion' = effectiveClef;
     let lastMidiInHand: number | null = null;
 
-    finalFilteredTimelineEvents.forEach(event => {
+    const tupletPlan = planTuplets(finalFilteredTimelineEvents, measureStartTime, getBpmAtTime);
+    const tupletMeta = new Map<string, { n: number; m: number }>();
+
+    finalFilteredTimelineEvents.forEach((event, eventIndex) => {
         const bpm = getBpmAtTime(event.timeMs);
         const localMsPerQuarterNote = 60000 / bpm;
         if (localMsPerQuarterNote <= 0) return;
@@ -434,18 +586,26 @@ function processHandAndAccidentals(
         const durationQuarters = event.durationMs / localMsPerQuarterNote;
         if (durationQuarters < DURATION_MATCH_TOLERANCE) return;
 
+        // A note inside a 4..10-tuplet is written with its notated value (e.g. a 16th) but lasts
+        // m/n of it; `tupletScale` converts the written value back to real time.
+        const tupletAssign = tupletPlan.get(eventIndex);
+        const tupletScale = tupletAssign ? tupletAssign.m / tupletAssign.n : 1;
+        if (tupletAssign) tupletMeta.set(tupletAssign.groupId, { n: tupletAssign.n, m: tupletAssign.m });
+
         // When showOnlyMajorRests is enabled, never split a note into multiple tied notes;
         // determine note length as a single note directly from the beat distance between notes.
-        const decomposedDurations = showOnlyMajorRests
-            ? [getSingleDurationFromBeats(durationQuarters)]
-            : decomposeDuration(durationQuarters);
+        const decomposedDurations = tupletAssign
+            ? decomposeDuration(tupletAssign.notatedQuarters)
+            : showOnlyMajorRests
+                ? [getSingleDurationFromBeats(durationQuarters)]
+                : decomposeDuration(durationQuarters);
         
         let cumulativeTimeMs = event.timeMs;
         let cumulativeQuarters = 0;
 
         decomposedDurations.forEach((vexDuration, index) => {
             if (!vexDuration) return;
-            const durationValue = getDurationValue(vexDuration);
+            const durationValue = getDurationValue(vexDuration) * tupletScale;
             const durationMsForThisPart = durationValue * localMsPerQuarterNote;
 
             if (event.type === 'rest') {
@@ -458,6 +618,7 @@ function processHandAndAccidentals(
                     vexNote: { keys: [restKey], duration: `${vexDuration.type}r`, dots: vexDuration.dots, clef: currentClef },
                     fragmentMapping: [], timeMs: cumulativeTimeMs, durationMs: durationMsForThisPart,
                     isTriplet: vexDuration.isTriplet,
+                    tupletGroupId: tupletAssign?.groupId,
                 });
             } else {
                 const notesAtTime = event.notesAtTime!;
@@ -584,6 +745,7 @@ function processHandAndAccidentals(
                     vexNoteYPositions: noteYs,
                     vexNoteKeyProps: keyProps.map(kp => ({ line: kp.line })),
                     isTriplet: vexDuration.isTriplet,
+                    tupletGroupId: tupletAssign?.groupId,
                 });
             }
             cumulativeQuarters += durationValue;
@@ -613,6 +775,19 @@ function processHandAndAccidentals(
             pendingType = '';
         }
     });
+
+    // 4..10-tuplets found by planTuplets: one group per id, in order.
+    const groupIndices = new Map<string, number[]>();
+    finalVexNotes.forEach((vn, idx) => {
+        if (!vn.tupletGroupId) return;
+        if (!groupIndices.has(vn.tupletGroupId)) groupIndices.set(vn.tupletGroupId, []);
+        groupIndices.get(vn.tupletGroupId)!.push(idx);
+    });
+    groupIndices.forEach((indices, id) => {
+        const meta = tupletMeta.get(id);
+        if (meta && indices.length > 1) tuplets.push({ hand, indices, numNotes: meta.n, notesOccupied: meta.m });
+    });
+    tuplets.sort((x, y) => x.indices[0] - y.indices[0]);
 
     return { notes: finalVexNotes, tuplets, finalClef: currentClef };
 }
@@ -655,6 +830,82 @@ function computeMinWidthFromNotes(
         total += Math.max(minSpacingPx, calculatedPx);
     }
     return Math.max(100 * layoutZoom * UNIVERSAL_SCALE, total);
+}
+
+// ==================================================================================
+// RHYTHM QUANTIZATION (tempo-aware)
+// Note timings are converted to beats with the real tempo map (so a tempo change never bends
+// the durations of the notes around it), then each bar's onsets are snapped to the grid that
+// fits that bar best (16ths, 8th-triplets, 16th-triplets or 32nds). Human timing jitter is
+// absorbed by the snap; a bar whose timing fits no grid (free rubato) is left as it was played.
+// ==================================================================================
+interface TempoMap { beatsAt(ms: number): number; msAt(beats: number): number }
+
+function makeTempoMap(events: { timeMs: number; bpm: number }[], initialBpm: number): TempoMap {
+  const pts: { ms: number; bpm: number }[] = [{ ms: 0, bpm: initialBpm }];
+  [...events].sort((a, b) => a.timeMs - b.timeMs).forEach(e => {
+    if (!(e.bpm > 0) || !Number.isFinite(e.timeMs)) return;
+    if (e.timeMs <= pts[pts.length - 1].ms) { pts[pts.length - 1].bpm = e.bpm; return; }
+    pts.push({ ms: e.timeMs, bpm: e.bpm });
+  });
+  const beat: number[] = [0];
+  for (let i = 1; i < pts.length; i++) beat.push(beat[i - 1] + (pts[i].ms - pts[i - 1].ms) * pts[i - 1].bpm / 60000);
+  const segAtMs = (ms: number) => {
+    let lo = 0, hi = pts.length - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (pts[mid].ms <= ms) lo = mid; else hi = mid - 1; }
+    return lo;
+  };
+  const segAtBeat = (b: number) => {
+    let lo = 0, hi = beat.length - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (beat[mid] <= b) lo = mid; else hi = mid - 1; }
+    return lo;
+  };
+  return {
+    beatsAt: (ms: number) => { const i = segAtMs(ms); return beat[i] + (ms - pts[i].ms) * pts[i].bpm / 60000; },
+    msAt: (b: number) => { const i = segAtBeat(b); return pts[i].ms + (b - beat[i]) * 60000 / pts[i].bpm; },
+  };
+}
+
+const RHYTHM_GRIDS = [1 / 4, 1 / 3, 1 / 6, 1 / 8]; // in beats; simplest grid that fits a bar wins
+
+function quantizeFragmentsToBars(frags: NoteFragment[], barLines: number[], tmap: TempoMap): NoteFragment[] {
+  const out = frags.map(f => f);
+  if (barLines.length < 2 || frags.length === 0) return out;
+  for (let bi = 0; bi < barLines.length - 1; bi++) {
+    const barStart = barLines[bi], barEnd = barLines[bi + 1];
+    const idx: number[] = [];
+    for (let k = 0; k < frags.length; k++) if (frags[k].timeMs >= barStart && frags[k].timeMs < barEnd) idx.push(k);
+    if (idx.length === 0) continue;
+    const base = tmap.beatsAt(barStart);
+    const barLen = tmap.beatsAt(barEnd) - base;
+    if (!(barLen > 0)) continue;
+    const onsets = idx.map(k => tmap.beatsAt(frags[k].timeMs) - base);
+
+    let grid = 0;
+    for (const g of RHYTHM_GRIDS) {
+      let sum = 0, worst = 0;
+      for (const p of onsets) {
+        const e = Math.abs(p - Math.round(p / g) * g);
+        sum += e; if (e > worst) worst = e;
+      }
+      if (sum / onsets.length <= 0.15 * g && worst <= 0.3 * g) { grid = g; break; }
+    }
+    if (!grid) continue; // free rhythm: keep the timing as played
+
+    const snap = (p: number) => Math.round(p / grid) * grid;
+    idx.forEach(k => {
+      const f = frags[k];
+      let a = snap(tmap.beatsAt(f.timeMs) - base);
+      if (a < 0) a = 0;
+      if (a >= barLen - grid / 2) a = barLen; // onset that jitters onto the barline belongs to the next bar
+      let e = snap(tmap.beatsAt(f.timeMs + f.durationMs) - base);
+      if (e <= a) e = a + grid;
+      const startMs = tmap.msAt(base + a);
+      const endMs = tmap.msAt(base + e);
+      out[k] = { ...f, timeMs: startMs, durationMs: Math.max(1, endMs - startMs) };
+    });
+  }
+  return out;
 }
 
 export const getVexFlowRenderData = (
@@ -700,6 +951,8 @@ export const getVexFlowRenderData = (
         fragmentId: `${n.noteId}-0`,
         originalNoteId: n.noteId
     }));
+    const tempoMap = makeTempoMap(sortedTempoEvents, initialTempoBpm);
+    const quantizedFragments = quantizeFragmentsToBars(allFragments, effectiveBarLines, tempoMap);
     const noteIdToFragmentsMap = new Map<string, NoteFragment[]>();
     allFragments.forEach(f => { if (!noteIdToFragmentsMap.has(f.originalNoteId)) noteIdToFragmentsMap.set(f.originalNoteId, []); noteIdToFragmentsMap.get(f.originalNoteId)!.push(f); });
 
@@ -742,7 +995,7 @@ export const getVexFlowRenderData = (
     const boundaryEpsilon = 1.0; 
 
     // Precompute note boundaries and durations once for extreme performance (no repeated BPM lookups in loops)
-    const preparedFragments = allFragments.map(f => {
+    const preparedFragments = quantizedFragments.map(f => {
         const bpmVal = getBpmAtTime(f.timeMs);
         const eighthMs = (60000 / bpmVal) / 2;
         const effectiveDur = effectiveShowOnlyMajorRests ? Math.min(f.durationMs, eighthMs) : f.durationMs;

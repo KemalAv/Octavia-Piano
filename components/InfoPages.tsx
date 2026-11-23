@@ -28,14 +28,15 @@ const InfoLayout: React.FC<InfoLayoutProps> = ({ title, activeScreen, children, 
 
   return (
     <div
-      className={`fixed inset-0 bg-slate-950 flex items-center justify-center z-50 p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'bg-opacity-100' : 'bg-opacity-0'}`}
+      className={`fixed inset-0 bg-slate-950 flex items-center justify-center z-50 p-2 sm:p-4 transition-opacity duration-300 ease-in-out ${isRendered ? 'bg-opacity-100' : 'bg-opacity-0'}`}
     >
       <div
-        className={`bg-slate-900 border border-slate-800 p-8 md:p-12 rounded-xl shadow-2xl max-w-4xl w-full h-[90vh] flex flex-col transform transition-all duration-300 ease-in-out ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
+        style={{ height: 'calc(min(92vh, 860px) / var(--ui-zoom, 1))', maxHeight: 'calc((100vh - 1rem) / var(--ui-zoom, 1))' }}
+        className={`bg-slate-900 border border-slate-800 p-4 sm:p-6 md:p-10 rounded-xl shadow-2xl max-w-4xl w-full flex flex-col min-h-0 transform [@media(max-height:520px)]:p-3 transition-all duration-300 ease-in-out ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
       >
-        <div className="flex justify-between items-center mb-4 flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <h2 className="text-2xl md:text-3xl font-black text-cyan-400 tracking-tight">{title}</h2>
+        <div className="flex justify-between items-center mb-3 sm:mb-4 flex-shrink-0 gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <h2 className="text-xl sm:text-2xl md:text-3xl font-black text-cyan-400 tracking-tight truncate">{title}</h2>
           </div>
           <button
             onClick={onBack}
@@ -48,7 +49,7 @@ const InfoLayout: React.FC<InfoLayoutProps> = ({ title, activeScreen, children, 
 
         {/* Sub-navigation tabs for About, Contact, Privacy, Disclaimer (Hidden when viewing How to Connect / How to Play) */}
         {activeScreen !== 'howToConnect' && (
-          <div className="flex items-center gap-1.5 p-1 bg-slate-950/70 rounded-2xl border border-white/5 mb-5 overflow-x-auto custom-scrollbar flex-shrink-0">
+          <div className="flex items-center gap-1.5 p-1 bg-slate-950/70 rounded-2xl border border-white/5 mb-3 sm:mb-5 overflow-x-auto custom-scrollbar flex-shrink-0">
             <button
               onClick={() => onNavigate?.('about')}
               className={`py-1.5 px-3.5 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 ${
@@ -92,14 +93,14 @@ const InfoLayout: React.FC<InfoLayoutProps> = ({ title, activeScreen, children, 
           </div>
         )}
 
-        <div className="flex-grow overflow-y-auto custom-scrollbar text-slate-300 space-y-6 pr-4">
+        <div className="flex-grow min-h-0 overflow-y-auto overscroll-contain custom-scrollbar text-slate-300 space-y-6 pr-2 sm:pr-4">
           {children}
         </div>
 
-        <div className="mt-8 pt-4 border-t border-slate-800 flex-shrink-0 flex justify-end">
+        <div className="mt-3 sm:mt-6 pt-3 sm:pt-4 border-t border-slate-800 flex-shrink-0 flex justify-end">
           <button
             onClick={onBack}
-            className="px-6 py-2 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-lg transition-colors"
+            className="px-5 sm:px-6 py-2 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-lg transition-colors whitespace-nowrap"
           >
             {appLanguage === 'id' ? 'Kembali ke Menu' : appLanguage === 'es' ? 'Volver al Menú' : 'Back to Menu'}
           </button>

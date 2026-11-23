@@ -2,11 +2,13 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ALL_KEYS, EXERCISE_CATEGORIES } from '../musicTheoryGenerator';
 import { AppLanguage } from '../types';
 import { getLearnTranslations } from './learnArticleTranslations';
+import { keepSvgTextFitted } from '../svgTextFit';
 
 interface LearnArticleViewProps {
   onBackToMainMenu: () => void;
   onLaunchInGamePractice?: (lessonId: string, subMode?: 'sheet' | 'falling' | 'fingering' | 'roblox' | 'theory') => void;
   onLaunchCustomExercise?: (key: string, typeId: string, typeName: string) => void;
+  initialChapter?: ChapterId;
   onOpenMidiEditor?: () => void;
   isModal?: boolean;
   onCloseModal?: () => void;
@@ -957,6 +959,7 @@ export const MiniPianoKeys: React.FC<{
 
 
 export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
+  initialChapter = 'sheet',
   onBackToMainMenu,
   onLaunchInGamePractice,
   onLaunchCustomExercise,
@@ -965,11 +968,18 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
   onCloseModal,
   appLanguage = 'en',
 }) => {
-  const [activeChapter, setActiveChapter] = useState<ChapterId>('sheet');
+  const [activeChapter, setActiveChapter] = useState<ChapterId>(initialChapter);
   const [selectedKey, setSelectedKey] = useState<string>('C');
   const [activeCircleKeyIndex, setActiveCircleKeyIndex] = useState<number>(0);
   const [selectedCategoryTab, setSelectedCategoryTab] = useState<string>('all');
   const articleScrollRef = useRef<HTMLElement>(null);
+
+  // Labels inside the SVG figures are fitted to their panels (translations are often longer than English).
+  useEffect(() => {
+    const root = articleScrollRef.current;
+    if (!root) return;
+    return keepSvgTextFitted(root);
+  }, [activeChapter, appLanguage]);
 
   const isId = appLanguage === 'id';
   const isEs = appLanguage === 'es';
@@ -990,7 +1000,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
     { id: 'fingering', num: '03', step: 3, label: 'Biomekanika & Teknik Piano', sub: 'Postur, Teknik 3 Pedal & Tabel Jari', badge: 'TEKNIK' },
     { id: 'roblox', num: '04', step: 4, label: 'Keyboard PC & Virtual Piano', sub: 'Peta 61-Tuts MIRP, Compact & NKRO', badge: 'QWERTY' },
     { id: 'theory', num: '05', step: 5, label: 'Teori Harmoni & Voice Leading', sub: 'Interval, Inversi, Modus & Lingkaran Kuint', badge: 'TEORI' },
-    { id: 'exercises', num: '06', step: 6, label: 'Drill Teknis & Kurikulum Latihan', sub: 'Generator Latihan 12 Kunci & Etude', badge: 'PRAKTIK' },
+    { id: 'exercises', num: '06', step: 6, label: 'Piano Warm Up', sub: 'Latihan Teknis 12 Kunci & Etude', badge: 'PEMANASAN' },
     { id: 'perfectpitch', num: '07', step: 7, label: 'Pelatihan Perfect Pitch & Telinga', sub: 'Pengenalan Nada Absolut, Uji Telinga & Interval', badge: 'EAR' },
     { id: 'midieditor', num: '08', step: 8, label: 'Editor MIDI & Sekuenser', sub: 'Piano Roll, Kuantisasi & Velocity', badge: 'PRODUKSI' },
     { id: 'videos', num: '09', step: 9, label: 'Referensi Video & Studi Kasus', sub: 'Kurasi Masterclass & Intisari Materi', badge: 'VIDEO' },
@@ -1000,7 +1010,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
     { id: 'fingering', num: '03', step: 3, label: 'Biomecánica y Técnica', sub: 'Postura, Pedales de Resonancia y Digitación', badge: 'TÉCNICA' },
     { id: 'roblox', num: '04', step: 4, label: 'Teclado PC y Piano Virtual', sub: 'Mapa MIRP de 61 Teclas, Compact y NKRO', badge: 'QWERTY' },
     { id: 'theory', num: '05', step: 5, label: 'Teoría Armónica y Conducción', sub: 'Intervalos, Inversiones, Modos y Quintas', badge: 'TEORÍA' },
-    { id: 'exercises', num: '06', step: 6, label: 'Ejercicios Técnicos y Rutina', sub: 'Generador en 12 Tonalidades y Estudios', badge: 'PRÁCTICA' },
+    { id: 'exercises', num: '06', step: 6, label: 'Piano Warm Up', sub: 'Ejercicios Técnicos en 12 Tonalidades y Estudios', badge: 'CALENTAMIENTO' },
     { id: 'perfectpitch', num: '07', step: 7, label: 'Entrenamiento de Oído Absoluto', sub: 'Reconocimiento de Tono, Test Auditivo e Intervalos', badge: 'OÍDO' },
     { id: 'midieditor', num: '08', step: 8, label: 'Editor MIDI y Secuenciador', sub: 'Piano Roll, Cuantización y Velocidad', badge: 'PRODUCCIÓN' },
     { id: 'videos', num: '09', step: 9, label: 'Videoteca y Guía de Estudio', sub: 'Clases Magistrales y Puntos Clave', badge: 'VIDEO' },
@@ -1010,7 +1020,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
     { id: 'fingering', num: '03', step: 3, label: 'Biomechanics & Technique', sub: 'Posture, 3-Pedal Dynamics & Finger Tables', badge: 'TECHNIQUE' },
     { id: 'roblox', num: '04', step: 4, label: 'PC Keyboard & Virtual Piano', sub: '61-Key MIRP Map, Compact & NKRO', badge: 'QWERTY' },
     { id: 'theory', num: '05', step: 5, label: 'Harmonic Theory & Voicing', sub: 'Intervals, Inversions, Modes & 5ths', badge: 'THEORY' },
-    { id: 'exercises', num: '06', step: 6, label: 'Technical Drills & Etudes', sub: '12-Key Drill Generator & Daily Routine', badge: 'DRILLS' },
+    { id: 'exercises', num: '06', step: 6, label: 'Piano Warm Up', sub: '12-Key Technical Exercises & Daily Routine', badge: 'WARM UP' },
     { id: 'perfectpitch', num: '07', step: 7, label: 'Perfect Pitch & Ear Training', sub: 'Absolute Pitch Recognition, Audio Quiz & Intervals', badge: 'EAR' },
     { id: 'midieditor', num: '08', step: 8, label: 'MIDI Editor & Sequencer', sub: 'Piano Roll, Quantization & Velocity', badge: 'PRODUCTION' },
     { id: 'videos', num: '09', step: 9, label: 'Video Reference Library', sub: 'Curated Masterclasses & Study Notes', badge: 'VIDEO' },
@@ -1714,7 +1724,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                 <div>
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-xs md:text-sm font-mono font-bold text-cyan-400 uppercase tracking-widest">
-                      {isId ? 'MODUL 01 • ARSITEKTUR NOTASI MUSIK' : isEs ? 'MÓDULO 01 • ARQUITECTURA DE NOTACIÓN' : 'MODULE 01 • NOTATION ARCHITECTURE'}
+                      {isId ? 'MODUL 01 • NOTASI BALOK & GRAND STAFF' : isEs ? 'MÓDULO 01 • PARTITURAS Y GRAN PENTAGRAMA' : 'MODULE 01 • SHEET MUSIC & GRAND STAFF'}
                     </span>
                     <span className="text-xs font-mono px-3 py-1 rounded-lg bg-slate-800/90 text-slate-300 border border-slate-700">
                       {isId ? '5 BAGIAN • 5 DIAGRAM TEKNIS' : isEs ? '5 SECCIONES • 5 DIAGRAMAS TÉCNICOS' : '5 SECTIONS • 5 TECHNICAL DIAGRAMS'}
@@ -1739,7 +1749,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                   type="button"
                   onClick={() => handleSelectChapter('exercises')}
                   className="px-4 py-2.5 rounded-xl bg-slate-800/90 hover:bg-cyan-950/60 border border-slate-700 hover:border-cyan-500/50 text-cyan-400 hover:text-cyan-300 text-xs md:text-sm font-mono font-bold transition-all flex items-center gap-2 flex-shrink-0 shadow-sm active:scale-95 cursor-pointer"
-                  title={isId ? 'Buka Generator Latihan Drill (Bab 06)' : isEs ? 'Abrir Generador de Drills (Cap. 06)' : 'Open Drill Generator (Ch. 06)'}
+                  title={isId ? 'Buka Piano Warm Up (Bab 06)' : isEs ? 'Abrir Piano Warm Up (Cap. 06)' : 'Open Piano Warm Up (Ch. 06)'}
                 >
                   <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
                   <span>{t.jumpToDrills}</span>
@@ -1824,20 +1834,20 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                     {/* Clef Symbols & Target Line Callouts */}
                     <text x="78" y="106" fill="#38bdf8" fontSize="48" fontFamily="serif">𝄞</text>
                     <circle cx="96" cy="98" r="3.5" fill="#38bdf8" />
-                    <text x="20" y="82" fill="#38bdf8" fontSize="13" fontFamily="monospace" fontWeight="bold">
+                    <text x="14" y="82" fill="#38bdf8" fontSize="11" fontFamily="monospace" fontWeight="bold">
                       {isId ? 'TREBLE' : isEs ? 'TREBLE' : 'TREBLE'}
                     </text>
-                    <text x="20" y="94" fill="#64748b" fontSize="12" fontFamily="monospace">
-                      {isId ? 'TK (G4)' : isEs ? 'MD (Sol4)' : 'RH (G4)'}
+                    <text x="14" y="94" fill="#64748b" fontSize="10" fontFamily="monospace">
+                      {isId ? 'TK (G4)' : isEs ? 'MD Sol4' : 'RH (G4)'}
                     </text>
 
                     <text x="78" y="218" fill="#818cf8" fontSize="38" fontFamily="serif">𝄢</text>
                     <circle cx="105" cy="198" r="3.5" fill="#818cf8" />
-                    <text x="20" y="206" fill="#818cf8" fontSize="13" fontFamily="monospace" fontWeight="bold">
+                    <text x="14" y="206" fill="#818cf8" fontSize="11" fontFamily="monospace" fontWeight="bold">
                       {isId ? 'BASS' : isEs ? 'BASS' : 'BASS'}
                     </text>
-                    <text x="20" y="218" fill="#64748b" fontSize="12" fontFamily="monospace">
-                      {isId ? 'TI (F3)' : isEs ? 'MI (Fa3)' : 'LH (F3)'}
+                    <text x="14" y="218" fill="#64748b" fontSize="10" fontFamily="monospace">
+                      {isId ? 'TI (F3)' : isEs ? 'MI Fa3' : 'LH (F3)'}
                     </text>
 
                     {/* LANDMARK 1: Low C2 (2 ledger lines below Bass, y=268) */}
@@ -2030,13 +2040,13 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                       <g transform="translate(55, 0)">
                         <ellipse cx="0" cy="127" rx="7" ry="5.2" fill="#38bdf8" transform="rotate(-15 0 127)" />
                         <ellipse cx="13" cy="118" rx="7" ry="5.2" fill="#38bdf8" transform="rotate(-15 13 118)" />
-                        <text x="6" y="155" textAnchor="middle" fill="#38bdf8" fontSize="13.5" fontFamily="monospace" fontWeight="bold">
+                        <text x="6" y="155" textAnchor="middle" fill="#38bdf8" fontSize="12" fontFamily="monospace" fontWeight="bold">
                           {isId ? 'Sekonde (Langkah)' : isEs ? 'Segunda (Paso)' : '2nd (Step)'}
                         </text>
-                        <text x="6" y="170" textAnchor="middle" fill="#94a3b8" fontSize="12">
+                        <text x="6" y="170" textAnchor="middle" fill="#94a3b8" fontSize="10.5">
                           {isId ? 'Garis → Spasi' : isEs ? 'Línea → Espacio' : 'Line → Space'}
                         </text>
-                        <text x="6" y="183" textAnchor="middle" fill="#64748b" fontSize="11.5">
+                        <text x="6" y="183" textAnchor="middle" fill="#64748b" fontSize="10">
                           {isId ? 'Jari Sebelah (+1)' : isEs ? 'Dedo Siguiente (+1)' : 'Next Finger (+1)'}
                         </text>
                       </g>
@@ -2045,13 +2055,13 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                       <g transform="translate(145, 0)">
                         <ellipse cx="0" cy="127" rx="7" ry="5.2" fill="#10b981" transform="rotate(-15 0 127)" />
                         <ellipse cx="0" cy="109" rx="7" ry="5.2" fill="#10b981" transform="rotate(-15 0 109)" />
-                        <text x="0" y="155" textAnchor="middle" fill="#10b981" fontSize="13.5" fontFamily="monospace" fontWeight="bold">
+                        <text x="0" y="155" textAnchor="middle" fill="#10b981" fontSize="12" fontFamily="monospace" fontWeight="bold">
                           {isId ? 'Terts (Lompat 1)' : isEs ? 'Tercera (Salto)' : '3rd (Skip)'}
                         </text>
-                        <text x="0" y="170" textAnchor="middle" fill="#94a3b8" fontSize="12">
+                        <text x="0" y="170" textAnchor="middle" fill="#94a3b8" fontSize="10.5">
                           {isId ? 'Garis → Garis' : isEs ? 'Línea → Línea' : 'Line → Line'}
                         </text>
-                        <text x="0" y="183" textAnchor="middle" fill="#64748b" fontSize="11.5">
+                        <text x="0" y="183" textAnchor="middle" fill="#64748b" fontSize="10">
                           {isId ? 'Lompat 1 Jari (1–3)' : isEs ? 'Saltar 1 Dedo (1–3)' : 'Skip 1 Finger (1–3)'}
                         </text>
                       </g>
@@ -2060,13 +2070,13 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                       <g transform="translate(235, 0)">
                         <ellipse cx="0" cy="127" rx="7" ry="5.2" fill="#f59e0b" transform="rotate(-15 0 127)" />
                         <ellipse cx="0" cy="100" rx="7" ry="5.2" fill="#f59e0b" transform="rotate(-15 0 100)" />
-                        <text x="0" y="155" textAnchor="middle" fill="#f59e0b" fontSize="13.5" fontFamily="monospace" fontWeight="bold">
+                        <text x="0" y="155" textAnchor="middle" fill="#f59e0b" fontSize="12" fontFamily="monospace" fontWeight="bold">
                           {isId ? 'Kuart (4th)' : isEs ? 'Cuarta (4ª)' : '4th'}
                         </text>
-                        <text x="0" y="170" textAnchor="middle" fill="#94a3b8" fontSize="12">
+                        <text x="0" y="170" textAnchor="middle" fill="#94a3b8" fontSize="10.5">
                           {isId ? 'Garis → Spasi' : isEs ? 'Línea → Espacio' : 'Line → Space'}
                         </text>
-                        <text x="0" y="183" textAnchor="middle" fill="#64748b" fontSize="11.5">
+                        <text x="0" y="183" textAnchor="middle" fill="#64748b" fontSize="10">
                           {isId ? 'Rentang Jari 1–4' : isEs ? 'Dedos 1–4' : 'Fingers 1–4'}
                         </text>
                       </g>
@@ -2075,13 +2085,13 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                       <g transform="translate(320, 0)">
                         <ellipse cx="0" cy="127" rx="7" ry="5.2" fill="#a855f7" transform="rotate(-15 0 127)" />
                         <ellipse cx="0" cy="91" rx="7" ry="5.2" fill="#a855f7" transform="rotate(-15 0 91)" />
-                        <text x="0" y="155" textAnchor="middle" fill="#a855f7" fontSize="13.5" fontFamily="monospace" fontWeight="bold">
+                        <text x="0" y="155" textAnchor="middle" fill="#a855f7" fontSize="12" fontFamily="monospace" fontWeight="bold">
                           {isId ? 'Kuint (5th)' : isEs ? 'Quinta (5ª)' : '5th'}
                         </text>
-                        <text x="0" y="170" textAnchor="middle" fill="#94a3b8" fontSize="12">
+                        <text x="0" y="170" textAnchor="middle" fill="#94a3b8" fontSize="10.5">
                           {isId ? 'Garis → Garis (+2)' : isEs ? 'Línea → Línea (+2)' : 'Line → Line (+2)'}
                         </text>
-                        <text x="0" y="183" textAnchor="middle" fill="#64748b" fontSize="11.5">
+                        <text x="0" y="183" textAnchor="middle" fill="#64748b" fontSize="10">
                           {isId ? 'Rentang Jari 1–5' : isEs ? 'Dedos 1–5' : 'Fingers 1–5'}
                         </text>
                       </g>
@@ -2090,13 +2100,13 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                       <g transform="translate(405, 0)">
                         <ellipse cx="0" cy="127" rx="7" ry="5.2" fill="#f43f5e" transform="rotate(-15 0 127)" />
                         <ellipse cx="0" cy="64" rx="7" ry="5.2" fill="#f43f5e" transform="rotate(-15 0 64)" />
-                        <text x="0" y="155" textAnchor="middle" fill="#f43f5e" fontSize="13.5" fontFamily="monospace" fontWeight="bold">
+                        <text x="0" y="155" textAnchor="middle" fill="#f43f5e" fontSize="12" fontFamily="monospace" fontWeight="bold">
                           {isId ? 'Oktaf (8ve)' : isEs ? 'Octava (8ª)' : '8ve (Octave)'}
                         </text>
-                        <text x="0" y="170" textAnchor="middle" fill="#94a3b8" fontSize="12">
+                        <text x="0" y="170" textAnchor="middle" fill="#94a3b8" fontSize="10.5">
                           {isId ? 'Garis → Spasi' : isEs ? 'Línea → Espacio' : 'Line → Space'}
                         </text>
-                        <text x="0" y="183" textAnchor="middle" fill="#64748b" fontSize="11.5">
+                        <text x="0" y="183" textAnchor="middle" fill="#64748b" fontSize="10">
                           {isId ? 'Rentang 1–5 (12 st)' : isEs ? 'Apertura 1–5 (12 st)' : 'Span 1–5 (12 st)'}
                         </text>
                       </g>
@@ -2224,12 +2234,12 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                     <g transform="translate(20, 16)">
                       <rect width="820" height="284" rx="6" fill="#0a0f1a" stroke="#1e293b" />
                       <text x="16" y="22" fill="#94a3b8" fontSize="13.5" fontFamily="monospace" fontWeight="bold">
-                        A. BINARY SUBDIVISION PYRAMID (1 BAR IN 4/4 = 4 QUARTER BEATS)
+                        {L('A. BINARY SUBDIVISION PYRAMID (1 BAR IN 4/4 = 4 QUARTER BEATS)','A. PIRAMIDA PEMBAGIAN BINER (1 BIRAMA 4/4 = 4 KETUKAN SEPEREMPAT)','A. PIRÁMIDE DE SUBDIVISIÓN BINARIA (1 COMPÁS 4/4 = 4 NEGRAS)')}
                       </text>
 
                       {/* Row 1: Whole Note (4 beats) */}
                       <rect x="16" y="34" width="788" height="36" rx="4" fill="#0f172a" stroke="#0ea5e9" strokeWidth="1.2" />
-                      <ellipse cx="280" cy="52" rx="8" ry="5.5" fill="none" stroke="#38bdf8" strokeWidth="2.2" />
+                      <ellipse cx="50" cy="52" rx="8" ry="5.5" fill="none" stroke="#38bdf8" strokeWidth="2.2" />
                       <text x="390" y="56" textAnchor="middle" fill="#f8fafc" fontSize="12" fontFamily="monospace" fontWeight="bold">
                         {isId
                           ? 'NOT UTUH (1/1 / Semibreve) = 4 Ketuk'
@@ -2238,9 +2248,9 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                           : 'WHOLE NOTE (Semibreve) = 4 Beats'}
                       </text>
                       {/* Whole Rest symbol (hangs below line 4) */}
-                      <line x1="560" y1="46" x2="600" y2="46" stroke="#64748b" strokeWidth="1.5" />
-                      <rect x="572" y="46" width="16" height="6" fill="#38bdf8" />
-                      <text x="635" y="55" textAnchor="middle" fill="#64748b" fontSize="12" fontFamily="monospace">
+                      <line x1="600" y1="46" x2="640" y2="46" stroke="#64748b" strokeWidth="1.5" />
+                      <rect x="612" y="46" width="16" height="6" fill="#38bdf8" />
+                      <text x="660" y="55" textAnchor="start" fill="#64748b" fontSize="12" fontFamily="monospace">
                         {isId ? 'Tanda Istirahat' : isEs ? 'Silencio' : 'Rest'}
                       </text>
 
@@ -2250,7 +2260,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                           <rect width="388" height="36" rx="4" fill="#0f172a" stroke="#334155" strokeWidth="1" />
                           <ellipse cx="36" cy="22" rx="6.5" ry="4.5" fill="none" stroke="#38bdf8" strokeWidth="2" transform="rotate(-15 36 22)" />
                           <line x1="42" y1="22" x2="42" y2="6" stroke="#38bdf8" strokeWidth="1.6" />
-                          <text x="180" y="22" textAnchor="middle" fill="#e2e8f0" fontSize="13" fontFamily="monospace" fontWeight="bold">
+                          <text x="60" y="22" textAnchor="start" fill="#e2e8f0" fontSize="13" fontFamily="monospace" fontWeight="bold">
                             {isId
                               ? 'NOT SETENGAH (1/2) = 2 Ketuk'
                               : isEs
@@ -2258,10 +2268,10 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                               : 'HALF NOTE = 2 Beats'}
                           </text>
                           {/* Half Rest sits on top of line 3 */}
-                          <line x1="310" y1="22" x2="340" y2="22" stroke="#64748b" strokeWidth="1.5" />
-                          <rect x="318" y="16" width="14" height="6" fill="#94a3b8" />
-                          <text x="362" y="22" textAnchor="middle" fill="#64748b" fontSize="11" fontFamily="monospace">
-                            {isId ? 'Tanda Istirahat' : isEs ? 'Silencio' : 'Rest'}
+                          <line x1="288" y1="22" x2="314" y2="22" stroke="#64748b" strokeWidth="1.5" />
+                          <rect x="296" y="16" width="14" height="6" fill="#94a3b8" />
+                          <text x="318" y="22" textAnchor="start" fill="#64748b" fontSize="10.5" fontFamily="monospace">
+                            {isId ? 'Istirahat' : isEs ? 'Silencio' : 'Rest'}
                           </text>
                         </g>
                       ))}
@@ -2272,10 +2282,10 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                           <rect width="191" height="38" rx="4" fill="#0f172a" stroke="#334155" strokeWidth="1" />
                           <ellipse cx="32" cy="24" rx="6" ry="4.2" fill="#818cf8" transform="rotate(-15 32 24)" />
                           <line x1="37.5" y1="24" x2="37.5" y2="7" stroke="#818cf8" strokeWidth="1.6" />
-                          <text x="110" y="18" textAnchor="middle" fill="#e2e8f0" fontSize="12.5" fontFamily="monospace" fontWeight="bold">
+                          <text x="118" y="18" textAnchor="middle" fill="#e2e8f0" fontSize="11.5" fontFamily="monospace" fontWeight="bold">
                             {isId ? 'NOT SEPEREMPAT (1/4)' : isEs ? 'NEGRA (1/4)' : 'QUARTER NOTE'}
                           </text>
-                          <text x="110" y="30" textAnchor="middle" fill="#818cf8" fontSize="11.5" fontFamily="monospace">
+                          <text x="118" y="30" textAnchor="middle" fill="#818cf8" fontSize="11.5" fontFamily="monospace">
                             {isId ? '1 Ketuk (♩)' : isEs ? '1 Tiempo (♩)' : '1 Beat (♩)'}
                           </text>
                         </g>
@@ -2346,19 +2356,19 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                           </text>
                           <text x="0" y="44" fill="#e2e8f0" fontSize="12.5">
                             {isId ? (
-                              <>Satu titik menambah <tspan fill="#fbbf24" fontWeight="bold">+50%</tspan> durasi dari not: Nilai + (Nilai / 2). Titik ke-2 menambah +25% lagi.</>
+                              <>Satu titik menambah <tspan fill="#fbbf24" fontWeight="bold">+50%</tspan> durasi: Nilai + (Nilai / 2). Titik ke-2: +25% lagi.</>
                             ) : isEs ? (
-                              <>El puntillo añade <tspan fill="#fbbf24" fontWeight="bold">+50%</tspan> de duración a la nota: Valor + (Valor / 2). Un segundo puntillo añade otro +25%.</>
+                              <>El puntillo suma <tspan fill="#fbbf24" fontWeight="bold">+50%</tspan>: Valor + (Valor / 2). Un 2.º puntillo, +25% más.</>
                             ) : (
                               <>A dot adds <tspan fill="#fbbf24" fontWeight="bold">+50%</tspan> of note duration: Value + (Value / 2). A second dot adds +25% more.</>
                             )}
                           </text>
                           <text x="0" y="66" fill="#cbd5e1" fontSize="11.5" fontFamily="monospace">
                             {isId
-                              ? '• Not Setengah Bertitik (2+1 = 3 Ketuk)   |   • Not Seperempat Bertitik (1+0.5 = 1.5 Ketuk)'
+                              ? '• Setengah bertitik = 3 ketuk | • Seperempat bertitik = 1.5 ketuk'
                               : isEs
-                              ? '• Blanca con puntillo (2+1 = 3 Tiempos)   |   • Negra con puntillo (1+0.5 = 1.5 Tiempos)'
-                              : '• Dotted Half (2+1 = 3 Beats)   |   • Dotted Quarter (1+0.5 = 1.5 Beats)'}
+                              ? '• Blanca con puntillo = 3 tiempos | • Negra con puntillo = 1.5 tiempos'
+                              : '• Dotted Half (2+1 = 3 Beats) | • Dotted Quarter (1+0.5 = 1.5 Beats)'}
                           </text>
                         </g>
 
@@ -2409,19 +2419,19 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                               : '2. TIE vs. SLUR CURVE DISTINCTION'}
                           </text>
                           <text x="0" y="42" fill="#e2e8f0" fontSize="12.5">
-                            • <tspan fill="#38bdf8" fontWeight="bold">{isId ? 'Tie (Nada Sama):' : isEs ? 'Ligadura de unión (Misma nota):' : 'Tie (Same Pitch):'}</tspan>{' '}
+                            • <tspan fill="#38bdf8" fontWeight="bold">{isId ? 'Tie (Nada Sama):' : isEs ? 'Unión (Misma nota):' : 'Tie (Same Pitch):'}</tspan>{' '}
                             {isId
-                              ? 'Menghubungkan dua not bernada identik; tahan terus tanpa memukul ulang.'
+                              ? 'Menghubungkan dua not sama; tahan tanpa memukul ulang.'
                               : isEs
-                              ? 'Une dos notas de idéntica altura; suma duraciones sin tocar de nuevo.'
+                              ? 'Une dos notas iguales; se mantiene sin repetir.'
                               : 'Connects two notes of identical pitch; hold without restriking.'}
                           </text>
                           <text x="0" y="64" fill="#e2e8f0" fontSize="12.5">
-                            • <tspan fill="#c084fc" fontWeight="bold">{isId ? 'Slur (Nada Berbeda):' : isEs ? 'Ligadura de expresión (Notas distintas):' : 'Slur (Different Pitches):'}</tspan>{' '}
+                            • <tspan fill="#c084fc" fontWeight="bold">{isId ? 'Slur (Nada Berbeda):' : isEs ? 'Expresión (Notas distintas):' : 'Slur (Different Pitches):'}</tspan>{' '}
                             {isId
-                              ? 'Melengkungi nada-nada berbeda; mainkan legato (halus tersambung).'
+                              ? 'Melengkung di atas nada berbeda; mainkan legato.'
                               : isEs
-                              ? 'Curva sobre notas diferentes; tocar legato (conectado suavemente).'
+                              ? 'Curva sobre notas distintas; tocar legato.'
                               : 'Arcs across differing notes; play legato (smoothly connected).'}
                           </text>
                         </g>
@@ -2441,7 +2451,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                             <line x1="78.5" y1="28" x2="78.5" y2="12" stroke="#38bdf8" strokeWidth="1.4" />
                             {/* Curved TIE Arc underneath */}
                             <path d="M 24 33 Q 49 46 74 33" fill="none" stroke="#38bdf8" strokeWidth="2.4" strokeLinecap="round" />
-                            <text x="49" y="54" textAnchor="middle" fill="#38bdf8" fontSize="9" fontFamily="monospace" fontWeight="bold">TIE (1 STRIKE)</text>
+                            <text x="49" y="54" textAnchor="middle" fill="#38bdf8" fontSize="9" fontFamily="monospace" fontWeight="bold">{L('TIE (1 STRIKE)','BINDING (1 TEKAN)','LIGADURA (1 GOLPE)')}</text>
                           </g>
 
                           {/* Mini Divider */}
@@ -2458,7 +2468,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                             <line x1="76.5" y1="18" x2="76.5" y2="4" stroke="#c084fc" strokeWidth="1.4" />
                             {/* Curved SLUR Arc over top */}
                             <path d="M 22 14 Q 47 -2 72 4" fill="none" stroke="#c084fc" strokeWidth="2.4" strokeLinecap="round" />
-                            <text x="47" y="54" textAnchor="middle" fill="#c084fc" fontSize="9" fontFamily="monospace" fontWeight="bold">SLUR (LEGATO)</text>
+                            <text x="47" y="54" textAnchor="middle" fill="#c084fc" fontSize="9" fontFamily="monospace" fontWeight="bold">{L('SLUR (LEGATO)','SLUR (LEGATO)','LIGADURA DE FRASE (LEGATO)')}</text>
                           </g>
                         </g>
                       </g>
@@ -2476,21 +2486,21 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                               ? '3. SUBDIVISIÓN DE TRESILLO (TUPLET 3:2)'
                               : '3. TRIPLET (TUPLET 3:2) SUBDIVISION'}
                           </text>
-                          <text x="0" y="40" fill="#e2e8f0" fontSize="12.5">
+                          <text x="0" y="40" fill="#e2e8f0" fontSize="12">
                             {isId ? (
-                              <>Membagi 1 ketukan menjadi <tspan fill="#34d399" fontWeight="bold">3 denyut setara</tspan> (166.7 ms pada 120 BPM menggantikan 2 not seperdelapan standar).</>
+                              <>Membagi 1 ketukan jadi <tspan fill="#34d399" fontWeight="bold">3 denyut setara</tspan> (166,7 ms pada 120 BPM, bukan 2 seperdelapan).</>
                             ) : isEs ? (
-                              <>Divide 1 tiempo regular en <tspan fill="#34d399" fontWeight="bold">3 pulsos iguales</tspan> (166.7 ms a 120 BPM en vez de las 2 corcheas estándar).</>
+                              <>Divide 1 tiempo en <tspan fill="#34d399" fontWeight="bold">3 pulsos iguales</tspan> (166,7 ms a 120 BPM, no 2 corcheas).</>
                             ) : (
-                              <>Divides 1 regular beat into <tspan fill="#34d399" fontWeight="bold">3 equal pulses</tspan> (166.7 ms at 120 BPM instead of standard 2 eighths).</>
+                              <>Divides 1 beat into <tspan fill="#34d399" fontWeight="bold">3 equal pulses</tspan> (166.7 ms at 120 BPM vs. 2 eighths).</>
                             )}
                           </text>
                           <text x="0" y="60" fill="#a7f3d0" fontSize="11.5" fontFamily="monospace">
                             {isId
-                              ? 'Hitungan Metronom: "1 - trip - let, 2 - trip - let, 3 - trip - let, 4 - trip - let"'
+                              ? 'Hitung: "1-trip-let, 2-trip-let, 3-trip-let, 4-trip-let"'
                               : isEs
-                              ? 'Conteo del Metrónomo: "1 - tri - ple, 2 - tri - ple, 3 - tri - ple, 4 - tri - ple"'
-                              : 'Metronome count: "1 - trip - let, 2 - trip - let, 3 - trip - let, 4 - trip - let"'}
+                              ? 'Cuenta: "1-tri-ple, 2-tri-ple, 3-tri-ple, 4-tri-ple"'
+                              : 'Count: "1-trip-let, 2-trip-let, 3-trip-let, 4-trip-let"'}
                           </text>
                         </g>
 
@@ -2501,10 +2511,10 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                           {/* 3 Beamed Notes */}
                           {[0, 1, 2].map((ti) => (
                             <g key={ti} transform={`translate(${36 + ti * 40}, 0)`}>
-                              <ellipse cx="0" cy="42" rx="5" ry="3.5" fill="#10b981" transform="rotate(-15)" />
+                              <ellipse cx="0" cy="42" rx="5" ry="3.5" fill="#10b981" transform="rotate(-15 0 42)" />
                               <line x1="4.5" y1="42" x2="4.5" y2="18" stroke="#10b981" strokeWidth="1.5" />
-                              <circle cx="0" cy="52" r="2.2" fill="#34d399" />
-                              <text x="0" y="58" textAnchor="middle" fill="#6ee7b7" fontSize="8" fontFamily="monospace">
+                              <circle cx="0" cy="48.5" r="2.2" fill="#34d399" />
+                              <text x="0" y="61" textAnchor="middle" fill="#6ee7b7" fontSize="8" fontFamily="monospace">
                                 {ti === 0 ? '1' : ti === 1 ? 'trip' : 'let'}
                               </text>
                             </g>
@@ -2518,7 +2528,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                           
                           {/* Ratio Badge */}
                           <rect x="144" y="20" width="72" height="22" rx="3" fill="#064e3b" stroke="#10b981" strokeWidth="1" />
-                          <text x="180" y="35" textAnchor="middle" fill="#6ee7b7" fontSize="10" fontFamily="monospace" fontWeight="bold">3 IN 1 BEAT</text>
+                          <text x="180" y="35" textAnchor="middle" fill="#6ee7b7" fontSize="10" fontFamily="monospace" fontWeight="bold">{L('3 IN 1 BEAT','3 DALAM 1 KETUKAN','3 EN 1 TIEMPO')}</text>
                         </g>
                       </g>
                     </g>
@@ -2941,7 +2951,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                     <g transform="translate(20, 16)">
                       <rect width="400" height="158" rx="6" fill="#0a0f1a" stroke="#1e293b" />
                       <text x="14" y="20" fill="#f59e0b" fontSize="13" fontFamily="monospace" fontWeight="bold">
-                        A. ORDER OF 7 SHARPS: F♯ – C♯ – G♯ – D♯ – A♯ – E♯ – B♯
+                        {L('A. ORDER OF 7 SHARPS: F♯ – C♯ – G♯ – D♯ – A♯ – E♯ – B♯','A. URUTAN 7 KRES: F♯ – C♯ – G♯ – D♯ – A♯ – E♯ – B♯','A. ORDEN DE 7 SOSTENIDOS: F♯ – C♯ – G♯ – D♯ – A♯ – E♯ – B♯')}
                       </text>
                       {[42, 56, 70, 84, 98].map((y, i) => (
                         <line key={i} x1="20" y1={y} x2="380" y2={y} stroke="#334155" strokeWidth="1.3" />
@@ -2963,7 +2973,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                         </g>
                       ))}
                       <text x="200" y="149" textAnchor="middle" fill="#34d399" fontSize="12" fontFamily="monospace" fontWeight="bold">
-                        RULE: Last Sharp + 1 Semitone UP = Major Key Tonic
+                        {L('RULE: Last Sharp + 1 Semitone UP = Major Key Tonic','ATURAN: Kres terakhir + 1 semiton ke ATAS = Tonika tangga nada mayor','REGLA: Último sostenido + 1 semitono ARRIBA = Tónica de la tonalidad mayor')}
                       </text>
                     </g>
 
@@ -2971,7 +2981,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                     <g transform="translate(440, 16)">
                       <rect width="400" height="158" rx="6" fill="#0a0f1a" stroke="#1e293b" />
                       <text x="14" y="20" fill="#38bdf8" fontSize="13" fontFamily="monospace" fontWeight="bold">
-                        B. ORDER OF 7 FLATS: B♭ – E♭ – A♭ – D♭ – G♭ – C♭ – F♭
+                        {L('B. ORDER OF 7 FLATS: B♭ – E♭ – A♭ – D♭ – G♭ – C♭ – F♭','B. URUTAN 7 MOL: B♭ – E♭ – A♭ – D♭ – G♭ – C♭ – F♭','B. ORDEN DE 7 BEMOLES: B♭ – E♭ – A♭ – D♭ – G♭ – C♭ – F♭')}
                       </text>
                       {[42, 56, 70, 84, 98].map((y, i) => (
                         <line key={i} x1="20" y1={y} x2="380" y2={y} stroke="#334155" strokeWidth="1.3" />
@@ -3026,7 +3036,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                     <g transform="translate(20, 16)">
                       <rect width="400" height="152" rx="6" fill="#0a0f1a" stroke="#1e293b" />
                       <text x="14" y="20" fill="#38bdf8" fontSize="13" fontFamily="monospace" fontWeight="bold">
-                        A. 1st &amp; 2nd ENDING BRACKETS (PRIMA &amp; SECONDA VOLTA)
+                        {L('A. 1st & 2nd ENDING BRACKETS (PRIMA & SECONDA VOLTA)','A. KURUNG AKHIR 1 & 2 (PRIMA & SECONDA VOLTA)','A. CORCHETES DE FINAL 1.ª Y 2.ª (PRIMA Y SECONDA VOLTA)')}
                       </text>
 
                       {/* 4 Measure Boxes: Bar 1 -> Bar 2 -> [1. Bar 3 :|] -> [2. Bar 4] */}
@@ -3067,7 +3077,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                       </g>
 
                       <text x="200" y="140" textAnchor="middle" fill="#cbd5e1" fontSize="12" fontFamily="monospace">
-                        EXECUTION ORDER: Bar 1 → Bar 2 → [1. Bar 3] → Bar 1 → Bar 2 → [2. Bar 4]
+                        {L('EXECUTION ORDER: Bar 1 → Bar 2 → [1. Bar 3] → Bar 1 → Bar 2 → [2. Bar 4]','URUTAN EKSEKUSI: Birama 1 → Birama 2 → [1. Birama 3] → Birama 1 → Birama 2 → [2. Birama 4]','ORDEN DE EJECUCIÓN: Compás 1 → Compás 2 → [1. Compás 3] → Compás 1 → Compás 2 → [2. Compás 4]')}
                       </text>
                     </g>
 
@@ -3075,7 +3085,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                     <g transform="translate(440, 16)">
                       <rect width="400" height="152" rx="6" fill="#0a0f1a" stroke="#1e293b" />
                       <text x="14" y="20" fill="#a855f7" fontSize="13" fontFamily="monospace" fontWeight="bold">
-                        B. DAL SEGNO AL CODA (𝄋 → TO CODA 𝄌 → CODA 𝄌)
+                        {L('B. DAL SEGNO AL CODA (𝄋 → TO CODA 𝄌 → CODA 𝄌)','B. DAL SEGNO AL CODA (𝄋 → TO CODA 𝄌 → CODA 𝄌)','B. DAL SEGNO AL CODA (𝄋 → TO CODA 𝄌 → CODA 𝄌)')}
                       </text>
 
                       <g transform="translate(18, 48)">
@@ -3083,12 +3093,12 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                         <text x="33" y="35" textAnchor="middle" fill="#94a3b8" fontSize="12.5" fontFamily="monospace">Intro</text>
 
                         <rect x="74" y="12" width="84" height="38" rx="4" fill="#2e1065" stroke="#a855f7" />
-                        <text x="116" y="28" textAnchor="middle" fill="#e9d5ff" fontSize="12" fontFamily="monospace" fontWeight="bold">𝄋 SEGNO</text>
+                        <text x="116" y="28" textAnchor="middle" fill="#e9d5ff" fontSize="12" fontFamily="monospace" fontWeight="bold">{L('𝄋 SEGNO','𝄋 SEGNO','𝄋 SEGNO')}</text>
                         <text x="116" y="41" textAnchor="middle" fill="#c084fc" fontSize="11.5" fontFamily="monospace">{L("To Coda 𝄌", "Ke Coda 𝄌", "A Coda 𝄌")}</text>
 
                         <rect x="166" y="12" width="92" height="38" rx="4" fill="#0f172a" stroke="#f59e0b" />
                         <text x="212" y="28" textAnchor="middle" fill="#fde68a" fontSize="12" fontFamily="monospace" fontWeight="bold">{L("Verse / Bridge", "Bait / Bridge", "Estrofa / Puente")}</text>
-                        <text x="212" y="41" textAnchor="middle" fill="#f59e0b" fontSize="11.5" fontFamily="monospace">D.S. al Coda</text>
+                        <text x="212" y="41" textAnchor="middle" fill="#f59e0b" fontSize="11.5" fontFamily="monospace">{L('D.S. al Coda','D.S. al Coda','D.S. al Coda')}</text>
 
                         <rect x="272" y="12" width="92" height="38" rx="4" fill="#064e3b" stroke="#10b981" />
                         <text x="318" y="28" textAnchor="middle" fill="#a7f3d0" fontSize="12.5" fontFamily="monospace" fontWeight="bold">𝄌 CODA</text>
@@ -3101,7 +3111,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                       </g>
 
                       <text x="200" y="140" textAnchor="middle" fill="#cbd5e1" fontSize="12" fontFamily="monospace">
-                        At &quot;D.S. al Coda&quot;, jump back to 𝄋, play until &quot;To Coda 𝄌&quot;, then leap to 𝄌 Coda.
+                        {L('At "D.S. al Coda", jump back to 𝄋, play until "To Coda 𝄌", then leap to 𝄌 Coda.','Pada "D.S. al Coda", kembali ke 𝄋, mainkan sampai "To Coda 𝄌", lalu lompat ke 𝄌 Coda.','En "D.S. al Coda", vuelve a 𝄋, toca hasta "To Coda 𝄌" y luego salta a 𝄌 Coda.')}
                       </text>
                     </g>
                   </svg>
@@ -3119,7 +3129,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                 <div>
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-xs md:text-sm font-mono font-bold text-cyan-400 uppercase tracking-widest">
-                      {isId ? 'MODUL 02 • VISUALISASI PIANO ROLL & REKAYASA LATIHAN' : isEs ? 'MÓDULO 02 • PIANO ROLL Y PRÁCTICA' : 'MODULE 02 • PIANO ROLL & PRACTICE ENGINEERING'}
+                      {isId ? 'MODUL 02 • FALLING NOTES & MODE TUNGGU' : isEs ? 'MÓDULO 02 • NOTAS CAYENDO Y MODO ESPERA' : 'MODULE 02 • FALLING NOTES & WAIT MODE'}
                     </span>
                     <span className="text-xs font-mono px-3 py-1 rounded-lg bg-slate-800/90 text-slate-300 border border-slate-700">
                       3 TECHNICAL DIAGRAMS • HIT WINDOWS &amp; LATENCY
@@ -3144,7 +3154,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                   type="button"
                   onClick={() => handleSelectChapter('exercises')}
                   className="px-4 py-2.5 rounded-xl bg-slate-800/90 hover:bg-cyan-950/60 border border-slate-700 hover:border-cyan-500/50 text-cyan-400 hover:text-cyan-300 text-xs md:text-sm font-mono font-bold transition-all flex items-center gap-2 flex-shrink-0 shadow-sm active:scale-95 cursor-pointer"
-                  title={isId ? 'Buka Generator Latihan Drill (Bab 06)' : isEs ? 'Abrir Generador de Drills (Cap. 06)' : 'Open Drill Generator (Ch. 06)'}
+                  title={isId ? 'Buka Piano Warm Up (Bab 06)' : isEs ? 'Abrir Piano Warm Up (Cap. 06)' : 'Open Piano Warm Up (Ch. 06)'}
                 >
                   <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
                   <span>{t.jumpToDrills}</span>
@@ -3176,12 +3186,15 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
 
                     {/* Horizontal Beat / Bar Grid Lines */}
                     <line x1="40" y1="45" x2="560" y2="45" stroke="#1e293b" strokeWidth="1" strokeDasharray="4 4" />
-                    <text x="48" y="40" fill="#64748b" fontSize="12" fontFamily="monospace">
-                      {isId ? 't + 1000 ms (2 Ketuk di Depan)' : isEs ? 't + 1000 ms (2 Tiempos Adelante)' : 't + 1000 ms (2 Beats Ahead)'}
+                    {/* Grid labels live in the empty left margin: a long label would run under the note bars */}
+                    <text x="44" y="38" fill="#64748b" fontSize="11" fontFamily="monospace">t + 1000 ms</text>
+                    <text x="44" y="50" fill="#475569" fontSize="10" fontFamily="monospace">
+                      {isId ? '2 ketuk di depan' : isEs ? '2 tiempos antes' : '2 beats ahead'}
                     </text>
                     <line x1="40" y1="115" x2="560" y2="115" stroke="#1e293b" strokeWidth="1" strokeDasharray="4 4" />
-                    <text x="48" y="110" fill="#64748b" fontSize="12" fontFamily="monospace">
-                      {isId ? 't + 500 ms (1 Ketuk di Depan)' : isEs ? 't + 500 ms (1 Tiempo Adelante)' : 't + 500 ms (1 Beat Ahead)'}
+                    <text x="44" y="108" fill="#64748b" fontSize="11" fontFamily="monospace">t + 500 ms</text>
+                    <text x="44" y="120" fill="#475569" fontSize="10" fontFamily="monospace">
+                      {isId ? '1 ketuk di depan' : isEs ? '1 tiempo antes' : '1 beat ahead'}
                     </text>
 
                     {/* Vertical Key Lanes */}
@@ -3199,7 +3212,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                       <text x="21" y="90" textAnchor="middle" fill="#c084fc" fontSize="11.5" fontFamily="monospace">
                         {isId ? 'Jari: 5' : isEs ? 'Dedo: 5' : 'Fing: 5'}
                       </text>
-                      <text x="21" y="128" textAnchor="middle" fill="#fde68a" fontSize="11.5" fontFamily="monospace" fontWeight="bold">
+                      <text x="21" y="112" textAnchor="middle" fill="#fde68a" fontSize="11.5" fontFamily="monospace" fontWeight="bold">
                         {isId ? 'PUKUL' : isEs ? 'GOLPE' : 'ONSET'}
                       </text>
                     </g>
@@ -3295,7 +3308,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                         {isId ? 'Angkat jari bersih saat ekor lewat' : isEs ? 'Levanta el dedo al pasar la cola' : 'Lift your finger cleanly as the top tail crosses'}
                       </text>
                       <text x="14" y="177" fill="#94a3b8" fontSize="11.5">
-                        {isId ? 'agar harmoni tidak bertabrakan.' : isEs ? 'para que las notas no se emborronen.' : 'the Strike Line so consecutive harmonies don&apos;t blur.'}
+                        {isId ? 'agar harmoni tidak bertabrakan.' : isEs ? 'para que las notas no se emborronen.' : "the Strike Line so consecutive harmonies don't blur."}
                       </text>
 
                       <rect x="14" y="192" width="234" height="38" rx="4" fill="#0f172a" stroke="#334155" />
@@ -3360,10 +3373,10 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                     </div>
                     <p className="text-slate-300 leading-relaxed">
                       {isId
-                        ? 'Memberikan jendela toleransi yang lebih longgar agar alur kalimat musik tidak mudah tersendat. Dapat dikombinasikan dengan opsi Non-Stop atau pemilihan tangan terpisah (Left Hand / Right Hand / Both Hands).'
+                        ? 'Mode ini menjaga alur musik. Dengan Non-Stop, lagu terus berjalan dan setiap nada dinilai dengan jendela Level 5 (PERFECT dasar ±100 ms, diskalakan menurut kecepatan not). Tanpa Non-Stop, lagu menunggu nada yang diminta. Bisa dikombinasikan dengan pemilihan tangan terpisah (Left Hand / Right Hand / Both Hands).'
                         : isEs
-                        ? 'Ofrece una ventana de tolerancia más amplia para mantener el flujo musical. Permite aislar mano izquierda, derecha o ambas sin perder impulso.'
-                        : 'Provides a wider pre-satisfaction window and optional Non-Stop flow, allowing you to isolate Left Hand, Right Hand, or Both Hands while maintaining musical momentum.'}
+                        ? 'Este modo mantiene el flujo musical. Con Non-Stop, la canción sigue sonando y cada nota se evalúa con la ventana de nivel 5 (PERFECT base ±100 ms, escalada según la velocidad de las notas). Sin Non-Stop, la canción espera la nota pedida. Se combina con manos separadas (Left Hand / Right Hand / Both Hands).'
+                        : 'This mode keeps the musical flow. With Non-Stop, the song keeps playing and every note is judged with the Level 5 window (base PERFECT ±100 ms, scaled by note speed). Without Non-Stop, the song waits for the requested note. Can be combined with hand selection (Left Hand / Right Hand / Both Hands).'}
                     </p>
                   </div>
 
@@ -3378,10 +3391,10 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                     </div>
                     <p className="text-slate-300 leading-relaxed">
                       {isId
-                        ? 'Lagu berjalan tanpa henti pada tempo penuh dengan penguncian Accuracy Level 5 (jendela PERFECT ±100 ms). Setiap ketukan dinilai secara real-time untuk menghitung Performance Score (PS) di Leaderboard.'
+                        ? 'Lagu berjalan tanpa henti pada tempo penuh dengan penguncian Accuracy Level 5 (jendela PERFECT dasar ±100 ms). Jendela ini diskalakan menurut kecepatan not: lagu yang jarang mendapat jendela lebih lebar, lagu yang padat mendapat jendela lebih sempit (lihat FIG 2.2). Setiap ketukan dinilai secara real-time untuk menghitung Performance Score (PS) di Leaderboard.'
                         : isEs
-                        ? 'Ejecución ininterrumpida a tempo real con nivel 5 de precisión bloqueado (±100 ms para PERFECT), barra de vida y sin rebobinado para puntuación oficial.'
-                        : 'Uninterrupted real-time performance with locked Accuracy Level 5 (±100 ms PERFECT window), HP bar, and seeking disabled for verified leaderboard scoring.'}
+                        ? 'Ejecución ininterrumpida a tempo real con nivel 5 de precisión bloqueado (ventana PERFECT base ±100 ms). La ventana se multiplica según la velocidad de las notas: pasajes lentos tienen ventana más amplia, pasajes rápidos más estrecha (ver FIG 2.2). Barra de vida y sin rebobinado para puntuación oficial.'
+                        : 'Uninterrupted real-time performance with locked Accuracy Level 5 (base PERFECT window ±100 ms). The window is scaled by note speed: slow passages get a wider window, dense passages a tighter one (see FIG 2.2). HP bar, and seeking disabled for verified leaderboard scoring.'}
                     </p>
                   </div>
 
@@ -3425,7 +3438,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                     </h3>
                   </div>
                   <span className="text-xs font-mono text-slate-300 bg-slate-800/80 px-3 py-1 rounded-lg border border-slate-700">
-                    {isId ? 'STANDAR AKURASI LEVEL 5' : isEs ? 'ESTÁNDAR NIVEL 5' : 'ACCURACY LEVEL 5 STANDARD'}
+                    {isId ? 'AKURASI LEVEL 5 · ADAPTIF' : isEs ? 'NIVEL 5 · ADAPTATIVO' : 'ACCURACY LEVEL 5 · ADAPTIVE'}
                   </span>
                 </div>
 
@@ -3461,7 +3474,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                       <text x="380" y="56" textAnchor="middle" fill="#ffffff" fontSize="13" fontFamily="monospace" fontWeight="bold">
                         {isId ? 'JENDELA PERFECT' : isEs ? 'VENTANA PERFECT' : 'PERFECT WINDOW'}
                       </text>
-                      <text x="380" y="76" textAnchor="middle" fill="#7dd3fc" fontSize="13.5" fontFamily="monospace" fontWeight="bold">-100 ms  to  +100 ms</text>
+                      <text x="380" y="76" textAnchor="middle" fill="#7dd3fc" fontSize="13.5" fontFamily="monospace" fontWeight="bold">±100 ms × skala</text>
 
                       {/* Great Late */}
                       <rect x="504" y="35" width="82" height="52" rx="4" fill="#064e3b" stroke="#10b981" strokeWidth="1" />
@@ -3483,7 +3496,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                       {/* Dual Offset Explanation Cards */}
                       <rect x="0" y="122" width="372" height="58" rx="5" fill="#0f172a" stroke="#1e293b" />
                       <text x="12" y="140" fill="#38bdf8" fontSize="13" fontFamily="monospace" fontWeight="bold">
-                        {isId ? '1. HITBOX OFFSET' : isEs ? '1. HITBOX OFFSET' : '1. HITBOX OFFSET'}
+                        {L('1. HITBOX OFFSET', '1. OFFSET HITBOX', '1. DESPLAZAMIENTO DE HITBOX')}
                       </text>
                       <text x="12" y="156" fill="#cbd5e1" fontSize="11.5">
                         {isId ? 'Kompensasi latensi driver audio/USB-MIDI. Jika dinilai LATE' : isEs ? 'Compensa la latencia USB-MIDI/audio. Si marca LATE (+ms),' : 'Compensates for USB-MIDI / audio driver buffer delay. If your hits register'}
@@ -3504,6 +3517,22 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                       </text>
                     </g>
                   </svg>
+                </div>
+                <div className="space-y-2 text-sm text-slate-300 leading-relaxed">
+                  <p>
+                    {isId
+                      ? 'Angka di kotak adalah jendela dasar Level 5 (skala ×1,00). Skala dihitung dari jarak not ke not berikutnya (chord dihitung satu pukulan), lalu dikali kecepatan pemutaran. Jarak lebih lebar → pukulan lebih jarang → jendela lebih lebar; jarak lebih rapat → jendela lebih sempit. Berlaku untuk piano dan drum. Contoh not 1/8: 60 BPM (2 pukulan/detik) → ×1,50; 120 BPM (4) → ×1,25; 180 BPM (6) → ×1,125; 240 BPM (8) → ×1,00; 360 BPM (12) → ×0,875. Batas skala ×0,875 sampai ×2,00. Pemutaran 40% membuat pukulan per detik turun, sehingga jendelanya ikut melebar.'
+                      : isEs
+                      ? 'Los números de las cajas son la ventana base de nivel 5 (escala ×1,00). La escala se calcula con la distancia de cada nota a la siguiente (un acorde cuenta como un golpe), multiplicada por la velocidad de reproducción. Distancia mayor → menos golpes → ventana más amplia; distancia menor → ventana más estrecha. Vale para piano y batería. Ejemplo con notas de corchea: 60 BPM (2 golpes/s) → ×1,50; 120 BPM (4) → ×1,25; 180 BPM (6) → ×1,125; 240 BPM (8) → ×1,00; 360 BPM (12) → ×0,875. Límites de escala ×0,875 a ×2,00. Con reproducción al 40% los golpes por segundo bajan y la ventana se ensancha.'
+                      : 'The boxed numbers are the base level-5 window (scale ×1.00). The scale comes from the gap between each note and the next strike (a chord counts as one strike), multiplied by the playback speed. A longer gap → fewer strikes → wider window; a shorter gap → tighter. Applies to piano and drums. Example with eighth notes: 60 BPM (2 strikes/s) → ×1.50; 120 BPM (4) → ×1.25; 180 BPM (6) → ×1.125; 240 BPM (8) → ×1.00; 360 BPM (12) → ×0.875. Scale limits ×0.875 to ×2.00. At 40% playback, strikes per second drop and the window widens.'}
+                  </p>
+                  <p>
+                    {isId
+                      ? 'Panjang blok hitbox di falling notes = 2 × PERFECT yang sudah diskalakan. Level 3 (Strict) dasarnya 140 / 210 / 280 ms. Pada mode yang menunggu nada, lagu berhenti sampai nada yang benar dimainkan, jadi yang dinilai adalah ketepatan nada, bukan selisih milidetik.'
+                      : isEs
+                      ? 'El alto del bloque de hitbox en falling notes = 2 × PERFECT ya escalado. El nivel 3 (Strict) tiene base 140 / 210 / 280 ms. En modos que esperan la nota, la canción se detiene hasta tocar la nota correcta, así que se evalúa la precisión de la nota, no la diferencia en milisegundos.'
+                      : 'The hitbox block height in falling notes = 2 × the scaled PERFECT window. Level 3 (Strict) base is 140 / 210 / 280 ms. In modes that wait for each note, playback stops until the correct note is played, so accuracy is judged by the note itself, not by milliseconds.'}
+                  </p>
                 </div>
               </div>
 
@@ -3699,18 +3728,18 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                 <div>
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-xs md:text-sm font-mono font-bold text-cyan-400 uppercase tracking-widest">
-                      {isId ? 'MODUL 03 • BIOMEKANIKA TANGAN & TEKNIK FISIK PIANO' : isEs ? 'MÓDULO 03 • BIOMECÁNICA Y TÉCNICA' : 'MODULE 03 • PIANO ERGONOMICS, POSTURE, PEDALS & FINGERING'}
+                      {isId ? 'MODUL 03 • BIOMEKANIKA & TEKNIK PIANO' : isEs ? 'MÓDULO 03 • BIOMECÁNICA Y TÉCNICA' : 'MODULE 03 • BIOMECHANICS & TECHNIQUE'}
                     </span>
                     <span className="text-xs font-mono px-3 py-1 rounded-lg bg-slate-800/90 text-slate-300 border border-slate-700">
-                      5 TECHNICAL DIAGRAMS • 6 MASTER TABLES
+                      {L("6 TECHNICAL DIAGRAMS • 3 MASTER TABLES", "6 DIAGRAM TEKNIS • 3 TABEL MASTER", "6 DIAGRAMAS TÉCNICOS • 3 TABLAS MAESTRAS")}
                     </span>
                   </div>
                   <h2 className="text-xl md:text-2xl font-black text-white tracking-tight">
                     {isId
-                      ? 'Anatomi Jari (1–5), Geometri Duduk, Teknik 3 Pedal, Thumb-Under & Tabel Fingering 12 Kunci'
+                      ? 'Anatomi Jari (1–5), Postur & Geometri Duduk, Teknik 3 Pedal, Notasi Pedal, Thumb-Under & Tabel Fingering 12 Kunci'
                       : isEs
-                      ? 'Anatomía de Dedos (1–5), Postura, Técnica de 3 Pedales, Paso de Pulgar y Tablas en 12 Tonalidades'
-                      : 'Anatomical Fingering (1–5), Seating Geometry, 3-Pedal Mechanics, Thumb-Under & 12-Key Master Tables'}
+                      ? 'Anatomía de Dedos (1–5), Postura y Geometría del Banco, Técnica de 3 Pedales, Notación del Pedal, Paso de Pulgar y Tablas en 12 Tonalidades'
+                      : 'Anatomical Fingering (1–5), Posture & Seating Geometry, 3-Pedal Mechanics, Pedal Notation, Thumb-Under & 12-Key Master Tables'}
                   </h2>
                   <p className="text-sm md:text-[15px] text-slate-200 mt-3 leading-relaxed max-w-4xl">
                     {isId
@@ -3724,7 +3753,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                   type="button"
                   onClick={() => handleSelectChapter('exercises')}
                   className="px-4 py-2.5 rounded-xl bg-slate-800/90 hover:bg-cyan-950/60 border border-slate-700 hover:border-cyan-500/50 text-cyan-400 hover:text-cyan-300 text-xs md:text-sm font-mono font-bold transition-all flex items-center gap-2 flex-shrink-0 shadow-sm active:scale-95 cursor-pointer"
-                  title={isId ? 'Buka Generator Latihan Drill (Bab 06)' : isEs ? 'Abrir Generador de Drills (Cap. 06)' : 'Open Drill Generator (Ch. 06)'}
+                  title={isId ? 'Buka Piano Warm Up (Bab 06)' : isEs ? 'Abrir Piano Warm Up (Cap. 06)' : 'Open Piano Warm Up (Ch. 06)'}
                 >
                   <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
                   <span>{t.jumpToDrills}</span>
@@ -3737,7 +3766,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
                   <div>
                     <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest block">
-                      FIG 3.1 — ANATOMICAL 1–5 SYMMETRY &amp; LATERAL SKELETAL KNUCKLE ARCH (MCP / PIP / DIP)
+                      {isId ? 'FIG 3.1 — SIMETRI ANATOMI 1–5 & LENGKUNG SENDI JARI SAMPING (MCP / PIP / DIP)' : isEs ? 'FIG 3.1 — SIMETRÍA ANATÓMICA 1–5 Y ARCO ARTICULAR LATERAL (MCP / PIP / DIP)' : 'FIG 3.1 — ANATOMICAL 1–5 SYMMETRY & LATERAL SKELETAL KNUCKLE ARCH (MCP / PIP / DIP)'}
                     </span>
                     <h3 className="text-base md:text-lg font-bold text-white mt-1">
                       {isId
@@ -3878,7 +3907,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
                   <div>
                     <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest block">
-                      FIG 3.2 — FULL-BODY SEATING GEOMETRY, FOREARM LEVEL &amp; PEDAL PIVOT AXIS
+                      {isId ? 'FIG 3.2 — GEOMETRI DUDUK SELURUH TUBUH, LENGAN SEJAJAR & SUMBU PIVOT PEDAL' : isEs ? 'FIG 3.2 — GEOMETRÍA DE POSTURA CORPORAL, NIVEL DEL ANTEBRAZO Y EJE DEL PEDAL' : 'FIG 3.2 — FULL-BODY SEATING GEOMETRY, FOREARM LEVEL & PEDAL PIVOT AXIS'}
                     </span>
                     <h3 className="text-base md:text-lg font-bold text-white mt-1">
                       {isId
@@ -3889,7 +3918,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                     </h3>
                   </div>
                   <span className="text-xs font-mono text-slate-300 bg-slate-800/80 px-3 py-1 rounded-lg border border-slate-700">
-                    ERGONOMIC POSTURE GUIDE
+                    {isId ? 'PANDUAN POSTUR ERGONOMIS' : isEs ? 'GUÍA DE POSTURA ERGONÓMICA' : 'ERGONOMIC POSTURE GUIDE'}
                   </span>
                 </div>
 
@@ -3955,7 +3984,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
 
                       {/* Floor Reference Line */}
                       <line x1="24" y1="188" x2="420" y2="188" stroke="#334155" strokeWidth="2" strokeDasharray="6 3" />
-                      <text x="416" y="184" textAnchor="end" fill="#64748b" fontSize="9" fontFamily="monospace">FLOOR / LANTAI</text>
+                      <text x="416" y="184" textAnchor="end" fill="#64748b" fontSize="9" fontFamily="monospace">{L('FLOOR','LANTAI','SUELO')}</text>
 
                       {/* ------------------------------------------------------------- */}
                       {/* UPRIGHT PIANO & KEYBED PROFILE */}
@@ -4105,7 +4134,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                       <g transform="translate(114, 72)">
                         <rect width="88" height="20" rx="5" fill="#064e3b" stroke="#10b981" strokeWidth="1" />
                         <text x="44" y="14" textAnchor="middle" fill="#a7f3d0" fontSize="9.5" fontFamily="monospace" fontWeight="bold">
-                          95°–105° {L("SIKU", "SIKU", "CODO")}
+                          95°–105° {L("ELBOW", "SIKU", "CODO")}
                         </text>
                       </g>
 
@@ -4225,16 +4254,18 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
                   <div>
                     <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest block">
-                      FIG 3.3 — THE 3 PIANO PEDALS &amp; SYNCOPATED LEGATO PEDALING TIMING WAVEFORM
+                      {isId ? 'FIG 3.3 — 3 PEDAL PIANO & GELOMBANG WAKTU PEDAL SYNCOPATED LEGATO' : isEs ? 'FIG 3.3 — LOS 3 PEDALES DEL PIANO Y FORMA DE ONDA DEL PEDALEO SINCOPADO LEGATO' : 'FIG 3.3 — THE 3 PIANO PEDALS & SYNCOPATED LEGATO PEDALING TIMING WAVEFORM'}
                     </span>
                     <h3 className="text-base md:text-lg font-bold text-white mt-1">
                       {isId
                         ? 'Mekanika 3 Pedal Piano & Teknik Syncopated Pedaling ("Tekan Nada → Angkat & Injak Pedal")'
+                        : isEs
+                        ? 'Mecánica de 3 Pedales y Pedaleo Sincopado Legato ("Tocar tecla → Levantar y volver a pisar el pedal")'
                         : 'Three-Pedal Mechanics & Syncopated Legato Pedaling ("Strike Key → Lift & Re-depress Pedal")'}
                     </h3>
                   </div>
                   <span className="text-xs font-mono text-slate-300 bg-slate-800/80 px-3 py-1 rounded-lg border border-slate-700">
-                    FOOT TECHNIQUE • MIDI CC64
+                    {L("FOOT TECHNIQUE • MIDI CC64", "TEKNIK KAKI • MIDI CC64", "TÉCNICA DEL PIE • MIDI CC64")}
                   </span>
                 </div>
 
@@ -4293,8 +4324,11 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                     {[355, 545, 735].map((px, idx) => (
                       <g key={idx}>
                         <circle cx={px} cy="112" r="4.5" fill="#ef4444" stroke="#ffffff" strokeWidth="1.2" />
-                        <text x={px + 8} y="106" fill="#fca5a5" fontSize="11.5" fontFamily="monospace" fontWeight="bold">
-                          {L("↑ LIFT & RE-PRESS (+80ms AFTER note strike!)", "↑ ANGKAT & INJAK KEMBALI (+80ms SETELAH tuts ditekan!)", "↑ LEVANTAR Y VOLVER A PISAR (+80ms TRAS la pulsación!)")}
+                        <text x={px} y="89" textAnchor="middle" fill="#fca5a5" fontSize="11" fontFamily="monospace" fontWeight="bold">
+                          {L("↑ LIFT & RE-PRESS", "↑ ANGKAT & INJAK", "↑ LEVANTAR Y PISAR")}
+                        </text>
+                        <text x={px} y="101" textAnchor="middle" fill="#fda4af" fontSize="10" fontFamily="monospace">
+                          {L("+80 ms after the strike!", "+80 ms setelah tuts ditekan", "+80 ms tras la pulsación")}
                         </text>
                       </g>
                     ))}
@@ -4355,7 +4389,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
                   <div>
                     <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest block">
-                      FIG 3.4 — THUMB-UNDER (PASSAGGIO DEL POLLICE), CROSSOVER &amp; FOREARM ROTATION
+                      {isId ? 'FIG 3.4 — THUMB-UNDER (PASSAGGIO DEL POLLICE), CROSSOVER & ROTASI LENGAN BAWAH' : isEs ? 'FIG 3.4 — PASO DEL PULGAR (PASSAGGIO DEL POLLICE), CRUCE Y ROTACIÓN DEL ANTEBRAZO' : 'FIG 3.4 — THUMB-UNDER (PASSAGGIO DEL POLLICE), CROSSOVER & FOREARM ROTATION'}
                     </span>
                     <h3 className="text-base md:text-lg font-bold text-white mt-1">
                       {isId
@@ -4366,7 +4400,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                     </h3>
                   </div>
                   <span className="text-xs font-mono text-slate-300 bg-slate-800/80 px-3 py-1 rounded-lg border border-slate-700">
-                    SCALAR &amp; ROTATIONAL MECHANICS
+                    {L("SCALAR & ROTATIONAL MECHANICS", "MEKANIKA TANGGA NADA & ROTASI", "MECÁNICA DE ESCALAS Y ROTACIÓN")}
                   </span>
                 </div>
 
@@ -4514,6 +4548,99 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                 </div>
               </div>
 
+              {/* FIG 3.5: How Octavia Shows the Sustain Pedal (Sheet Music, Falling Notes, CC64) */}
+              <div className="bg-slate-900/90 border border-slate-800/90 rounded-2xl p-6 md:p-8 space-y-6 shadow-2xl backdrop-blur-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
+                  <div>
+                    <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest block">
+                      {L('FIG 3.5 — HOW OCTAVIA SHOWS THE SUSTAIN PEDAL (MIDI CC64)', 'FIG 3.5 — CARA OCTAVIA MENAMPILKAN PEDAL SUSTAIN (MIDI CC64)', 'FIG 3.5 — CÓMO OCTAVIA MUESTRA EL PEDAL DE RESONANCIA (MIDI CC64)')}
+                    </span>
+                    <h3 className="text-base md:text-lg font-bold text-white mt-1">
+                      {L('Reading Pedal Marks: Sheet Music Bracket, Falling-Note Band & Detection Threshold', 'Membaca Tanda Pedal: Bracket di Partitur, Pita di Falling Notes & Ambang Deteksi', 'Lectura de las marcas de pedal: corchete en la partitura, banda en las notas que caen y umbral de detección')}
+                    </h3>
+                  </div>
+                  <span className="text-xs font-mono text-slate-300 bg-slate-800/80 px-3 py-1 rounded-lg border border-slate-700">
+                    {L("PIANO ONLY • SHOW DYNAMICS ON", "HANYA PIANO • DINAMIKA ON", "SOLO PIANO • DINÁMICA ACTIVA")}
+                  </span>
+                </div>
+
+                <div className="w-full overflow-x-auto custom-scrollbar pb-1">
+                  <svg viewBox="0 0 860 250" className="w-full min-w-[760px] h-auto select-none font-sans">
+                    <rect width="860" height="250" rx="8" fill="#0a0f1d" stroke="#334155" />
+
+                    {/* Panel 1: Sheet music bracket */}
+                    <g transform="translate(16, 16)">
+                      <rect width="280" height="218" rx="6" fill="#0a0f1a" stroke="#1e293b" />
+                      <text x="12" y="18" fill="#fbbf24" fontSize="11" fontFamily="monospace" fontWeight="bold">
+                        {L("1. SHEET MUSIC — BRACKET", "1. PARTITUR — BRACKET", "1. PARTITURA — CORCHETE")}
+                      </text>
+                      {[60, 70, 80, 90, 100].map((y) => (
+                        <line key={y} x1="20" y1={y} x2="260" y2={y} stroke="#475569" strokeWidth="1" />
+                      ))}
+                      {[[56, 80], [100, 70], [150, 90], [200, 75]].map(([cx, cy], j) => (
+                        <ellipse key={j} cx={cx} cy={cy} rx="5" ry="4" fill="#e2e8f0" />
+                      ))}
+                      {/* Pedal bracket: "Ped." → line → "*" */}
+                      <text x="22" y="132" fill="#fbbf24" fontSize="13" fontFamily="monospace" fontWeight="bold">Ped.</text>
+                      <line x1="68" y1="128" x2="216" y2="128" stroke="#f59e0b" strokeWidth="1.8" />
+                      <line x1="216" y1="128" x2="216" y2="122" stroke="#f59e0b" strokeWidth="1.8" />
+                      <text x="222" y="134" fill="#fbbf24" fontSize="16" fontFamily="monospace" fontWeight="bold">*</text>
+                      <text x="12" y="166" fill="#cbd5e1" fontSize="11" fontFamily="monospace">{L("Ped. = press the pedal (down)", "Ped. = tekan pedal (down)", "Ped. = pisar el pedal (abajo)")}</text>
+                      <text x="12" y="182" fill="#cbd5e1" fontSize="11" fontFamily="monospace">{L("* = release the pedal (up)", "* = lepas pedal (up)", "* = soltar el pedal (arriba)")}</text>
+                      <text x="12" y="200" fill="#94a3b8" fontSize="10" fontFamily="monospace">{L("Shown with Show Dynamics & Velocity", "Tampil saat Dinamika & Velocity aktif", "Visible con Dinámica y Velocidad activa")}</text>
+                    </g>
+
+                    {/* Panel 2: Falling notes band */}
+                    <g transform="translate(308, 16)">
+                      <rect width="200" height="218" rx="6" fill="#0a0f1a" stroke="#1e293b" />
+                      <text x="12" y="18" fill="#fbbf24" fontSize="11" fontFamily="monospace" fontWeight="bold">
+                        {L("2. FALLING NOTES — BAND", "2. FALLING NOTES — PITA", "2. NOTAS CAYENDO — BANDA")}
+                      </text>
+                      <rect x="50" y="34" width="100" height="150" fill="#070b15" stroke="#1e293b" />
+                      <rect x="50" y="70" width="100" height="84" fill="#f59e0b" fillOpacity="0.16" />
+                      <line x1="50" y1="70" x2="150" y2="70" stroke="#f59e0b" strokeWidth="1.2" strokeDasharray="4 3" />
+                      <line x1="50" y1="154" x2="150" y2="154" stroke="#f59e0b" strokeWidth="1.2" strokeDasharray="4 3" />
+                      <text x="100" y="64" textAnchor="middle" fill="#fbbf24" fontSize="11" fontFamily="monospace" fontWeight="bold">Ped.</text>
+                      <text x="100" y="170" textAnchor="middle" fill="#fbbf24" fontSize="13" fontFamily="monospace" fontWeight="bold">*</text>
+                      {[[56, 40], [120, 42], [62, 96], [92, 112], [124, 104], [58, 136], [110, 140], [108, 158]].map(([nx, ny], j) => (
+                        <rect key={j} x={nx} y={ny} width="22" height="9" rx="2" fill="#38bdf8" />
+                      ))}
+                      <line x1="50" y1="184" x2="150" y2="184" stroke="#22d3ee" strokeWidth="2" />
+                      <text x="12" y="204" fill="#cbd5e1" fontSize="10.5" fontFamily="monospace">{L("Band = pedal held", "Pita = pedal ditekan", "Banda = pedal pisado")}</text>
+                      <text x="12" y="216" fill="#94a3b8" fontSize="10" fontFamily="monospace">{L("(from Ped. down to *)", "(dari Ped. ke *)", "(de Ped. a *)")}</text>
+                    </g>
+
+                    {/* Panel 3: CC64 detection threshold */}
+                    <g transform="translate(520, 16)">
+                      <rect width="324" height="218" rx="6" fill="#0a0f1a" stroke="#1e293b" />
+                      <text x="12" y="18" fill="#fbbf24" fontSize="11" fontFamily="monospace" fontWeight="bold">
+                        {L("3. DETECTION — MIDI CC64", "3. DETEKSI — MIDI CC64", "3. DETECCIÓN — MIDI CC64")}
+                      </text>
+                      {/* Value axis: 127 (top) → 0 (bottom) */}
+                      <text x="42" y="54" textAnchor="end" fill="#64748b" fontSize="10" fontFamily="monospace">127</text>
+                      <text x="42" y="113" textAnchor="end" fill="#fbbf24" fontSize="10" fontFamily="monospace" fontWeight="bold">64</text>
+                      <text x="42" y="174" textAnchor="end" fill="#64748b" fontSize="10" fontFamily="monospace">0</text>
+                      <line x1="50" y1="170" x2="300" y2="170" stroke="#334155" strokeWidth="1" />
+                      <line x1="50" y1="110" x2="300" y2="110" stroke="#fbbf24" strokeWidth="1" strokeDasharray="4 3" />
+                      <rect x="110" y="50" width="110" height="120" fill="#f59e0b" fillOpacity="0.08" />
+                      <path d="M 50 170 L 110 170 L 110 50 L 220 50 L 220 170 L 300 170" fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeLinejoin="round" />
+                      <text x="80" y="156" textAnchor="middle" fill="#94a3b8" fontSize="10.5" fontFamily="monospace">{L("Up (released)", "Lepas (up)", "Arriba (soltado)")}</text>
+                      <text x="165" y="40" textAnchor="middle" fill="#fbbf24" fontSize="10.5" fontFamily="monospace" fontWeight="bold">{L("Down (pressed)", "Tekan (down)", "Abajo (pisado)")}</text>
+                      <text x="12" y="196" fill="#fde68a" fontSize="11" fontFamily="monospace" fontWeight="bold">{L("CC64 ≥ 64  →  pressed (down)", "CC64 ≥ 64  →  tekan (down)", "CC64 ≥ 64  →  pisado (abajo)")}</text>
+                      <text x="12" y="210" fill="#cbd5e1" fontSize="11" fontFamily="monospace">{L("CC64 < 64  →  released (up)", "CC64 < 64  →  lepas (up)", "CC64 < 64  →  soltado (arriba)")}</text>
+                    </g>
+                  </svg>
+                </div>
+
+                <p className="text-sm md:text-[15px] text-slate-300 leading-relaxed">
+                  {L(
+                    "Octavia reads the sustain pedal (MIDI CC64) as two states only: pressed or released, using the threshold 64 (about 0.5 on the normalized 0–1 scale). Pedal marks are shown only for piano, and only while Show Dynamics & Velocity is enabled. Drum tracks have no pedal.",
+                    "Octavia membaca pedal sustain (MIDI CC64) hanya sebagai dua keadaan: ditekan atau dilepas, dengan ambang 64 (sekitar 0,5 pada skala ternormalisasi 0–1). Tanda pedal hanya tampil untuk piano, dan hanya saat Tampilkan Dinamika & Velocity aktif. Track drum tidak memiliki pedal.",
+                    "Octavia lee el pedal de resonancia (MIDI CC64) solo como dos estados: pisado o soltado, con el umbral 64 (aprox. 0,5 en la escala normalizada 0–1). Las marcas de pedal solo se muestran en piano y con Mostrar Dinámica y Velocidad activo. Las pistas de batería no tienen pedal."
+                  )}
+                </p>
+              </div>
+
               {/* TABLE B2: 12-KEY MAJOR SCALE MASTER FINGERING TABLE */}
               <div className="bg-slate-900/90 border border-slate-800/80 shadow-xl border border-slate-800 rounded-xl p-6 space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
@@ -4580,7 +4707,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                     </h3>
                   </div>
                   <span className="text-xs font-mono font-medium text-slate-300 bg-slate-800 px-2.5 py-1 rounded border border-slate-700">
-                    BLACK-KEY TONIC ADJUSTED
+                    {L("BLACK-KEY TONIC ADJUSTED", "TONIK TUTS HITAM (DISESUAIKAN)", "TÓNICA EN TECLA NEGRA (AJUSTADA)")}
                   </span>
                 </div>
 
@@ -4742,6 +4869,79 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                   ))}
                 </div>
               </div>
+
+              {/* SECTION 3.7: Posture Checklist & Practice Ergonomics */}
+              <div className="bg-slate-900/90 border border-slate-800/80 shadow-xl rounded-xl p-6 space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                  <div>
+                    <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest block">
+                      {L('SECTION 3.7 — POSTURE CHECKLIST & PRACTICE ERGONOMICS', 'BAGIAN 3.7 — CHECKLIST POSTUR & ERGONOMI LATIHAN', 'SECCIÓN 3.7 — CHECKLIST DE POSTURA Y ERGONOMÍA DE LA PRÁCTICA')}
+                    </span>
+                    <h3 className="text-base font-bold text-white mt-0.5">
+                      {L('60-Second Self-Check Before Every Session', 'Cek Mandiri 60 Detik Sebelum Setiap Sesi', 'Autocomprobación de 60 segundos antes de cada sesión')}
+                    </h3>
+                  </div>
+                </div>
+
+                <ol className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs md:text-sm">
+                  {[
+                    { en: 'Feet flat on the floor; right heel anchored as the pedal fulcrum.', id: 'Kedua kaki menapak di lantai; tumit kanan sebagai tumpuan pedal.', es: 'Pies planos en el suelo; talón derecho como punto de apoyo del pedal.' },
+                    { en: 'Forearms level with the keys; elbows around 95°–105°.', id: 'Lengan bawah sejajar tuts; siku sekitar 95°–105°.', es: 'Antebrazos a la altura de las teclas; codos entre 95° y 105°.' },
+                    { en: 'Shoulders down and relaxed, not raised during fast passages.', id: 'Bahu turun dan rileks, tidak terangkat saat pasase cepat.', es: 'Hombros bajos y relajados, sin elevarlos en pasajes rápidos.' },
+                    { en: 'Wrist neutral: not dropped below the keybed, not cocked upward.', id: 'Pergelangan netral: tidak turun di bawah tuts, tidak menekuk ke atas.', es: 'Muñeca neutra: ni caída bajo las teclas ni doblada hacia arriba.' },
+                    { en: 'Spine tall, head balanced over the torso.', id: 'Tulang belakang tegak, kepala seimbang di atas badan.', es: 'Columna erguida, cabeza equilibrada sobre el torso.' },
+                    { en: 'Hands relaxed: release tension between phrases.', id: 'Tangan rileks: lepaskan ketegangan di sela-sela frasa.', es: 'Manos relajadas: suelta la tensión entre frases.' },
+                  ].map((item, i) => (
+                    <li key={i} className="flex gap-3 p-4 bg-slate-900/70 rounded-lg border border-slate-800">
+                      <span className="font-mono font-bold text-cyan-400 flex-shrink-0">{String(i + 1).padStart(2, '0')}</span>
+                      <span className="text-slate-200 leading-relaxed">{L(item.en, item.id, item.es)}</span>
+                    </li>
+                  ))}
+                </ol>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs pt-1">
+                  {[
+                    { title: L('Warm-up: 5–10 minutes', 'Pemanasan: 5–10 menit', 'Calentamiento: 5–10 minutos'), desc: L('Start slowly with 5-finger patterns and legato scales, then raise the tempo gradually.', 'Mulai pelan dengan pola 5 jari dan tangga nada legato, lalu naikkan tempo secara bertahap.', 'Empieza despacio con patrones de 5 dedos y escalas ligadas, y sube el tempo poco a poco.'), col: 'text-emerald-300' },
+                    { title: L('Rest: 2–5 minutes every 20–30 minutes', 'Istirahat: 2–5 menit setiap 20–30 menit', 'Descanso: 2–5 minutos cada 20–30 minutos'), desc: L('Stand up, shake out your hands and arms, and let the shoulders drop.', 'Berdiri, kibaskan tangan dan lengan, lalu biarkan bahu turun.', 'Ponte de pie, sacude manos y brazos, y deja caer los hombros.'), col: 'text-amber-300' },
+                    { title: L('Stop at warning signs', 'Berhenti saat ada tanda bahaya', 'Para ante las señales de alarma'), desc: L('Numbness, tingling, or sharp pain in the hand, wrist, or forearm means stop and rest. See a doctor if it persists.', 'Mati rasa, kesemutan, atau nyeri tajam di tangan, pergelangan, atau lengan berarti berhenti dan istirahat. Temui dokter jika berlanjut.', 'Adormecimiento, hormigueo o dolor agudo en la mano, la muñeca o el antebrazo significa parar y descansar. Consulta a un médico si persiste.'), col: 'text-rose-300' },
+                  ].map((c, i) => (
+                    <div key={i} className="p-4 md:p-5 bg-slate-800/60 rounded-xl border border-slate-700/80 space-y-2">
+                      <div className={`font-mono font-bold text-base ${c.col}`}>{c.title}</div>
+                      <p className="text-slate-300 leading-relaxed">{c.desc}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* SECTION 3.9: Core Fingering Principles */}
+              <div className="bg-slate-900/90 border border-slate-800/80 shadow-xl rounded-xl p-6 space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                  <div>
+                    <span className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-widest block">
+                      {L('SECTION 3.9 — CORE FINGERING PRINCIPLES', 'BAGIAN 3.9 — PRINSIP DASAR FINGERING', 'SECCIÓN 3.9 — PRINCIPIOS BÁSICOS DE DIGITACIÓN')}
+                    </span>
+                    <h3 className="text-base font-bold text-white mt-0.5">
+                      {L('Six Rules That Apply to Any Passage', 'Enam Aturan yang Berlaku untuk Setiap Pasase', 'Seis reglas que se aplican a cualquier pasaje')}
+                    </h3>
+                  </div>
+                </div>
+
+                <ol className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs md:text-sm">
+                  {[
+                    { en: 'Start from the pattern (scale or arpeggio), then adjust it to the phrase.', id: 'Mulai dari pola (tangga nada atau arpeggio), lalu sesuaikan dengan frasa.', es: 'Parte del patrón (escala o arpegio) y ajústalo después a la frase.' },
+                    { en: 'Strong fingers (1, 2, 3) on strong beats; the weaker 4 and 5 on softer notes.', id: 'Jari kuat (1, 2, 3) untuk ketukan kuat; jari lemah 4 dan 5 untuk nada yang lebih lembut.', es: 'Dedos fuertes (1, 2, 3) en tiempos fuertes; los débiles 4 y 5 en notas más suaves.' },
+                    { en: 'Black keys: use fingers 2, 3, or 4. In scales, keep the thumb off the black keys.', id: 'Tuts hitam: gunakan jari 2, 3, atau 4. Dalam tangga nada, jauhkan jempol dari tuts hitam.', es: 'Teclas negras: usa los dedos 2, 3 o 4. En escalas, mantén el pulgar fuera de las teclas negras.' },
+                    { en: 'Finger substitution: when a key must be held while the hand moves, change finger on that key without a gap.', id: 'Pergantian jari (substitusi): saat satu tuts harus ditahan selagi tangan bergerak, ganti jari di tuts itu tanpa jeda.', es: 'Sustitución de dedos: si una tecla debe mantenerse mientras la mano se mueve, cambia el dedo sobre ella sin hueco.' },
+                    { en: 'Pivot: finger 3 (or 4) is the pivot for thumb-under and for crossing over the thumb.', id: 'Poros: jari 3 (atau 4) menjadi poros saat jempol masuk di bawah (thumb-under) dan saat jari melintas di atas jempol.', es: 'Pivote: el dedo 3 (o el 4) es el pivote del paso de pulgar y del cruce por encima del pulgar.' },
+                    { en: 'Write the fingering into the score from the first reading and keep it the same on repeats.', id: 'Tulis fingering di partitur sejak pembacaan pertama dan pertahankan saat pengulangan.', es: 'Escribe la digitación en la partitura desde la primera lectura y mantenla igual en las repeticiones.' },
+                  ].map((item, i) => (
+                    <li key={i} className="flex gap-3 p-4 bg-slate-900/70 rounded-lg border border-slate-800">
+                      <span className="font-mono font-bold text-cyan-400 flex-shrink-0">{String(i + 1).padStart(2, '0')}</span>
+                      <span className="text-slate-200 leading-relaxed">{L(item.en, item.id, item.es)}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
             </article>
           )}
 
@@ -4754,7 +4954,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                 <div>
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-xs md:text-sm font-mono font-bold text-cyan-400 uppercase tracking-widest">
-                      {isId ? 'MODUL 04 • MESIN KEYBOARD KOMPUTER & PIANO VIRTUAL 61-TUTS' : isEs ? 'MÓDULO 04 • TECLADO DE PC Y PIANO VIRTUAL' : 'MODULE 04 • PC KEYBOARD ENGINE & 61-KEY VIRTUAL PIANO'}
+                      {isId ? 'MODUL 04 • KEYBOARD PC & VIRTUAL PIANO' : isEs ? 'MÓDULO 04 • TECLADO PC Y PIANO VIRTUAL' : 'MODULE 04 • PC KEYBOARD & VIRTUAL PIANO'}
                     </span>
                     <span className="text-xs font-mono px-3 py-1 rounded-lg bg-slate-800/90 text-slate-300 border border-slate-700">
                       3 TECHNICAL DIAGRAMS • FULL 61-KEY MATRIX
@@ -4779,7 +4979,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                   type="button"
                   onClick={() => handleSelectChapter('exercises')}
                   className="px-4 py-2.5 rounded-xl bg-slate-800/90 hover:bg-cyan-950/60 border border-slate-700 hover:border-cyan-500/50 text-cyan-400 hover:text-cyan-300 text-xs md:text-sm font-mono font-bold transition-all flex items-center gap-2 flex-shrink-0 shadow-sm active:scale-95 cursor-pointer"
-                  title={isId ? 'Buka Generator Latihan Drill (Bab 06)' : isEs ? 'Abrir Generador de Drills (Cap. 06)' : 'Open Drill Generator (Ch. 06)'}
+                  title={isId ? 'Buka Piano Warm Up (Bab 06)' : isEs ? 'Abrir Piano Warm Up (Cap. 06)' : 'Open Piano Warm Up (Ch. 06)'}
                 >
                   <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
                   <span>{t.jumpToDrills}</span>
@@ -4813,7 +5013,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                     <g transform="translate(20, 16)">
                       <rect width="400" height="252" rx="6" fill="#0a0f1a" stroke="#1e293b" />
                       <text x="16" y="22" fill="#f59e0b" fontSize="13.5" fontFamily="monospace" fontWeight="bold">
-                        VIEWPORT 01 • QWERTY TYPER (SPATIAL KEYGRID OVERLAY)
+                        {L('VIEWPORT 01 • QWERTY TYPER (SPATIAL KEYGRID OVERLAY)','VIEWPORT 01 • QWERTY TYPER (OVERLAY KISI SPASIAL)','VISTA 01 • QWERTY TYPER (SUPERPOSICIÓN ESPACIAL DE TECLAS)')}
                       </text>
 
                       {/* 4 Key Rows Mock */}
@@ -4851,10 +5051,10 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
 
                       <rect x="16" y="192" width="368" height="48" rx="4" fill="#0f172a" stroke="#1e293b" />
                       <text x="26" y="210" fill="#7dd3fc" fontSize="12.5" fontFamily="monospace" fontWeight="bold">
-                        • Cyan/Amber Reticle = Natural White Key (Press when box matches key)
+                        {L('• Cyan/Amber Reticle = Natural White Key (Press when box matches key)','• Reticle cyan/kuning = tuts putih natural (tekan saat kotak cocok dengan tuts)','• Retícula cian/ámbar = tecla blanca natural (pulsa cuando la caja coincide con la tecla)')}
                       </text>
                       <text x="26" y="227" fill="#fda4af" fontSize="12.5" fontFamily="monospace" fontWeight="bold">
-                        • Red Reticle (#f43f5e) = Sharp / Black Key on that physical keycap
+                        {L('• Red Reticle (#f43f5e) = Sharp / Black Key on that physical keycap','• Reticle merah (#f43f5e) = kres / tuts hitam pada tuts fisik tersebut','• Retícula roja (#f43f5e) = sostenido / tecla negra en esa tecla física')}
                       </text>
                     </g>
 
@@ -4955,7 +5155,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
 
                     {/* ROW 1: 1 2 3 4 5 6 7 8 9 0 (C2 to E3) */}
                     <text x="20" y="26" fill="#94a3b8" fontSize="13" fontFamily="monospace" fontWeight="bold">
-                      ROW 1 (NUMBERS) • BASS OCTAVES C2 — E3
+                      {L('ROW 1 (NUMBERS) • BASS OCTAVES C2 — E3','BARIS 1 (ANGKA) • OKTAF BAS C2 — E3','FILA 1 (NÚMEROS) • OCTAVAS GRAVES C2 — E3')}
                     </text>
                     {[
                       { k: '1', sh: '! C♯2', p: 'C2', oct: 2 },
@@ -4974,7 +5174,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                         <text x="12" y="18" fill="#f8fafc" fontSize="12" fontFamily="monospace" fontWeight="bold">{item.k}</text>
                         <text x="66" y="18" textAnchor="end" fill="#818cf8" fontSize="13.5" fontFamily="monospace" fontWeight="bold">{item.p}</text>
                         <text x="38" y="37" textAnchor="middle" fill={item.sh === '—' ? '#475569' : '#f59e0b'} fontSize="12" fontFamily="monospace">
-                          {item.sh === '—' ? 'No Black Key' : `⇧ ${item.sh}`}
+                          {item.sh === '—' ? L('No Black Key','Tanpa Tuts Hitam','Sin tecla negra') : `⇧ ${item.sh}`}
                         </text>
                       </g>
                     ))}
@@ -4988,7 +5188,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                       { k: 'w', sh: 'W G♯3', p: 'G3', mid: false },
                       { k: 'e', sh: 'E A♯3', p: 'A3', mid: false },
                       { k: 'r', sh: '—', p: 'B3', mid: false },
-                      { k: 't', sh: 'T C♯4', p: 'C4 (Anchor)', mid: true },
+                      { k: 't', sh: 'T C♯4', p: 'C4 ★', mid: true }, // the row title says: key [t] = Middle C4 (the anchor)
                       { k: 'y', sh: 'Y D♯4', p: 'D4', mid: false },
                       { k: 'u', sh: '—', p: 'E4', mid: false },
                       { k: 'i', sh: 'I F♯4', p: 'F4', mid: false },
@@ -5007,7 +5207,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                         <text x="12" y="18" fill="#ffffff" fontSize="12" fontFamily="monospace" fontWeight="bold">{item.k}</text>
                         <text x="66" y="18" textAnchor="end" fill={item.mid ? '#fde68a' : '#38bdf8'} fontSize="13.5" fontFamily="monospace" fontWeight="bold">{item.p}</text>
                         <text x="38" y="37" textAnchor="middle" fill={item.sh === '—' ? '#475569' : '#f59e0b'} fontSize="12" fontFamily="monospace">
-                          {item.sh === '—' ? 'No Black Key' : `⇧ ${item.sh}`}
+                          {item.sh === '—' ? L('No Black Key','Tanpa Tuts Hitam','Sin tecla negra') : `⇧ ${item.sh}`}
                         </text>
                       </g>
                     ))}
@@ -5032,7 +5232,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                         <text x="12" y="18" fill="#ffffff" fontSize="12" fontFamily="monospace" fontWeight="bold">{item.k}</text>
                         <text x="74" y="18" textAnchor="end" fill="#34d399" fontSize="13.5" fontFamily="monospace" fontWeight="bold">{item.p}</text>
                         <text x="42" y="37" textAnchor="middle" fill={item.sh === '—' ? '#475569' : '#f59e0b'} fontSize="12" fontFamily="monospace">
-                          {item.sh === '—' ? 'No Black Key' : `⇧ ${item.sh}`}
+                          {item.sh === '—' ? L('No Black Key','Tanpa Tuts Hitam','Sin tecla negra') : `⇧ ${item.sh}`}
                         </text>
                       </g>
                     ))}
@@ -5055,7 +5255,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                         <text x="14" y="18" fill="#ffffff" fontSize="12" fontFamily="monospace" fontWeight="bold">{item.k}</text>
                         <text x="96" y="18" textAnchor="end" fill="#fbbf24" fontSize="13.5" fontFamily="monospace" fontWeight="bold">{item.p}</text>
                         <text x="54" y="37" textAnchor="middle" fill={item.sh === '—' ? '#475569' : '#f59e0b'} fontSize="12" fontFamily="monospace">
-                          {item.sh === '—' ? 'No Black Key' : item.k === 'm' ? 'Top Key (MIDI 96)' : `⇧ ${item.sh}`}
+                          {item.sh === '—' ? L('No Black Key','Tanpa Tuts Hitam','Sin tecla negra') : item.k === 'm' ? 'Top Key (MIDI 96)' : `⇧ ${item.sh}`}
                         </text>
                       </g>
                     ))}
@@ -5089,7 +5289,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                     <g transform="translate(20, 16)">
                       <rect width="400" height="162" rx="6" fill="#0a0f1a" stroke="#1e293b" />
                       <text x="14" y="20" fill="#38bdf8" fontSize="13" fontFamily="monospace" fontWeight="bold">
-                        UPPER OCTAVE TIER • WHITE [Q–P] + BLACK [2 3 5 6 7]
+                        {L('UPPER OCTAVE TIER • WHITE [Q–P] + BLACK [2 3 5 6 7]','TINGKAT OKTAF ATAS • PUTIH [Q–P] + HITAM [2 3 5 6 7]','NIVEL DE OCTAVA SUPERIOR • BLANCAS [Q–P] + NEGRAS [2 3 5 6 7]')}
                       </text>
                       {/* White Keys Q W E R T Y U I O P */}
                       {['Q:C4', 'W:D4', 'E:E4', 'R:F4', 'T:G4', 'Y:A4', 'U:B4', 'I:C5', 'O:D5', 'P:E5'].map((item, i) => (
@@ -5501,7 +5701,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                 <div>
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-xs md:text-sm font-mono font-bold text-cyan-400 uppercase tracking-widest">
-                      {isId ? 'MODUL 05 • LABORATORIUM TEORI HARMONI & VOICE LEADING' : isEs ? 'MÓDULO 05 • TEORÍA ARMÓNICA Y CONDUCCIÓN' : 'MODULE 05 • HARMONIC THEORY & VOICE LEADING LAB'}
+                      {isId ? 'MODUL 05 • TEORI HARMONI & VOICE LEADING' : isEs ? 'MÓDULO 05 • TEORÍA ARMÓNICA Y CONDUCCIÓN' : 'MODULE 05 • HARMONIC THEORY & VOICING'}
                     </span>
                     <span className="text-xs font-mono px-3 py-1 rounded-lg bg-slate-800/90 text-slate-300 border border-slate-700">
                       5 TECHNICAL DIAGRAMS • INTERACTIVE COMPASS
@@ -5526,7 +5726,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                   type="button"
                   onClick={() => handleSelectChapter('exercises')}
                   className="px-4 py-2.5 rounded-xl bg-slate-800/90 hover:bg-cyan-950/60 border border-slate-700 hover:border-cyan-500/50 text-cyan-400 hover:text-cyan-300 text-xs md:text-sm font-mono font-bold transition-all flex items-center gap-2 flex-shrink-0 shadow-sm active:scale-95 cursor-pointer"
-                  title={isId ? 'Buka Generator Latihan Drill (Bab 06)' : isEs ? 'Abrir Generador de Drills (Cap. 06)' : 'Open Drill Generator (Ch. 06)'}
+                  title={isId ? 'Buka Piano Warm Up (Bab 06)' : isEs ? 'Abrir Piano Warm Up (Cap. 06)' : 'Open Piano Warm Up (Ch. 06)'}
                 >
                   <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
                   <span>{t.jumpToDrills}</span>
@@ -5558,19 +5758,19 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
 
                     <line x1="42" y1="62" x2="818" y2="62" stroke="#334155" strokeWidth="2" />
                     {[
-                      { st: '0', note: 'C', abbr: 'P1', name: 'Root', col: '#f59e0b', role: 'Tonic' },
-                      { st: '+1', note: 'C♯/D♭', abbr: 'm2', name: 'Min 2nd', col: '#64748b', role: 'Tension' },
-                      { st: '+2', note: 'D', abbr: 'M2', name: 'Maj 2nd', col: '#94a3b8', role: 'Sus2 / 9th' },
-                      { st: '+3', note: 'D♯/E♭', abbr: 'm3', name: 'Min 3rd', col: '#38bdf8', role: 'Minor 3rd' },
-                      { st: '+4', note: 'E', abbr: 'M3', name: 'Maj 3rd', col: '#10b981', role: 'Major 3rd' },
-                      { st: '+5', note: 'F', abbr: 'P4', name: 'Perf 4th', col: '#94a3b8', role: 'Sus4' },
-                      { st: '+6', note: 'F♯/G♭', abbr: 'TT', name: 'Tritone', col: '#ef4444', role: 'Dim5 / Blue' },
-                      { st: '+7', note: 'G', abbr: 'P5', name: 'Perf 5th', col: '#a855f7', role: '5th Pillar' },
-                      { st: '+8', note: 'G♯/A♭', abbr: 'm6', name: 'Min 6th', col: '#64748b', role: 'Aug5 / ♭13' },
-                      { st: '+9', note: 'A', abbr: 'M6', name: 'Maj 6th', col: '#94a3b8', role: '6th / Dim7' },
-                      { st: '+10', note: 'A♯/B♭', abbr: 'm7', name: 'Min 7th', col: '#ec4899', role: 'Dom7 / m7' },
-                      { st: '+11', note: 'B', abbr: 'M7', name: 'Maj 7th', col: '#f43f5e', role: 'Maj7 Lead' },
-                      { st: '+12', note: 'C', abbr: 'P8', name: 'Octave', col: '#f59e0b', role: '2:1 Ratio' },
+                      { st: '0', note: 'C', abbr: 'P1', name: L('Root', 'Akar', 'Fundamental'), col: '#f59e0b', role: L('Tonic', 'Tonika', 'Tónica') },
+                      { st: '+1', note: 'C♯/D♭', abbr: 'm2', name: L('Min 2nd', 'Sekonde Minor', '2.ª menor'), col: '#64748b', role: L('Tension', 'Tegangan', 'Tensión') },
+                      { st: '+2', note: 'D', abbr: 'M2', name: L('Maj 2nd', 'Sekonde Mayor', '2.ª mayor'), col: '#94a3b8', role: L('Sus2 / 9th', 'Sus2 / 9', 'Sus2 / 9.ª') },
+                      { st: '+3', note: 'D♯/E♭', abbr: 'm3', name: L('Min 3rd', 'Ketiga Minor', '3.ª menor'), col: '#38bdf8', role: L('Minor 3rd', 'Ketiga minor', '3.ª menor') },
+                      { st: '+4', note: 'E', abbr: 'M3', name: L('Maj 3rd', 'Ketiga Mayor', '3.ª mayor'), col: '#10b981', role: L('Major 3rd', 'Ketiga mayor', '3.ª mayor') },
+                      { st: '+5', note: 'F', abbr: 'P4', name: L('Perf 4th', 'Kuarta Murni', '4.ª justa'), col: '#94a3b8', role: L('Sus4', 'Sus4', 'Sus4') },
+                      { st: '+6', note: 'F♯/G♭', abbr: 'TT', name: L('Tritone', 'Tritonus', 'Tritono'), col: '#ef4444', role: L('Dim5 / Blue', 'Dim5 / Biru', 'Dim5 / Azul') },
+                      { st: '+7', note: 'G', abbr: 'P5', name: L('Perf 5th', 'Kuinta Murni', '5.ª justa'), col: '#a855f7', role: L('5th Pillar', 'Pilar kuint', 'Pilar de 5.ª') },
+                      { st: '+8', note: 'G♯/A♭', abbr: 'm6', name: L('Min 6th', 'Sekta Minor', '6.ª menor'), col: '#64748b', role: 'Aug5 / ♭13' },
+                      { st: '+9', note: 'A', abbr: 'M6', name: L('Maj 6th', 'Sekta Mayor', '6.ª mayor'), col: '#94a3b8', role: L('6th / Dim7', '6 / Dim7', '6.ª / Dim7') },
+                      { st: '+10', note: 'A♯/B♭', abbr: 'm7', name: L('Min 7th', 'Septima Minor', '7.ª menor'), col: '#ec4899', role: L('Dom7 / m7', 'Dom7 / m7', 'Dom7 / m7') },
+                      { st: '+11', note: 'B', abbr: 'M7', name: L('Maj 7th', 'Septima Mayor', '7.ª mayor'), col: '#f43f5e', role: L('Maj7 Lead', 'Pemimpin Maj7', 'Guía Maj7') },
+                      { st: '+12', note: 'C', abbr: 'P8', name: L('Octave', 'Oktaf', 'Octava'), col: '#f59e0b', role: L('2:1 Ratio', 'Rasio 2:1', 'Razón 2:1') },
                     ].map((it, i) => {
                       const x = 42 + i * 64.6;
                       const isKey = ['0', '+3', '+4', '+7', '+10', '+11', '+12'].includes(it.st);
@@ -5591,7 +5791,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                     {/* Bottom Formula Strip */}
                     <rect x="24" y="144" width="812" height="36" rx="4" fill="#0a0f1a" stroke="#1e293b" />
                     <text x="430" y="166" textAnchor="middle" fill="#cbd5e1" fontSize="13" fontFamily="monospace">
-                      Major Triad = [0, 4, 7] • Minor Triad = [0, 3, 7] • Diminished = [0, 3, 6] • Augmented = [0, 4, 8] • Dom7 = [0, 4, 7, 10] • Maj7 = [0, 4, 7, 11]
+                      {L('Major Triad = [0, 4, 7] • Minor Triad = [0, 3, 7] • Diminished = [0, 3, 6] • Augmented = [0, 4, 8] • Dom7 = [0, 4, 7, 10] • Maj7 = [0, 4, 7, 11]', 'Triad Mayor = [0, 4, 7] • Triad Minor = [0, 3, 7] • Diminished = [0, 3, 6] • Augmented = [0, 4, 8] • Dom7 = [0, 4, 7, 10] • Maj7 = [0, 4, 7, 11]', 'Tríada mayor = [0, 4, 7] • Tríada menor = [0, 3, 7] • Disminuida = [0, 3, 6] • Aumentada = [0, 4, 8] • Dom7 = [0, 4, 7, 10] • Maj7 = [0, 4, 7, 11]')}
                     </text>
                   </svg>
                 </div>
@@ -5620,17 +5820,16 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                   <svg viewBox="0 0 860 245" className="w-full min-w-[760px] h-auto select-none font-sans">
                     <rect width="860" height="245" rx="8" fill="#0a0f1d" stroke="#334155" />
                     {[
-                      { name: 'C MAJOR (1–3–5)', formula: '[0, 4, 7] • 4st + 3st', notes: 'C – E – G', whites: [0, 2, 4], blacks: [], col: '#10b981', x: 18, y: 14 },
-                      { name: 'C MINOR (1–♭3–5)', formula: '[0, 3, 7] • 3st + 4st', notes: 'C – E♭ – G', whites: [0, 4], blacks: [1], col: '#38bdf8', x: 298, y: 14 },
-                      { name: 'C DIMINISHED (1–♭3–♭5)', formula: '[0, 3, 6] • 3st + 3st', notes: 'C – E♭ – G♭', whites: [0], blacks: [1, 3], col: '#f43f5e', x: 578, y: 14 },
-                      { name: 'C AUGMENTED (1–3–♯5)', formula: '[0, 4, 8] • 4st + 4st', notes: 'C – E – G♯', whites: [0, 2], blacks: [4], col: '#f59e0b', x: 18, y: 128 },
-                      { name: 'C DOMINANT 7 (1–3–5–♭7)', formula: '[0, 4, 7, 10] • Triad + m7', notes: 'C – E – G – B♭', whites: [0, 2, 4], blacks: [5], col: '#a855f7', x: 298, y: 128 },
-                      { name: 'C MAJOR 7 (1–3–5–7)', formula: '[0, 4, 7, 11] • Triad + M7', notes: 'C – E – G – B', whites: [0, 2, 4, 6], blacks: [], col: '#ec4899', x: 578, y: 128 },
+                      { name: L('C MAJOR (1–3–5)', 'C MAYOR (1–3–5)', 'DO MAYOR (1–3–5)'), formula: '[0, 4, 7] • 4st + 3st', notes: 'C – E – G', whites: [0, 2, 4], blacks: [], col: '#10b981', x: 18, y: 14 },
+                      { name: L('C MINOR (1–♭3–5)', 'C MINOR (1–♭3–5)', 'DO MENOR (1–♭3–5)'), formula: '[0, 3, 7] • 3st + 4st', notes: 'C – E♭ – G', whites: [0, 4], blacks: [1], col: '#38bdf8', x: 298, y: 14 },
+                      { name: L('C DIMINISHED (1–♭3–♭5)', 'C DIMINUIS (1–♭3–♭5)', 'DO DISMINUIDO (1–♭3–♭5)'), formula: '[0, 3, 6] • 3st + 3st', notes: 'C – E♭ – G♭', whites: [0], blacks: [1, 3], col: '#f43f5e', x: 578, y: 14 },
+                      { name: L('C AUGMENTED (1–3–♯5)', 'C AUGMENTED (1–3–♯5)', 'DO AUMENTADO (1–3–♯5)'), formula: '[0, 4, 8] • 4st + 4st', notes: 'C – E – G♯', whites: [0, 2], blacks: [4], col: '#f59e0b', x: 18, y: 128 },
+                      { name: L('C DOMINANT 7 (1–3–5–♭7)', 'C DOMINAN 7 (1–3–5–♭7)', 'DO DOMINANTE 7 (1–3–5–♭7)'), formula: '[0, 4, 7, 10] • Triad + m7', notes: 'C – E – G – B♭', whites: [0, 2, 4], blacks: [5], col: '#a855f7', x: 298, y: 128 },
+                      { name: L('C MAJOR 7 (1–3–5–7)', 'C MAJOR 7 (1–3–5–7)', 'DO MAYOR 7 (1–3–5–7)'), formula: '[0, 4, 7, 11] • Triad + M7', notes: 'C – E – G – B', whites: [0, 2, 4, 6], blacks: [], col: '#ec4899', x: 578, y: 128 },
                     ].map((ch, idx) => (
                       <g key={idx} transform={`translate(${ch.x}, ${ch.y})`}>
                         <rect width="264" height="102" rx="6" fill="#0a0f1a" stroke="#1e293b" />
                         <text x="12" y="17" fill={ch.col} fontSize="12.5" fontFamily="monospace" fontWeight="bold">{ch.name}</text>
-                        <text x="252" y="17" textAnchor="end" fill="#94a3b8" fontSize="11.5" fontFamily="monospace">{ch.notes}</text>
                         <g transform="translate(14, 24)">
                           {['C', 'D', 'E', 'F', 'G', 'A', 'B'].map((wk, wi) => {
                             const hit = ch.whites.includes(wi);
@@ -5670,7 +5869,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                             );
                           })}
                         </g>
-                        <text x="132" y="94" textAnchor="middle" fill="#64748b" fontSize="11.5" fontFamily="monospace">{ch.formula}</text>
+                        <text x="132" y="94" textAnchor="middle" fill="#64748b" fontSize="10.5" fontFamily="monospace">{ch.formula} • {ch.notes}</text>
                       </g>
                     ))}
                   </svg>
@@ -5711,25 +5910,25 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                       </text>
                       {[
                         {
-                          chord: 'I: C Maj (Root)',
+                          chord: L('I: C Maj (Root)', 'I: C Mayor (Akar)', 'I: Do Mayor (Fundamental)'),
                           notes: 'C4 – E4 – G4',
                           move: L('Start Position (Finger 1-3-5)', 'Posisi Awal (Jari 1-3-5)', 'Posición Inicial (1-3-5)'),
                           y: 40
                         },
                         {
-                          chord: 'IV: F Maj (Root)',
+                          chord: L('IV: F Maj (Root)', 'IV: F Mayor (Akar)', 'IV: Fa Mayor (Fundamental)'),
                           notes: 'F4 – A4 – C5',
                           move: L('Jump UP +5 semitones! Hand completely lifts off keybed', 'Lompat NAIK +5 semitone! Tangan terangkat dari tuts', '¡Salto ARRIBA +5 semitonos! La mano despega del teclado'),
                           y: 82
                         },
                         {
-                          chord: 'V: G Maj (Root)',
+                          chord: L('V: G Maj (Root)', 'V: G Mayor (Akar)', 'V: Sol Mayor (Fundamental)'),
                           notes: 'G4 – B4 – D5',
                           move: L('Jump UP +2 semitones! Further away from center C4', 'Lompat NAIK +2 semitone! Makin menjauh dari tengah', '¡Salto ARRIBA +2 semitonos! Más lejos del centro'),
                           y: 124
                         },
                         {
-                          chord: 'I: C Maj (Root)',
+                          chord: L('I: C Maj (Root)', 'I: C Mayor (Akar)', 'I: Do Mayor (Fundamental)'),
                           notes: 'C4 – E4 – G4',
                           move: L('Jump DOWN -7 semitones! High risk of hitting wrong keys', 'Lompat TURUN -7 semitone! Risiko tinggi salah pencet', '¡Salto ABAJO -7 semitonos! Alto riesgo de notas falsas'),
                           y: 166
@@ -5756,25 +5955,25 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                       </text>
                       {[
                         {
-                          chord: 'I: C Maj (Root 5/3)',
+                          chord: L('I: C Maj (Root 5/3)', 'I: C Mayor (Akar 5/3)', 'I: Do Mayor (Fund. 5/3)'),
                           notes: 'C4 – E4 – G4',
                           move: L('Anchor note: C4 kept under thumb (Fingers 1-3-5)', 'Jangkar: Nada C4 di bawah jempol (Jari 1-3-5)', 'Nota ancla: C4 bajo el pulgar (Dedos 1-3-5)'),
                           y: 40
                         },
                         {
-                          chord: 'IV: F Maj (2nd Inv 6/4)',
+                          chord: L('IV: F Maj (2nd Inv 6/4)', 'IV: F Mayor (Inv. 2 6/4)', 'IV: Fa Mayor (Inv. 2 6/4)'),
                           notes: 'C4 – F4 – A4',
                           move: L('Keep C4! Just step E→F (+1) & G→A (+2) (Fingers 1-3-5)', 'Tahan C4! Geser halus E→F (+1) & G→A (+2) (Jari 1-3-5)', '¡Mantén C4! Mueve E→F (+1) y G→A (+2) (1-3-5)'),
                           y: 82
                         },
                         {
-                          chord: 'V: G Maj (1st Inv 6/3)',
+                          chord: L('V: G Maj (1st Inv 6/3)', 'V: G Mayor (Inv. 1 6/3)', 'V: Sol Mayor (Inv. 1 6/3)'),
                           notes: 'B3 – D4 – G4',
                           move: L('Keep G4! Move bottom voices down: C→B, E→D (Fingers 1-2-5)', 'Tahan G4! Turunkan nada bawah: C→B, E→D (Jari 1-2-5)', '¡Mantén G4! Baja voces: C→B, E→D (Dedos 1-2-5)'),
                           y: 124
                         },
                         {
-                          chord: 'I: C Maj (Root 5/3)',
+                          chord: L('I: C Maj (Root 5/3)', 'I: C Mayor (Akar 5/3)', 'I: Do Mayor (Fund. 5/3)'),
                           notes: 'C4 – E4 – G4',
                           move: L('Keep G4! Smooth resolution return: B→C, D→E (Fingers 1-3-5)', 'Tahan G4! Resolusi kembali halus: B→C, D→E (Jari 1-3-5)', '¡Mantén G4! Resolución suave: B→C, D→E (Dedos 1-3-5)'),
                           y: 166
@@ -6128,7 +6327,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                 <div>
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-xs md:text-sm font-mono font-bold text-cyan-400 uppercase tracking-widest">
-                      {isId ? 'MODUL 06 • GENERATOR LATIHAN TEKNIS 12 KUNCI & RUTINITAS HARIAN' : isEs ? 'MÓDULO 06 • EJERCICIOS TÉCNICOS EN 12 TONALIDADES' : 'MODULE 06 • 12-KEY TECHNICAL DRILL GENERATOR & DAILY ROUTINE'}
+                      {isId ? 'MODUL 06 • PIANO WARM UP' : isEs ? 'MÓDULO 06 • PIANO WARM UP' : 'MODULE 06 • PIANO WARM UP'}
                     </span>
                     <span className="text-xs font-mono px-3 py-1 rounded-lg bg-slate-800/90 text-slate-300 border border-slate-700">
                       {isId ? 'MESIN TRANSPOSISI REAL-TIME' : isEs ? 'MOTOR DE TRANSPOSICIÓN EN TIEMPO REAL' : 'REAL-TIME TRANSPOSITION ENGINE'}
@@ -6171,10 +6370,10 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                   <svg viewBox="0 0 860 130" className="w-full min-w-[740px] h-auto select-none font-sans">
                     <rect width="860" height="130" rx="8" fill="#0a0f1d" stroke="#334155" />
                     {[
-                      { min: 'MIN 00–05 (5m)', title: '1. Finger Independence & Scales', sub: 'Hanon #1 + Major/Minor Scale in 1 Key', col: '#38bdf8', w: 185, x: 18 },
-                      { min: 'MIN 05–12 (7m)', title: '2. Chords, Inversions & Arpeggios', sub: 'Root / 1st / 2nd Inv + I–V–vi–IV / ii–V–I', col: '#10b981', w: 205, x: 213 },
-                      { min: 'MIN 12–18 (6m)', title: '3. Sight-Reading Drill', sub: 'Read new patterns in Wait Mode (Strict)', col: '#f59e0b', w: 185, x: 428 },
-                      { min: 'MIN 18–30 (12m)', title: '4. Repertoire Chunking (A–B Loop)', sub: 'Isolate 4-bar loops from 60% → 100% BPM', col: '#a855f7', w: 219, x: 623 },
+                      { min: L('MIN 00–05 (5m)', 'MENIT 00–05 (5m)', 'MIN 00–05 (5m)'), title: L('1. Finger Independence & Scales', '1. Kemandirian Jari & Tangga Nada', '1. Independencia de dedos y escalas'), sub: L('Hanon #1 + Major/Minor Scale in 1 Key', 'Hanon #1 + Tangga Nada Mayor/Minor dalam 1 Kunci', 'Hanon n.º 1 + escala mayor/menor en 1 tonalidad'), col: '#38bdf8', w: 185, x: 18 },
+                      { min: L('MIN 05–12 (7m)', 'MENIT 05–12 (7m)', 'MIN 05–12 (7m)'), title: L('2. Chords, Inversions & Arpeggios', '2. Akor, Inversi & Arpeggio', '2. Acordes, inversiones y arpegios'), sub: L('Root / 1st / 2nd Inv + I–V–vi–IV / ii–V–I', 'Akar / Inv 1 / Inv 2 + I–V–vi–IV / ii–V–I', 'Fund. / inv. 1.ª / 2.ª + I–V–vi–IV / ii–V–I'), col: '#10b981', w: 205, x: 213 },
+                      { min: L('MIN 12–18 (6m)', 'MENIT 12–18 (6m)', 'MIN 12–18 (6m)'), title: L('3. Sight-Reading Drill', '3. Latihan Membaca Partitur', '3. Ejercicio de lectura a primera vista'), sub: L('Read new patterns in Wait Mode (Strict)', 'Baca pola baru di Mode Tunggu (Ketat)', 'Lee patrones nuevos en modo espera (Estricto)'), col: '#f59e0b', w: 185, x: 428 },
+                      { min: L('MIN 18–30 (12m)', 'MENIT 18–30 (12m)', 'MIN 18–30 (12m)'), title: L('4. Repertoire Chunking (A–B Loop)', '4. Memotong Repertoar (Loop A–B)', '4. Fragmentar el repertorio (bucle A–B)'), sub: L('Isolate 4-bar loops from 60% → 100% BPM', 'Isolasi loop 4 birama dari 60% → 100% BPM', 'Aísla bucles de 4 compases del 60% → 100% BPM'), col: '#a855f7', w: 219, x: 623 },
                     ].map((blk, i) => (
                       <g key={i} transform={`translate(${blk.x}, 16)`}>
                         <rect width={blk.w} height="98" rx="5" fill="#0a0f1a" stroke="#1e293b" />
@@ -6361,7 +6560,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
                 <div>
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-xs md:text-sm font-mono font-bold text-cyan-400 uppercase tracking-widest">
-                      {isId ? 'MODUL 07 • PELATIHAN PERFECT PITCH & TELINGA' : isEs ? 'MÓDULO 07 • ENTRENAMIENTO DE OÍDO ABSOLUTO' : 'MODULE 07 • PERFECT PITCH TRAINING & ACTIVE EAR MASTERY'}
+                      {isId ? 'MODUL 07 • PELATIHAN PERFECT PITCH & TELINGA' : isEs ? 'MÓDULO 07 • ENTRENAMIENTO DE OÍDO ABSOLUTO' : 'MODULE 07 • PERFECT PITCH & EAR TRAINING'}
                     </span>
                     <span className="text-xs font-mono px-3 py-1 rounded-lg bg-slate-800/90 text-slate-300 border border-slate-700">
                       440 HZ CONCERT PITCH • 12 CHROMATIC FREQUENCIES
@@ -8515,7 +8714,7 @@ export const LearnArticleView: React.FC<LearnArticleViewProps> = ({
               <div className="border-b border-slate-800 pb-6">
                 <div className="flex items-center gap-2 mb-2">
                   <span className="text-xs md:text-sm font-mono font-bold text-cyan-400 uppercase tracking-widest">
-                    {isId ? 'MODUL 09 • REFERENSI VIDEO MASTERCLASS & INTISARI STUDI' : isEs ? 'MÓDULO 09 • VIDEOTECA Y GUÍA DE ESTUDIO' : 'MODULE 09 • VIDEO REFERENCE LIBRARY & STUDY NOTES'}
+                    {isId ? 'MODUL 09 • REFERENSI VIDEO & STUDI KASUS' : isEs ? 'MÓDULO 09 • VIDEOTECA Y GUÍA DE ESTUDIO' : 'MODULE 09 • VIDEO REFERENCE LIBRARY'}
                   </span>
                   <span className="text-xs font-mono px-3 py-1 rounded-lg bg-slate-800/90 text-slate-300 border border-slate-700">
                     {TUTORIAL_VIDEOS.length} CURATED LECTURES

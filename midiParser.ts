@@ -2,7 +2,7 @@
 import { Midi } from '@tonejs/midi';
 // FIX: Import JSZipObject to use for type casting.
 import JSZip, { JSZipObject } from 'jszip';
-import { MidiNotePlaybackItem, TimeSignatureInfo, FileType, PianoKeyDefinition, TempoEvent } from './types';
+import { MidiNotePlaybackItem, TimeSignatureInfo, FileType, PianoKeyDefinition, TempoEvent, PedalEvent } from './types';
 import { SignatureEvent } from './utils'; // Corrected import path for SignatureEvent
 import {
     HAND_SPLIT_MIDI_NOTE,
@@ -119,12 +119,25 @@ export async function parseMidiData(
     barLinesMs: number[];
     signatureEvents: SignatureEvent[];
     originalTotalMusicalDurationMs: number;
+    pedalEvents: PedalEvent[];
 }> {
     const midi = new Midi(arrayBuffer);
     const ppq = midi.header.ppq;
 
+    // Sustain pedal (CC64) is kept for the pedal markings, then removed from the tracks as before.
+    const pedalEvents: PedalEvent[] = [];
     midi.tracks.forEach(track => {
+        (track.controlChanges[64] ?? []).forEach(c => {
+            pedalEvents.push({ timeMs: Math.round(c.time * 1000) + INITIAL_PLAYBACK_DELAY_MS, down: c.value >= 0.5 });
+        });
         delete track.controlChanges['64'];
+    });
+    pedalEvents.sort((a, b) => a.timeMs - b.timeMs);
+    // Keep only real changes (down -> up -> down), so repeated CC values do not create extra markings.
+    const pedalChanges: PedalEvent[] = [];
+    pedalEvents.forEach(e => {
+        const last = pedalChanges[pedalChanges.length - 1];
+        if (!last || last.down !== e.down) pedalChanges.push(e);
     });
 
     const sortedTimeSignatures = [...midi.header.timeSignatures].sort((a, b) => a.ticks - b.ticks);
@@ -298,7 +311,7 @@ export async function parseMidiData(
         ? lastNoteEndTime - firstNoteTime
         : 0;
 
-    return { notes, timeSignature: initialTimeSignature, keySignature, initialTempoBpm, tempoEvents, barLinesMs, signatureEvents, originalTotalMusicalDurationMs };
+    return { notes, timeSignature: initialTimeSignature, keySignature, initialTempoBpm, tempoEvents, barLinesMs, signatureEvents, originalTotalMusicalDurationMs, pedalEvents: pedalChanges };
 }
 
 export async function parseMusicXmlData(

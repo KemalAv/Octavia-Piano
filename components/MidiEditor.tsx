@@ -22,11 +22,25 @@ const RHYTHM_BASES = [
     { label: '1/64', value: 0.0625 },
 ];
 
+// Index of the "Tuplet" entry below: the number of notes played in the time of a few
+// (3 in the time of 2 = triplet, 5 in the time of 4 = quintuplet, ...).
 const NOTE_TYPES = [
     { label: 'Normal', multiplier: 1.0 },
     { label: 'Dotted', multiplier: 1.5 },
-    { label: 'Triplet', multiplier: 2 / 3 },
+    { label: 'Tuplet', multiplier: 2 / 3 },
 ];
+const TUPLET_TYPE_INDEX = 2;
+const TUPLET_OPTIONS: { count: number; occupied: number; label: string }[] = [
+    { count: 3, occupied: 2, label: 'Triplet' },
+    { count: 4, occupied: 3, label: '4-let' },
+    { count: 5, occupied: 4, label: '5-let' },
+    { count: 6, occupied: 4, label: '6-let' },
+    { count: 7, occupied: 4, label: '7-let' },
+    { count: 8, occupied: 6, label: '8-let' },
+    { count: 9, occupied: 8, label: '9-let' },
+    { count: 10, occupied: 8, label: '10-let' },
+];
+const tupletOption = (count: number) => TUPLET_OPTIONS.find(t => t.count === count) ?? TUPLET_OPTIONS[0];
 
 const KEY_SIGNATURES = ['C', 'G', 'D', 'A', 'E', 'B', 'F#', 'C#', 'F', 'Bb', 'Eb', 'Ab', 'Db', 'Gb', 'Cb', 'Am', 'Em', 'Bm', 'F#m', 'C#m', 'G#m', 'D#m', 'A#m'];
 const TIME_SIGNATURES = ['4/4', '3/4', '2/4', '2/2', '6/8', '9/8', '12/8'];
@@ -175,6 +189,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
     const [activeDropdown, setActiveDropdown] = useState<'tools' | 'snap' | 'signatures' | 'view' | null>(null);
     const [snapBaseIndex, setSnapBaseIndex] = useState(3); // Default 1/8
     const [snapTypeIndex, setSnapTypeIndex] = useState(0); // Default Normal
+    const [tupletCount, setTupletCount] = useState(3); // Used when the type is Tuplet: default triplet
     const [isPlaying, setIsPlaying] = useState(false);
     const [cursorTick, setCursorTick] = useState(0);
     const [editorViewMode, setEditorViewMode] = useState<'notes' | 'bpm' | 'velocity'>('notes');
@@ -314,11 +329,16 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
     const tickToPx = (tick: number) => tick * pixelsPerTick;
     const pxToTick = (px: number) => px / pixelsPerTick;
 
+    // Not rounded: a septuplet step is 68.57 ticks. Positions are rounded when they are placed.
     const snapTicks = useMemo(() => {
         const base = RHYTHM_BASES[snapBaseIndex].value;
-        const mult = NOTE_TYPES[snapTypeIndex].multiplier;
-        return Math.round(base * mult * TICKS_PER_QUARTER);
-    }, [snapBaseIndex, snapTypeIndex]);
+        let mult = NOTE_TYPES[snapTypeIndex].multiplier;
+        if (snapTypeIndex === TUPLET_TYPE_INDEX) {
+            const t = tupletOption(tupletCount);
+            mult = t.occupied / t.count;
+        }
+        return Math.max(1, base * mult * TICKS_PER_QUARTER);
+    }, [snapBaseIndex, snapTypeIndex, tupletCount]);
 
     const isVertical = gridOrientation === 'vertical';
 
@@ -1273,7 +1293,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
         playbackRequestRef.current = requestAnimationFrame(animate);
     }, [isPlaying, stopPlayback, editorState, cursorTick, ticksToMs, msToTicks, playNoteSound, backingTrackUrl, backingTrackOffset, backingTrackVolume, safePauseBackingTrack, safePlayBackingTrack]);
 
-    const snapTick = (tick: number) => { const s = snapTicks; return Math.round(tick / s) * s; };
+    const snapTick = (tick: number) => { const s = snapTicks; return Math.round(Math.round(tick / s) * s); };
     const effectiveRowHeight = BASE_ROW_HEIGHT * vZoom;
     const totalTicks = useMemo(() => Math.max(...(editorState?.notes.map(n => n.ticks + n.durationTicks) || [0]), TICKS_PER_QUARTER * 16), [editorState]);
     const totalWidth = tickToPx(totalTicks);
@@ -1365,7 +1385,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
         if (activeTool === 'draw') {
             handleMouseDownShared(() => {
                 if (midi === -1) return;
-                const newNote: EditorNote = { id: Math.random().toString(36).substr(2, 9), midi, ticks: tick, durationTicks: snapTicks, velocity: 0.8, hand: activeHand, selected: false };
+                const newNote: EditorNote = { id: Math.random().toString(36).substr(2, 9), midi, ticks: tick, durationTicks: Math.max(1, Math.round(snapTicks)), velocity: 0.8, hand: activeHand, selected: false };
 
                 setEditorState(prev => {
                     if (!prev) return prev;
@@ -2084,7 +2104,7 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                                 onClick={() => setActiveDropdown(activeDropdown === 'snap' ? null : 'snap')}
                                 className={`px-2 py-1.5 rounded flex items-center gap-1.5 text-xs font-bold transition-colors ${activeDropdown === 'snap' ? 'bg-cyan-500 text-white' : 'hover:bg-slate-700 text-slate-300'}`}
                             >
-                                <span>GRID: {RHYTHM_BASES[snapBaseIndex].label}</span>
+                                <span>GRID: {RHYTHM_BASES[snapBaseIndex].label}{snapTypeIndex === TUPLET_TYPE_INDEX ? ` · ${tupletOption(tupletCount).label}` : snapTypeIndex === 1 ? ' ·' : ''}</span>
                                 <svg className={`w-3 h-3 transition-transform ${activeDropdown === 'snap' ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7"></path></svg>
                             </button>
                             {activeDropdown === 'snap' && (
@@ -2101,6 +2121,17 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                                                 <button key={i} onClick={() => setSnapTypeIndex(i)} className={`px-1 py-1 rounded text-[9px] font-bold text-center ${snapTypeIndex === i ? 'bg-cyan-500/20 text-cyan-400' : 'hover:bg-slate-800 text-slate-400'}`}>{opt.label}</button>
                                             ))}
                                         </div>
+                                        {snapTypeIndex === TUPLET_TYPE_INDEX && (
+                                            <div className="mt-2">
+                                                <div className="text-[9px] uppercase text-slate-500 font-bold mb-1">Tuplet</div>
+                                                <div className="grid grid-cols-4 gap-1">
+                                                    {TUPLET_OPTIONS.map(t => (
+                                                        <button key={t.count} onClick={() => setTupletCount(t.count)} title={`${t.count} notes in the time of ${t.occupied}`} className={`px-1 py-1 rounded text-[9px] font-bold text-center ${tupletCount === t.count ? 'bg-cyan-500/20 text-cyan-400' : 'hover:bg-slate-800 text-slate-400'}`}>{t.count === 3 ? '3' : t.count}</button>
+                                                    ))}
+                                                </div>
+                                                <div className="text-[8px] text-slate-500 mt-1 text-center">{tupletOption(tupletCount).count}:{tupletOption(tupletCount).occupied} · {tupletOption(tupletCount).label}</div>
+                                            </div>
+                                        )}
                                     </div>
                                     
                                     <div className="h-px bg-white/5 my-3"></div>
@@ -2567,6 +2598,16 @@ const MidiEditor: React.FC<MidiEditorProps> = ({
                                                     style={{ height: effectiveRowHeight }}
                                                 ></div>
                                             ))
+                                        )}
+
+                                        {/* Snap grid: faint lines at every snap step (follows the tuplet chosen), skipped when too dense to read */}
+                                        {tickToPx(snapTicks) >= 7 && (
+                                            <div
+                                                className="absolute inset-0 pointer-events-none"
+                                                style={{
+                                                    backgroundImage: `repeating-linear-gradient(${isVertical ? 'to top' : 'to right'}, rgba(148,163,184,0.10) 0px, rgba(148,163,184,0.10) 1px, transparent 1px, transparent ${tickToPx(snapTicks)}px)`,
+                                                }}
+                                            />
                                         )}
 
                                         {isVertical ? (

@@ -1,7 +1,7 @@
 
 import React, { useMemo, useEffect, useRef, useCallback, memo } from 'react';
 import { Renderer, Stave, StaveConnector, Glyph, Accidental } from 'vexflow';
-import { ActiveMidiNoteInfo, VexFlowRenderData, VexFlowNoteInfo, NoteFragment, NoteLabelType, QwertyLayout, TempoEvent } from '../types';
+import { ActiveMidiNoteInfo, VexFlowRenderData, VexFlowNoteInfo, NoteFragment, NoteLabelType, QwertyLayout, TempoEvent, PedalEvent } from '../types';
 import { USER_PLAY_COLOR, PLAY_LINE_THICKNESS_PX, VISUAL_NOTE_CAP_MS, QWERTY_MINI_KEYBOARD_MAPPING, MIRP_KEYBOARD_MAPPING, KEY_CODES_TO_DISPLAY } from '../constants';
 import { SHARP_KEYS, FLAT_KEYS, NEUTRAL_KEYS, ENHARMONIC_MAP_TO_SHARP, ENHARMONIC_MAP_TO_FLAT, formatKeySignatureForDisplay, darkenHex, getDynamicFromVelocity, getOptimalKeyTranspose } from '../utils';
 
@@ -42,6 +42,7 @@ interface HorizontalNotesViewProps {
   onSeek?: (timeMs: number) => void;
   resolutionScale?: number;
   showDynamics?: boolean;
+  pedalEvents?: PedalEvent[];
   tempoEvents?: TempoEvent[];
   playbackTempoMultiplier?: number;
 }
@@ -403,6 +404,7 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
   onSeek,
   resolutionScale = 1.0,
   showDynamics = false,
+  pedalEvents,
   tempoEvents,
   playbackTempoMultiplier = 1.0
 }) => {
@@ -450,6 +452,19 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
 
   // Traditional Sheet Music Dynamic Markings (p, mp, mf, f, ff, etc.) per Beat:
   // Cukup per BEAT saja munculnya jika ada perubahan dinamika agar tidak lag!
+  // Sustain pedal spans: from each pedal-down to the next pedal-up (open-ended if never released).
+  const pedalSpans = useMemo(() => {
+    const spans: { startMs: number; endMs: number }[] = [];
+    if (!pedalEvents || pedalEvents.length === 0) return spans;
+    let open: number | null = null;
+    [...pedalEvents].sort((a, b) => a.timeMs - b.timeMs).forEach(e => {
+      if (e.down && open === null) open = e.timeMs;
+      else if (!e.down && open !== null) { spans.push({ startMs: open, endMs: e.timeMs }); open = null; }
+    });
+    if (open !== null) spans.push({ startMs: open, endMs: Infinity });
+    return spans;
+  }, [pedalEvents]);
+
   const dynamicEvents = useMemo(() => {
     if (!vexFlowData || !vexFlowData.fragments || vexFlowData.fragments.length === 0) return [];
     const notesWithVelocity: { timeMs: number; velocity: number }[] = [];
@@ -875,6 +890,45 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
         }
       }
 
+      // 2b-3. Sustain pedal, written like the sheet music: a bracket under the bass staff,
+      // "Ped." where the pedal goes down and "*" where it is released.
+      if (showDynamics && !isDrum && pedalSpans.length > 0) {
+        const pedalY = bassBottom + 36;
+        const ink = '#0f172a';
+        ctx.save();
+        ctx.strokeStyle = ink;
+        ctx.fillStyle = ink;
+        ctx.lineWidth = 1.2;
+        for (const sp of pedalSpans) {
+          const x1 = (((sp.startMs - firstMeasureStartTime) * pixelsPerMillisecond) + HORIZONTAL_PADDING) | 0;
+          const closed = Number.isFinite(sp.endMs);
+          const x2 = closed
+            ? (((sp.endMs - firstMeasureStartTime) * pixelsPerMillisecond) + HORIZONTAL_PADDING) | 0
+            : x1 + ((width * 2) | 0);
+          if (x2 + contentStartX < SIDEBAR_WIDTH || x1 + contentStartX > width) continue;
+          ctx.beginPath();
+          ctx.moveTo(x1, pedalY);
+          ctx.lineTo(x2, pedalY);
+          ctx.moveTo(x1, pedalY - 4);
+          ctx.lineTo(x1, pedalY + 2);
+          if (closed) {
+            ctx.moveTo(x2, pedalY - 4);
+            ctx.lineTo(x2, pedalY + 2);
+          }
+          ctx.stroke();
+          ctx.textBaseline = 'alphabetic';
+          ctx.textAlign = 'left';
+          ctx.font = 'italic 700 14px "Times New Roman", Cambria, Georgia, serif';
+          ctx.fillText('Ped.', x1 + 3, pedalY - 4);
+          if (closed) {
+            ctx.textAlign = 'center';
+            ctx.font = '700 16px "Times New Roman", Cambria, Georgia, serif';
+            ctx.fillText('*', x2 - 4, pedalY - 4);
+          }
+        }
+        ctx.restore();
+      }
+
       // 2c. Draw Octave Lines (8va / 15ma)
       if (!isQwertyView) {
         const octaveLines = vexFlowData.octaveLines;
@@ -1279,7 +1333,10 @@ const HorizontalNotesView: React.FC<HorizontalNotesViewProps> = React.memo(({
     PLAY_LINE_X,
     firstMeasureStartTime,
     isDrum,
-    originalNoteToVexMap
+    originalNoteToVexMap,
+    showDynamics,
+    dynamicEvents,
+    pedalSpans
   ]);
 
   // Interactivity for seeking

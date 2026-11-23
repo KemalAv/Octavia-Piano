@@ -204,80 +204,153 @@ export const generateExercise = (rootNoteName: string, typeId: ExerciseType): {
 
   // --- SIGHT READING GENERATION ---
   if (isSightReading) {
-      const intervalSet = SCALE_INTERVALS[scaleType] || SCALE_INTERVALS['major'];
-      const validPitchClasses = new Set(intervalSet.map(i => (root.midi + i) % 12));
-      const rhMidis: number[] = []; 
-      const lhMidis: number[] = [];
+      // Random but musical: every bar sits on a chord of a real progression built from the chosen
+      // scale/mode, the right hand sings a melody around those chords (chord tones on strong beats,
+      // scale steps in between) and the left hand plays the root/fifth/third accompaniment.
+      const RH_MIN = 60, RH_MAX = 83; // C4 - B5
+      const LH_MIN = 40, LH_MAX = 71; // E2 - B4
+      const LH_ROOT_MAX = 55;         // roots stay low, chord tones climb above them
 
-      for (let m = 21; m <= 108; m++) {
-          if (validPitchClasses.has(m % 12)) {
-              if (m >= 60 && m <= 84) rhMidis.push(m); 
-              else if (m >= 36 && m < 60) lhMidis.push(m); 
-          }
+      const intervalSet = Array.from(new Set((SCALE_INTERVALS[scaleType] || SCALE_INTERVALS['major']).map(i => i % 12))).sort((x, y) => x - y);
+      const scalePcs = intervalSet.map(i => (root.midi + i) % 12);
+      const n = scalePcs.length;
+      const pick = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+
+      // Chord on scale degree d: stack every other scale note (a triad in 7-note scales)
+      const chordOf = (d: number) => {
+          const deg = ((d % n) + n) % n;
+          return { root: scalePcs[deg], third: scalePcs[(deg + 2) % n], fifth: scalePcs[(deg + 4) % n] };
+      };
+
+      // Progressions as scale degrees (0 = tonic). Minor-type scales use minor-flavoured patterns.
+      const minorLike = intervalSet[2] === 3; // minor third above the tonic
+      let progressions: number[][];
+      if (n === 7) {
+          progressions = minorLike
+              ? [[0, 5, 2, 6], [0, 3, 4, 0], [0, 6, 5, 4], [0, 3, 6, 2], [1, 4, 0, 0], [0, 5, 3, 4]]
+              : [[0, 4, 5, 3], [0, 5, 3, 4], [1, 4, 0, 0], [0, 3, 4, 0], [5, 3, 0, 4], [0, 2, 3, 4]];
+      } else {
+          // pentatonic / whole tone / chromatic: gentle movement between tonic and nearby degrees
+          const mid = Math.max(1, Math.floor(n / 2));
+          const alt = Math.max(1, Math.floor(n / 3));
+          progressions = [[0, mid, alt, 0], [0, alt, mid, 0], [0, mid, 0, alt]];
       }
-      
-      rhMidis.sort((a,b) => a-b);
-      lhMidis.sort((a,b) => a-b);
 
       const NUM_MEASURES = 36;
+      const NUM_PHRASE_BARS = 4;
+      const barDegrees: number[] = [];
+      for (let m = 0; m < NUM_MEASURES; m += NUM_PHRASE_BARS) {
+          const prog = pick(progressions);
+          for (let k = 0; k < NUM_PHRASE_BARS && m + k < NUM_MEASURES; k++) barDegrees.push(prog[k]);
+      }
+      barDegrees[NUM_MEASURES - 1] = 0; // always end on the tonic
+
+      // Scale tones available to the right hand (for melodic steps)
+      const rhScale: number[] = [];
+      for (let m = RH_MIN; m <= RH_MAX; m++) if (scalePcs.includes(m % 12)) rhScale.push(m);
+
       const START_OFFSET = INITIAL_PLAYBACK_DELAY_MS; // Start time offset
       const barLinesMs: number[] = [];
-      
-      for(let i = 0; i <= NUM_MEASURES; i++) {
-          barLinesMs.push(START_OFFSET + (i * BAR_MS));
-      }
-
-      let lastRhIdx = Math.floor(rhMidis.length / 2);
-      let lastLhIdx = Math.floor(lhMidis.length / 2);
+      for (let i = 0; i <= NUM_MEASURES; i++) barLinesMs.push(START_OFFSET + (i * BAR_MS));
 
       const getRandomDuration = (remainingBeats: number) => {
           const choices = [1, 2, 4];
           const valid = choices.filter(d => d <= remainingBeats);
           if (valid.length === 0) return remainingBeats >= 1 ? 1 : remainingBeats;
           const r = Math.random();
-          if (valid.includes(4) && r < 0.1) return 4;
+          if (valid.includes(4) && r < 0.08) return 4;
           if (valid.includes(2) && r < 0.4) return 2;
           return 1;
       };
 
-      const getNextPitchIdx = (currentIdx: number, poolLength: number) => {
-          if (poolLength === 0) return 0;
-          const r = Math.random();
-          let jump = 0;
-          if (r < 0.1) jump = 0;
-          else if (r < 0.6) jump = 1;
-          else if (r < 0.9) jump = 2;
-          else jump = 3 + Math.floor(Math.random() * 2);
-          const dir = Math.random() < 0.5 ? -1 : 1;
-          let next = currentIdx + (jump * dir);
-          if (next < 0) next = -next; 
-          if (next >= poolLength) next = poolLength - (next - poolLength) - 1;
-          return Math.max(0, Math.min(poolLength - 1, next));
+      // ---- right hand melody ----
+      let lastRh = rhScale.length ? rhScale[Math.floor(rhScale.length / 2)] : 72;
+      let rhDir = Math.random() < 0.5 ? -1 : 1;
+      let stepsInDir = 0;
+
+      const nearestChordTone = (pcs: number[], from: number) => {
+          const cands: number[] = [];
+          for (let m = RH_MIN; m <= RH_MAX; m++) if (pcs.includes(m % 12)) cands.push(m);
+          cands.sort((x, y) => Math.abs(x - from) - Math.abs(y - from));
+          const near = cands.filter(c => Math.abs(c - from) <= 7);
+          const pool = (near.length ? near : cands).slice(0, 3);
+          return pick(pool);
       };
+
+      const stepScale = (from: number) => {
+          let idx = rhScale.indexOf(from);
+          if (idx < 0) { // chord tone outside the scale (rare): snap to nearest scale tone
+              let best = 0;
+              rhScale.forEach((m, i) => { if (Math.abs(m - from) < Math.abs(rhScale[best] - from)) best = i; });
+              idx = best;
+          }
+          const r = Math.random();
+          if (stepsInDir >= 3 || (r < 0.18)) { rhDir = -rhDir; stepsInDir = 0; }
+          if (r > 0.93) return rhScale[idx]; // occasional repeated note
+          let next = idx + rhDir * (Math.random() < 0.8 ? 1 : 2);
+          if (next < 0 || next >= rhScale.length) { rhDir = -rhDir; stepsInDir = 0; next = idx + rhDir; }
+          next = Math.max(0, Math.min(rhScale.length - 1, next));
+          stepsInDir++;
+          return rhScale[next];
+      };
+
+      // ---- left hand accompaniment ----
+      let lastLhRoot = 48;
+      const lhRootFor = (pc: number) => {
+          let best = -1;
+          for (let m = LH_MIN; m <= LH_ROOT_MAX; m++) {
+              if (m % 12 !== pc) continue;
+              if (best < 0 || Math.abs(m - lastLhRoot) < Math.abs(best - lastLhRoot)) best = m;
+          }
+          return best < 0 ? LH_MIN : best;
+      };
+      const above = (base: number, pc: number, octaveIfSame = false) => {
+          let d = ((pc - base) % 12 + 12) % 12;
+          if (d === 0 && octaveIfSame) d = 12;
+          const m = base + d;
+          return Math.min(LH_MAX, m);
+      };
+      const lhPatterns: number[][][] = [
+          // each entry: [beats, tone]  tone: 0 root, 1 third, 2 fifth, 3 octave
+          [[2, 0], [2, 2]],
+          [[1, 0], [1, 2], [1, 1], [1, 2]],
+          [[1, 0], [1, 1], [1, 2], [1, 1]],
+          [[4, 0]],
+          [[2, 0], [1, 2], [1, 1]],
+          [[1, 0], [1, 2], [2, 3]],
+      ];
 
       for (let m = 0; m < NUM_MEASURES; m++) {
           const measureStart = START_OFFSET + (m * BAR_MS);
-          
-          let currentBeatRH = 0;
-          while (currentBeatRH < 4) {
-              const durBeats = getRandomDuration(4 - currentBeatRH);
-              const durMs = durBeats * BEAT_MS;
-              lastRhIdx = getNextPitchIdx(lastRhIdx, rhMidis.length);
-              const visualDurMs = Math.min(durMs, BEAT_MS);
-              const noteObj = createNote(rhMidis[lastRhIdx], measureStart + (currentBeatRH * BEAT_MS), visualDurMs, 'right', noteCounter++, 'sr');
+          const ch = chordOf(barDegrees[m]);
+          const chordPcs = [ch.root, ch.third, ch.fifth];
+          const lastBar = m === NUM_MEASURES - 1;
+
+          // right hand
+          let beat = 0;
+          while (beat < 4) {
+              const durBeats = lastBar ? 4 : getRandomDuration(4 - beat);
+              const strong = beat === 0 || beat === 2;
+              let midi: number;
+              if (lastBar) midi = nearestChordTone([ch.root], lastRh);
+              else if (strong) midi = nearestChordTone(chordPcs, lastRh);
+              else midi = stepScale(lastRh);
+              lastRh = midi;
+              const noteObj = createNote(midi, measureStart + beat * BEAT_MS, Math.min(durBeats * BEAT_MS, BEAT_MS), 'right', noteCounter++, 'sr');
               if (noteObj) notes.push(noteObj);
-              currentBeatRH += durBeats;
+              beat += durBeats;
           }
 
-          let currentBeatLH = 0;
-          while (currentBeatLH < 4) {
-              const durBeats = getRandomDuration(4 - currentBeatLH);
-              const durMs = durBeats * BEAT_MS;
-              lastLhIdx = getNextPitchIdx(lastLhIdx, lhMidis.length);
-              const visualDurMs = Math.min(durMs, BEAT_MS);
-              const noteObj = createNote(lhMidis[lastLhIdx], measureStart + (currentBeatLH * BEAT_MS), visualDurMs, 'left', noteCounter++, 'sr');
+          // left hand
+          const rootMidi = lhRootFor(ch.root);
+          lastLhRoot = rootMidi;
+          const tones = [rootMidi, above(rootMidi, ch.third), above(rootMidi, ch.fifth), Math.min(LH_MAX, rootMidi + 12)];
+          const pattern = lastBar ? [[4, 0]] : pick(lhPatterns);
+          let lhBeat = 0;
+          for (const [beats, tone] of pattern) {
+              const noteObj = createNote(tones[tone], measureStart + lhBeat * BEAT_MS, Math.min(beats * BEAT_MS, BEAT_MS), 'left', noteCounter++, 'sr');
               if (noteObj) notes.push(noteObj);
-              currentBeatLH += durBeats;
+              lhBeat += beats;
           }
       }
 

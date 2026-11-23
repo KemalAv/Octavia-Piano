@@ -51,7 +51,20 @@ const UPLOAD_LIMIT = 5;
 const PAGE_SIZE = 20;
 
 type SortOrder = 'newest_desc' | 'newest_asc' | 'difficulty_desc' | 'difficulty_asc' | 'alphabetical_asc' | 'alphabetical_desc' | 'mostLiked_desc' | 'mostLiked_asc';
-type DifficultyFilter = 'all' | 'novice' | 'beginner' | 'intermediate' | 'advanced' | 'virtuoso' | 'legendary';
+type DifficultyFilter = 'all' | 'starter' | 'novice' | 'beginner' | 'elementary' | 'intermediate' | 'experienced' | 'advanced' | 'virtuoso' | 'expert' | 'master';
+// Each named level covers one whole difficulty level: [min, max) on difficulty_level (max null = no upper bound).
+const DIFFICULTY_LEVEL_RANGE: Record<Exclude<DifficultyFilter, 'all'>, [number, number | null]> = {
+  starter: [1, 2],
+  novice: [2, 3],
+  beginner: [3, 4],
+  elementary: [4, 5],
+  intermediate: [5, 6],
+  experienced: [6, 7],
+  advanced: [7, 8],
+  virtuoso: [8, 9],
+  expert: [9, 10],
+  master: [10, null],
+};
 
 const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isLoading, setLoadingState, onGoToOnlineSong, instrumentMode, appLanguage = 'en' }) => {
   const t = translations[appLanguage] || translations.en;
@@ -220,19 +233,11 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
         query = query.eq('is_ranked', false);
       }
 
-      // Apply difficulty range filter
-      if (difficultyFilter === 'novice') {
-        query = query.gte('difficulty_level', 1).lt('difficulty_level', 3);
-      } else if (difficultyFilter === 'beginner') {
-        query = query.gte('difficulty_level', 3).lt('difficulty_level', 4);
-      } else if (difficultyFilter === 'intermediate') {
-        query = query.gte('difficulty_level', 4).lt('difficulty_level', 6);
-      } else if (difficultyFilter === 'advanced') {
-        query = query.gte('difficulty_level', 6).lt('difficulty_level', 8);
-      } else if (difficultyFilter === 'virtuoso') {
-        query = query.gte('difficulty_level', 8).lt('difficulty_level', 10);
-      } else if (difficultyFilter === 'legendary') {
-        query = query.gte('difficulty_level', 10);
+      // Apply difficulty level filter (one band per whole level)
+      if (difficultyFilter !== 'all') {
+        const [min, max] = DIFFICULTY_LEVEL_RANGE[difficultyFilter];
+        query = query.gte('difficulty_level', min);
+        if (max !== null) query = query.lt('difficulty_level', max);
       }
 
       // Apply search query
@@ -986,12 +991,16 @@ const OnlineSongBrowser: React.FC<OnlineSongBrowserProps> = ({ onSongLoaded, isL
               className="bg-slate-900 text-slate-200 text-xs font-semibold rounded-lg px-2 py-1 border border-white/10 outline-none focus:ring-1 focus:ring-cyan-500 cursor-pointer"
             >
               <option value="all">{t.difficultyAll}</option>
-              <option value="novice">{t.difficultyNovice}</option>
-              <option value="beginner">{t.difficultyBeginner}</option>
-              <option value="intermediate">{t.difficultyIntermediate}</option>
-              <option value="advanced">{t.difficultyAdvanced}</option>
-              <option value="virtuoso">{t.difficultyVirtuoso}</option>
-              <option value="legendary">{t.difficultyLegendary}</option>
+              <option value="starter">{t.difficultyStarter} ({t.difficultyLevelAbbr} 1)</option>
+              <option value="novice">{t.difficultyNovice} ({t.difficultyLevelAbbr} 2)</option>
+              <option value="beginner">{t.difficultyBeginner} ({t.difficultyLevelAbbr} 3)</option>
+              <option value="elementary">{t.difficultyElementary} ({t.difficultyLevelAbbr} 4)</option>
+              <option value="intermediate">{t.difficultyIntermediate} ({t.difficultyLevelAbbr} 5)</option>
+              <option value="experienced">{t.difficultyExperienced} ({t.difficultyLevelAbbr} 6)</option>
+              <option value="advanced">{t.difficultyAdvanced} ({t.difficultyLevelAbbr} 7)</option>
+              <option value="virtuoso">{t.difficultyVirtuoso} ({t.difficultyLevelAbbr} 8)</option>
+              <option value="expert">{t.difficultyExpert} ({t.difficultyLevelAbbr} 9)</option>
+              <option value="master">{t.difficultyMaster} ({t.difficultyLevelAbbr} 10+)</option>
             </select>
           </div>
 

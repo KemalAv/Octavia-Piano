@@ -1,219 +1,201 @@
 import { MicThresholds } from './types';
+import { PianoNoteDetector, type ReferenceAudio } from './pianoNoteDetector';
+import { BasicPitchVerifier } from './basicPitchVerifier';
+import { loadBasicPitchInference, type InferenceHandle } from './basicPitchModel';
 
-export interface PitchDetectionResult {
-  midi: number;
-  frequency: number;
-  magnitude: number;
-  confidence: number;
+export interface NoteEvents {
+  on: number[];
+  off: number[];
 }
 
+export type AiStatus = 'loading' | 'ready' | 'unavailable';
+
+const NO_EVENTS: NoteEvents = { on: [], off: [] };
+
+// How strongly the AI must see a note start before an unexpected note is accepted, and how
+// long such a note may wait for that answer. Chosen by simulation (see README).
+const CONFIRM_ONSET = 0.5;
+const CONFIRM_DEADLINE_MS = 500;
+
+// One model load per page, however often the microphone is switched on and off.
+let sharedInference: Promise<InferenceHandle | null> | null = null;
+const loadInferenceOnce = (): Promise<InferenceHandle | null> => {
+  if (!sharedInference) {
+    sharedInference = loadBasicPitchInference().then((handle) => {
+      if (!handle) sharedInference = null; // allow another try next time (e.g. the network was down)
+      return handle;
+    });
+  }
+  return sharedInference;
+};
+
 /**
- * Pure High-Precision Pitch Detector (Autocorrelation / YIN-style)
- * Focused purely on real-time fundamental pitch detection without FFT/NMF spectral models.
- * Ultra-fast (<0.1ms), zero lag, deterministic note tracking.
+ * Microphone -> piano notes.
+ *
+ * Two parts work together, with nothing for the player to set up:
+ *   1. PianoNoteDetector (pure signal processing, ~1 ms per frame) finds notes fast.
+ *      Notes the song is asking for are passed on immediately.
+ *   2. A small note model (Basic Pitch, loaded once and kept in the browser) double-checks
+ *      every OTHER note before it is passed on. It is only ever a second opinion: it
+ *      cannot create notes, so silence and room noise stay silent. If the model cannot
+ *      be loaded, or the device is too slow, this part is skipped and step 1 stands alone.
  */
 export class AcousticPianoService {
-  private analysers: AnalyserNode[];
+  private analyser: AnalyserNode;
+  private referenceAnalyser: AnalyserNode | null;
+  private referenceBuffer: Float32Array | null = null;
+  private audioContext: AudioContext;
+  private detector: PianoNoteDetector;
+  private buffer: Float32Array;
   private sampleRate: number;
-  private timeDomainBuffer: Float32Array;
+  private lastRun = -Infinity;
+  private lastEndSample = -1;
+  private expected: Set<number> | null = null;
+  private verifier: BasicPitchVerifier | null = null;
+  private loadFinished = false;
+  private destroyed = false;
+  private pending = new Map<number, { t: number; offAt: number | null }>();
+  private emitted = new Set<number>();
 
-  private static readonly MIN_MIDI = 21;  // A0
-  private static readonly MAX_MIDI = 108; // C8
-
-  private noteOnThreshold = 2;   // ~25ms confirmation
-  private noteOffThreshold = 6;  // ~75ms smooth sustain hold
-
-  private activeNotes: Map<number, {
-    frames: number;
-    magnitude: number;
-    confirmed: boolean;
-  }> = new Map();
-
-  constructor(analysers: AnalyserNode | AnalyserNode[], audioContext: AudioContext) {
-    this.analysers = Array.isArray(analysers) ? analysers : [analysers];
+  /**
+   * @param analysers  the microphone
+   * @param audioContext the microphone's context
+   * @param referenceAnalyser optional: hears what the app itself plays (metronome, backing track,
+   *   hit sounds). Its sound reaches the microphone through the speakers, and is removed from it
+   *   so it is not mistaken for notes.
+   */
+  constructor(analysers: AnalyserNode | AnalyserNode[], audioContext: AudioContext, referenceAnalyser?: AnalyserNode | null) {
+    this.analyser = Array.isArray(analysers) ? analysers[0] : analysers;
+    this.referenceAnalyser = referenceAnalyser ?? null;
+    if (this.referenceAnalyser) {
+      this.referenceAnalyser.fftSize = 32768; // the longest span the detector looks at, at any sample rate
+      this.referenceBuffer = new Float32Array(this.referenceAnalyser.fftSize);
+    }
+    this.audioContext = audioContext;
     this.sampleRate = audioContext.sampleRate || 44100;
-    this.timeDomainBuffer = new Float32Array(2048);
+    this.detector = new PianoNoteDetector(this.sampleRate);
+    this.analyser.fftSize = this.detector.frameSize;
+    this.analyser.smoothingTimeConstant = 0;
+    this.buffer = new Float32Array(this.detector.frameSize);
+    this.startVerifier();
   }
 
-  /**
-   * High-accuracy Autocorrelation algorithm (YIN / McLeod Pitch Method)
-   */
-  private autoCorrelate(buf: Float32Array, sampleRate: number): { freq: number; clarity: number; rms: number } | null {
-    const SIZE = buf.length;
-    let rms = 0;
-
-    for (let i = 0; i < SIZE; i++) {
-      const val = buf[i];
-      rms += val * val;
-    }
-    rms = Math.sqrt(rms / SIZE);
-
-    // RMS Gate: If too quiet, ignore
-    if (rms < 0.008) return null;
-
-    // Boundary trimming
-    let r1 = 0;
-    let r2 = SIZE - 1;
-    const thres = 0.2;
-    for (let i = 0; i < (SIZE >> 1); i++) {
-      if (Math.abs(buf[i]) < thres) {
-        r1 = i;
-        break;
-      }
-    }
-    for (let i = SIZE - 1; i >= (SIZE >> 1); i--) {
-      if (Math.abs(buf[i]) < thres) {
-        r2 = i;
-        break;
-      }
-    }
-
-    const trimmed = buf.subarray(r1, r2);
-    const n = trimmed.length;
-    if (n < 256) return null;
-
-    // Autocorrelation computation
-    const c = new Float32Array(n);
-    for (let i = 0; i < n; i++) {
-      let sum = 0;
-      for (let j = 0; j < n - i; j++) {
-        sum += trimmed[j] * trimmed[j + i];
-      }
-      c[i] = sum;
-    }
-
-    // Skip the zero-lag initial decay
-    let d = 0;
-    while (d < n - 1 && c[d] > c[d + 1]) {
-      d++;
-    }
-
-    // Find the global maximum correlation after zero-lag drop
-    let maxval = -1;
-    let maxpos = -1;
-    for (let i = d; i < n; i++) {
-      if (c[i] > maxval) {
-        maxval = c[i];
-        maxpos = i;
-      }
-    }
-
-    let T0 = maxpos;
-    if (T0 <= 0 || c[0] <= 0) return null;
-
-    const clarity = maxval / c[0];
-    if (clarity < 0.35) return null;
-
-    // Parabolic interpolation for sub-sample fractional accuracy
-    if (T0 > 0 && T0 < n - 1) {
-      const x1 = c[T0 - 1];
-      const x2 = c[T0];
-      const x3 = c[T0 + 1];
-      const a = (x1 + x3 - 2 * x2) / 2;
-      const b = (x3 - x1) / 2;
-      if (Math.abs(a) > 1e-6) {
-        T0 = T0 - b / (2 * a);
-      }
-    }
-
-    const freq = sampleRate / T0;
-    if (freq < 20 || freq > 4500) return null;
-
-    return { freq, clarity, rms };
-  }
-
-  /**
-   * Pure Pitch Detection
-   */
-  public detectPitch(thresholds: MicThresholds): PitchDetectionResult[] {
-    if (this.analysers.length === 0) return [];
-
-    const analyser = this.analysers[0];
-    analyser.getFloatTimeDomainData(this.timeDomainBuffer as any);
-
-    const pitchInfo = this.autoCorrelate(this.timeDomainBuffer, this.sampleRate);
-    if (!pitchInfo) {
-      return [];
-    }
-
-    const { freq, clarity, rms } = pitchInfo;
-
-    // Approximate dB from RMS amplitude (RMS: 0.0001 -> -80dB, 0.01 -> -40dB, 0.1 -> -20dB, 1.0 -> 0dB)
-    const dbVal = 20 * Math.log10(Math.max(rms, 1e-5));
-    const masterThreshold = thresholds.mid ?? -20;
-
-    // Check sensitivity threshold:
-    // With range -30 dB to 0 dB, default -20 dB
-    if (dbVal < masterThreshold) {
-      return [];
-    }
-
-    // Convert exact frequency to MIDI note number
-    const midiFloat = 69 + 12 * Math.log2(freq / 440);
-    const midi = Math.round(midiFloat);
-
-    if (midi < AcousticPianoService.MIN_MIDI || midi > AcousticPianoService.MAX_MIDI) {
-      return [];
-    }
-
-    return [{
-      midi,
-      frequency: freq,
-      magnitude: dbVal,
-      confidence: Math.min(1.0, Math.max(0.2, clarity)),
-    }];
-  }
-
-  /**
-   * Dual-threshold hysteresis state machine
-   */
-  public updateNotes(currentFrameNotes: PitchDetectionResult[]): { on: number[]; off: number[] } {
-    const noteOn: number[] = [];
-    const noteOff: number[] = [];
-
-    const currentMidis = new Set(currentFrameNotes.map((n) => n.midi));
-
-    for (const res of currentFrameNotes) {
-      const midi = res.midi;
-      if (this.activeNotes.has(midi)) {
-        const state = this.activeNotes.get(midi)!;
-        if (state.frames < 0) state.frames = 0;
-        state.frames = Math.min(state.frames + 1, 10);
-        state.magnitude = res.magnitude;
-      } else {
-        this.activeNotes.set(midi, {
-          frames: 1,
-          magnitude: res.magnitude,
-          confirmed: false,
-        });
-      }
-    }
-
-    this.activeNotes.forEach((state, midi) => {
-      if (!currentMidis.has(midi)) {
-        if (state.frames > 0) state.frames = 0;
-        state.frames--;
-      }
+  private startVerifier() {
+    loadInferenceOnce().then((handle) => {
+      this.loadFinished = true;
+      if (this.destroyed || !handle) return;
+      this.verifier = new BasicPitchVerifier(handle.infer);
     });
+  }
 
-    this.activeNotes.forEach((state, midi) => {
-      if (!state.confirmed && state.frames >= this.noteOnThreshold) {
-        noteOn.push(midi);
-        state.confirmed = true;
+  /** What the AI second opinion is doing, for an optional status line. */
+  public getAiStatus(): AiStatus {
+    if (!this.loadFinished) return 'loading';
+    if (!this.verifier || this.verifier.isDisabled()) return 'unavailable';
+    return 'ready';
+  }
+
+  /**
+   * Notes the game is waiting for right now (a list, possibly empty), or null when there
+   * is no score (free play). Expected notes are confirmed faster and at a lower level.
+   */
+  public setExpectedNotes(midis: Iterable<number> | null) {
+    this.expected = midis === null ? null : new Set(midis);
+    this.detector.setExpectedNotes(midis);
+  }
+
+  /** Hands the newly captured audio to the AI part. Exact: it counts samples, not time. */
+  private feedVerifier(nowMs: number, activityLevel: number) {
+    const verifier = this.verifier;
+    if (!verifier || verifier.isDisabled()) return;
+    verifier.setActivityLevel(activityLevel);
+    const endSample = Math.round(this.audioContext.currentTime * this.sampleRate);
+    const fresh = endSample - this.lastEndSample;
+    const had = this.lastEndSample >= 0;
+    this.lastEndSample = endSample;
+    if (!had || fresh <= 0) return;
+    if (fresh > this.buffer.length) {
+      verifier.resetStream(); // audio was skipped (tab in the background): start over cleanly
+      return;
+    }
+    verifier.push(this.buffer.subarray(this.buffer.length - fresh), this.sampleRate, nowMs);
+  }
+
+  /** Call once per animation frame. Returns the keys that went down / came up. */
+  public process(thresholds: MicThresholds, nowMs: number = performance.now()): NoteEvents {
+    // Screens faster than 100 Hz would only re-analyse nearly identical audio.
+    if (nowMs - this.lastRun < 10) return NO_EVENTS;
+    this.lastRun = nowMs;
+    this.analyser.getFloatTimeDomainData(this.buffer as any);
+
+    // Sensitivity slider: -30 dB (most sensitive) .. 0 dB, default -20 dB.
+    // It sets the quietest note that may trigger, 35 dB below the slider value.
+    const sensitivity = thresholds.mid ?? -20;
+    const minLevelDb = sensitivity - 35;
+    this.feedVerifier(nowMs, Math.pow(10, minLevelDb / 20) * 0.5);
+
+    let reference: ReferenceAudio | undefined;
+    if (this.referenceAnalyser && this.referenceBuffer) {
+      try {
+        this.referenceAnalyser.getFloatTimeDomainData(this.referenceBuffer as any);
+        reference = { samples: this.referenceBuffer, sampleRate: this.referenceAnalyser.context.sampleRate };
+      } catch {
+        reference = undefined; // the app's audio context went away: carry on without it
       }
+    }
+    const found = this.detector.process(this.buffer, nowMs, minLevelDb, reference);
+    const verifier = this.verifier;
+    const aiReady = !!verifier && verifier.isReady(nowMs);
 
-      if (state.confirmed && state.frames <= -this.noteOffThreshold) {
-        noteOff.push(midi);
-        this.activeNotes.delete(midi);
-      } else if (!state.confirmed && state.frames <= -this.noteOffThreshold) {
-        this.activeNotes.delete(midi);
+    const out: NoteEvents = { on: [], off: [] };
+    const release = (midi: number) => {
+      if (this.emitted.delete(midi)) out.off.push(midi);
+    };
+    const press = (midi: number) => {
+      this.emitted.add(midi);
+      out.on.push(midi);
+    };
+
+    // Releases first so a quick re-strike ends up pressed.
+    for (const midi of found.off) {
+      const waiting = this.pending.get(midi);
+      if (waiting) waiting.offAt = nowMs;
+      else release(midi);
+    }
+    for (const midi of found.on) {
+      if (this.pending.has(midi)) continue;
+      const asked = this.expected !== null && this.expected.has(midi);
+      if (asked || !aiReady) press(midi);
+      else this.pending.set(midi, { t: nowMs, offAt: null });
+    }
+
+    // Second opinions.
+    if (this.pending.size > 0) {
+      for (const [midi, wait] of this.pending) {
+        const verdict = verifier && aiReady ? verifier.onsetEvidence(midi, wait.t - 300, wait.t + 20) : null;
+        if (verdict && verdict.value >= CONFIRM_ONSET) {
+          press(midi);
+          if (wait.offAt !== null) release(midi);
+          this.pending.delete(midi);
+        } else if (!verdict) {
+          // The AI went away while this note was waiting: do not lose a real note over it.
+          press(midi);
+          if (wait.offAt !== null) release(midi);
+          this.pending.delete(midi);
+        } else if (nowMs - wait.t > CONFIRM_DEADLINE_MS) {
+          this.pending.delete(midi); // the AI did not hear a new note there
+        }
       }
-    });
+    }
 
-    return { on: noteOn, off: noteOff };
+    return out.on.length || out.off.length ? out : NO_EVENTS;
   }
 
   public destroy(): void {
-    this.activeNotes.clear();
+    this.destroyed = true;
+    this.pending.clear();
+    this.emitted.clear();
+    this.detector.reset();
+    this.verifier = null;
   }
 }

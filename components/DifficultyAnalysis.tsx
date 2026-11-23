@@ -33,26 +33,26 @@ const DifficultyAnalysis: React.FC<DifficultyAnalysisProps> = ({ analysisResult,
     }
   }, [isModalOpen]);
 
-  const getDifficultyColor = (level: number) => {
-    if (level < 3) return 'bg-blue-400 text-blue-900'; // Novice
-    if (level < 4) return 'bg-green-400 text-green-900'; // Beginner
-    if (level < 6) return 'bg-yellow-400 text-yellow-900'; // Intermediate
-    if (level < 8) return 'bg-red-500 text-red-100'; // Advanced
-    if (level < 10) return 'bg-purple-600 text-purple-100'; // Virtuoso
-    return 'bg-fuchsia-900 text-fuchsia-100'; // Legendary
-  };
-
-  const getDifficultyLabel = (level: number) => {
-    if (level < 3) return 'Novice';
-    if (level < 4) return 'Beginner';
-    if (level < 6) return 'Intermediate';
-    if (level < 8) return 'Advanced';
-    if (level < 10) return 'Virtuoso';
-    return 'Legendary';
-  };
-
-  const difficultyColorClass = getDifficultyColor(difficultyLevel);
-  const difficultyLabel = getDifficultyLabel(difficultyLevel);
+  // One colour and one name per whole difficulty level: Lv. 1 = Novice ... Lv. 10+ = Master.
+  const DIFFICULTY_LEVEL_COLORS = [
+    'bg-sky-400 text-sky-900',          // Lv. 1  Starter
+    'bg-blue-400 text-blue-900',        // Lv. 2  Novice
+    'bg-teal-400 text-teal-900',        // Lv. 3  Beginner
+    'bg-green-400 text-green-900',      // Lv. 4  Elementary
+    'bg-yellow-400 text-yellow-900',    // Lv. 5  Intermediate
+    'bg-orange-400 text-orange-950',    // Lv. 6  Experienced
+    'bg-red-500 text-red-100',          // Lv. 7  Advanced
+    'bg-rose-700 text-rose-100',        // Lv. 8  Virtuoso
+    'bg-purple-600 text-purple-100',    // Lv. 9  Expert
+    'bg-fuchsia-900 text-fuchsia-100',  // Lv. 10+ Master
+  ];
+  const difficultyNames = [
+    t.difficultyStarter, t.difficultyNovice, t.difficultyBeginner, t.difficultyElementary, t.difficultyIntermediate,
+    t.difficultyExperienced, t.difficultyAdvanced, t.difficultyVirtuoso, t.difficultyExpert, t.difficultyMaster,
+  ];
+  const levelIndex = Number.isFinite(difficultyLevel) ? Math.min(9, Math.max(0, Math.floor(difficultyLevel) - 1)) : 0;
+  const difficultyColorClass = DIFFICULTY_LEVEL_COLORS[levelIndex];
+  const difficultyLabel = difficultyNames[levelIndex];
 
   const StatItem = ({ label, value, unit = '' }: { label: string; value: string | number | undefined; unit?: string }) => {
     if (value === undefined || value === null || (typeof value === 'number' && isNaN(value))) {

@@ -162,7 +162,8 @@ const ToggleRow: React.FC<{ label: React.ReactNode; id: string; checked: boolean
       onClick={() => !disabled && onChange(!checked)}
       className={`flex items-center justify-between p-2.5 rounded-xl bg-slate-800/40 hover:bg-slate-800/70 border border-white/5 transition-colors select-none ${disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer active:scale-[0.99]'}`}
     >
-        <label htmlFor={id} className={`text-sm font-medium text-slate-300 flex-grow ${disabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}>{label}</label>
+        {/* The row handles the click itself; without preventDefault the label would also toggle the checkbox (two toggles = no change). */}
+        <label htmlFor={id} onClick={e => e.preventDefault()} className={`text-sm font-medium text-slate-300 flex-grow ${disabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}>{label}</label>
         <input type="checkbox" id={id} checked={checked} onChange={e => !disabled && onChange(e.target.checked)} className={checkboxStyle} disabled={disabled} />
     </div>
   );
@@ -430,9 +431,9 @@ export const Settings: React.FC<SettingsProps> = (props) => {
 
   return (
     <>
-      <div className={`p-6 md:p-8 rounded-3xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto custom-scrollbar text-slate-100 border border-white/10 transform transition-all duration-300 ease-in-out bg-slate-900/60 backdrop-blur-sm ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`} onClick={e => e.stopPropagation()}>
+      <div className={`p-4 sm:p-6 md:p-8 rounded-2xl sm:rounded-3xl shadow-2xl max-w-3xl w-full max-h-[92vh] max-h-[92dvh] overflow-y-auto overscroll-contain custom-scrollbar text-slate-100 border border-white/10 transform transition-all duration-300 ease-in-out bg-slate-900/60 backdrop-blur-sm ${isRendered ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`} onClick={e => e.stopPropagation()}>
         {/* Header Bar */}
-        <div className="flex items-center justify-between pb-4 border-b border-white/10 mb-5">
+        <div className="flex items-center justify-between pb-3 sm:pb-4 border-b border-white/10 mb-3 sm:mb-5">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-300">
               <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -459,7 +460,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
         </div>
 
         {/* Search Bar */}
-        <div className="relative mb-4">
+        <div className="relative mb-3 sm:mb-4">
           <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="11" cy="11" r="8"/>
@@ -485,10 +486,10 @@ export const Settings: React.FC<SettingsProps> = (props) => {
 
         {/* Category Tabs with SVGs */}
         {!settingsSearch && (
-          <div className="flex items-center gap-1.5 p-1 bg-slate-950/60 rounded-2xl border border-white/5 mb-6 overflow-x-auto custom-scrollbar">
+          <div className="flex items-center gap-1.5 p-1 bg-slate-950/60 rounded-2xl border border-white/5 mb-4 sm:mb-6 overflow-x-auto custom-scrollbar">
             <button
               onClick={() => setActiveSettingsTab('gameplay')}
-              className={`flex-1 min-w-[120px] py-2 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 ${
+              className={`flex-1 min-w-[96px] sm:min-w-[120px] py-2.5 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 ${
                 activeSettingsTab === 'gameplay'
                   ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
@@ -500,7 +501,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
 
             <button
               onClick={() => setActiveSettingsTab('midi')}
-              className={`flex-1 min-w-[120px] py-2 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 ${
+              className={`flex-1 min-w-[96px] sm:min-w-[120px] py-2.5 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 ${
                 activeSettingsTab === 'midi'
                   ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
@@ -512,7 +513,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
 
             <button
               onClick={() => setActiveSettingsTab('audio')}
-              className={`flex-1 min-w-[120px] py-2 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 ${
+              className={`flex-1 min-w-[96px] sm:min-w-[120px] py-2.5 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 ${
                 activeSettingsTab === 'audio'
                   ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
@@ -524,7 +525,7 @@ export const Settings: React.FC<SettingsProps> = (props) => {
 
             <button
               onClick={() => setActiveSettingsTab('theme')}
-              className={`flex-1 min-w-[120px] py-2 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 ${
+              className={`flex-1 min-w-[96px] sm:min-w-[120px] py-2.5 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 ${
                 activeSettingsTab === 'theme'
                   ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'

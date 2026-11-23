@@ -53,6 +53,9 @@ Once running, open your browser and navigate to:
 ## 📂 Project Structure Overview
 
 * `App.tsx` : Main application component for Octavia Piano.
-* `fingering.ts` : Ergonomic piano fingering algorithm (Parncutt model) implemented in pure TypeScript.
+* `fingering.ts` / `fingeringEngine.ts` : Automatic piano fingering. One dynamic-programming pass per hand over chords and melody together, with ergonomic span costs (after Parncutt et al.). Pure TypeScript, no ML model.
+* `pianoNoteDetector.ts` : Fast polyphonic microphone note detection (FFT + harmonic matching, score-informed, with removal of the app's own sound). Pure TypeScript.
+* `AcousticPianoService.ts` : Microphone wrapper. Notes the song asks for pass immediately; other notes wait (max 500 ms) for a second opinion from the AI verifier. If the AI is unavailable, everything passes immediately.
+* `basicPitchModel.ts` / `basicPitchVerifier.ts` : Optional on-device note verifier using Spotify's Basic Pitch model (`public/models/basic-pitch/`, Apache-2.0, ~0.9 MB). Loaded lazily with TensorFlow.js (WebGL only), saved to the browser's IndexedDB after the first download, and skipped automatically on devices where it is too slow. It can only confirm notes, never create them.
 * `components/` : UI components (Piano keyboard, Sheet Music Viewer, Settings, etc.).
 * `vite.config.ts` : Vite configuration.
