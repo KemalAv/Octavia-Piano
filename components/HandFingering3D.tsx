@@ -40,27 +40,28 @@ const isBlackKey = (midi: number) => BLACK_KEYS.includes(midi % 12);
 // Anatomy (all lengths in "white key widths", 1 key ~ 2.35 cm, so values match an adult hand)
 // ---------------------------------------------------------------------------------------------
 // Longer, larger, open adult pianist hand with natural adaptive spread (mekar)
-const FINGER_TOTAL = [4.6, 5.0, 4.6, 4.2]; // index, middle, ring, pinky (longer reach across keys)
+const FINGER_TOTAL = [3.5, 3.8, 3.5, 2.9]; // index, middle, ring, pinky (longer reach across keys)
 const FINGER_SPLIT = [0.47, 0.27, 0.26];
-const FINGER_R = [0.34, 0.36, 0.34, 0.28]; // full, fleshy fingers
-const KNUCKLE_X = [-1.35, -0.45, 0.45, 1.35]; // wide knuckle breadth across palm
-const KNUCKLE_Y = [1.45, 1.62, 1.48, 1.28];
+const FINGER_R = [0.38, 0.40, 0.38, 0.32]; // full, fleshy fingers
+const KNUCKLE_X = [-1.7, -0.58, 0.58, 1.7]; // wide knuckle breadth across palm
+const KNUCKLE_Y = [1.1, 1.62, 1.48, 1.28];
 const FAN_X = [-0.45, 0.0, 0.40, 0.85]; // wide open fanning spread across keys (lebih renggang)
 
-const THUMB_BASE = new THREE.Vector3(-1.15, 0.20, 0.05); // upper-mid thenar base
+const THUMB_BASE = new THREE.Vector3(-1.8, 0.12, 0.05); // upper-mid thenar base
 const THUMB_ROOT = THUMB_BASE;
-const THUMB_LEN = [1.8, 1.4, 1.2]; // total = 4.4 kw
+const THUMB_LEN = [1.25, 0.95, 0.8]; // clearly shorter than the index finger
 const THUMB_R = [0.42, 0.36, 0.30, 0.26];
 
 const PALM_TO_REST_TIP = 4.1; // realistic palm-to-tip distance
 const HAND_HOVER = 1.95; // elevated dorsal arch
 const LEFT_HAND_EXTRA_LIFT = 0.35;
-const BASE_WIDTH_SCALE = 1.26; // wider open hand span (tangan lebih besar dan renggang)
-const HAND_SCALE = 0.94; // full adult hand size (besar panjang)
+const BASE_WIDTH_SCALE = 1.08; // wider open hand span (tangan lebih besar dan renggang)
+const MAX_HAND_SPAN_KEYS = 10; // thumb to little finger: C to the F an eleventh above, in white-key widths
+const HAND_SCALE = 1.10; // full adult hand size (besar panjang)
 
 // Relaxed five-finger position: where each fingertip rests relative to the palm centre,
 // in white-key widths (thumb .. little finger). One key per finger, like C-D-E-F-G.
-const NATURAL_OFFSET = [-2.15, -1, 0, 1, 2];
+const NATURAL_OFFSET = [-3.0, -1.15, 0, 1.15, 2.2];
 const FINGER_LOOKAHEAD_MS = 320; // a finger starts travelling to its next key this early
 const CHORD_WINDOW_MS = 35;
 
@@ -111,6 +112,29 @@ function makeShadowTexture(): THREE.CanvasTexture {
 // ---------------------------------------------------------------------------------------------
 // Skeleton solver: 3-bone FABRIK with dynamic stretch so fingers 100% reach target keys
 // ---------------------------------------------------------------------------------------------
+// Joint follow-through: the knuckle leads, PIP / DIP / tip trail a few milliseconds behind, then
+// bone lengths are restored. Joints visibly flex instead of the finger moving as one stiff rod.
+// ---------------------------------------------------------------------------------------------
+const JOINT_TAU_MS = [0, 30, 44, 58];
+function followThrough(sm: THREE.Vector3[], pts: THREE.Vector3[], lens: number[], dt: number) {
+  if (sm.length === 0) {
+    for (let i = 0; i < 4; i++) sm.push(pts[i].clone());
+    return;
+  }
+  sm[0].copy(pts[0]);
+  for (let i = 1; i < 4; i++) {
+    const a = 1 - Math.exp(-dt / JOINT_TAU_MS[i]);
+    sm[i].lerp(pts[i], a);
+    // keep every bone at its real length, measured from the (already placed) previous joint
+    const dx = sm[i].x - sm[i - 1].x, dy = sm[i].y - sm[i - 1].y, dz = sm[i].z - sm[i - 1].z;
+    const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const L = lens[i - 1]; // rigid bone: always its real length
+    if (d > 1e-5) sm[i].set(sm[i - 1].x + (dx / d) * L, sm[i - 1].y + (dy / d) * L, sm[i - 1].z + (dz / d) * L);
+  }
+  for (let i = 0; i < 4; i++) pts[i].copy(sm[i]);
+}
+
+// ---------------------------------------------------------------------------------------------
 function solveChain(pts: THREE.Vector3[], lens: number[], target: THREE.Vector3) {
   const root = pts[0];
   const baseTotal = lens.reduce((a, b) => a + b, 0);
@@ -127,7 +151,8 @@ function solveChain(pts: THREE.Vector3[], lens: number[], target: THREE.Vector3)
   // Dynamic stretch when target is far (e.g. wide chord / mekar)
   // Ensures the fingertip reaches 100% of the target distance without short-changing!
   const maxReach = baseTotal * 0.96;
-  const stretch = dist > maxReach ? dist / maxReach : 1.0;
+  // Bones may stretch a little for wide reaches, but never into spaghetti.
+  const stretch = dist > maxReach ? Math.min(1.04, dist / maxReach) : 1.0; // bones are rigid: a finger bends, it does not stretch
   const curLens = stretch > 1.0 ? lens.map((l) => l * stretch) : lens;
   const total = baseTotal * stretch;
 
@@ -146,8 +171,10 @@ function solveChain(pts: THREE.Vector3[], lens: number[], target: THREE.Vector3)
   // Smooth natural curvature (biasa aja, melengkung wajar tanpa nekuk aneh)
   const p0: [number, number] = [0.0, 0.0];
   const p3: [number, number] = [d_xy, dz];
-  const p1: [number, number] = [d_xy * 0.38, Math.max(0.06 * total, dz * 0.15 + 0.12 * total)];
-  const p2: [number, number] = [d_xy * 0.70, dz * 0.50];
+  // Close targets curl the finger (PIP flexes more, tip hangs down); far targets stay long.
+  const bend = Math.min(1, Math.max(0, (total * 0.8 - dist) / (total * 0.5)));
+  const p1: [number, number] = [d_xy * 0.38, Math.max(0.06 * total, dz * 0.15 + (0.12 + 0.16 * bend) * total)];
+  const p2: [number, number] = [d_xy * 0.70, dz * 0.50 + 0.10 * bend * total];
   const chain: [number, number][] = [p0, p1, p2, p3];
 
   for (let it = 0; it < 8; it++) {
@@ -221,6 +248,8 @@ class HandRig {
   inner = new THREE.Group();
   cuffMat = new THREE.MeshStandardMaterial({ color: '#a000ff', roughness: 0.4, metalness: 0.1 });
   fingerPts: THREE.Vector3[][] = [];
+  fingerSm: THREE.Vector3[][] = [[], [], [], []];
+  thumbSm: THREE.Vector3[] = [];
   fingers: Segment[][] = [];
   thumb: Segment[] = [];
   thumbPts: THREE.Vector3[] = [];
@@ -322,6 +351,10 @@ export function HandFingering3D({
   live.current = { timeMs, leftHandColor, rightHandColor };
   const [collapsed, setCollapsed] = useState(false);
   const smooth = useRef<Record<Side, HandState | null>>({ left: null, right: null });
+  // Per-hand palm velocity (critically damped spring) and per-finger smoothed height above the keys.
+  const palmVel = useRef<Record<Side, number>>({ left: 0, right: 0 });
+  const fingerZ = useRef<Record<Side, number[]>>({ left: [0, 0, 0, 0, 0], right: [0, 0, 0, 0, 0] });
+  const liftSm = useRef<Record<Side, number>>({ left: 0, right: 0 });
 
   const toScreen = useMemo(() => {
     const defs = new Map(PIANO_KEYS_CONFIG.map((k) => [k.name, k.midiNote]));
@@ -499,11 +532,13 @@ export function HandFingering3D({
         const down = [false, false, false, false, false];
         const near = [0, 0, 0, 0, 0];
         const rel = [...natural];
+        const heldShape = [false, false, false, false, false];
         const tipY = restLen.map((o) => restTip + o + breathe);
 
         // What each finger is holding now and where it goes next.
         const held: ({ midi: number } | null)[] = [null, null, null, null, null];
         const upcoming: (MidiNotePlaybackItem | null)[] = [null, null, null, null, null];
+        const lastPlayed: (MidiNotePlaybackItem | null)[] = [null, null, null, null, null];
         const fingers = score.byFinger[side];
         for (let f = 0; f < 5; f++) {
           if (preview) {
@@ -515,6 +550,7 @@ export function HandFingering3D({
           const last = idx > 0 ? list[idx - 1] : null;
           if (last && last.timeMs + last.durationMs > t) held[f] = last;
           upcoming[f] = list[idx] || null;
+          lastPlayed[f] = last;
         }
 
         // Palm: current position, blended into the next one shortly before it is needed.
@@ -571,6 +607,16 @@ export function HandFingering3D({
             tipY[f] = pressedY(held[f]!.midi);
             continue;
           }
+          // After letting go, the finger stays over the key it just played, still partly curled,
+          // instead of snapping back to its rest shape. It only moves on when its next key nears.
+          const lp = lastPlayed[f];
+          if (lp) {
+            const hold = dir * (px(lp.midi) - palm);
+            rel[f] = natural[f] + Math.max(-1.6 * kw, Math.min(1.6 * kw, hold - natural[f]));
+            const restY = tipY[f];
+            tipY[f] = pressedY(lp.midi) + (restY - pressedY(lp.midi)) * 0.35;
+            heldShape[f] = true;
+          }
           const next = upcoming[f];
           if (!next) continue;
           const wait = next.timeMs - t;
@@ -585,7 +631,7 @@ export function HandFingering3D({
         const placed = [0, 1, 2, 3, 4].filter((i) => near[i] > 0.6);
         if (placed.length) {
           for (let i = 0; i < 5; i++) {
-            if (near[i] > 0.6) continue;
+            if (near[i] > 0.6 || heldShape[i]) continue;
             const lower = [...placed].reverse().find((k) => k < i);
             const upper = placed.find((k) => k > i);
             let shaped = rel[i];
@@ -602,7 +648,7 @@ export function HandFingering3D({
 
         // Fingers 2-5 never overlap each other. The thumb is left alone while it is placed:
         // it is the one finger that passes underneath the others.
-        const minGap = kw * 0.78;
+        const minGap = kw * 0.98;
         for (let pass = 0; pass < 6; pass++) {
           for (let i = 1; i < 5; i++) {
             if (i === 1 && near[0] > 0.3) continue;
@@ -630,12 +676,63 @@ export function HandFingering3D({
           smooth.current[side] = target;
           return target;
         }
-        s.palm += (target.palm - s.palm) * k;
+        // Palm: critically damped spring, so it eases in and out with a little inertia.
+        const dtS = Math.min(0.05, dt / 1000);
+        const omega = 15;
+        const vel = palmVel.current[side];
+        const acc = omega * omega * (target.palm - s.palm) - 2 * omega * vel;
+        palmVel.current[side] = vel + acc * dtS;
+        s.palm += palmVel.current[side] * dtS;
+        // While the palm is still travelling (a big jump), free fingers stay in a compact natural
+        // shape and only open up once the hand has arrived, instead of splaying across the keys.
+        const lag = Math.abs(target.palm - s.palm);
+        const calm = 1 / (1 + lag / (2.2 * kw));
         for (let i = 0; i < 5; i++) {
+          if (!target.down[i]) {
+            const dev = (target.rel[i] - natural[i]) * calm;
+            target.rel[i] = natural[i] + Math.max(-2.0 * kw, Math.min(2.0 * kw, dev));
+          }
           s.rel[i] += (target.rel[i] - s.rel[i]) * k;
           s.tipY[i] += (target.tipY[i] - s.tipY[i]) * (k * 1.2);
           s.down[i] = target.down[i];
           s.near[i] = target.near[i];
+        }
+        // Anatomical limit: thumb tip to little-finger tip reaches about C to the F an eleventh
+        // above (10 white keys). Beyond that the stretching finger simply stops ("mentok").
+        {
+          // Fingers 2-5 never pile up on each other, even right after a fast hand change while
+          // the smoothed values are still catching up (the thumb may cross, so it is excluded).
+          const sepGap = kw * 0.95;
+          for (let pass = 0; pass < 4; pass++) {
+            for (let i = 2; i < 5; i++) {
+              const d = s.rel[i] - s.rel[i - 1];
+              if (d >= sepGap) continue;
+              const need = sepGap - d;
+              if (s.down[i] && !s.down[i - 1]) s.rel[i - 1] -= need;
+              else if (s.down[i - 1] && !s.down[i]) s.rel[i] += need;
+              else {
+                s.rel[i] += need / 2;
+                s.rel[i - 1] -= need / 2;
+              }
+            }
+          }
+          // Thumb and index never sit on top of each other: keep a natural gap unless the thumb
+          // is really passing under (then it is clearly past the index finger).
+          {
+            const tg = kw * 2.0;
+            const d = s.rel[1] - s.rel[0];
+            if (d > -0.5 * kw && d < tg) {
+              const need = tg - d;
+              if (s.down[1] && !s.down[0]) s.rel[0] -= need;
+              else if (s.down[0] && !s.down[1]) s.rel[1] += need;
+              else {
+                s.rel[0] -= need / 2;
+                s.rel[1] += need / 2;
+              }
+            }
+          }
+          // Only rule left: the thumb never wanders far from the index finger.
+          s.rel[0] = Math.min(s.rel[1] + 1.4 * kw, Math.max(s.rel[1] - 3.2 * kw, s.rel[0]));
         }
         return s;
       });
@@ -657,9 +754,13 @@ export function HandFingering3D({
         const maxRel = Math.max(...s.rel);
         const spanKeys = (maxRel - minRel) / kw;
         const spreadFactor = Math.min(1.0, Math.max(0, (spanKeys - 3.5) / 4.5));
-        const dynamicWidth = BASE_WIDTH_SCALE * (1.0 + spreadFactor * 0.18);
+        const dynamicWidth = BASE_WIDTH_SCALE; // fixed hand width: no stretching/fanning
 
-        const hoverZ = (HAND_HOVER + (left ? LEFT_HAND_EXTRA_LIFT : 0)) * kw * HAND_SCALE + s.lift;
+        // Back of the hand rises as a finger comes up to its next key, then settles after the strike.
+        let approach = 0;
+        for (let i = 0; i < 5; i++) if (!s.down[i]) approach = Math.max(approach, Math.sin(Math.PI * Math.min(1, s.near[i])));
+        const rise = (liftSm.current[side] += (approach - liftSm.current[side]) * (1 - Math.pow(1 - 0.18, dt / 16)));
+        const hoverZ = (HAND_HOVER + (left ? LEFT_HAND_EXTRA_LIFT : 0) + 0.45 * rise) * kw * HAND_SCALE + s.lift;
         rig.root.position.set(s.palm, -palmScreenY, hoverZ);
         rig.root.scale.set(1, 1, 1);
         rig.inner.scale.set((left ? -1 : 1) * kw * HAND_SCALE * dynamicWidth, kw * HAND_SCALE, kw * HAND_SCALE);
@@ -668,10 +769,16 @@ export function HandFingering3D({
         const tipLocal = (i: number) => {
           const isAct = s.down[i];
           const isBlack = s.tipY[i] < restTip - 0.3 * kw;
-          let wz = isBlack ? (isAct ? 0.38 : 0.55) : (isAct ? 0.05 : 0.22);
+          const wzTarget = (isBlack ? (isAct ? 0.38 : 0.55) : (isAct ? 0.05 : 0.22))
+            // Arc: the finger rises on its way to the next key, then comes down onto it.
+            + (isAct ? 0 : 0.6 * Math.sin(Math.PI * Math.min(1, s.near[i])));
+          const fz = fingerZ.current[side];
+          fz[i] += (wzTarget - fz[i]) * (1 - Math.pow(1 - 0.32, dt / 16));
+          const wz = fz[i];
 
           let forward = (palmScreenY - s.tipY[i]) / (kw * HAND_SCALE);
-          if (i === 0) forward -= 1.1; // thumb strikes slightly lower on the white key
+
+          if (i === 0) forward -= 0.9;
 
           let targetX = 0;
           if (i === 0) {
@@ -704,17 +811,14 @@ export function HandFingering3D({
           // Dynamic knuckle abduction when fanning out wide
           const baseKnuckleX = KNUCKLE_X[f];
           let kx = baseKnuckleX;
-          if (f === 3 && target.x > baseKnuckleX) {
-            kx = baseKnuckleX + (target.x - baseKnuckleX) * 0.25;
-          } else if (f === 0 && target.x < baseKnuckleX) {
-            kx = baseKnuckleX + (target.x - baseKnuckleX) * 0.20;
-          }
+          // knuckles stay fixed: a real palm does not change shape
           const knucklePos = new THREE.Vector3(kx, KNUCKLE_Y[f], 0.12);
           rig.fingerPts[f][0].copy(knucklePos);
           if (rig.knuckleMeshes[f]) rig.knuckleMeshes[f].position.copy(knucklePos);
 
           const pts = rig.fingerPts[f];
           solveChain(pts, lens, target);
+          followThrough(rig.fingerSm[f], pts, lens, dt);
           const r0 = FINGER_R[f];
           const radii = [0, 1, 2, 3].map((j) => r0 * (1 - 0.26 * (j / 3)));
           rig.fingers[f].forEach((seg, j) => seg.pose(pts[j], pts[j + 1], radii[j + 1], 0.88));
@@ -734,6 +838,7 @@ export function HandFingering3D({
 
           const pts = rig.thumbPts;
           solveChain(pts, THUMB_LEN, target);
+          followThrough(rig.thumbSm, pts, THUMB_LEN, dt);
           rig.thumb.forEach((seg, j) => seg.pose(pts[j], pts[j + 1], THUMB_R[j + 1], 0.9));
         }
 

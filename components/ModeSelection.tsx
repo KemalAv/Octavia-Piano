@@ -11,6 +11,8 @@ interface ModeSelectionProps {
     onStartGame: (settings: GameSettings) => void;
     onBack: () => void;
     onOpenSettings?: (targetSection?: string) => void;
+    /** Copies the loaded MIDI + fingering as JSON; resolves true when it was copied. */
+    onCopyMidiJson?: () => Promise<boolean>;
     analysisResult: ExtendedResult | null;
     analysisResultForPreview: ExtendedResult | null;
     fileName: string | null;
@@ -44,6 +46,7 @@ const ModeSelection: React.FC<ModeSelectionProps> = memo(({
     onStartGame,
     onBack,
     onOpenSettings,
+    onCopyMidiJson,
     analysisResult,
     analysisResultForPreview,
     fileName,

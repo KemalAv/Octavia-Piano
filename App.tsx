@@ -1,6 +1,6 @@
 import { backingPlayheadMs, noteInputOffsetMs, measuredOutputLatencyMs, routeLocalBackingAudio, WebAudioBackingPlayer, ensureAudioContextWarm } from './playbackSync';
 import { parsePlaybackFile } from './songLoading';
-import { createNoteSpeedScaler, getDifficultyNoteDurationMs, getFixedHitboxMs, getMajorNoteVisualDurationMs, getMajorVisualDurationsByNoteId, getPianoPlaybackDurationMs, getTapNoteDurationMs } from './noteInteraction';
+import { DRUM_SPEED_CURVE, SPEED_CURVE, createNoteSpeedScaler, getDifficultyNoteDurationMs, getFixedHitboxMs, getMajorNoteVisualDurationMs, getMajorVisualDurationsByNoteId, getPianoPlaybackDurationMs, getTapNoteDurationMs } from './noteInteraction';
 import React, {
   useState,
   useCallback,
@@ -1928,17 +1928,21 @@ const AppContent: React.FC = () => {
   const fixedHitboxMsRef = useRef(fixedHitboxMs);
   fixedHitboxMsRef.current = fixedHitboxMs;
   // Window / hitbox scale by note density (see createNoteSpeedScaler). Cached per note list.
-  const speedScalerCacheRef = useRef<{ src: unknown; fn: (t: number, rate?: number) => number } | null>(null);
+  const speedScalerCacheRef = useRef<{ src: unknown; curve: unknown; fn: (t: number, rate?: number) => number } | null>(null);
+  const speedCurve = instrumentMode === "drum" ? DRUM_SPEED_CURVE : SPEED_CURVE;
+  const speedCurveRef = useRef(speedCurve);
+  speedCurveRef.current = speedCurve;
   const speedScaleAt = useCallback((src: ReadonlyArray<{ timeMs: number }>, timeMs: number, rate = 1): number => {
     let c = speedScalerCacheRef.current;
-    if (!c || c.src !== src) {
-      c = { src, fn: createNoteSpeedScaler(src) };
+    const curve = speedCurveRef.current;
+    if (!c || c.src !== src || c.curve !== curve) {
+      c = { src, curve, fn: createNoteSpeedScaler(src, curve) };
       speedScalerCacheRef.current = c;
     }
     return c.fn(timeMs, rate);
   }, []);
   const majorVisualDurationByNoteId = useMemo(() => {
-    const scaler = createNoteSpeedScaler(notesForGame);
+    const scaler = createNoteSpeedScaler(notesForGame, speedCurve);
     const flat = instrumentMode === "drum";
     return new Map(notesForGame.map(note => [
       note.noteId,
@@ -5742,8 +5746,10 @@ const AppContent: React.FC = () => {
       const inputPadId = isDrum ? midiToDrumPadIdMap.get(midi) : undefined;
       const isHiHatFootInput = isDrum && (midi === 44 || inputPadId === "hihat_foot");
 
-      const isDrumPadMatch = (inpPad: string | undefined, tgtPad: string | undefined): boolean => {
+      const isDrumPadMatch = (inpPad: string | undefined, tgtPad: string | undefined, tgtMidi?: number): boolean => {
         if (!inpPad || !tgtPad) return false;
+        // Open (46) and closed (42) hi-hat are different hits: playing one for the other is a miss.
+        if (tgtMidi !== undefined && (tgtMidi === 42 || tgtMidi === 46) && (midi === 42 || midi === 46) && tgtMidi !== midi) return false;
         if (inpPad === tgtPad) return true;
         // Striking hihat pad matches any hihat note (42 closed, 46 open, 44 pedal)
         if (inpPad === "hihat" && tgtPad === "hihat_foot") return true;
@@ -5762,7 +5768,7 @@ const AppContent: React.FC = () => {
         if (isDrum) {
           m = wn.find((n) => {
             const targetPadId = midiToDrumPadIdMap.get(n.midi);
-            return isDrumPadMatch(inputPadId, targetPadId);
+            return isDrumPadMatch(inputPadId, targetPadId, n.midi);
           });
         } else if (isAudioInputEnabledRef.current) {
           // v2 scoring: octave-insensitive
@@ -5896,7 +5902,7 @@ const AppContent: React.FC = () => {
           let midiMatch = false;
           if (isDrum) {
             const targetPadId = midiToDrumPadIdMap.get(n.midi);
-            midiMatch = isDrumPadMatch(inputPadId, targetPadId);
+            midiMatch = isDrumPadMatch(inputPadId, targetPadId, n.midi);
           } else if (isAudioInputEnabledRef.current) {
             midiMatch = n.midi % 12 === midi % 12;
           } else {
@@ -6239,6 +6245,55 @@ const AppContent: React.FC = () => {
       handleFreePlayKeyRelease,
     ],
   );
+
+  // Copies the loaded MIDI (notes with fingering, tempo, signatures, pedal, hand poses) as JSON,
+  // so fingering and the 3D hand can be analysed outside the app.
+  const handleCopyMidiJson = useCallback(async (): Promise<boolean> => {
+    const r = (n: number) => Math.round(n * 100) / 100;
+    const data = {
+      fileName: currentFileName,
+      instrumentMode,
+      tempoBpm: currentTempoBpm,
+      timeSignature: initialTimeSignature,
+      keySignature: initialKeySignature,
+      tempoEvents,
+      signatureEvents,
+      pedalEvents,
+      barLinesMs: barLines.map(r),
+      handPoses,
+      noteCount: playbackNotes.length,
+      notes: playbackNotes.map((n) => ({
+        id: n.noteId,
+        midi: n.midi,
+        name: n.name,
+        timeMs: r(n.timeMs),
+        durationMs: r(n.durationMs),
+        velocity: n.velocity,
+        hand: n.hand,
+        finger: n.finger ?? null,
+        handPositions: n.handPositions,
+      })),
+    };
+    const text = JSON.stringify(data);
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+        return ok;
+      } catch {
+        return false;
+      }
+    }
+  }, [currentFileName, instrumentMode, currentTempoBpm, initialTimeSignature, initialKeySignature, tempoEvents, signatureEvents, pedalEvents, barLines, handPoses, playbackNotes]);
 
   const handleStartLearnMode = useCallback(
     async (
@@ -8476,6 +8531,9 @@ const AppContent: React.FC = () => {
                   <div className="relative flex-grow w-full">
                     {instrumentMode === "drum" && viewMode === "falling" ? (
                       <DrumView
+                        barLines={barLines}
+                        unitsPerBar={(initialTimeSignature.numerator * 32) / (initialTimeSignature.denominator || 4)}
+                        unitsPerBeat={initialTimeSignature.denominator === 8 && initialTimeSignature.numerator % 3 === 0 ? 12 : 32 / (initialTimeSignature.denominator || 4)}
                         currentTimeMs={musicalCurrentTimeMs}
                         playbackData={notesForGame}
                         activePlaybackNotes={activePlaybackNotesInfo}
@@ -8508,6 +8566,8 @@ const AppContent: React.FC = () => {
                         themeSettings={themeSettings}
                         zoomScale={zoomScale}
                         barLines={barLines}
+                        unitsPerBar={(initialTimeSignature.numerator * 32) / (initialTimeSignature.denominator || 4)}
+                        unitsPerBeat={initialTimeSignature.denominator === 8 && initialTimeSignature.numerator % 3 === 0 ? 12 : 32 / (initialTimeSignature.denominator || 4)}
                         pixelsPerMillisecond={
                           BASE_PIXELS_PER_MILLISECOND * noteSpeedMultiplier * zoomScale * 2
                         }
@@ -8747,6 +8807,9 @@ const AppContent: React.FC = () => {
                       }}
                     >
                       <DrumView
+                        barLines={barLines}
+                        unitsPerBar={(initialTimeSignature.numerator * 32) / (initialTimeSignature.denominator || 4)}
+                        unitsPerBeat={initialTimeSignature.denominator === 8 && initialTimeSignature.numerator % 3 === 0 ? 12 : 32 / (initialTimeSignature.denominator || 4)}
                         currentTimeMs={musicalCurrentTimeMs}
                         playbackData={notesForGame}
                         activePlaybackNotes={activePlaybackNotesInfo}
@@ -8901,6 +8964,7 @@ const AppContent: React.FC = () => {
       )}
       {currentScreen === "modeSelection" && (
         <ModeSelection
+          onCopyMidiJson={handleCopyMidiJson}
           onStartGame={handleStartGame}
           onBack={() => {
             if (learnExerciseActiveRef.current) {
@@ -9435,6 +9499,8 @@ const AppContent: React.FC = () => {
                       themeSettings={themeSettings}
                       zoomScale={zoomScale}
                       barLines={barLines}
+                      unitsPerBar={(initialTimeSignature.numerator * 32) / (initialTimeSignature.denominator || 4)}
+                      unitsPerBeat={initialTimeSignature.denominator === 8 && initialTimeSignature.numerator % 3 === 0 ? 12 : 32 / (initialTimeSignature.denominator || 4)}
                       pixelsPerMillisecond={
                         BASE_PIXELS_PER_MILLISECOND * noteSpeedMultiplier * zoomScale * 2
                       }
@@ -9451,6 +9517,9 @@ const AppContent: React.FC = () => {
                     instrumentMode === "drum" &&
                     viewMode === "falling" ? (
                     <DrumView
+                      barLines={barLines}
+                      unitsPerBar={(initialTimeSignature.numerator * 32) / (initialTimeSignature.denominator || 4)}
+                      unitsPerBeat={initialTimeSignature.denominator === 8 && initialTimeSignature.numerator % 3 === 0 ? 12 : 32 / (initialTimeSignature.denominator || 4)}
                       key="freeplay-drum-falling"
                       currentTimeMs={freePlayElapsedTime}
                       playbackData={recordedNotes}
@@ -9535,6 +9604,9 @@ const AppContent: React.FC = () => {
                     </div>
                   ) : instrumentMode === "drum" && viewMode === "falling" ? (
                     <DrumView
+                      barLines={barLines}
+                      unitsPerBar={(initialTimeSignature.numerator * 32) / (initialTimeSignature.denominator || 4)}
+                      unitsPerBeat={initialTimeSignature.denominator === 8 && initialTimeSignature.numerator % 3 === 0 ? 12 : 32 / (initialTimeSignature.denominator || 4)}
                       key="game-drum-falling"
                       currentTimeMs={musicalCurrentTimeMs}
                       playbackData={notesForGame}
@@ -9570,6 +9642,8 @@ const AppContent: React.FC = () => {
                       themeSettings={themeSettings}
                       zoomScale={zoomScale}
                       barLines={barLines}
+                      unitsPerBar={(initialTimeSignature.numerator * 32) / (initialTimeSignature.denominator || 4)}
+                      unitsPerBeat={initialTimeSignature.denominator === 8 && initialTimeSignature.numerator % 3 === 0 ? 12 : 32 / (initialTimeSignature.denominator || 4)}
                       pixelsPerMillisecond={
                         BASE_PIXELS_PER_MILLISECOND * noteSpeedMultiplier * zoomScale * 2
                       }
@@ -9810,6 +9884,9 @@ const AppContent: React.FC = () => {
                     }}
                   >
                     <DrumView
+                      barLines={barLines}
+                      unitsPerBar={(initialTimeSignature.numerator * 32) / (initialTimeSignature.denominator || 4)}
+                      unitsPerBeat={initialTimeSignature.denominator === 8 && initialTimeSignature.numerator % 3 === 0 ? 12 : 32 / (initialTimeSignature.denominator || 4)}
                       currentTimeMs={isFreePlayMode ? freePlayElapsedTime : musicalCurrentTimeMs}
                       playbackData={isFreePlayMode ? recordedNotes : notesForGame}
                       liveNotes={isFreePlayMode ? freePlayLiveNotes : gameLiveNotes}

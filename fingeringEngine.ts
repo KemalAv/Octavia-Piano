@@ -57,6 +57,7 @@ const REST_OFFSET = [0, 0, 2, 4, 5, 7];
 // Tie-breakers: strong fingers first, and spans close to the relaxed hand shape.
 const FINGER_COST = [0, 0.1, 0, 0, 0.3, 0.2];
 const NATURAL_WEIGHT = 0.15;
+const LEGATO_STRETCH = 0.12;
 
 /** Distance of a span from the relaxed five-finger shape (neighbouring fingers 1-2 semitones apart). */
 const offNatural = (lo: number, hi: number, s: number) => {
@@ -109,8 +110,16 @@ interface Ev {
 class Engine {
   private reach: number;
 
+  /** Cheapest `position` cost of any finger pair for each interval: only the excess counts. */
+  private posBest: number[] = [];
+
   constructor(handSize: HandSize) {
     this.reach = HAND_SIZE_REACH[handSize] ?? 0;
+    for (let d = 0; d <= 24; d++) {
+      let m = INF;
+      for (let lo = 1; lo <= 4; lo++) for (let hi = lo + 1; hi <= 5; hi++) m = Math.min(m, this.position(lo, hi, d));
+      this.posBest.push(m);
+    }
   }
 
   private range(lo: number, hi: number) {
@@ -133,6 +142,22 @@ class Engine {
     return c + offNatural(lo, hi, s);
   }
 
+  /**
+   * Cost of two fingers covering keys `s` semitones apart inside one hand position of a quick
+   * broken figure. Looser than a held chord: only spans past the comfortable limit count.
+   */
+  private position(lo: number, hi: number, s: number): number {
+    const r = this.range(lo, hi);
+    const open = lo === 1 ? 0 : 1;
+    let c = 0;
+    if (s > r.maxR + open) c += (lo === 1 ? 0.8 : 0.4) * (s - r.maxR - open);
+    if (s > r.maxC + open) c += s - r.maxC - open;
+    if (s > r.maxP + open) c += 3 * (s - r.maxP - open);
+    if (s < r.minC) c += r.minC - s;
+    if (lo === 1 && hi === 4 && s >= 12) c += 1.5; // octaves belong to thumb and little finger
+    return c;
+  }
+
   /** Cost of the hand shape of one event. */
   private shape(all: N[], isNew: boolean[], f: number[], dt: number): number {
     // Weak fingers cost more the faster the passage is.
@@ -145,7 +170,7 @@ class Engine {
       if (isNew[i]) {
         c += FINGER_COST[f[i]] * weak;
         if (all[i].black) {
-          if (k === 1) c += f[i] === 1 ? 2 : f[i] === 5 ? 0.75 : 0;
+          if (k === 1) c += f[i] === 1 ? 1 : f[i] === 5 ? 0.5 : 0;
           else if (anyWhite) c += f[i] === 1 ? 1 : f[i] === 5 ? 0.5 : 0;
         }
       }
@@ -180,18 +205,23 @@ class Engine {
       return c;
     }
 
-    if (s > r.maxP || s < r.minP) return INF;
-    let c = offNatural(lo, hi, s);
+    // The previous note has been released, so the hand only has to open briefly. Broken chords
+    // (arpeggios) need 3-5 semitones between neighbouring fingers, which is far more than a held
+    // chord allows. Stretching is therefore much cheaper here than in the vertical cost.
+    if (s > r.maxP + 2 || s < r.minP) return INF;
+    let c = LEGATO_STRETCH * offNatural(lo, hi, s);
     if (s === 0) c += 1; // changing finger on a repeated key
-    if (s > r.maxC) c += 2 * (s - r.maxC);
+    if (s > r.maxP) c += 3 * (s - r.maxP);
+    // Past the comfortable limit the thumb has to pivot hard (1-3 on an octave): that costs.
+    if (s > r.maxC) c += (lo === 1 ? 2 : LEGATO_STRETCH * 2) * (s - r.maxC);
     else if (s < r.minC) c += 2 * (r.minC - s);
     const w = lo === 1 ? 1 : 2;
-    if (s > r.maxR) c += w * (s - r.maxR);
+    if (s > r.maxR) c += LEGATO_STRETCH * w * (s - r.maxR);
     else if (s < r.minR) c += w * (r.minR - s);
 
     // Thumb or little finger reaching up to a black key next to a white one.
-    if (fb === 1 && b.black && !a.black) c += 2;
-    if (fa === 1 && a.black && !b.black) c += 2;
+    if (fb === 1 && b.black && !a.black) c += 1;
+    if (fa === 1 && a.black && !b.black) c += 1;
     if (fb === 5 && b.black && !a.black) c += 1;
     if (fa === 5 && a.black && !b.black) c += 1;
     return c;
@@ -213,7 +243,11 @@ class Engine {
       return 0.3 + 3 * (1 - ease) + (0.15 + (1 - ease)) * shift;
     }
     const eIoi = ioi <= 250 ? 0 : ioi >= 1200 ? 1 : (ioi - 250) / 950;
-    const ease = Math.max(eGap, 0.35 * eIoi);
+    // A big leap at a moderate or slow tempo (arpeggios, broken chords) is played by moving the
+    // hand, not by contorting the fingers to stay legato.
+    const leap = Math.abs(b.p - a.p);
+    const eLeap = Math.min(1, Math.max(0, (ioi - 180) / 500)) * Math.min(1, Math.max(0, (leap - 4) / 6));
+    const ease = Math.max(eGap, 0.35 * eIoi, 0.85 * eLeap);
     return 2 + 10 * (1 - ease) + (0.15 + 1.35 * (1 - ease)) * shift;
   }
 
@@ -238,7 +272,17 @@ class Engine {
         const b = cur.all[j];
         const l = this.legato(a, pf[i], b, cf[j]);
         const jmp = this.jump(a, pf[i], b, cf[j], cur.t, prev.t, chordal);
-        sum += l < jmp ? l : jmp;
+        let step = l < jmp ? l : jmp;
+        // A small step never calls for a far finger change (5 -> 1 on a neighbouring key, or 4
+        // crossing over the thumb for a tone): a quick figure stays inside one hand position.
+        if (!chordal) {
+          const iv = Math.abs(b.p - a.p);
+          const df = Math.abs(pf[i] - cf[j]);
+          if (iv > 0 && iv <= 3 && df >= 3) step += (df - 2) * (iv <= 2 ? 3.5 : 1.5);
+          // Fingers 2-5 keep their order: going down the keyboard never moves to a higher finger.
+          if (iv > 0 && pf[i] !== 1 && cf[j] !== 1 && (b.p - a.p) * (cf[j] - pf[i]) < 0) step += 6;
+        }
+        sum += step;
         count++;
       }
     }
@@ -408,22 +452,301 @@ class Engine {
     }
 
     // ---- backtrack -------------------------------------------------------------------
+    const choice = new Int32Array(events.length);
     let at = 0;
     const last = cost[cost.length - 1];
     for (let x = 1; x < last.length; x++) if (last[x] < last[at]) at = x;
     for (let i = events.length - 1; i >= 0; i--) {
-      const ev = events[i];
-      const f = ev.cands[at];
-      for (let j = 0; j < ev.all.length; j++) {
-        if (!ev.isNew[j]) continue;
-        for (const s of ev.all[j].src) s.finger = f[j] as Finger;
-      }
+      choice[i] = at;
       at = back[i][at];
       if (at < 0 && i > 0) {
         at = 0;
         const c = cost[i - 1];
         for (let x = 1; x < c.length; x++) if (c[x] < c[at]) at = x;
       }
+    }
+
+    // ---- second-order clean-up and repeated phrases -----------------------------------
+    this.polish(events, choice);
+
+    for (let i = 0; i < events.length; i++) {
+      const ev = events[i];
+      const f = ev.cands[choice[i]];
+      for (let j = 0; j < ev.all.length; j++) {
+        if (!ev.isNew[j]) continue;
+        for (const s of ev.all[j].src) s.finger = f[j] as Finger;
+      }
+    }
+  }
+
+  /**
+   * The Viterbi pass only sees neighbouring notes. A hand sees further:
+   *  1. one finger hopping between different keys with another finger in between (3-1-3-1 on
+   *     A-E-C#-E) is clumsy, a hand would rather use a second finger there;
+   *  2. a few quick notes played without crossing the thumb are played from ONE hand position,
+   *     so all of them together must fit the hand (2-3-4-5 over an octave does not, 1-2-3-5 does);
+   *  3. a key that comes back after one other note (broken octaves, a repeated top note) keeps
+   *     its finger;
+   *  4. the same phrase, played again, should be fingered the same way each time.
+   * Runs of single notes are re-solved exactly with these rules (third-order DP), then
+   * repeated phrases are made consistent.
+   */
+  private polish(events: Ev[], choice: Int32Array) {
+    const n = events.length;
+    const single = events.map((e) => e.all.length === 1 && e.isNew[0] && e.cands.length === 5);
+    const P = new Float64Array(n);
+    const T = new Float64Array(n);
+    const F = new Int8Array(n); // finger of single-note events, 0 otherwise
+    for (let i = 0; i < n; i++) {
+      T[i] = events[i].t;
+      if (single[i]) { P[i] = events[i].all[0].p; F[i] = events[i].cands[choice[i]][0]; }
+    }
+    const fin = (i: number) => events[i].cands[choice[i]][0];
+    const setC = (i: number, x: number) => { choice[i] = x; if (single[i]) F[i] = events[i].cands[x][0]; };
+
+    /** Second-order cost of single note i, given the fingers of notes i-3..i (read from F). */
+    const so2 = (i: number) => {
+      if (i < 0 || i >= n || !single[i]) return 0;
+      const fi = F[i];
+      const pi = P[i];
+      let c = 0;
+      if (i >= 2 && single[i - 1] && single[i - 2] && T[i] - T[i - 2] <= 700) {
+        const j = i - 2;
+        const dp = Math.abs(pi - P[j]);
+        if (F[j] === fi && dp >= 3) c += 1.8 * Math.min(1, (dp - 2) / 2);
+        if (dp === 0 && P[i - 1] !== pi) {
+          // A key struck again after one other note: a pedal note or a broken octave. The hand
+          // stays put, so the finger stays too, and holding still needs no finger agility.
+          const ioi = (T[i] - T[j]) / 2;
+          const quick = Math.min(1, Math.max(0, (500 - ioi) / 300));
+          if (F[j] !== fi) c += 4 * quick;
+          else if (Math.abs(P[i - 1] - pi) >= 3) c -= 0.6 * quick * events[i].vcost[fi - 1];
+        } else if (fi !== 1 && F[j] !== 1 && fi !== F[j] && (pi > P[j]) !== (fi > F[j])) {
+          // Two fingers swap order across one note without the thumb passing (5 on G, then 4 on
+          // G#): the hand shifted for nothing.
+          const ioi = (T[i] - T[j]) / 2;
+          c += 1.5 * Math.min(1, Math.max(0, (500 - ioi) / 300));
+        }
+      }
+      // One hand position: the longest stretch of recent notes whose fingers follow their pitches.
+      let k0 = i;
+      for (let k = i - 1; k >= 0 && k >= i - 3; k--) {
+        if (!single[k] || T[i] - T[k] > 700 || Math.abs(P[k + 1] - P[k]) > 12) break; // a leap moves the hand
+        let ok = true;
+        for (let m = k + 1; m <= i && ok; m++) {
+          if (P[k] === P[m]) ok = F[k] === F[m];
+          else ok = F[k] !== F[m] && (P[k] < P[m]) === (F[k] < F[m]);
+        }
+        if (!ok) break;
+        k0 = k;
+      }
+      if (i - k0 >= 1) {
+        const ioi = (T[i] - T[k0]) / (i - k0);
+        const lambda = 0.8 * Math.min(1, Math.max(0, (450 - ioi) / 300));
+        if (lambda > 0) {
+          for (let k = k0; k < i; k++) {
+            if (P[k] === pi) continue;
+            let seen = false; // each key counts once
+            for (let m = k + 1; m < i && !seen; m++) seen = P[m] === P[k];
+            if (seen) continue;
+            const d = Math.abs(pi - P[k]);
+            const best = d < this.posBest.length ? this.posBest[d] : 0;
+            c += lambda * ((F[k] < fi ? this.position(F[k], fi, pi - P[k]) : this.position(fi, F[k], P[k] - pi)) - best);
+          }
+        }
+      }
+      return c;
+    };
+    const trans = (i: number) =>
+      i <= 0 || i >= n ? 0 : this.transition(events[i - 1], events[i - 1].cands[choice[i - 1]], events[i], events[i].cands[choice[i]]);
+    const local = (i: number, x: number) => {
+      const keep = choice[i];
+      setC(i, x);
+      const c = events[i].vcost[x] + trans(i) + trans(i + 1) + so2(i) + so2(i + 1) + so2(i + 2) + so2(i + 3);
+      setC(i, keep);
+      return c;
+    };
+
+    // ---- exact re-solve of runs of single notes ---------------------------------------
+    // Third-order DP over notes lo..hi (all single). State = fingers of the last three notes;
+    // everything outside the range stays as it is. `pin` fixes some notes (repeated phrases).
+    const S = 216;
+    const solve = (lo: number, hi: number, pin: Int8Array | null) => {
+      const len = hi - lo + 1;
+      if (len < 1) return;
+      const keep = Array.from(choice.subarray(lo, hi + 1));
+      let cur = new Float64Array(S).fill(INF);
+      cur[(lo >= 3 ? F[lo - 3] : 0) * 36 + (lo >= 2 ? F[lo - 2] : 0) * 6 + (lo >= 1 ? F[lo - 1] : 0)] = 0;
+      const back: Int16Array[] = [];
+      const tr = new Float64Array(36);
+      for (let q = 0; q < len; q++) {
+        const i = lo + q;
+        const fixed = pin && pin[i] ? pin[i] : 0;
+        // transition + shape cost by (finger of i-1, finger of i)
+        for (let f1 = q === 0 ? 0 : 1; f1 <= (q === 0 ? 0 : 5); f1++) {
+          if (q > 0) setC(i - 1, f1 - 1);
+          for (let f = 1; f <= 5; f++) { setC(i, f - 1); tr[f1 * 6 + f] = trans(i) + events[i].vcost[f - 1]; }
+        }
+        const next = new Float64Array(S).fill(INF);
+        const bk = new Int16Array(S).fill(-1);
+        for (let s = 0; s < S; s++) {
+          const base = cur[s];
+          if (base >= INF) continue;
+          const f2 = Math.floor(s / 6) % 6;
+          const f1 = s % 6;
+          if (i >= 3) F[i - 3] = Math.floor(s / 36);
+          if (i >= 2) F[i - 2] = f2;
+          if (i >= 1) F[i - 1] = f1;
+          for (let f = fixed || 1; f <= (fixed || 5); f++) {
+            F[i] = f;
+            const v = base + tr[(q === 0 ? 0 : f1) * 6 + f] + so2(i);
+            const ns = f2 * 36 + f1 * 6 + f;
+            if (v < next[ns]) { next[ns] = v; bk[ns] = s; }
+          }
+        }
+        back.push(bk);
+        cur = next;
+      }
+      // leaving the range: the notes after it see the new fingers
+      let best = -1;
+      let bestV = INF;
+      for (let s = 0; s < S; s++) {
+        if (cur[s] >= INF) continue;
+        if (hi >= 2 && hi - 2 >= lo) F[hi - 2] = Math.floor(s / 36);
+        if (hi >= 1 && hi - 1 >= lo) F[hi - 1] = Math.floor(s / 6) % 6;
+        setC(hi, (s % 6) - 1);
+        const v = cur[s] + trans(hi + 1) + so2(hi + 1) + so2(hi + 2) + so2(hi + 3);
+        if (v < bestV) { bestV = v; best = s; }
+      }
+      if (best < 0) { keep.forEach((x, k) => setC(lo + k, x)); return; }
+      for (let q = len - 1, s = best; q >= 0; q--) {
+        setC(lo + q, (s % 6) - 1);
+        s = back[q][s];
+      }
+    };
+    for (let a = 0; a < n; a++) {
+      if (!single[a]) continue;
+      let b = a;
+      while (b + 1 < n && single[b + 1]) b++;
+      if (b > a) solve(a, b, null);
+      a = b;
+    }
+
+    // ---- single-note clean-up next to chords -------------------------------------------
+    for (let sweep = 0; sweep < 4; sweep++) {
+      let changed = false;
+      for (let i = 0; i < n; i++) {
+        if (!single[i]) continue;
+        let best = choice[i];
+        let bestC = local(i, best);
+        for (let x = 0; x < events[i].cands.length; x++) {
+          if (x === choice[i]) continue;
+          const v = local(i, x);
+          if (v < bestC - 1e-6) { bestC = v; best = x; }
+        }
+        if (best !== choice[i]) { setC(i, best); changed = true; }
+      }
+      if (!changed) break;
+    }
+
+    // ---- repeated phrases ------------------------------------------------------------
+    const W = 8;
+    if (n < 2 * W) return;
+    const sigs = new Map<string, number[]>();
+    for (let s = 0; s + W <= n; s++) {
+      let ok = true;
+      let key = '';
+      for (let k = 0; k < W && ok; k++) {
+        if (!single[s + k]) { ok = false; break; }
+        key += events[s + k].all[0].p + (k ? ':' + Math.round((events[s + k].t - events[s + k - 1].t) / 25) : '') + ',';
+      }
+      if (!ok) continue;
+      const list = sigs.get(key);
+      if (list) list.push(s);
+      else sigs.set(key, [s]);
+    }
+    // Cost of the window plus a few notes either side, which are free to adapt to it.
+    const EXT = 3;
+    const rangeCost = (lo: number, hi: number) => {
+      let c = 0;
+      for (let i = lo; i <= hi; i++) c += events[i].vcost[choice[i]];
+      for (let i = lo; i <= Math.min(n - 1, hi + 3); i++) c += so2(i);
+      for (let i = lo; i <= Math.min(n - 1, hi + 1); i++) c += trans(i);
+      return c;
+    };
+    const pinned = new Uint8Array(n); // notes inside a phrase window are never moved by a neighbour
+    const pinF = new Int8Array(n); // their fingers
+    const place = (s: number, sh: number[] | null) => {
+      const lo = Math.max(0, s - EXT);
+      const hi = Math.min(n - 1, s + W - 1 + EXT);
+      if (sh) for (let k = 0; k < W; k++) setC(s + k, sh[k]);
+      for (let k = lo; k <= hi; k++) pinF[k] = pinned[k] ? F[k] : 0;
+      // the free notes around the window are re-solved exactly around the pinned ones
+      for (let i = lo; i <= hi; i++) {
+        if (!single[i]) continue;
+        let j = i;
+        while (j + 1 <= hi && single[j + 1]) j++;
+        let free = false;
+        for (let k = i; k <= j && !free; k++) free = !pinned[k];
+        if (free) solve(i, j, pinF);
+        i = j;
+      }
+      return rangeCost(lo, hi);
+    };
+    const covered = new Uint8Array(n);
+    const agreed = new Uint8Array(n); // windows that now share one fingering
+    const groups = [...sigs.values()].filter((l) => l.length >= 2).sort((a, b) => a[0] - b[0]);
+    for (const list of groups) {
+      const inst: number[] = [];
+      for (const s of list) {
+        if (inst.length >= 400) break;
+        let free = true;
+        for (let k = 0; k < W; k++) if (covered[s + k]) { free = false; break; }
+        if (!free) continue;
+        if (inst.length && s < inst[inst.length - 1] + W) continue;
+        inst.push(s);
+      }
+      if (inst.length < 2) continue;
+      const shapes = new Map<string, number[]>();
+      for (const s of inst) {
+        const sh = Array.from(choice.subarray(s, s + W));
+        shapes.set(sh.join(), sh);
+      }
+      if (shapes.size < 2) { for (const s of inst) for (let k = 0; k < W; k++) covered[s + k] = agreed[s + k] = 1; continue; }
+      pinned.fill(0);
+      for (const s of inst) for (let k = 0; k < W; k++) pinned[s + k] = 1;
+      const span = (s: number): [number, number] => [Math.max(0, s - EXT), Math.min(n - 1, s + W - 1 + EXT)];
+      const save = inst.map((s) => { const [lo, hi] = span(s); return Array.from(choice.subarray(lo, hi + 1)); });
+      const restore = () => inst.forEach((s, idx) => { const [lo] = span(s); save[idx].forEach((v, k) => { setC(lo + k, v); }); });
+      const before = inst.map((s) => { const [lo, hi] = span(s); return rangeCost(lo, hi); });
+      const baseTotal = before.reduce((x, y) => x + y, 0);
+      let bestShape: number[] | null = null;
+      let bestTotal = baseTotal + 2.5 * inst.length; // a little extra cost buys consistency
+      for (const sh of [...shapes.values()].slice(0, 8)) {
+        let total = 0;
+        let worst = 0;
+        inst.forEach((s, idx) => {
+          const c = place(s, sh);
+          total += c;
+          worst = Math.max(worst, c - before[idx]);
+        });
+        if (total < bestTotal && worst <= 6) { bestTotal = total; bestShape = sh; }
+        restore();
+      }
+      if (bestShape) inst.forEach((s) => place(s, bestShape));
+      for (const s of inst) for (let k = 0; k < W; k++) { covered[s + k] = 1; if (bestShape) agreed[s + k] = 1; }
+    }
+    // Finally re-solve every run around the phrases that are now fixed.
+    const lock = new Int8Array(n);
+    for (let i = 0; i < n; i++) if (agreed[i] && single[i]) lock[i] = F[i];
+    for (let a = 0; a < n; a++) {
+      if (!single[a]) continue;
+      let b = a;
+      while (b + 1 < n && single[b + 1]) b++;
+      let free = false;
+      for (let k = a; k <= b && !free; k++) free = !lock[k];
+      if (b > a && free) solve(a, b, lock);
+      a = b;
     }
   }
 

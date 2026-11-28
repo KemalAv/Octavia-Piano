@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ActiveMidiNoteInfo, MidiNotePlaybackItem, DrumPadConfig, ThemeSettings, FreePlayLiveNote } from '../types';
 import { DRUM_KEYBOARD_MAP, DRUM_PADS, BOTTOM_DRUM_PADS } from '../constants';
 import { getDynamicFromVelocity, getVelocityOutlineColor } from '../utils';
+import { computeClosedHatRanges, ClosedHatRange } from '../closedHiHat';
 
 
 interface DrumViewProps {
@@ -25,6 +26,9 @@ interface DrumViewProps {
     showDynamics?: boolean;
     showApproachCircles?: boolean;
     hasBottomDrumKit?: boolean;
+    barLines?: number[];
+    unitsPerBar?: number;
+    unitsPerBeat?: number;
 }
 
 // Binary search helper to find starting note index in O(log N) time
@@ -53,6 +57,9 @@ function findNoteStartIndex<T extends { timeMs: number; durationMs?: number }>(
 export const DrumView: React.FC<DrumViewProps> = React.memo(({
     currentTimeMs,
     playbackData,
+    barLines = [],
+    unitsPerBar = 32,
+    unitsPerBeat = 8,
     liveNotes = [],
     activePlaybackNotes,
     userActiveKeys,
@@ -106,6 +113,10 @@ export const DrumView: React.FC<DrumViewProps> = React.memo(({
 
     const currentTimeMsRef = useRef(currentTimeMs);
     const playbackDataRef = useRef(playbackData);
+    const closedRangesRef = useRef<ClosedHatRange[]>([]);
+    useEffect(() => {
+        closedRangesRef.current = computeClosedHatRanges(playbackData, barLines, unitsPerBar, unitsPerBeat);
+    }, [playbackData, barLines, unitsPerBar, unitsPerBeat]);
     const liveNotesRef = useRef(liveNotes);
     const activePlaybackNotesRef = useRef(activePlaybackNotes);
     const userActiveKeysRef = useRef(userActiveKeys);
@@ -581,6 +592,11 @@ export const DrumView: React.FC<DrumViewProps> = React.memo(({
                     }
                 }
 
+                // Autoplay: the hi-hat foot pad stays lit for the whole closed hi-hat slider.
+                if (!isUserActive && isAutoMode && pad.id === 'hihat_foot' && closedRangesRef.current.some(r => currentMs >= r.start && currentMs <= r.end)) {
+                    isPlaybackActive = true;
+                }
+
                 const isActive = isUserActive || isPlaybackActive;
 
                 ctx.save();
@@ -627,6 +643,50 @@ export const DrumView: React.FC<DrumViewProps> = React.memo(({
                 ctx.restore();
             });
 
+            // Closed hi-hat slider: two rings joined by a short body, like an osu! slider. The head sits on the
+            // hi-hat foot pad, the tail towards the bass pad; how far it reaches depends on how long the
+            // slider lasts (full distance at two beats), so a short slider stays short.
+            const sliderPads = (() => {
+                const foot = currentPads.find(p => p.id === 'hihat_foot');
+                if (!foot) return null;
+                const bass = currentPads.find(p => p.id === 'bass');
+                const fx = centerX + (foot.x * dimensions.width - centerX) * layoutScale;
+                const fy = centerY + (foot.y * dimensions.height - centerY) * layoutScale;
+                const bx = bass ? centerX + (bass.x * dimensions.width - centerX) * layoutScale : fx + padRadius * 4;
+                const by = bass ? centerY + (bass.y * dimensions.height - centerY) * layoutScale : fy;
+                return { fx, fy, bx, by };
+            })();
+            // Closed hi-hat slider: one ring on the hi-hat foot pad (filled band between `inner` and `outer`).
+            const drawSlider = (_range: unknown, outer: number, inner: number, op: number) => {
+                if (!sliderPads) return;
+                const { fx, fy } = sliderPads;
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(fx, fy, outer, 0, Math.PI * 2);
+                ctx.arc(fx, fy, inner, 0, Math.PI * 2, true);
+                ctx.fillStyle = `rgba(255,0,255,${0.4 * op})`;
+                ctx.fill('evenodd');
+                ctx.strokeStyle = `rgba(255,0,255,${op})`;
+                ctx.lineWidth = 4;
+                ctx.beginPath();
+                ctx.arc(fx, fy, outer, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(fx, fy, inner, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.restore();
+            };
+            {
+                const active = sliderPads ? closedRangesRef.current.find(r => currentMs >= r.start && currentMs <= r.end) : undefined;
+                if (active) {
+                    const pr = padRadius;
+                    const holdR = pr * 2;
+                    const shrinkMs = Math.max(1, Math.min(approachDurationMsRef.current, active.end - active.start));
+                    const k = Math.min(1, Math.max(0, (currentMs - (active.end - shrinkMs)) / shrinkMs));
+                    drawSlider(active, holdR + (pr - holdR) * k, pr, 1);
+                }
+            }
+
             if (showApproachCircles) {
                 visibleNotes.forEach(note => {
 
@@ -642,21 +702,6 @@ export const DrumView: React.FC<DrumViewProps> = React.memo(({
 
                     const cx = centerX + (pad.x * dimensions.width - centerX) * layoutScale;
                     const cy = centerY + (pad.y * dimensions.height - centerY) * layoutScale;
-
-                    // Handle hi-hat connection lines (midi 42 - Closed Hi-Hat)
-                    if (note.midi === 42) {
-                        const footPad = currentPads.find(p => p.id === 'hihat_foot');
-                        if (footPad) {
-                            const fx = centerX + (footPad.x * dimensions.width - centerX) * layoutScale;
-                            const fy = centerY + (footPad.y * dimensions.height - centerY) * layoutScale;
-                            ctx.beginPath();
-                            ctx.moveTo(cx, cy);
-                            ctx.lineTo(fx, fy);
-                            ctx.strokeStyle = `rgba(139,92,246,1)`;
-                            ctx.lineWidth = 2;
-                            ctx.stroke();
-                        }
-                    }
 
                     // Scaled size for pads in Drum Typer
                     const baseR = pad.id === 'bass'
@@ -682,6 +727,21 @@ export const DrumView: React.FC<DrumViewProps> = React.memo(({
                 }
 
                 });
+            }
+
+            // The closed hi-hat slider starts with an approach that behaves like every other circle.
+            if (showApproachCircles && sliderPads) {
+                for (const range of closedRangesRef.current) {
+                    const timeUntilHit = range.start - currentMs;
+                    if (timeUntilHit > approachDurationMsRef.current) break;
+                    if (timeUntilHit <= 0) continue;
+                    const progress = 1 - (timeUntilHit / approachDurationMsRef.current);
+                    // Entering: a thin band at the start of the approach (same size as every other approach
+                    // circle, 2x the pad) that thickens inward onto the pad ring.
+                    const outer = padRadius * 2;
+                    const inner = padRadius + (outer * 0.8 - padRadius) * (1 - progress);
+                    drawSlider(range, outer, inner, Math.min(1, progress * 2));
+                }
             }
 
             currentLiveNotes.forEach(note => {

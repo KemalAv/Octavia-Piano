@@ -69,16 +69,17 @@ export const getPianoPlaybackDurationMs = (
 // The scale is measured on the song's own (musical) timeline, so it does not change with playback speed.
 // ---------------------------------------------------------------------------
 /**
- * Scale per strike speed (strikes per second, 1/8-note reference: 60 BPM = 2, 120 = 4, 180 = 6, 240 = 8,
- * 360 = 12). Between the points the scale is interpolated linearly; outside them it stays at the end values.
+ * Scale per strike speed (strikes per second). With 1/16 notes as the reference, BPM = strikes per second x 15:
+ * 30 BPM = 2 -> x1.5, 90 BPM = 6 -> x1.0, 180 BPM = 12 -> x0.875. Between and beyond the points the scale
+ * follows the log-log slope of the nearest segment (see scaleForSpeed). Piano and drum share this curve.
  */
 export const SPEED_CURVE: ReadonlyArray<readonly [number, number]> = [
   [2, 1.5],
-  [4, 1.25],
-  [6, 1.125],
-  [8, 1.0],
+  [6, 1.0],
   [12, 0.875],
 ];
+/** Drum mode uses the same curve as the piano. */
+export const DRUM_SPEED_CURVE: ReadonlyArray<readonly [number, number]> = SPEED_CURVE;
 export const CHORD_MERGE_MS = 50;
 const SPEED_HALF_WINDOW_MS = 2000;
 
@@ -116,8 +117,8 @@ export const SPEED_SCALE_LIMIT_MAX = 2.0;
  * exactly between them, and the curve continues beyond them with the same log-log slope as the nearest
  * segment, so slow playback (e.g. 40%) keeps widening the window and fast playback keeps tightening it.
  */
-export const scaleForSpeed = (speed: number): number => {
-  const c = SPEED_CURVE;
+export const scaleForSpeed = (speed: number, curve: ReadonlyArray<readonly [number, number]> = SPEED_CURVE): number => {
+  const c = curve;
   if (!(speed > 0)) return SPEED_SCALE_LIMIT_MAX;
   const lnS = Math.log(speed);
   let i = 0;
@@ -134,7 +135,10 @@ export const scaleForSpeed = (speed: number): number => {
 };
 
 /** Builds a function timeMs -> window scale for one song's notes. */
-export const createNoteSpeedScaler = (notes: ReadonlyArray<{ timeMs: number }>) => {
+export const createNoteSpeedScaler = (
+  notes: ReadonlyArray<{ timeMs: number }>,
+  curve: ReadonlyArray<readonly [number, number]> = SPEED_CURVE,
+) => {
   const events = buildStrikeEvents(notes);
   const n = events.length;
   // Gap (ms, song time) from a note to the next strike. The last note uses the gap before it.
@@ -150,6 +154,6 @@ export const createNoteSpeedScaler = (notes: ReadonlyArray<{ timeMs: number }>) 
   return (timeMs: number, rate = 1): number => {
     const r = Number.isFinite(rate) && rate > 0 ? rate : 1;
     const gap = Math.max(1, gapAt(timeMs));
-    return scaleForSpeed((1000 / gap) * r);
+    return scaleForSpeed((1000 / gap) * r, curve);
   };
 };

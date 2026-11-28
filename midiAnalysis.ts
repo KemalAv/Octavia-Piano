@@ -186,7 +186,8 @@ function getColumn(midi: number, mode: 'piano' | 'drum'): number {
   if (mode === 'drum') {
     if (midi === 36) return 0; // Bass / Kick (Foot pedal)
     if (midi === 38) return 1; // Snare
-    if (midi === 42 || midi === 44 || midi === 46) return 2; // Hi-Hats
+    if (midi === 44) return 0; // Hi-hat pedal (second foot)
+    if (midi === 42 || midi === 46) return 2; // Hi-Hats
     if (midi === 41 || midi === 45 || midi === 48) return 3; // Toms
     if (midi === 49 || midi === 51) return 4; // Cymbals (Crash / Ride)
     return 1; // Snare fallback
@@ -228,6 +229,8 @@ interface DrumState {
   lhEmaDt: number;
   rhEmaDt: number;
   footEmaDt: number;
+  hhFootTime: number; // hi-hat pedal (the second foot)
+  hhFootEmaDt: number;
   stickEmaDt: number;
   noteTimes: Map<number, number>; // col -> timeMs
 }
@@ -323,6 +326,8 @@ export function analyzeMidi(
     lhEmaDt: 250,
     rhEmaDt: 250,
     footEmaDt: 350,
+    hhFootTime: -9999,
+    hhFootEmaDt: 350,
     stickEmaDt: 200,
     noteTimes: new Map(),
   };
@@ -713,7 +718,8 @@ export function analyzeMidi(
       const footNotes = event.notes.filter(n => n.column === 0);
       const stickNotes = event.notes.filter(n => n.column > 0);
 
-      const footOverloaded = footNotes.length > 1;
+      // Two feet: bass drum and hi-hat pedal, so up to two pedal hits at once. Two sticks.
+      const footOverloaded = footNotes.length > 2;
       const sticksOverloaded = stickNotes.length > 2;
       const overloadPenalty = (sticksOverloaded ? 30.0 : 0) + (footOverloaded ? 12.0 : 0);
 
@@ -754,15 +760,21 @@ export function analyzeMidi(
       const fatigueMult = 1.0 + drumFatigue * 0.005 * weights.drum_stamina_fatigue;
 
       for (const fn of footNotes) {
-        const dtF = t - drumState.footTime;
-        if (drumState.footTime > 0 && dtF > 0) {
+        const hh = fn.midi === 44;
+        const lastFootT = hh ? drumState.hhFootTime : drumState.footTime;
+        const lastFootEma = hh ? drumState.hhFootEmaDt : drumState.footEmaDt;
+        const dtF = t - lastFootT;
+        let footEma = lastFootEma;
+        if (lastFootT > 0 && dtF > 0) {
           const clampedDt = Math.max(8, Math.min(1500, dtF));
-          drumState.footEmaDt =
-            clampedDt < drumState.footEmaDt
-              ? 0.35 * clampedDt + 0.65 * drumState.footEmaDt
-              : 0.6 * clampedDt + 0.4 * drumState.footEmaDt;
+          footEma =
+            clampedDt < lastFootEma
+              ? 0.35 * clampedDt + 0.65 * lastFootEma
+              : 0.6 * clampedDt + 0.4 * lastFootEma;
+          if (hh) drumState.hhFootEmaDt = footEma;
+          else drumState.footEmaDt = footEma;
         }
-        const effDtF = Math.max(8, drumState.footEmaDt);
+        const effDtF = Math.max(8, footEma);
         const footStrain =
           effDtF <= 1200
             ? Math.pow(150 / effDtF, 1.35) * 1.6 * weights.drum_foot_kick
@@ -770,7 +782,8 @@ export function analyzeMidi(
 
         const totalStrain = (footStrain + polyrhythmStrain + overloadPenalty) * fatigueMult;
         noteStrains.set(fn.id, totalStrain);
-        drumState.footTime = t;
+        if (hh) drumState.hhFootTime = t;
+        else drumState.footTime = t;
         drumState.noteTimes.set(fn.column, t);
         drumFatigue += Math.min(8, totalStrain * 0.04);
       }

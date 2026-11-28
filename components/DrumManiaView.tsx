@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ActiveMidiNoteInfo, MidiNotePlaybackItem, DrumPadConfig, ThemeSettings, FreePlayLiveNote } from '../types';
 import { DRUM_KEYBOARD_MAP, DRUM_PADS } from '../constants';
 import { getDynamicFromVelocity, getVelocityOutlineColor } from '../utils';
+import { computeClosedHatRanges, ClosedHatRange } from '../closedHiHat';
 
 
 // Order from user request
@@ -30,6 +31,8 @@ interface DrumManiaViewProps {
     themeSettings: ThemeSettings;
     zoomScale?: number;
     barLines?: number[];
+    unitsPerBar?: number;
+    unitsPerBeat?: number;
     pixelsPerMillisecond?: number;
     isPaused?: boolean;
     onSeek?: (timeMs: number) => void;
@@ -77,6 +80,8 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = React.memo(({
     themeSettings,
     zoomScale = 1,
     barLines = [],
+    unitsPerBar = 32,
+    unitsPerBeat = 8,
     pixelsPerMillisecond = 0.5,
     isPaused = false,
     onSeek,
@@ -119,6 +124,10 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = React.memo(({
 
     const currentTimeMsRef = useRef(currentTimeMs);
     const playbackDataRef = useRef(playbackData);
+    const closedRangesRef = useRef<ClosedHatRange[]>([]);
+    useEffect(() => {
+        closedRangesRef.current = computeClosedHatRanges(playbackData, barLines, unitsPerBar, unitsPerBeat);
+    }, [playbackData, barLines, unitsPerBar, unitsPerBeat]);
     const liveNotesRef = useRef(liveNotes);
     const activePlaybackNotesRef = useRef(activePlaybackNotes);
     const userActiveKeysRef = useRef(userActiveKeys);
@@ -535,6 +544,11 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = React.memo(({
                     }
                 }
 
+                // Autoplay: the hi-hat foot pad stays lit for the whole closed hi-hat slider.
+                if (!isUserActive && isAutoMode && pad.id === 'hihat_foot' && closedRangesRef.current.some(r => currentMs >= r.start && currentMs <= r.end)) {
+                    isPlaybackActive = true;
+                }
+
                 const isActive = isUserActive || isPlaybackActive;
 
                 ctx.beginPath();
@@ -609,27 +623,45 @@ export const DrumManiaView: React.FC<DrumManiaViewProps> = React.memo(({
                 visibleNotes.push(note);
             }
 
-            // Handle hi-hat connection lines (midi 42 - Closed Hi-Hat)
-            const closedHiHatNotes = visibleNotes.filter(n => n.midi === 42);
-            closedHiHatNotes.forEach(note => {
-                const timeUntilHit = note.timeMs - currentMs;
-                const hihatPad = pads.find(p => p.id === 'hihat');
+            const closedRanges = closedRangesRef.current;
+            // Closed hi-hat state: the foot lane holds a slider from the first closed hit until a bar
+            // passes without one, or a lone hi-hat foot note releases it.
+            {
                 const footPad = pads.find(p => p.id === 'hihat_foot');
-
-                if (hihatPad && footPad) {
-                    const y = hitLineY - (timeUntilHit * pixelsPerMillisecond) - hihatPad.r * 0.6;
-
-                    if (y >= -50 && y <= dimensions.height + 50) {
+                if (footPad) {
+                    const r = footPad.r * 0.6;
+                    for (const range of closedRanges) {
+                        const yHead = hitLineY - (range.start - currentMs) * pixelsPerMillisecond - r;
+                        const yEnd = hitLineY - (range.end - currentMs) * pixelsPerMillisecond - r;
+                        if (yHead < -50 || yEnd > dimensions.height + 50) {
+                            if (yEnd > dimensions.height + 50) continue;
+                            if (yHead < -50 && yEnd < -50) continue;
+                        }
+                        // The head is at the bottom (it is hit first); the body reaches up to the end of the slider.
+                        const top = Math.min(yEnd, yHead) - r;
+                        const bodyBottom = yHead + r;
+                        ctx.save();
                         ctx.beginPath();
-                        // Draw connector line between hi-hat lane and hi-hat foot lane
-                        ctx.moveTo(footPad.cx, y);
-                        ctx.lineTo(hihatPad.cx, y);
-                        ctx.strokeStyle = `rgba(139,92,246,1.0)`; // Opacity 1.0 as requested
-                        ctx.lineWidth = 2;
+                        ctx.roundRect(footPad.cx - r, top, r * 2, bodyBottom - top, r);
+                        ctx.fillStyle = 'rgba(168,0,168,0.55)';
+                        ctx.fill();
+                        ctx.strokeStyle = 'rgb(255,0,255)';
+                        ctx.lineWidth = 3;
                         ctx.stroke();
+                        ctx.restore();
+                        // round note at the start of the slider
+                        if (yHead >= -50 && yHead <= dimensions.height + 50) {
+                            ctx.beginPath();
+                            ctx.arc(footPad.cx, yHead, r, 0, Math.PI * 2);
+                            ctx.fillStyle = 'rgba(34,211,238,1)';
+                            ctx.fill();
+                            ctx.strokeStyle = 'rgb(255,0,255)';
+                            ctx.lineWidth = 3;
+                            ctx.stroke();
+                        }
                     }
                 }
-            });
+            }
 
             visibleNotes.forEach(note => {
                 const pad = pads.find(p => p.midiNotes.includes(note.midi));

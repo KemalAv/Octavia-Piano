@@ -56,8 +56,10 @@ const VIRTUAL_DRUM_SYSTEM_HEIGHT = 190;
 const SYSTEM_SPACING = 16;
 const DRUM_SYSTEM_SPACING = 38;
 const SYSTEM_PADDING_X = 20;
-// VexFlow's own minimum spacing is generous; real engraving packs fast runs tighter than this.
-const NOTE_SQUEEZE = 0.72;
+// A measure is never given less room than VexFlow's own minimum spacing: formatting into less width
+// pushes the last notes through the barline / past the end of the system.
+const NOTE_SQUEEZE = 0.5; // never go below this share of VexFlow's reported minimum
+const MIN_PX_PER_EVENT = 30; // room one note (or chord) really needs, even in a fast run
 const PEDAL_LINE_Y = TOP_STAVE_Y + VERTICAL_STAFF_SPACING + 92; // under the bass staff
 const SHEET_TOP_PADDING_PX = 72; // Clearance to prevent sheet music bars from being covered by top HUD bar
 
@@ -521,6 +523,7 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
   // into the layout so such a measure gets enough room instead of running past the end of the staff.
   const measuredMinWidthRef = useRef<WeakMap<VexFlowMeasureData, number>>(new WeakMap());
   const needsRelayoutRef = useRef(false);
+  const relayoutPassesRef = useRef(0);
   const [relayoutTick, setRelayoutTick] = useState(0);
   const [notePositions, setNotePositions] = useState<Map<string, NotePosInfo>>(new Map());
   const [notePositionsByNoteId, setNotePositionsByNoteId] = useState<Map<string, NotePosInfo[]>>(new Map());
@@ -587,7 +590,7 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
     const getItemRequiredWidth = (item: { measure: VexFlowMeasureData }) => {
       // Fast notes need less room each: a 32nd needs about half of a quarter's space, so a run of
       // them packs tightly instead of stretching the bar across the whole line.
-      const speedWeight = (d: string) => (d === '128' || d === '64' ? 0.45 : d === '32' ? 0.55 : d === '16' ? 0.75 : 1);
+      const speedWeight = (d: string) => (d === '128' || d === '64' ? 0.55 : d === '32' ? 0.7 : d === '16' ? 0.92 : 1);
       const handWeight = (arr: VexFlowNoteInfo[]) => arr.reduce((sum, n) => sum + speedWeight(n.vexNote?.duration || '4'), 0);
       const nCount = Math.max(handWeight(item.measure.rightHand), handWeight(item.measure.leftHand), 1);
 
@@ -620,7 +623,11 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
         (item.measure.isKeySigChange ? 30 : 0) +
         (item.measure.isTimeSigChange ? 30 : 0);
       const measured = measuredMinWidthRef.current.get(item.measure) || 0;
-      return Math.max(80, nCount * perNoteWidth + accidentalExtra + 24, measured);
+      // Once VexFlow has reported the real minimum width of a measure, that is what the layout uses, so
+      // every measure of a line is stretched by the same factor: even spacing, nothing squeezed or
+      // pushed past the barline. Until then (first pass) the estimate stands in.
+      if (measured > 0) return Math.max(60, measured);
+      return Math.max(80, nCount * perNoteWidth + accidentalExtra + 24);
     };
 
     for (let i = 0; i < allMeasures.length; i++) {
@@ -654,7 +661,11 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
           firstMeasure.isTimeSigChange
         );
         const totalBaseWidth = currentSystemMeasures.reduce((sum, item) => sum + getItemRequiredWidth(item), 0);
-        const availableForContent = Math.max(100, virtualSystemWidth - lineExtraLead);
+        // A single measure can need more room than one line has (very dense runs). Then the line is laid
+        // out wider and drawn smaller so everything still fits exactly instead of running off the edge.
+        const sysVW = Math.max(virtualSystemWidth, totalBaseWidth + lineExtraLead);
+        const sysScale = effectiveScale * Math.max(0.2, virtualSystemWidth / sysVW);
+        const availableForContent = Math.max(100, sysVW - lineExtraLead);
 
         let curX = 0;
         const measureLayouts: SystemMeasureLayout[] = currentSystemMeasures.map((item, mIdx) => {
@@ -681,7 +692,7 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
         // Snap last measure to right margin
         if (measureLayouts.length > 0) {
           const actualTotalX = measureLayouts[measureLayouts.length - 1].x + measureLayouts[measureLayouts.length - 1].width;
-          const diff = virtualSystemWidth - actualTotalX;
+          const diff = sysVW - actualTotalX;
           measureLayouts[measureLayouts.length - 1].width += diff;
         }
 
@@ -691,12 +702,12 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
           measures: measureLayouts,
           width: systemDisplayWidth,
           height: systemDisplayHeight,
-          virtualWidth: virtualSystemWidth,
+          virtualWidth: sysVW,
           virtualHeight: virtualSystemHeight,
           startY: SHEET_TOP_PADDING_PX + currentSystemIndex * (systemDisplayHeight + effectiveSpacing),
           firstMeasureIndex: firstIdx,
           lastMeasureIndex: lastIdx,
-          scale: effectiveScale,
+          scale: sysScale,
         });
 
         currentSystemIndex++;
@@ -720,7 +731,9 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
         firstMeasure.isTimeSigChange
       );
       const totalBaseWidth = currentSystemMeasures.reduce((sum, item) => sum + getItemRequiredWidth(item), 0);
-      const availableForContent = Math.max(100, virtualSystemWidth - lineExtraLead);
+      const sysVW = Math.max(virtualSystemWidth, totalBaseWidth + lineExtraLead);
+      const sysScale = effectiveScale * Math.max(0.2, virtualSystemWidth / sysVW);
+      const availableForContent = Math.max(100, sysVW - lineExtraLead);
 
       let curX = 0;
       const shouldJustify = currentSystemMeasures.length >= 3;
@@ -748,7 +761,7 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
 
       if (shouldJustify && measureLayouts.length > 0) {
         const actualTotalX = measureLayouts[measureLayouts.length - 1].x + measureLayouts[measureLayouts.length - 1].width;
-        const diff = virtualSystemWidth - actualTotalX;
+        const diff = sysVW - actualTotalX;
         measureLayouts[measureLayouts.length - 1].width += diff;
       }
 
@@ -758,12 +771,12 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
         measures: measureLayouts,
         width: systemDisplayWidth,
         height: systemDisplayHeight,
-        virtualWidth: virtualSystemWidth,
+        virtualWidth: sysVW,
         virtualHeight: virtualSystemHeight,
         startY: SHEET_TOP_PADDING_PX + currentSystemIndex * (systemDisplayHeight + effectiveSpacing),
         firstMeasureIndex: firstIdx,
         lastMeasureIndex: lastIdx,
-        scale: effectiveScale,
+        scale: sysScale,
       });
     }
 
@@ -1451,11 +1464,14 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
           const formatter = new Formatter().joinVoices(voices);
           try {
             const minW = formatter.preCalculateMinTotalWidth(voices);
-            const squeezedMin = minW * NOTE_SQUEEZE;
-            if (Number.isFinite(minW) && squeezedMin > availableVoiceWidth + 1) {
-              const need = squeezedMin + 14 + 10;
+            if (Number.isFinite(minW)) {
+              // VexFlow's minimum is accurate for sparse bars but grows faster than the notes do in long
+              // 32nd / 64th runs. So: the minimum, trimmed towards what the notes physically need
+              // (events x MIN_PX_PER_EVENT) but never below half of it.
+              const events = Math.max(rightTickables.length, leftTickables.length, 1);
+              const need = Math.min(minW, Math.max(minW * NOTE_SQUEEZE, events * MIN_PX_PER_EVENT)) + 14 + 10;
               const prev = measuredMinWidthRef.current.get(measure) || 0;
-              if (need > prev + 2) {
+              if (Math.abs(need - prev) > 2) {
                 measuredMinWidthRef.current.set(measure, need);
                 needsRelayoutRef.current = true;
               }
@@ -1792,7 +1808,14 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
     setRenderedLayoutId(prev => prev + 1);
     if (needsRelayoutRef.current) {
       needsRelayoutRef.current = false;
-      setRelayoutTick(t => t + 1);
+      // Measuring settles after a pass or two; the cap only protects against a measure whose
+      // reported width keeps shifting between passes.
+      if (relayoutPassesRef.current < 4) {
+        relayoutPassesRef.current += 1;
+        setRelayoutTick(t => t + 1);
+      }
+    } else {
+      relayoutPassesRef.current = 0;
     }
   }, [vexFlowData, systems, width, height, instrumentMode, resolutionScale, noteLabelType, notationColor, sheetMusicZoom]);
 

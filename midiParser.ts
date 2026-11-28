@@ -9,6 +9,7 @@ import {
     PIANO_KEYS_CONFIG,
     DRUM_MIDI_TO_NAME_MAP,
 } from './constants';
+import { refineTrackHands } from './handAssignment';
 
 export const INITIAL_PLAYBACK_DELAY_MS = 2000;
 export const DEFAULT_TIME_SIGNATURE: TimeSignatureInfo = { numerator: 4, denominator: 4 };
@@ -240,7 +241,9 @@ export async function parseMidiData(
             if (noteName) {
                 let hand: 'left' | 'right';
                 if (tracksWithNotes.length === 2 && noteTrackIndex !== -1) {
-                    hand = (noteTrackIndex === 0 && note.midi >= 48) ? 'right' : (noteTrackIndex === 0 ? 'left' : 'left');
+                    // First track = right hand, second = left hand; refineTrackHands() only moves
+                    // notes a hand physically cannot reach.
+                    hand = noteTrackIndex === 0 ? 'right' : 'left';
                 } else {
                     hand = note.midi < HAND_SPLIT_MIDI_NOTE ? 'left' : 'right';
                 }
@@ -281,6 +284,7 @@ export async function parseMidiData(
 
     const rawNotes = Array.from(uniqueNotesMap.values());
     rawNotes.sort((a, b) => a.timeMs - b.timeMs);
+    if (tracksWithNotes.length === 2) refineTrackHands(rawNotes);
 
     if (midi.header.keySignatures.length === 0) {
         keySignature = guessKeySignature(rawNotes);
@@ -339,6 +343,7 @@ export async function parseMusicXmlData(
     let keySignature: string = DEFAULT_KEY_SIGNATURE;
     let initialTempoBpm: number = DEFAULT_MUSICXML_TEMPO_BPM;
     const rawNotes: Omit<MidiNotePlaybackItem, 'noteId'>[] = [];
+    const nativeHandNotes = new Set<Omit<MidiNotePlaybackItem, 'noteId'>>(); // hand set by the file itself
     const tempoEvents: TempoEvent[] = [];
     const signatureEventsFromXml: SignatureEvent[] = [];
     const barLineTimeSet = new Set<number>();
@@ -486,13 +491,14 @@ export async function parseMusicXmlData(
                             if (noteName) {
                                 let hand: 'left' | 'right';
                                 if (parts.length > 1) {
-                                    hand = (partIndex === 0 && midiNote >= 48) ? 'right' : (partIndex === 0 ? 'left' : 'left');
+                                    hand = partIndex === 0 ? 'right' : 'left';
                                 } else {
                                     hand = midiNote < HAND_SPLIT_MIDI_NOTE ? 'left' : 'right';
                                 }
 
                                 const nativeHand = element.getAttribute('data-octavia-hand');
-                                if (nativeHand === 'left' || nativeHand === 'right') hand = nativeHand;
+                                const hasNativeHand = nativeHand === 'left' || nativeHand === 'right';
+                                if (hasNativeHand) hand = nativeHand;
                                 const nativeFinger = Number(element.getAttribute('data-octavia-finger'));
                                 let handPositions: number[] | undefined;
                                 try {
@@ -514,6 +520,7 @@ export async function parseMusicXmlData(
                                     durationTicks: durationTicks
                                 };
                                 rawNotes.push(newNote);
+                                if (hasNativeHand) nativeHandNotes.add(newNote);
                                 if (isInsideRepeat) {
                                     notesInRepeatSection.push(newNote);
                                 }
@@ -580,6 +587,7 @@ export async function parseMusicXmlData(
     }
     const deduplicatedNotes = Array.from(uniqueNotesMap.values());
     deduplicatedNotes.sort((a, b) => a.timeMs - b.timeMs || (a.ticks ?? 0) - (b.ticks ?? 0));
+    if (parts.length > 1) refineTrackHands(deduplicatedNotes, (n) => nativeHandNotes.has(n));
 
     // Check if any key events were explicitly parsed
     const hasKeyEvents = signatureEventsFromXml.some(e => e.key !== undefined);
