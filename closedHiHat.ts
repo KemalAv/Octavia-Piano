@@ -13,7 +13,7 @@ const OTHER_HAT_NOTES = new Set([46, 54, 56, 58, 69, 70, 71, 72, 73, 74, 75, 76,
 /**
  * While the hi-hat is closed the pedal is down. A closed hi-hat (midi 42) starts that state and it
  * is held across the following closed hits until a regular hi-hat or a hi-hat foot note (midi 44)
- * comes along, or a whole beat passes without a closed hit. It ends a 32nd note after the last
+ * comes along, or a whole beat passes without a closed hit. It starts a 32nd note before the first closed hit and ends a 32nd note after the last
  * closed hit so there is a short pause before it lets go, never later than the note that releases it.
  */
 export function computeClosedHatRanges(notes: MidiNotePlaybackItem[], barLines: number[] = [], unitsPerBar = 32, unitsPerBeat = 8): ClosedHatRange[] {
@@ -57,7 +57,12 @@ export function computeClosedHatRanges(notes: MidiNotePlaybackItem[], barLines: 
   let last = closed[0];
   const close = () => {
     const tail = barLen(last) / unitsN; // 1/32 note
-    out.push({ start, end: Math.min(last + tail, breakAfter(last)), beatMs: (barLen(last) * Math.max(1, unitsPerBeat)) / unitsN });
+    // A 32nd note of lead-in as well, but never back over the note that opened the hat or the
+    // previous slider.
+    let lead = start - tail;
+    for (let k = breakers.length - 1; k >= 0; k--) if (breakers[k] < start) { lead = Math.max(lead, breakers[k]); break; }
+    if (out.length) lead = Math.max(lead, out[out.length - 1].end);
+    out.push({ start: Math.min(start, lead), end: Math.min(last + tail, breakAfter(last)), beatMs: (barLen(last) * Math.max(1, unitsPerBeat)) / unitsN });
   };
   for (let i = 1; i < closed.length; i++) {
     const t = closed[i];

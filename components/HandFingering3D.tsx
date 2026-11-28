@@ -692,7 +692,13 @@ export function HandFingering3D({
             const dev = (target.rel[i] - natural[i]) * calm;
             target.rel[i] = natural[i] + Math.max(-2.0 * kw, Math.min(2.0 * kw, dev));
           }
-          s.rel[i] += (target.rel[i] - s.rel[i]) * k;
+          if (target.down[i]) {
+            // A finger that is down stays exactly over its key, even while the palm spring is
+            // still catching up: the world position of the tip is pinned, not smoothed.
+            s.rel[i] = target.rel[i] + (side === 'right' ? 1 : -1) * (target.palm - s.palm);
+          } else {
+            s.rel[i] += (target.rel[i] - s.rel[i]) * k;
+          }
           s.tipY[i] += (target.tipY[i] - s.tipY[i]) * (k * 1.2);
           s.down[i] = target.down[i];
           s.near[i] = target.near[i];
@@ -708,6 +714,7 @@ export function HandFingering3D({
               const d = s.rel[i] - s.rel[i - 1];
               if (d >= sepGap) continue;
               const need = sepGap - d;
+              if (s.down[i] && s.down[i - 1]) continue;
               if (s.down[i] && !s.down[i - 1]) s.rel[i - 1] -= need;
               else if (s.down[i - 1] && !s.down[i]) s.rel[i] += need;
               else {
@@ -723,7 +730,8 @@ export function HandFingering3D({
             const d = s.rel[1] - s.rel[0];
             if (d > -0.5 * kw && d < tg) {
               const need = tg - d;
-              if (s.down[1] && !s.down[0]) s.rel[0] -= need;
+              if (s.down[0] && s.down[1]) { /* both on keys: keep them there */ }
+              else if (s.down[1] && !s.down[0]) s.rel[0] -= need;
               else if (s.down[0] && !s.down[1]) s.rel[1] += need;
               else {
                 s.rel[0] -= need / 2;
@@ -732,7 +740,7 @@ export function HandFingering3D({
             }
           }
           // Only rule left: the thumb never wanders far from the index finger.
-          s.rel[0] = Math.min(s.rel[1] + 1.4 * kw, Math.max(s.rel[1] - 3.2 * kw, s.rel[0]));
+          if (!s.down[0]) s.rel[0] = Math.min(s.rel[1] + 1.4 * kw, Math.max(s.rel[1] - 3.2 * kw, s.rel[0]));
         }
         return s;
       });

@@ -630,6 +630,49 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
       return Math.max(80, nCount * perNoteWidth + accidentalExtra + 24);
     };
 
+    // ---- Line breaking -------------------------------------------------------------------------
+    // Every measure has the width its rhythm needs. Lines are chosen so that all of them are
+    // stretched by about the same comfortable factor (a little roomier than the bare minimum), instead
+    // of packing each line as tight as it goes. Only when a line cannot reach the minimum does it
+    // get fewer bars (or, for one very dense bar, a smaller drawing) rather than being squeezed.
+    const TARGET_STRETCH = 1.3;
+    const nMeasures = allMeasures.length;
+    const reqW = allMeasures.map(mm => getItemRequiredWidth({ measure: mm }));
+    const prefix: number[] = [0];
+    for (let k = 0; k < nMeasures; k++) prefix.push(prefix[k] + reqW[k]);
+    const leadAt = (a: number) => {
+      const mm = allMeasures[a];
+      return getSystemLeadWidth(
+        a === 0,
+        mm.activeKeySignature || vexFlowData.keySignature,
+        mm.effectiveTimeSignature || vexFlowData.timeSignature,
+        mm.isTimeSigChange
+      );
+    };
+    const bestCost: number[] = new Array(nMeasures + 1).fill(Infinity);
+    const bestFrom: number[] = new Array(nMeasures + 1).fill(0);
+    bestCost[0] = 0;
+    for (let j = 1; j <= nMeasures; j++) {
+      for (let a = Math.max(0, j - maxMeasuresPerLine); a < j; a++) {
+        if (bestCost[a] === Infinity) continue;
+        const count = j - a;
+        const base = prefix[j] - prefix[a];
+        const avail = Math.max(100, virtualSystemWidth - leadAt(a));
+        const stretch = avail / base;
+        if (count > 1 && stretch < 1) continue; // never squeeze several bars into one line
+        let cost: number;
+        if (count === 1 && stretch < 1) cost = 10 + (1 / stretch - 1) * 10; // one huge bar: drawn smaller
+        else if (stretch < TARGET_STRETCH) cost = 3 * (TARGET_STRETCH - stretch) ** 2; // too tight
+        else cost = j === nMeasures ? 0 : (stretch - TARGET_STRETCH) ** 2; // too loose (last line is free)
+        const total = bestCost[a] + cost;
+        if (total < bestCost[j]) { bestCost[j] = total; bestFrom[j] = a; }
+      }
+    }
+    const breakBefore = new Set<number>();
+    if (bestCost[nMeasures] !== Infinity) {
+      for (let j = nMeasures; j > 0; j = bestFrom[j]) if (bestFrom[j] > 0) breakBefore.add(bestFrom[j]);
+    }
+
     for (let i = 0; i < allMeasures.length; i++) {
       const m = allMeasures[i];
       const isFirstInSystem = currentSystemMeasures.length === 0;
@@ -642,12 +685,12 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
       const extraLead = isFirstInSystem ? lead : 0;
       const mReqWidth = getItemRequiredWidth({ measure: m }) + extraLead;
 
-      const wouldExceed = accumulatedWidth + mReqWidth > virtualSystemWidth;
+      const wouldExceed = breakBefore.size > 0 ? breakBefore.has(i) : accumulatedWidth + mReqWidth > virtualSystemWidth;
       const hasAtLeastOneMeasure = currentSystemMeasures.length >= 1;
 
       // Measures wrap naturally when required width exceeds the line width (wouldExceed).
       // maxMeasuresPerLine provides a clean responsive upper bound based on screen width/zoom.
-      const isMaxMeasures = currentSystemMeasures.length >= maxMeasuresPerLine;
+      const isMaxMeasures = breakBefore.size > 0 ? false : currentSystemMeasures.length >= maxMeasuresPerLine;
 
       // Wrap immediately to the next row if adding this measure would exceed the line width
       if ((wouldExceed && hasAtLeastOneMeasure) || isMaxMeasures) {
@@ -1575,8 +1618,24 @@ export const VexFlowSheetMusicView: React.FC<Props> = React.memo(({
 
               const w = 12;
               const h = 10;
-              const x = headCenterX - w / 2;
-              const y = headCenterY - h / 2;
+              let x = headCenterX - w / 2;
+              let y = headCenterY - h / 2;
+              // Prefer where the notehead was really drawn, so the highlight can never drift off it
+              // (stem/beam/chord displacement, re-spacing after the first pass, ...).
+              try {
+                const el = typeof (nh as any).getSVGElement === 'function' ? (nh as any).getSVGElement() as SVGGraphicsElement | undefined : undefined;
+                if (el && typeof el.getBBox === 'function') {
+                  const bb = el.getBBox();
+                  if (bb && bb.width > 2 && bb.height > 2 && bb.width < 30 && bb.height < 30) {
+                    const bx = bb.x + bb.width / 2;
+                    const by = bb.y + bb.height / 2;
+                    if (Math.abs(bx - headCenterX) < 25 && Math.abs(by - headCenterY) < 40) {
+                      x = bx - w / 2;
+                      y = by - h / 2;
+                    }
+                  }
+                }
+              } catch { /* fall back to the computed position */ }
 
               const posData: NotePosInfo = {
                 x,
